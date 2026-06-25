@@ -1,0 +1,71 @@
+name: phase1-ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: backhaul_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres -d backhaul_ci"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    strategy:
+      matrix:
+        node-version: ["20", "22"]
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/backhaul_ci
+      CLERK_SECRET_KEY: test-secret
+      CLERK_PUBLISHABLE_KEY: test-publishable
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: test-publishable
+      AWS_REGION: us-east-1
+      S3_BUCKET_NAME: backhaul-ratecons
+      SQS_PARSE_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/123456789012/backhaul-parse
+      SQS_RECOMPUTE_QUEUE_URL: https://sqs.us-east-1.amazonaws.com/123456789012/backhaul-recompute
+      ANTHROPIC_API_KEY: test-anthropic
+      PHASE1_REGION_CODE: NE
+      RUN_DB_INTEGRATION: "true"
+      REQUIRE_KPI_PARITY_ZERO_DIFF: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: "npm"
+      - run: npm ci --workspaces
+      - run: npx prisma format --schema prisma/schema.prisma
+      - run: npx prisma validate --schema prisma/schema.prisma
+      - run: npx prisma generate --schema prisma/schema.prisma
+      - run: npx prisma migrate deploy --schema prisma/schema.prisma
+      - run: npx prisma migrate status --schema prisma/schema.prisma
+      - name: Assert integration test activation
+        run: |
+          if [ "$RUN_DB_INTEGRATION" != "true" ]; then
+            echo "::error::RUN_DB_INTEGRATION is not set — integration tests would be silently skipped"
+            exit 1
+          fi
+      - run: npm run typecheck --workspace apps/web
+      - run: npm run lint --workspace apps/web
+      - name: Semantic gate suite
+        run: npm run test:semantic --workspace apps/web
+      - name: Critical path gate suite
+        run: npm run test:critical-path --workspace apps/web
+      - name: Worker reliability gate suite
+        run: npm run test:worker-gates --workspace apps/web
+      - run: npm run test --workspace apps/web
+      - run: npm run build --workspace apps/web
+      # Keep CI blocking only for critical runtime advisories; current Next.js high
+      # advisories require a major upgrade path that is handled separately.
+      - run: npm audit --omit=dev --audit-level=critical

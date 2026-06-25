@@ -1,0 +1,57 @@
+:root {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+@import "./board.css";
+
+body {
+  margin: 0;
+  font-family: var(--db-font-ui);
+  background: var(--db-bg);
+  color: var(--db-fg);
+  text-rendering: optimizeLegibility;
+}
+
+html {
+  font-size: 100%;
+  -webkit-text-size-adjust: 100%;
+  scrollbar-gutter: stable;
+}
+
+* {
+  scrollbar-color: var(--db-scrollbar-thumb) var(--db-scrollbar-track);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--db-scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--db-scrollbar-thumb);
+  border-radius: 999px;
+  border: 2px solid var(--db-scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--db-scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: var(--db-scrollbar-track);
+}
+
+main:not(.db-main):not(.db-dash-main):not(.db-review-main) {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}

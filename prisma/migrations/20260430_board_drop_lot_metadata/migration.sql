@@ -1,0 +1,6 @@
+-- AlterTable
+ALTER TABLE "DropLot"
+ADD COLUMN "sortOrder" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN "dailyCapacity" INTEGER,
+ADD COLUMN "slipSeat" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN "dropHookRequired" BOOLEAN NOT NULL DEFAULT false;

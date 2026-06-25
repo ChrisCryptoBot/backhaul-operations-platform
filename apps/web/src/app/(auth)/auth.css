@@ -1,0 +1,313 @@
+.db-auth-root {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(260px, 420px) minmax(360px, 1fr);
+  background: var(--db-bg);
+}
+
+.db-auth-panel {
+  position: relative;
+  overflow: hidden;
+  background: var(--db-bg-rail);
+  border-right: 1px solid var(--db-border);
+  padding: 48px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 40px;
+}
+
+/* Subtle accent wash + grid lines behind the brand panel (decorative). */
+.db-auth-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(120% 80% at 0% 0%, color-mix(in srgb, var(--db-accent) 10%, transparent), transparent 60%),
+    repeating-linear-gradient(90deg, transparent 0 39px, var(--db-border-soft) 39px 40px);
+  opacity: 0.5;
+}
+
+.db-auth-brand {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.db-auth-mark {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--db-r-md);
+  color: var(--db-accent-fg);
+  background: var(--db-accent-bg);
+  border: 1px solid color-mix(in srgb, var(--db-accent) 35%, transparent);
+}
+
+.db-auth-wm {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.db-auth-wm-name {
+  font-size: var(--db-text-lg);
+  font-weight: var(--db-weight-bold);
+  letter-spacing: 0.04em;
+}
+
+.db-auth-wm-sub {
+  font-size: var(--db-text-2xs);
+  color: var(--db-accent-fg);
+  letter-spacing: 0.1em;
+}
+
+.db-auth-pitch {
+  position: relative;
+  z-index: 1;
+  max-width: 380px;
+}
+
+.db-auth-pitch h2 {
+  margin: 0 0 12px;
+  font-size: var(--db-text-2xl);
+  font-weight: var(--db-weight-semi);
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.db-auth-pitch p {
+  margin: 0;
+  font-size: var(--db-text-md);
+  color: var(--db-fg-mid);
+  line-height: 1.55;
+}
+
+.db-auth-stats {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 28px;
+}
+
+.db-auth-stat-v {
+  font-size: var(--db-text-2xl);
+  font-weight: var(--db-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.db-auth-stat-l {
+  margin-top: 2px;
+  font-size: var(--db-text-2xs);
+  color: var(--db-fg-dim);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.db-auth-main {
+  display: grid;
+  place-items: center;
+  padding: 32px;
+}
+
+.db-auth-main-inner {
+  width: min(460px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.db-auth-card {
+  border: 1px solid var(--db-border);
+  background: var(--db-bg-elev-1);
+  border-radius: 12px;
+  padding: 22px;
+}
+
+.db-auth-title {
+  margin: 0 0 8px;
+  font-size: 24px;
+  letter-spacing: 0.01em;
+}
+
+.db-auth-copy {
+  margin: 0;
+  color: var(--db-fg-mid);
+  font-size: 13px;
+}
+
+.db-auth-hint {
+  margin-top: 12px;
+  color: var(--db-fg-dim);
+  font-size: 11px;
+}
+
+.db-auth-error {
+  border-color: var(--db-neg);
+  background: var(--db-neg-bg);
+}
+
+.db-auth-banner {
+  border: 1px solid var(--db-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.db-auth-banner.warn {
+  color: var(--db-warn);
+  background: var(--db-warn-bg);
+}
+
+.db-auth-banner.error {
+  color: var(--db-neg);
+  background: var(--db-neg-bg);
+}
+
+.db-dev-helper {
+  border: 1px solid var(--db-border);
+  border-radius: 8px;
+  background: var(--db-bg-elev-2);
+  padding: 10px;
+}
+
+.db-dev-helper-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.db-dev-helper-msg {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--db-fg-mid);
+}
+
+/* Dev-only skip-to-board shortcut (hidden in production). */
+.db-signin-dev {
+  border: 1px dashed color-mix(in srgb, var(--db-accent) 45%, var(--db-border));
+  border-radius: var(--db-r-lg);
+  background: var(--db-bg-elev-1);
+  padding: 12px;
+}
+
+.db-signin-dev-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.db-signin-dev-hint {
+  margin: 8px 0 0;
+  text-align: center;
+  font-size: var(--db-text-2xs);
+  color: var(--db-fg-dim);
+}
+
+/* Clerk-free dev login mockup (shown when auth is bypassed). */
+.db-signin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid var(--db-border);
+  background: var(--db-bg-card);
+  border-radius: var(--db-r-lg);
+  padding: 24px;
+}
+
+.db-signin-h {
+  margin: 0;
+  font-size: var(--db-text-xl);
+  font-weight: var(--db-weight-semi);
+}
+
+.db-signin-sub {
+  margin: 4px 0 0;
+  font-size: var(--db-text-sm);
+  color: var(--db-fg-mid);
+}
+
+.db-signin-submit,
+.db-signin-sso {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+
+.db-signin-or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--db-text-2xs);
+  color: var(--db-fg-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.db-signin-or::before,
+.db-signin-or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--db-border);
+}
+
+.db-signin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--db-text-xs);
+  color: var(--db-fg-mid);
+}
+
+.db-signin-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.db-signin-link {
+  color: var(--db-accent-fg);
+  cursor: pointer;
+}
+
+.db-signin-legal {
+  margin: 4px 0 0;
+  text-align: center;
+  font-size: var(--db-text-3xs);
+  color: var(--db-fg-dim);
+}
+
+.db-clerk-root {
+  width: 100%;
+}
+
+.db-clerk-card {
+  box-shadow: none;
+  border: 1px solid var(--db-border);
+  border-radius: 10px;
+  background: var(--db-bg-elev-2);
+}
+
+@media (max-width: 920px) {
+  .db-auth-root {
+    grid-template-columns: 1fr;
+  }
+
+  .db-auth-panel {
+    border-right: 0;
+    border-bottom: 1px solid var(--db-border);
+    padding: 24px 20px;
+  }
+
+  .db-auth-main {
+    padding: 20px;
+  }
+}

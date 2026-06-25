@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "buildCommand": "prisma migrate deploy --schema=./prisma/schema.prisma && npm run build",
+  "outputDirectory": "apps/web/.next",
+  "crons": [
+    {
+      "path": "/api/internal/queue/drain",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}

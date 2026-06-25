@@ -1,0 +1,47 @@
+{
+  "name": "@backhaul/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "build:assert-no-dev-helper": "node scripts/assert-no-dev-helper-in-build.mjs",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:semantic": "vitest run tests/domain tests/contracts tests/policy-matrix.contract.test.ts tests/snapshots.regression.test.ts",
+    "test:critical-path": "vitest run tests/api-rate-confirmations.test.ts tests/api-review.test.ts tests/api-kpi.test.ts tests/page-board.test.ts",
+    "test:worker-gates": "vitest run tests/worker-reliability-gates.test.ts tests/queue-consumer.test.ts tests/ingestion-parse-failure.test.ts",
+    "test:watch": "vitest",
+    "test:visual": "playwright test -c playwright.visual.config.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.104.2",
+    "@aws-sdk/client-s3": "^3.1071.0",
+    "@aws-sdk/client-sqs": "^3.787.0",
+    "@clerk/nextjs": "^6.21.0",
+    "@prisma/client": "^6.7.0",
+    "next": "^14.2.29",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^3.8.1",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/jest-axe": "^3.5.9",
+    "@types/react": "^18.3.20",
+    "@types/react-dom": "^18.3.7",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^14.2.29",
+    "jest-axe": "^10.0.0",
+    "jsdom": "^25.0.1",
+    "prisma": "^6.7.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.2"
+  }
+}

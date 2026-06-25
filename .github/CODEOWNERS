@@ -1,0 +1,7 @@
+# Semantic domain reviewers (placeholder ownership map)
+/prisma/schema.prisma @platform-backend
+/apps/web/src/domain/ingestion/ @ingestion-owner
+/apps/web/src/domain/kpi/ @analytics-owner
+/apps/web/src/domain/policy/ @security-owner
+/apps/web/src/lib/scoped-query.ts @security-owner
+/docs/traceability/ @platform-backend

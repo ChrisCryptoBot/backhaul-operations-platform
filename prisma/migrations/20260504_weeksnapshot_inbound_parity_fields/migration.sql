@@ -1,0 +1,4 @@
+ALTER TABLE "WeekSnapshot"
+ADD COLUMN "inboundRevenue" DECIMAL(12,4) NOT NULL DEFAULT 0,
+ADD COLUMN "inboundLoadedMiles" DECIMAL(12,4) NOT NULL DEFAULT 0,
+ADD COLUMN "mileMaxMissingInbound" BOOLEAN NOT NULL DEFAULT true;

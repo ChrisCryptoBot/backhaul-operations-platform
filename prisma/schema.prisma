@@ -1,0 +1,527 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  COORDINATOR
+  REGIONAL_MANAGER
+  CORPORATE_OPS
+  ADMIN
+}
+
+enum FuelSurchargeSource {
+  manual_tuesday
+  manual_override
+}
+
+enum ParseState {
+  UPLOADED
+  QUEUED
+  EXTRACTED
+  FAILED_INVALID
+  FAILED_TIMEOUT
+  FAILED_SCHEMA
+  FAILED_LOW_CONFIDENCE
+}
+
+enum DuplicateSignal {
+  EXACT_DUPLICATE
+  SOFT_DUPLICATE_WARNING
+}
+
+enum ReviewDecision {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum BrokerOnboardingStatus {
+  PENDING
+  APPROVED
+  BLOCKED
+}
+
+enum LoadStatus {
+  BOOKED
+  DISPATCHED
+  PICKED_UP
+  DELIVERED
+  POD_RECEIVED
+  COMPLETED
+  CANCELED
+  FAILED
+}
+
+enum TaskDoneStatus {
+  NOT_DONE
+  DONE
+}
+
+enum DeliveryExceptionState {
+  NONE
+  WORK_IN_REQUESTED
+  RESCHEDULED
+}
+
+enum LineHaulPricingModel {
+  FLAT
+  FLAT_PLUS_FUEL
+  OTHER
+}
+
+enum RuleSeverity {
+  INFO
+  WARN
+  ACTION_REQUIRED
+}
+
+enum AttentionSeverity {
+  INFO
+  WARN
+  URGENT
+}
+
+enum PuDelStatusPreset {
+  ETA_TO_PU_DEL
+  LOADED_SET_TO_DEL
+  LATE
+  DONE
+  OTHER
+}
+
+enum DriverType {
+  SHUTTLE
+  PTP
+  LTL
+}
+
+enum EquipmentType {
+  BOX_TRUCK
+  FLATBED_OR_STEPDECK
+  VAN_48
+  VAN_53
+  OTHER
+}
+
+enum EquipmentAccessory {
+  STRAPS
+  TARPS
+  CHAINS
+  BARS
+  NONE
+  OTHER
+}
+
+enum PodStatusWorkflow {
+  NOT_REQUESTED
+  REQUESTED
+  UPLOADED
+  SENT_TO_BROKER
+  NEEDS_ATTENTION
+}
+
+enum LoadLegType {
+  SHUTTLE
+  PTP
+  DELIVERY
+}
+
+enum ApptType {
+  FIRM_APPT
+  OPEN_WINDOW
+  FCFS
+}
+
+model Region {
+  id        String   @id @default(cuid())
+  code      String   @unique @db.VarChar(4)
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  distributionCenters DistributionCenter[]
+  dropLots            DropLot[]
+  lanes               Lane[]
+  brokers             Broker[]
+  rateConfirmations   RateConfirmation[]
+  loads               Load[]
+  weekSnapshots       WeekSnapshot[]
+  fuelSurchargeIndex  FuelSurchargeIndex[]
+  operationalRules    OperationalRule[]
+  userRegionRoles     UserRegionRole[]
+  config              RegionConfig?
+}
+
+model DistributionCenter {
+  id        String    @id @default(cuid())
+  regionId  String
+  name      String
+  city      String
+  state     String
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  region Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
+}
+
+model DropLot {
+  id               String   @id @default(cuid())
+  regionId         String
+  name             String
+  code             String?  @db.VarChar(12)
+  note             String?
+  city             String
+  state            String
+  sortOrder        Int       @default(0)
+  dailyCapacity    Int?
+  slipSeat         Boolean   @default(false)
+  dropHookRequired Boolean   @default(false)
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  region Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  loads  Load[]
+}
+
+model Lane {
+  id               String    @id @default(cuid())
+  regionId         String
+  originCity       String
+  originState      String
+  destinationCity  String
+  destinationState String
+  targetRate       Decimal   @db.Decimal(12, 4)
+  deletedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  region Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
+
+  @@unique([regionId, originCity, originState, destinationCity, destinationState])
+}
+
+model Broker {
+  id                String                 @id @default(cuid())
+  regionId          String
+  name              String
+  onboardingStatus  BrokerOnboardingStatus @default(PENDING)
+  fscDefaultApplies Boolean                @default(true)
+  deletedAt         DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  region     Region      @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  brokerReps BrokerRep[]
+  loads      Load[]
+}
+
+model BrokerRep {
+  id        String    @id @default(cuid())
+  brokerId  String
+  name      String
+  email     String?
+  phone     String?
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  broker Broker @relation(fields: [brokerId], references: [id], onDelete: Restrict)
+}
+
+model RateConfirmation {
+  id               String     @id @default(cuid())
+  regionId         String
+  weekIso          String
+  sourceFileUrl    String
+  sourceFileHash   String     @unique
+  idempotencyKey   String?    @unique
+  parseState       ParseState
+  reviewDecision   ReviewDecision @default(APPROVED)
+  reviewedAt       DateTime?
+  reviewedById     String?
+  reviewReason     String?
+  parseConfidence  Decimal?   @db.Decimal(5, 4)
+  contractVersion String?    @db.VarChar(16)
+  duplicateSignal DuplicateSignal?
+  intakeDriverType DriverType?
+  extractedPayload Json?
+  deletedAt        DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  region Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  load   Load?
+
+  @@index([regionId, weekIso])
+}
+
+model Load {
+  id                   String     @id @default(cuid())
+  regionId             String
+  weekIso              String
+  pickupDate           DateTime
+  status               LoadStatus @default(BOOKED)
+  createdById          String
+  dropLotId            String?
+  rateConfirmationId   String?    @unique
+  brokerId             String?
+  bookingDate          DateTime?
+  routeId              String?
+  loadNumber           String?
+  pickupNumber         String?
+  pickupNumbers        String[]   @default([])
+  threePlRefNumber     String?
+  eventCode            String?
+  mgStatus             String?
+  tmwStatus            String?
+  mgStatusTask         TaskDoneStatus @default(NOT_DONE)
+  tmwStatusTask        TaskDoneStatus @default(NOT_DONE)
+  scaleBeforeTask      TaskDoneStatus @default(NOT_DONE)
+  scaleAfterTask       TaskDoneStatus @default(NOT_DONE)
+  bolMatchTask         TaskDoneStatus @default(NOT_DONE)
+  pickupEtaAdvised     TaskDoneStatus @default(NOT_DONE)
+  pickupArrivalAdvised TaskDoneStatus @default(NOT_DONE)
+  deliveryEtaAdvised   TaskDoneStatus @default(NOT_DONE)
+  deliveryArrivalAdvised TaskDoneStatus @default(NOT_DONE)
+  deliveryExceptionState DeliveryExceptionState @default(NONE)
+  rescheduleDriverConfirmed TaskDoneStatus @default(NOT_DONE)
+  puStatusPreset       PuDelStatusPreset @default(OTHER)
+  puStatusCustom       String?
+  delStatusPreset      PuDelStatusPreset @default(OTHER)
+  delStatusCustom      String?
+  attentionSeverity    AttentionSeverity @default(INFO)
+  attentionNote        String?
+  coordinatorNotes     String?
+  driverType           DriverType?
+  pickupDriverAssigned String?
+  tractorTrailer1      String?
+  tractorTrailer2      String?
+  commodity            String?
+  equipmentNeeds       String?
+  equipmentType        EquipmentType?
+  equipmentAccessory   EquipmentAccessory?
+  equipmentOtherText   String?
+  lumperFeeAmount      Decimal?   @db.Decimal(12, 4)
+  shipperName          String?
+  pickupCity           String?
+  pickupState          String?
+  pickupWindow         String?
+  pickupApptType       ApptType?
+  pickupWindowStart    DateTime?
+  pickupWindowEnd      DateTime?
+  pickupTimeZone       String?
+  deliveryDriver       String?
+  receiverName         String?
+  deliveryCity         String?
+  deliveryState        String?
+  deliveryWindow       String?
+  deliveryApptType     ApptType?
+  deliveryWindowStart  DateTime?
+  deliveryWindowEnd    DateTime?
+  deliveryTimeZone     String?
+  deliveryDate         DateTime?
+  podStatus            PodStatusWorkflow?
+  lineHaulRate         Decimal    @db.Decimal(12, 4)
+  loadedMiles          Decimal    @db.Decimal(12, 4)
+  puDeadheadMiles      Decimal    @db.Decimal(12, 4)
+  delDeadheadMiles     Decimal    @db.Decimal(12, 4)
+  fscApplies           Boolean
+  fscRateUsed          Decimal?   @db.Decimal(12, 4)
+  fscAmount            Decimal    @default(0) @db.Decimal(12, 4)
+  lineHaulPricingModel LineHaulPricingModel @default(FLAT)
+  isTONU               Boolean    @default(false)
+  tonuAmount           Decimal    @default(0) @db.Decimal(12, 4)
+  allInRevenue         Decimal    @default(0) @db.Decimal(12, 4)
+  totalTripMiles       Decimal?   @db.Decimal(12, 4)
+  negotiableMiles      Decimal?   @db.Decimal(12, 4)
+  loadedRpm            Decimal?   @db.Decimal(12, 4)
+  emptyMilePct         Decimal?   @db.Decimal(8, 4)
+  deletedAt            DateTime?
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  region           Region            @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  createdBy        User              @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  dropLot          DropLot?          @relation(fields: [dropLotId], references: [id], onDelete: SetNull)
+  rateConfirmation RateConfirmation? @relation(fields: [rateConfirmationId], references: [id], onDelete: SetNull)
+  broker           Broker?           @relation(fields: [brokerId], references: [id], onDelete: SetNull)
+  legs             LoadLeg[]
+
+  @@index([regionId, weekIso])
+  @@index([bookingDate])
+  @@index([regionId, dropLotId, bookingDate])
+}
+
+model LoadLeg {
+  id          String      @id @default(cuid())
+  loadId      String
+  legIndex    Int
+  legType     LoadLegType
+  driverName  String?
+  startCity   String?
+  startState  String?
+  endCity     String?
+  endState    String?
+  legMiles    Decimal?    @db.Decimal(12, 4)
+  notes       String?
+  etaAt       DateTime?
+  arrivalAt   DateTime?
+  // Trailer custody: the trailer # carried on this leg, and a confirmation that
+  // the next driver hooked the correct trailer at the handoff into this leg.
+  trailer             String?
+  trailerHookConfirmed TaskDoneStatus @default(NOT_DONE)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  load Load @relation(fields: [loadId], references: [id], onDelete: Cascade)
+
+  @@index([loadId, legIndex])
+}
+
+model WeekSnapshot {
+  id                    String    @id @default(cuid())
+  regionId              String
+  weekIso               String
+  loadCount             Int       @default(0)
+  lineHaulRevenue       Decimal   @default(0) @db.Decimal(12, 4)
+  totalAllInRevenue     Decimal   @default(0) @db.Decimal(12, 4)
+  totalTonuAmount       Decimal   @default(0) @db.Decimal(12, 4)
+  fuelSurchargeAmount   Decimal   @default(0) @db.Decimal(12, 4)
+  totalLoadedMiles      Decimal   @default(0) @db.Decimal(12, 4)
+  totalPickupDeadhead   Decimal   @default(0) @db.Decimal(12, 4)
+  totalDeliveryDeadhead Decimal   @default(0) @db.Decimal(12, 4)
+  totalEmptyMiles       Decimal   @default(0) @db.Decimal(12, 4)
+  totalTripMiles        Decimal   @default(0) @db.Decimal(12, 4)
+  inboundRevenue        Decimal   @default(0) @db.Decimal(12, 4)
+  inboundLoadedMiles    Decimal   @default(0) @db.Decimal(12, 4)
+  emptyMilePct          Decimal?  @db.Decimal(8, 4)
+  mileMaxMissingInbound Boolean   @default(true)
+  mileMaxRpm            Decimal?  @db.Decimal(12, 4)
+  laneIssueNotes        Json?
+  computedAt            DateTime  @default(now())
+  lockedAt              DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  region Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
+
+  @@unique([regionId, weekIso])
+}
+
+model FuelSurchargeIndex {
+  id              String              @id @default(cuid())
+  regionId        String
+  weekIso         String
+  value           Decimal             @db.Decimal(12, 4)
+  source          FuelSurchargeSource
+  effectiveAt     DateTime
+  updatedByUserId String
+  updateReason    String
+  updatedAt       DateTime            @updatedAt
+  createdAt       DateTime            @default(now())
+
+  region        Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  updatedByUser User   @relation(fields: [updatedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([regionId, weekIso, source])
+  @@index([regionId, weekIso, effectiveAt(sort: Desc)])
+}
+
+model OperationalRule {
+  id        String       @id @default(cuid())
+  regionId  String
+  code      String
+  severity  RuleSeverity
+  statement String
+  metadata  Json?
+  deletedAt DateTime?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  region Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
+
+  @@unique([regionId, code])
+}
+
+model User {
+  id              String               @id
+  email           String               @unique
+  name            String?
+  deletedAt       DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  userRegionRoles UserRegionRole[]
+  loadsCreated    Load[]
+  fscUpdates      FuelSurchargeIndex[]
+}
+
+model UserRegionRole {
+  id        String   @id @default(cuid())
+  userId    String
+  regionId  String
+  role      Role
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  region Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, regionId])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  entityType  String
+  entityId    String
+  action      String
+  actorId     String
+  timestamp   DateTime @default(now())
+  reason      String?
+  beforeValue Json?
+  afterValue  Json?
+
+  @@index([entityType, entityId, timestamp])
+  @@index([timestamp])
+}
+
+// Singleton row (id == "default") holding the active LLM provider configuration.
+// The API key is stored AES-256-GCM encrypted in `apiKeyCipher`; `apiKeyLast4` is
+// kept only for masked display. The raw key is never persisted in plaintext.
+model LlmProviderConfig {
+  id           String   @id @default("default")
+  provider     String
+  model        String
+  // Model used by the conversational copilot (tool-use); defaults to a stronger
+  // model than the parser when unset. Same provider/key as `model`.
+  copilotModel String?
+  apiKeyCipher String?
+  apiKeyLast4  String?
+  isActive     Boolean  @default(true)
+  updatedById  String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+// Per-region board tunables (e.g. Empty% color thresholds). Editable on the Settings
+// page and via the copilot. Singleton per region (regionId unique).
+model RegionConfig {
+  id            String   @id @default(cuid())
+  regionId      String   @unique
+  emptyPctAmber Decimal  @default(15) @db.Decimal(5, 2)
+  emptyPctRed   Decimal  @default(25) @db.Decimal(5, 2)
+  emptyPctAlert Decimal  @default(6.5) @db.Decimal(5, 2)
+  updatedById   String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  region Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
+
+  @@index([regionId])
+}

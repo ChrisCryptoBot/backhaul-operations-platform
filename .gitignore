@@ -1,0 +1,23 @@
+node_modules/
+dist/
+*.tsbuildinfo
+.next/
+package-lock.json
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+**/!.env.example
+
+# Secrets and local scratch / test artifacts — never commit
+replace-secrets.txt
+**/replace-secrets.txt
+.tmp/
+**/.tmp/
+test-results/
+**/test-results/
+
+# Design drops are working artifacts (zips + extracted assets), not committed
+docs/design/incoming/*
+!docs/design/incoming/README.md

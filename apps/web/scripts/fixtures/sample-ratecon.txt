@@ -1,0 +1,18 @@
+RATE CONFIRMATION
+
+Broker: Summit Transport LLC
+Load number: LD-104821
+Pickup number: PU-104821
+
+Pickup date: 2026-06-25
+Shipper: Acme Foods LLC
+Origin: Pittsburgh, PA
+
+Receiver: BigBox DC Northeast
+Destination: Carlisle, PA
+
+Line haul rate: $2400.00
+Loaded miles: 520
+
+Equipment: 53' dry van
+Notes: Drop-hook at BigBox DC. Slip-seat relay at CDC.

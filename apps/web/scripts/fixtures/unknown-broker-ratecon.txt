@@ -1,0 +1,17 @@
+RATE CONFIRMATION
+
+Broker: Nonexistent Freight Brokers XYZ
+Load number: LD-999001
+Pickup number: PU-999001
+
+Pickup date: 2026-06-26
+Shipper: Test Shipper Co
+Origin: Buffalo, NY
+
+Receiver: Test Receiver DC
+Destination: Allentown, PA
+
+Line haul rate: $1850.00
+Loaded miles: 295
+
+Notes: Broker name intentionally does not exist in the brokers table.

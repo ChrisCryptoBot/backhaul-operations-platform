@@ -1,0 +1,57 @@
+{
+  "extends": [
+    "next/core-web-vitals"
+  ],
+  "overrides": [
+    {
+      "files": [
+        "src/server/**/*.ts"
+      ],
+      "rules": {
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "CallExpression[callee.name='parseFloat']",
+            "message": "Use Decimal parsing for numeric inputs."
+          },
+          {
+            "selector": "CallExpression[callee.name='Number']",
+            "message": "Use Decimal parsing for numeric inputs."
+          },
+          {
+            "selector": "UnaryExpression[operator='+']",
+            "message": "Avoid unary numeric coercion in KPI code paths."
+          }
+        ],
+        "no-restricted-properties": [
+          "error",
+          {
+            "object": "Math",
+            "property": "round",
+            "message": "Use Decimal rounding for KPI formulas."
+          },
+          {
+            "object": "Math",
+            "property": "floor",
+            "message": "Use Decimal rounding for KPI formulas."
+          },
+          {
+            "object": "Math",
+            "property": "ceil",
+            "message": "Use Decimal rounding for KPI formulas."
+          },
+          {
+            "object": "Math",
+            "property": "abs",
+            "message": "Use Decimal operations for KPI formulas."
+          },
+          {
+            "object": "Math",
+            "property": "trunc",
+            "message": "Use Decimal operations for KPI formulas."
+          }
+        ]
+      }
+    }
+  ]
+}
