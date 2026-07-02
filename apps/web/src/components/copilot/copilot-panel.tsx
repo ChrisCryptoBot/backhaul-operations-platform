@@ -298,8 +298,14 @@ function CopParseBanner({ confidence }: { confidence: number | null }) {
 }
 
 export function CopilotPanel({ regionId, date, onChanged, attention, selectedLoadId = null, onSelectLoad }: CopilotPanelProps) {
-  const attentionRollups = attention ?? [];
-  const attentionCount = attentionRollups.length;
+  // Board mode: the board hands us its live rollups + drawer selection. Off-board
+  // (propless mount): we fetch the same rollups from the deterministic attention
+  // endpoint and route a click to the board deep-link instead of a local drawer.
+  const boardMode = Boolean(onSelectLoad);
+  const [fetchedAttention, setFetchedAttention] = React.useState<{ rollups: LoadAlertRollup[]; date: string } | null>(null);
+  const attentionFetchedRef = React.useRef(false);
+  const feedRollups = boardMode ? attention ?? [] : fetchedAttention?.rollups ?? [];
+  const attentionCount = feedRollups.length;
   // After a copilot change, refresh so server-rendered data updates. The board passes
   // its own soft reload; elsewhere we fall back to a full reload (only ever called from
   // an action handler, never during render — keeps the component router-context-free).
@@ -349,6 +355,48 @@ export function CopilotPanel({ regionId, date, onChanged, attention, selectedLoa
       bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }
   }, [turns, pending, actions, error, intakeStage, briefLines]);
+
+  // Off-board: pull the attention rollups the first time the panel is expanded
+  // (deterministic, no LLM) so the feed appears on every screen — without firing
+  // a board query on pages where the copilot is never opened.
+  React.useEffect(() => {
+    if (boardMode || collapsed || attentionFetchedRef.current) return;
+    attentionFetchedRef.current = true;
+    void (async () => {
+      try {
+        const response = await fetch("/api/copilot", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ attention: true, regionId, date })
+        });
+        if (!response.ok) return;
+        const data = (await response.json().catch(() => null)) as { rollups?: LoadAlertRollup[]; date?: string } | null;
+        if (data && Array.isArray(data.rollups)) {
+          setFetchedAttention({ rollups: data.rollups, date: data.date ?? date ?? "" });
+        }
+      } catch {
+        /* attention feed is best-effort; never breaks the panel */
+      }
+    })();
+  }, [boardMode, collapsed, regionId, date]);
+
+  // Feed click: board mode opens the drawer; off-board navigates to the load on the board.
+  const handleSelectLoad = React.useCallback(
+    (loadId: string) => {
+      if (onSelectLoad) {
+        onSelectLoad(loadId);
+        return;
+      }
+      if (typeof window === "undefined") return;
+      const params = new URLSearchParams();
+      const targetDate = fetchedAttention?.date || date;
+      if (targetDate) params.set("date", targetDate);
+      if (regionId) params.set("regionId", regionId);
+      params.set("loadId", loadId);
+      window.location.href = `/?${params.toString()}`;
+    },
+    [onSelectLoad, fetchedAttention, date, regionId]
+  );
 
   const stageFrom = (data: IntakeResponse): IntakeStage => ({
     prompt: data.prompt ?? "",
@@ -644,9 +692,8 @@ export function CopilotPanel({ regionId, date, onChanged, attention, selectedLoa
       </header>
 
       <div className="db-cop-body" ref={bodyRef}>
-        {onSelectLoad ? (
-          <AttentionFeed rollups={attentionRollups} selectedLoadId={selectedLoadId} onSelect={onSelectLoad} onFix={handleFix} />
-        ) : null}
+        <AttentionFeed rollups={feedRollups} selectedLoadId={selectedLoadId} onSelect={handleSelectLoad} onFix={handleFix} />
+
         {briefLines.length ? <CopBrief lines={briefLines} /> : null}
         {turns.length === 0 && !briefLines.length && !intakeStage ? (
           <p className="db-cop-empty">

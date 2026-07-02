@@ -10,6 +10,9 @@ import { todayIsoInTimeZone, isIsoDay } from "@/lib/board-date";
 import { weekIsoFromPickup } from "@/lib/week";
 import { computeContentHash, finalizeUpload } from "@/server/ingestion";
 import { persistUploadedPdf } from "@/server/upload-storage";
+import { getBoardResponse } from "@/server/board";
+import { mapBoardResponseToView } from "@/lib/ui/board-mappers";
+import { collectBoardAlertRollups } from "@/lib/ui/load-alerts";
 import type { Role } from "@/lib/rbac";
 import type Anthropic from "@anthropic-ai/sdk";
 import { CopilotNotConfiguredError, executeConfirmedAction, runCopilotBrief, runCopilotTurn } from "@/server/copilot/agent";
@@ -42,6 +45,15 @@ const confirmSchema = z.object({
 
 const briefSchema = z.object({
   brief: z.literal(true),
+  regionId: z.string().min(1).optional(),
+  date: z.string().optional()
+});
+
+// Deterministic (no-LLM) attention feed for the copilot on non-board pages: the
+// same rollup derivation the board runs client-side, computed server-side so the
+// feed appears everywhere without shipping board data or spending AI credits.
+const attentionSchema = z.object({
+  attention: z.literal(true),
   regionId: z.string().min(1).optional(),
   date: z.string().optional()
 });
@@ -201,6 +213,20 @@ export async function POST(request: Request) {
       if (ctx instanceof NextResponse) return ctx;
       const result = await ingestRateConfirmation(ctx, payload.ingest);
       return NextResponse.json(result, { status: "error" in result ? 409 : 200 });
+    }
+
+    if (body && typeof body === "object" && "attention" in body) {
+      const payload = attentionSchema.parse(body);
+      const ctx = await resolveContext(payload.regionId, payload.date);
+      if (ctx instanceof NextResponse) return ctx;
+      const boardResponse = await getBoardResponse({ regionId: ctx.regionId, date: ctx.boardDate });
+      const view = mapBoardResponseToView(boardResponse);
+      const rollups = collectBoardAlertRollups(view, {
+        emptyPctAmber: view.config.emptyPctAmber,
+        emptyPctRed: view.config.emptyPctRed,
+        now: Date.now()
+      });
+      return NextResponse.json({ rollups, date: ctx.boardDate }, { status: 200 });
     }
 
     if (body && typeof body === "object" && "brief" in body) {

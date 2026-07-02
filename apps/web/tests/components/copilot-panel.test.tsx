@@ -139,3 +139,43 @@ describe("CopilotPanel fix-with-copilot flow", () => {
     expect(await screen.findAllByText("update_load_fields")).toHaveLength(1);
   });
 });
+
+describe("CopilotPanel off-board (global) attention", () => {
+  test("fetches attention on expand and renders the same feed without board props", async () => {
+    // Off-board mount: no attention/onSelectLoad props. Start expanded so the
+    // off-board fetch fires (it's gated on expand, like the auto-brief).
+    window.localStorage.setItem("db-copilot-collapsed", "false");
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse((init?.body as string) ?? "{}");
+      if (body.attention) {
+        return new Response(JSON.stringify({ rollups: [FIXABLE], date: "2026-06-21" }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ ok: true, reply: "" }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<CopilotPanel />);
+    const feed = await screen.findByRole("region", { name: "Needs attention" });
+    expect(within(feed).getByText("REF-9")).toBeInTheDocument();
+
+    // It pulled the rollups via the deterministic attention endpoint.
+    const attentionCalls = fetchMock.mock.calls.filter((c) => {
+      try {
+        return JSON.parse((c[1] as RequestInit).body as string).attention === true;
+      } catch {
+        return false;
+      }
+    });
+    expect(attentionCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("does not fetch attention while collapsed", async () => {
+    window.localStorage.setItem("db-copilot-collapsed", "true");
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ rollups: [] }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<CopilotPanel />);
+    // Collapsed rail mounts without firing any request.
+    await screen.findByRole("complementary", { name: "Operations copilot" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
