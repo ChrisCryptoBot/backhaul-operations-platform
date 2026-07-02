@@ -356,3 +356,25 @@ export function GripIcon({ size = 16, className }: IconProps) {
     </svg>
   );
 }
+
+// Append to apps/web/src/components/icons/index.tsx
+
+/** Driver roster (person silhouette). */
+export function DriverIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...baseProps(size, className)}>
+      <circle cx="8" cy="5.1" r="2.6" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M2.9 13.6a5.1 5.1 0 0 1 10.2 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Direct customers — recurring freight parcel. */
+export function BoxIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...baseProps(size, className)}>
+      <path d="M8 1.9 13.4 4.7v6.6L8 14.1 2.6 11.3V4.7L8 1.9Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+      <path d="M2.6 4.7 8 7.4l5.4-2.7M8 7.4v6.7" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  );
+}

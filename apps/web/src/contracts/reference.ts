@@ -185,3 +185,145 @@ export const dropLotMutationSchema = z.discriminatedUnion("action", [
 ]);
 
 export type DropLotMutation = z.infer<typeof dropLotMutationSchema>;
+
+// ---------------------------------------------------------------------------
+// Drivers (Phase 1 — Daily Booking Plan foundation)
+// Append to apps/web/src/contracts/reference.ts
+// ---------------------------------------------------------------------------
+
+export const driverAttributeSchema = z.enum([
+  "LTL_CERT",
+  "SLEEPER",
+  "TURNS_ONLY",
+  "DEDICATED",
+  "REGIONAL",
+  "FLEX",
+  "SHUTTLE",
+  "PTP"
+]);
+
+export const dayOfWeekSchema = z.enum(["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]);
+
+const driverCodeSchema = z.string().trim().min(1).max(16);
+const driverFullNameSchema = z.string().trim().min(1).max(160);
+// Local wall-clock start time, 24h "HH:MM" (e.g. "05:00").
+const scheduleStartSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use 24h HH:MM, e.g. 05:00");
+const timeZoneSchema = z.string().trim().min(1).max(64);
+const driverNoteSchema = z.string().trim().max(500);
+
+export const driverCreateSchema = z.object({
+  code: driverCodeSchema,
+  fullName: driverFullNameSchema,
+  phone: phoneSchema.nullable().optional(),
+  homeDropLotId: z.string().min(1).nullable().optional(),
+  active: z.boolean().optional(),
+  attributes: z.array(driverAttributeSchema).max(8).optional(),
+  scheduleDays: z.array(dayOfWeekSchema).max(7).optional(),
+  scheduleStart: scheduleStartSchema.nullable().optional(),
+  scheduleTimeZone: timeZoneSchema.nullable().optional(),
+  scheduleNote: driverNoteSchema.nullable().optional()
+});
+
+export const driverUpdateFieldsSchema = z
+  .object({
+    code: driverCodeSchema.optional(),
+    fullName: driverFullNameSchema.optional(),
+    phone: phoneSchema.nullable().optional(),
+    homeDropLotId: z.string().min(1).nullable().optional(),
+    active: z.boolean().optional(),
+    attributes: z.array(driverAttributeSchema).max(8).optional(),
+    scheduleDays: z.array(dayOfWeekSchema).max(7).optional(),
+    scheduleStart: scheduleStartSchema.nullable().optional(),
+    scheduleTimeZone: timeZoneSchema.nullable().optional(),
+    scheduleNote: driverNoteSchema.nullable().optional()
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required."
+  });
+
+export const driverMutationSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("create_driver"),
+    regionId: z.string().min(1).optional(),
+    driver: driverCreateSchema
+  }),
+  z.object({
+    action: z.literal("update_driver"),
+    regionId: z.string().min(1).optional(),
+    driverId: z.string().min(1),
+    fields: driverUpdateFieldsSchema
+  }),
+  z.object({
+    action: z.literal("delete_driver"),
+    regionId: z.string().min(1).optional(),
+    driverId: z.string().min(1),
+    reason: z.string().trim().min(1)
+  })
+]);
+
+export type DriverMutation = z.infer<typeof driverMutationSchema>;
+
+// ---------------------------------------------------------------------------
+// Direct customers (guaranteed recurring backhaul freight, e.g. SEALED AIR 1/DAY)
+// ---------------------------------------------------------------------------
+
+export const cadencePeriodSchema = z.enum(["DAY", "WEEK"]);
+
+const directCustomerNameSchema = z.string().trim().min(1).max(160);
+const cadenceCountSchema = z.number().int().min(1).max(1000);
+const directCustomerNotesSchema = z.string().trim().max(500);
+
+// Cadence is a pair: both set (e.g. 10/WEEK) or both null (no stated cadence).
+export const directCustomerCreateSchema = z
+  .object({
+    name: directCustomerNameSchema,
+    cadenceCount: cadenceCountSchema.nullable().optional(),
+    cadencePeriod: cadencePeriodSchema.nullable().optional(),
+    notes: directCustomerNotesSchema.nullable().optional()
+  })
+  .refine((value) => (value.cadenceCount == null) === (value.cadencePeriod == null), {
+    message: "Cadence needs both a count and a period."
+  });
+
+export const directCustomerUpdateFieldsSchema = z
+  .object({
+    name: directCustomerNameSchema.optional(),
+    cadenceCount: cadenceCountSchema.nullable().optional(),
+    cadencePeriod: cadencePeriodSchema.nullable().optional(),
+    notes: directCustomerNotesSchema.nullable().optional()
+  })
+  .superRefine((value, ctx) => {
+    if (Object.keys(value).length === 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "At least one field is required." });
+    }
+    const hasCount = "cadenceCount" in value;
+    const hasPeriod = "cadencePeriod" in value;
+    if (hasCount !== hasPeriod || (hasCount && (value.cadenceCount == null) !== (value.cadencePeriod == null))) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Cadence must be updated as a pair — both a count and a period, or both cleared."
+      });
+    }
+  });
+
+export const directCustomerMutationSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("create_direct_customer"),
+    regionId: z.string().min(1).optional(),
+    directCustomer: directCustomerCreateSchema
+  }),
+  z.object({
+    action: z.literal("update_direct_customer"),
+    regionId: z.string().min(1).optional(),
+    directCustomerId: z.string().min(1),
+    fields: directCustomerUpdateFieldsSchema
+  }),
+  z.object({
+    action: z.literal("delete_direct_customer"),
+    regionId: z.string().min(1).optional(),
+    directCustomerId: z.string().min(1),
+    reason: z.string().trim().min(1)
+  })
+]);
+
+export type DirectCustomerMutation = z.infer<typeof directCustomerMutationSchema>;

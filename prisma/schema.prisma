@@ -154,6 +154,8 @@ model Region {
   fuelSurchargeIndex  FuelSurchargeIndex[]
   operationalRules    OperationalRule[]
   userRegionRoles     UserRegionRole[]
+  drivers             Driver[]
+  directCustomers     DirectCustomer[]
   config              RegionConfig?
 }
 
@@ -188,6 +190,7 @@ model DropLot {
 
   region Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
   loads  Load[]
+  homeDrivers Driver[]
 }
 
 model Lane {
@@ -301,6 +304,7 @@ model Load {
   coordinatorNotes     String?
   driverType           DriverType?
   pickupDriverAssigned String?
+  pickupDriverId       String?
   tractorTrailer1      String?
   tractorTrailer2      String?
   commodity            String?
@@ -318,6 +322,7 @@ model Load {
   pickupWindowEnd      DateTime?
   pickupTimeZone       String?
   deliveryDriver       String?
+  deliveryDriverId     String?
   receiverName         String?
   deliveryCity         String?
   deliveryState        String?
@@ -352,11 +357,15 @@ model Load {
   dropLot          DropLot?          @relation(fields: [dropLotId], references: [id], onDelete: SetNull)
   rateConfirmation RateConfirmation? @relation(fields: [rateConfirmationId], references: [id], onDelete: SetNull)
   broker           Broker?           @relation(fields: [brokerId], references: [id], onDelete: SetNull)
+  pickupDriverRef   Driver? @relation("LoadPickupDriver", fields: [pickupDriverId], references: [id], onDelete: SetNull)
+  deliveryDriverRef Driver? @relation("LoadDeliveryDriver", fields: [deliveryDriverId], references: [id], onDelete: SetNull)
   legs             LoadLeg[]
 
   @@index([regionId, weekIso])
   @@index([bookingDate])
   @@index([regionId, dropLotId, bookingDate])
+  @@index([pickupDriverId])
+  @@index([deliveryDriverId])
 }
 
 model LoadLeg {
@@ -365,6 +374,7 @@ model LoadLeg {
   legIndex    Int
   legType     LoadLegType
   driverName  String?
+  driverId    String?
   startCity   String?
   startState  String?
   endCity     String?
@@ -381,8 +391,10 @@ model LoadLeg {
   updatedAt   DateTime    @updatedAt
 
   load Load @relation(fields: [loadId], references: [id], onDelete: Cascade)
+  driver Driver? @relation(fields: [driverId], references: [id], onDelete: SetNull)
 
   @@index([loadId, legIndex])
+  @@index([driverId])
 }
 
 model WeekSnapshot {
@@ -520,6 +532,86 @@ model RegionConfig {
   updatedById   String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  region Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
+
+  @@index([regionId])
+}
+
+// ── Phase 1: Driver & DirectCustomer reference entities ─────────────────────
+
+// Roster attributes / certifications from the Daily Booking Plan tab.
+enum DriverAttribute {
+  LTL_CERT
+  SLEEPER
+  TURNS_ONLY
+  DEDICATED
+  REGIONAL
+  FLEX
+  SHUTTLE
+  PTP
+}
+
+enum DayOfWeek {
+  MON
+  TUE
+  WED
+  THU
+  FRI
+  SAT
+  SUN
+}
+
+enum CadencePeriod {
+  DAY
+  WEEK
+}
+
+// A rostered driver (previously free text on Load/LoadLeg). `code` is the short
+// roster handle ("REES2"); the weekly availability is a flat day-set + local
+// start time so one row stays one editable roster line.
+model Driver {
+  id               String            @id @default(cuid())
+  regionId         String
+  code             String            @db.VarChar(16)
+  fullName         String
+  phone            String?
+  homeDropLotId    String?
+  active           Boolean           @default(true)
+  attributes       DriverAttribute[] @default([])
+  scheduleDays     DayOfWeek[]       @default([])
+  // Local wall-clock start, "HH:MM" 24h (recurring time, not an instant).
+  scheduleStart    String?           @db.VarChar(5)
+  // IANA zone; null = region default.
+  scheduleTimeZone String?
+  scheduleNote     String?
+  deletedAt        DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  region        Region    @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  homeDropLot   DropLot?  @relation(fields: [homeDropLotId], references: [id], onDelete: SetNull)
+  pickupLoads   Load[]    @relation("LoadPickupDriver")
+  deliveryLoads Load[]    @relation("LoadDeliveryDriver")
+  legs          LoadLeg[]
+
+  @@unique([regionId, code])
+  @@index([regionId, active])
+}
+
+// Direct customers with guaranteed recurring backhaul freight used to pre-stage
+// trailers (e.g. SEALED AIR 1/DAY, AB 10/WEEK). Cadence is nullable as a pair —
+// some customers have no stated cadence.
+model DirectCustomer {
+  id            String         @id @default(cuid())
+  regionId      String
+  name          String
+  cadenceCount  Int?
+  cadencePeriod CadencePeriod?
+  notes         String?
+  deletedAt     DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   region Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
 

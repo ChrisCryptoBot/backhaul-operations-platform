@@ -5,9 +5,11 @@ import { usePathname } from "next/navigation";
 import React from "react";
 import {
   BoardIcon,
+  BoxIcon,
   BuildingIcon,
   ChartIcon,
   ClipboardIcon,
+  DriverIcon,
   GearIcon,
   LoopIcon,
   PinIcon,
@@ -80,6 +82,18 @@ export function AppSidebar({ viewerIsAdmin, viewerCanManageReference, regionCode
           <Link href="/reference/drop-lots" className={`db-side-item${pathname.startsWith("/reference/drop-lots") ? " active" : ""}`} title="Drop lots">
             <span className="db-side-ico" aria-hidden="true"><PinIcon size={18} /></span>
             <span className="db-side-label">Drop lots</span>
+          </Link>
+        ) : null}
+        {viewerCanManageReference ? (
+          <Link href="/reference/drivers" className={`db-side-item${pathname.startsWith("/reference/drivers") ? " active" : ""}`} title="Drivers">
+            <span className="db-side-ico" aria-hidden="true"><DriverIcon size={18} /></span>
+            <span className="db-side-label">Drivers</span>
+          </Link>
+        ) : null}
+        {viewerCanManageReference ? (
+          <Link href="/reference/direct-customers" className={`db-side-item${pathname.startsWith("/reference/direct-customers") ? " active" : ""}`} title="Direct customers">
+            <span className="db-side-ico" aria-hidden="true"><BoxIcon size={18} /></span>
+            <span className="db-side-label">Direct customers</span>
           </Link>
         ) : null}
 

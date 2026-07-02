@@ -6,7 +6,9 @@ import { usePathname } from "next/navigation";
 const TABS = [
   { href: "/reference/lanes", label: "Lanes" },
   { href: "/reference/brokers", label: "Brokers" },
-  { href: "/reference/drop-lots", label: "Drop lots" }
+  { href: "/reference/drop-lots", label: "Drop lots" },
+  { href: "/reference/drivers", label: "Drivers" },
+  { href: "/reference/direct-customers", label: "Direct customers" }
 ] as const;
 
 /** Sub-tab navigation across the reference management screens (KPI-TRACKER-4). */

@@ -4286,3 +4286,22 @@ textarea.db-input { resize: vertical; min-height: 60px; line-height: 1.5; font-f
 @media (max-width: 720px) {
   .db-form-grid, .db-diff-meta, .db-diff-grid, .db-thresh-layout { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ---------------------------------------------------------------------------
+   Phase 1 additions — append to apps/web/src/app/board.css.
+   Chip toggles for the driver form's schedule-day and attribute pickers.
+   Token-based; matches .db-flag visual language with a pressed "on" state.
+--------------------------------------------------------------------------- */
+.db-chiprow { display: flex; flex-wrap: wrap; gap: 6px; }
+.db-chip-toggle {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px;
+  font-size: var(--db-text-2xs); font-weight: 600; letter-spacing: 0.02em;
+  color: var(--db-fg-mid); background: var(--db-bg-elev-2);
+  border: 1px solid var(--db-border); border-radius: var(--db-r-pill);
+  cursor: pointer; user-select: none;
+}
+.db-chip-toggle:hover { color: var(--db-fg); border-color: var(--db-fg-faint); }
+.db-chip-toggle.on { color: var(--db-accent-fg); background: var(--db-accent-bg); border-color: var(--db-accent-bg-2); }
+.db-chip-toggle:disabled { opacity: 0.55; cursor: default; }
+.db-chip-toggle.day { font-family: var(--db-font-mono); padding: 4px 8px; }

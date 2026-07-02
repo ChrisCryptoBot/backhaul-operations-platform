@@ -1,4 +1,4 @@
-import { BrokerOnboardingStatus, Prisma } from "@prisma/client";
+import { BrokerOnboardingStatus, CadencePeriod, DayOfWeek, DriverAttribute, Prisma } from "@prisma/client";
 import { runInRegionScope } from "@/lib/db";
 import { withNonDeletedRegionScope } from "@/lib/scoped-query";
 import { createAuditLog } from "@/lib/audit";
@@ -583,5 +583,358 @@ export async function listDistributionCenters(input: { regionId: string }): Prom
       select: { id: true, name: true, city: true, state: true }
     });
     return centers;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Drivers (Phase 1 — Daily Booking Plan foundation)
+// Append to apps/web/src/server/reference.ts.
+// ALSO extend the file's first import line to:
+//   import { BrokerOnboardingStatus, CadencePeriod, DayOfWeek, DriverAttribute, Prisma } from "@prisma/client";
+// ---------------------------------------------------------------------------
+
+export interface DriverSummary {
+  id: string;
+  code: string;
+  fullName: string;
+  phone: string | null;
+  active: boolean;
+  homeDropLotId: string | null;
+  homeDropLot: { id: string; name: string; code: string | null } | null;
+  attributes: DriverAttribute[];
+  scheduleDays: DayOfWeek[];
+  scheduleStart: string | null;
+  scheduleTimeZone: string | null;
+  scheduleNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type DriverWritableFields = {
+  code: string;
+  fullName: string;
+  phone: string | null;
+  homeDropLotId: string | null;
+  active: boolean;
+  attributes: DriverAttribute[];
+  scheduleDays: DayOfWeek[];
+  scheduleStart: string | null;
+  scheduleTimeZone: string | null;
+  scheduleNote: string | null;
+};
+
+/** Confirms a drop lot exists (non-deleted) in the region; throws otherwise. */
+async function assertDropLotInRegion(
+  tx: Prisma.TransactionClient,
+  regionId: string,
+  dropLotId: string
+): Promise<void> {
+  const lot = await tx.dropLot.findFirst({
+    where: withNonDeletedRegionScope(regionId, { id: dropLotId }),
+    select: { id: true }
+  });
+  if (!lot) throw new Error("Drop lot not found.");
+}
+
+export async function listDrivers(input: { regionId: string }): Promise<DriverSummary[]> {
+  return runInRegionScope(input.regionId, async (tx) => {
+    const drivers = await tx.driver.findMany({
+      where: withNonDeletedRegionScope(input.regionId),
+      orderBy: { code: "asc" },
+      select: {
+        id: true,
+        code: true,
+        fullName: true,
+        phone: true,
+        active: true,
+        homeDropLotId: true,
+        homeDropLot: { select: { id: true, name: true, code: true } },
+        attributes: true,
+        scheduleDays: true,
+        scheduleStart: true,
+        scheduleTimeZone: true,
+        scheduleNote: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+    return drivers.map((driver) => ({
+      id: driver.id,
+      code: driver.code,
+      fullName: driver.fullName,
+      phone: driver.phone,
+      active: driver.active,
+      homeDropLotId: driver.homeDropLotId,
+      homeDropLot: driver.homeDropLot,
+      attributes: driver.attributes,
+      scheduleDays: driver.scheduleDays,
+      scheduleStart: driver.scheduleStart,
+      scheduleTimeZone: driver.scheduleTimeZone,
+      scheduleNote: driver.scheduleNote,
+      createdAt: driver.createdAt.toISOString(),
+      updatedAt: driver.updatedAt.toISOString()
+    }));
+  });
+}
+
+export async function createDriver(input: {
+  regionId: string;
+  actorId: string;
+  fields: DriverWritableFields;
+}): Promise<{ id: string }> {
+  return runInRegionScope(input.regionId, async (tx) => {
+    if (input.fields.homeDropLotId) {
+      await assertDropLotInRegion(tx, input.regionId, input.fields.homeDropLotId);
+    }
+    let driver: { id: string };
+    try {
+      driver = await tx.driver.create({
+        data: { regionId: input.regionId, ...input.fields },
+        select: { id: true }
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new Error(`A driver with code "${input.fields.code}" already exists in this region.`);
+      }
+      throw error;
+    }
+    await tx.auditLog.create({
+      data: createAuditLog({
+        entityType: "Driver",
+        entityId: driver.id,
+        action: "REFERENCE_DRIVER_CREATE",
+        actorId: input.actorId,
+        timestamp: new Date(),
+        afterValue: {
+          code: input.fields.code,
+          fullName: input.fields.fullName,
+          active: input.fields.active,
+          homeDropLotId: input.fields.homeDropLotId
+        }
+      })
+    });
+    return driver;
+  });
+}
+
+export async function updateDriver(input: {
+  regionId: string;
+  actorId: string;
+  driverId: string;
+  fields: Partial<DriverWritableFields>;
+}): Promise<void> {
+  await runInRegionScope(input.regionId, async (tx) => {
+    const driver = await tx.driver.findFirst({
+      where: withNonDeletedRegionScope(input.regionId, { id: input.driverId }),
+      select: { id: true }
+    });
+    if (!driver) throw new Error("Driver not found.");
+
+    if (input.fields.homeDropLotId) {
+      await assertDropLotInRegion(tx, input.regionId, input.fields.homeDropLotId);
+    }
+
+    try {
+      await tx.driver.update({
+        where: { id: driver.id },
+        data: input.fields
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        throw new Error(`A driver with code "${input.fields.code ?? ""}" already exists in this region.`);
+      }
+      throw error;
+    }
+    await tx.auditLog.create({
+      data: createAuditLog({
+        entityType: "Driver",
+        entityId: driver.id,
+        action: "REFERENCE_DRIVER_UPDATE",
+        actorId: input.actorId,
+        timestamp: new Date(),
+        afterValue: input.fields
+      })
+    });
+  });
+}
+
+export async function softDeleteDriver(input: {
+  regionId: string;
+  actorId: string;
+  driverId: string;
+  reason: string;
+}): Promise<void> {
+  await runInRegionScope(input.regionId, async (tx) => {
+    const driver = await tx.driver.findFirst({
+      where: withNonDeletedRegionScope(input.regionId, { id: input.driverId }),
+      select: { id: true }
+    });
+    if (!driver) throw new Error("Driver not found.");
+
+    // Block removal while any non-deleted load (either driver slot) or relay leg
+    // still resolves to this driver (clear message instead of dangling refs).
+    const referencingLoads = await tx.load.count({
+      where: withNonDeletedRegionScope(input.regionId, {
+        OR: [{ pickupDriverId: driver.id }, { deliveryDriverId: driver.id }]
+      })
+    });
+    const referencingLegs = await tx.loadLeg.count({
+      where: { driverId: driver.id, load: { deletedAt: null } }
+    });
+    const inUseCount = referencingLoads + referencingLegs;
+    if (inUseCount > 0) {
+      throw new Error(`Driver is in use by ${inUseCount} load record(s) and cannot be removed.`);
+    }
+
+    await tx.driver.update({
+      where: { id: driver.id },
+      data: { deletedAt: new Date() }
+    });
+    await tx.auditLog.create({
+      data: createAuditLog({
+        entityType: "Driver",
+        entityId: driver.id,
+        action: "REFERENCE_DRIVER_DELETE",
+        actorId: input.actorId,
+        timestamp: new Date(),
+        reason: input.reason
+      })
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Direct customers
+// ---------------------------------------------------------------------------
+
+export interface DirectCustomerSummary {
+  id: string;
+  name: string;
+  cadenceCount: number | null;
+  cadencePeriod: CadencePeriod | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type DirectCustomerWritableFields = {
+  name: string;
+  cadenceCount: number | null;
+  cadencePeriod: CadencePeriod | null;
+  notes: string | null;
+};
+
+export async function listDirectCustomers(input: { regionId: string }): Promise<DirectCustomerSummary[]> {
+  return runInRegionScope(input.regionId, async (tx) => {
+    const customers = await tx.directCustomer.findMany({
+      where: withNonDeletedRegionScope(input.regionId),
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        name: true,
+        cadenceCount: true,
+        cadencePeriod: true,
+        notes: true,
+        createdAt: true,
+        updatedAt: true
+      }
+    });
+    return customers.map((customer) => ({
+      id: customer.id,
+      name: customer.name,
+      cadenceCount: customer.cadenceCount,
+      cadencePeriod: customer.cadencePeriod,
+      notes: customer.notes,
+      createdAt: customer.createdAt.toISOString(),
+      updatedAt: customer.updatedAt.toISOString()
+    }));
+  });
+}
+
+export async function createDirectCustomer(input: {
+  regionId: string;
+  actorId: string;
+  fields: DirectCustomerWritableFields;
+}): Promise<{ id: string }> {
+  return runInRegionScope(input.regionId, async (tx) => {
+    const customer = await tx.directCustomer.create({
+      data: { regionId: input.regionId, ...input.fields },
+      select: { id: true }
+    });
+    await tx.auditLog.create({
+      data: createAuditLog({
+        entityType: "DirectCustomer",
+        entityId: customer.id,
+        action: "REFERENCE_DIRECT_CUSTOMER_CREATE",
+        actorId: input.actorId,
+        timestamp: new Date(),
+        afterValue: {
+          name: input.fields.name,
+          cadenceCount: input.fields.cadenceCount,
+          cadencePeriod: input.fields.cadencePeriod
+        }
+      })
+    });
+    return customer;
+  });
+}
+
+export async function updateDirectCustomer(input: {
+  regionId: string;
+  actorId: string;
+  directCustomerId: string;
+  fields: Partial<DirectCustomerWritableFields>;
+}): Promise<void> {
+  await runInRegionScope(input.regionId, async (tx) => {
+    const customer = await tx.directCustomer.findFirst({
+      where: withNonDeletedRegionScope(input.regionId, { id: input.directCustomerId }),
+      select: { id: true }
+    });
+    if (!customer) throw new Error("Direct customer not found.");
+
+    await tx.directCustomer.update({
+      where: { id: customer.id },
+      data: input.fields
+    });
+    await tx.auditLog.create({
+      data: createAuditLog({
+        entityType: "DirectCustomer",
+        entityId: customer.id,
+        action: "REFERENCE_DIRECT_CUSTOMER_UPDATE",
+        actorId: input.actorId,
+        timestamp: new Date(),
+        afterValue: input.fields
+      })
+    });
+  });
+}
+
+export async function softDeleteDirectCustomer(input: {
+  regionId: string;
+  actorId: string;
+  directCustomerId: string;
+  reason: string;
+}): Promise<void> {
+  await runInRegionScope(input.regionId, async (tx) => {
+    const customer = await tx.directCustomer.findFirst({
+      where: withNonDeletedRegionScope(input.regionId, { id: input.directCustomerId }),
+      select: { id: true }
+    });
+    if (!customer) throw new Error("Direct customer not found.");
+
+    await tx.directCustomer.update({
+      where: { id: customer.id },
+      data: { deletedAt: new Date() }
+    });
+    await tx.auditLog.create({
+      data: createAuditLog({
+        entityType: "DirectCustomer",
+        entityId: customer.id,
+        action: "REFERENCE_DIRECT_CUSTOMER_DELETE",
+        actorId: input.actorId,
+        timestamp: new Date(),
+        reason: input.reason
+      })
+    });
   });
 }
