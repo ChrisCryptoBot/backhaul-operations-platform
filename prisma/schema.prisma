@@ -156,6 +156,7 @@ model Region {
   userRegionRoles     UserRegionRole[]
   drivers             Driver[]
   directCustomers     DirectCustomer[]
+  bookingPlanEntries  BookingPlanEntry[]
   config              RegionConfig?
 }
 
@@ -360,6 +361,7 @@ model Load {
   pickupDriverRef   Driver? @relation("LoadPickupDriver", fields: [pickupDriverId], references: [id], onDelete: SetNull)
   deliveryDriverRef Driver? @relation("LoadDeliveryDriver", fields: [deliveryDriverId], references: [id], onDelete: SetNull)
   legs             LoadLeg[]
+  bookingPlanEntry BookingPlanEntry?
 
   @@index([regionId, weekIso])
   @@index([bookingDate])
@@ -594,6 +596,7 @@ model Driver {
   pickupLoads   Load[]    @relation("LoadPickupDriver")
   deliveryLoads Load[]    @relation("LoadDeliveryDriver")
   legs          LoadLeg[]
+  bookingPlanEntries BookingPlanEntry[]
 
   @@unique([regionId, code])
   @@index([regionId, active])
@@ -616,4 +619,47 @@ model DirectCustomer {
   region Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
 
   @@index([regionId])
+}
+
+enum BookingPlanStatus {
+  NEEDS_BACKHAUL
+  SOURCING
+  BOOKED
+}
+
+// One line of the Daily Booking Plan: a rostered driver expected to run empty
+// on `planDate`, where/when they go empty, and the sourcing shorthand until a
+// real Load exists. Mirrors the sheet's working header (EMPTY CITY / EMPTY
+// CITY2 / BACKHAUL / PU CITY & DH / PU TIMES / DEL CITY & DH / DEL TIMES /
+// STATUS). planDate is a true DATE column — date-only semantics by type.
+model BookingPlanEntry {
+  id              String            @id @default(cuid())
+  regionId        String
+  planDate        DateTime          @db.Date
+  driverId        String
+  // Local wall-clock "HH:MM", same convention as Driver.scheduleStart.
+  expectedEmptyAt String?           @db.VarChar(5)
+  emptyCity       String?
+  emptyState      String?
+  // The sheet's "EMPTY CITY2" — secondary/alternate empty location.
+  emptyCityAlt    String?
+  // Free-text freight being sourced (sheet "BACKHAUL").
+  backhaulNote    String?
+  status          BookingPlanStatus @default(NEEDS_BACKHAUL)
+  sourcedLoadId   String?           @unique
+  // Planner shorthand before a Load exists (sheet columns, kept as strings).
+  puCityDh        String?
+  puTimes         String?
+  delCityDh       String?
+  delTimes        String?
+  deletedAt       DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  region      Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  driver      Driver @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  sourcedLoad Load?  @relation(fields: [sourcedLoadId], references: [id], onDelete: SetNull)
+
+  @@index([regionId, planDate])
+  @@index([driverId])
 }

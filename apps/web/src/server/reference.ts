@@ -1,7 +1,8 @@
-import { BrokerOnboardingStatus, CadencePeriod, DayOfWeek, DriverAttribute, Prisma } from "@prisma/client";
+import { BookingPlanStatus, BrokerOnboardingStatus, CadencePeriod, DayOfWeek, DriverAttribute, Prisma } from "@prisma/client";
 import { runInRegionScope } from "@/lib/db";
 import { withNonDeletedRegionScope } from "@/lib/scoped-query";
 import { createAuditLog } from "@/lib/audit";
+import { createLoadFromReview } from "@/server/review";
 
 /**
  * Reference-data action layer (brokers + broker reps for now; lanes/drop-lots follow).
@@ -781,7 +782,10 @@ export async function softDeleteDriver(input: {
     const referencingLegs = await tx.loadLeg.count({
       where: { driverId: driver.id, load: { deletedAt: null } }
     });
-    const inUseCount = referencingLoads + referencingLegs;
+    const referencingPlanEntries = await tx.bookingPlanEntry.count({
+      where: withNonDeletedRegionScope(input.regionId, { driverId: driver.id })
+    });
+    const inUseCount = referencingLoads + referencingLegs + referencingPlanEntries;
     if (inUseCount > 0) {
       throw new Error(`Driver is in use by ${inUseCount} load record(s) and cannot be removed.`);
     }
@@ -936,5 +940,357 @@ export async function softDeleteDirectCustomer(input: {
         reason: input.reason
       })
     });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Booking plan (Phase 2 — Daily Booking Plan)
+// Append to apps/web/src/server/reference.ts after the DirectCustomer section.
+// ALSO:
+//   1. Extend the file's first import line to include BookingPlanStatus:
+//      import { BookingPlanStatus, BrokerOnboardingStatus, CadencePeriod, DayOfWeek, DriverAttribute, Prisma } from "@prisma/client";
+//   2. Add below the existing imports:
+//      import { createLoadFromReview } from "@/server/review";
+//   3. Inside softDeleteDriver, after the `referencingLegs` count, add:
+//        const referencingPlanEntries = await tx.bookingPlanEntry.count({
+//          where: withNonDeletedRegionScope(input.regionId, { driverId: driver.id })
+//        });
+//      and change the sum to:
+//        const inUseCount = referencingLoads + referencingLegs + referencingPlanEntries;
+// ---------------------------------------------------------------------------
+
+export interface BookingPlanEntrySummary {
+  id: string;
+  planDate: string; // "YYYY-MM-DD"
+  driverId: string;
+  driver: { id: string; code: string; fullName: string };
+  expectedEmptyAt: string | null;
+  emptyCity: string | null;
+  emptyState: string | null;
+  emptyCityAlt: string | null;
+  backhaulNote: string | null;
+  status: BookingPlanStatus;
+  sourcedLoadId: string | null;
+  sourcedLoad: { id: string; loadNumber: string | null; status: string } | null;
+  puCityDh: string | null;
+  puTimes: string | null;
+  delCityDh: string | null;
+  delTimes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type BookingPlanEntryWritableFields = {
+  planDate: string;
+  driverId: string;
+  expectedEmptyAt: string | null;
+  emptyCity: string | null;
+  emptyState: string | null;
+  emptyCityAlt: string | null;
+  backhaulNote: string | null;
+  status: Extract<BookingPlanStatus, "NEEDS_BACKHAUL" | "SOURCING">;
+  puCityDh: string | null;
+  puTimes: string | null;
+  delCityDh: string | null;
+  delTimes: string | null;
+};
+
+/** "YYYY-MM-DD" → Date at UTC midnight (planDate is a true DATE column). */
+function planDateToUtc(planDate: string): Date {
+  return new Date(`${planDate}T00:00:00.000Z`);
+}
+
+function planDateToIso(planDate: Date): string {
+  return planDate.toISOString().slice(0, 10);
+}
+
+/** Confirms a driver exists (non-deleted) in the region; returns id + code. */
+async function assertDriverInRegion(
+  tx: Prisma.TransactionClient,
+  regionId: string,
+  driverId: string
+): Promise<{ id: string; code: string }> {
+  const driver = await tx.driver.findFirst({
+    where: withNonDeletedRegionScope(regionId, { id: driverId }),
+    select: { id: true, code: true }
+  });
+  if (!driver) throw new Error("Driver not found.");
+  return driver;
+}
+
+const BOOKING_PLAN_ENTRY_SELECT = {
+  id: true,
+  planDate: true,
+  driverId: true,
+  driver: { select: { id: true, code: true, fullName: true } },
+  expectedEmptyAt: true,
+  emptyCity: true,
+  emptyState: true,
+  emptyCityAlt: true,
+  backhaulNote: true,
+  status: true,
+  sourcedLoadId: true,
+  sourcedLoad: { select: { id: true, loadNumber: true, status: true } },
+  puCityDh: true,
+  puTimes: true,
+  delCityDh: true,
+  delTimes: true,
+  createdAt: true,
+  updatedAt: true
+} as const;
+
+type BookingPlanEntryRow = {
+  id: string;
+  planDate: Date;
+  driverId: string;
+  driver: { id: string; code: string; fullName: string };
+  expectedEmptyAt: string | null;
+  emptyCity: string | null;
+  emptyState: string | null;
+  emptyCityAlt: string | null;
+  backhaulNote: string | null;
+  status: BookingPlanStatus;
+  sourcedLoadId: string | null;
+  sourcedLoad: { id: string; loadNumber: string | null; status: string } | null;
+  puCityDh: string | null;
+  puTimes: string | null;
+  delCityDh: string | null;
+  delTimes: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+function mapBookingPlanEntry(entry: BookingPlanEntryRow): BookingPlanEntrySummary {
+  return {
+    id: entry.id,
+    planDate: planDateToIso(entry.planDate),
+    driverId: entry.driverId,
+    driver: entry.driver,
+    expectedEmptyAt: entry.expectedEmptyAt,
+    emptyCity: entry.emptyCity,
+    emptyState: entry.emptyState,
+    emptyCityAlt: entry.emptyCityAlt,
+    backhaulNote: entry.backhaulNote,
+    status: entry.status,
+    sourcedLoadId: entry.sourcedLoadId,
+    sourcedLoad: entry.sourcedLoad,
+    puCityDh: entry.puCityDh,
+    puTimes: entry.puTimes,
+    delCityDh: entry.delCityDh,
+    delTimes: entry.delTimes,
+    createdAt: entry.createdAt.toISOString(),
+    updatedAt: entry.updatedAt.toISOString()
+  };
+}
+
+export async function listBookingPlanEntries(input: {
+  regionId: string;
+  planDate?: string;
+}): Promise<BookingPlanEntrySummary[]> {
+  return runInRegionScope(input.regionId, async (tx) => {
+    const entries = await tx.bookingPlanEntry.findMany({
+      where: withNonDeletedRegionScope(
+        input.regionId,
+        input.planDate ? { planDate: planDateToUtc(input.planDate) } : {}
+      ),
+      orderBy: [{ expectedEmptyAt: "asc" }, { createdAt: "asc" }],
+      select: BOOKING_PLAN_ENTRY_SELECT
+    });
+    return entries.map((entry) => mapBookingPlanEntry(entry as BookingPlanEntryRow));
+  });
+}
+
+export async function createBookingPlanEntry(input: {
+  regionId: string;
+  actorId: string;
+  fields: BookingPlanEntryWritableFields;
+}): Promise<{ id: string }> {
+  return runInRegionScope(input.regionId, async (tx) => {
+    await assertDriverInRegion(tx, input.regionId, input.fields.driverId);
+    const entry = await tx.bookingPlanEntry.create({
+      data: {
+        regionId: input.regionId,
+        ...input.fields,
+        planDate: planDateToUtc(input.fields.planDate)
+      },
+      select: { id: true }
+    });
+    await tx.auditLog.create({
+      data: createAuditLog({
+        entityType: "BookingPlanEntry",
+        entityId: entry.id,
+        action: "REFERENCE_BOOKING_PLAN_CREATE",
+        actorId: input.actorId,
+        timestamp: new Date(),
+        afterValue: {
+          planDate: input.fields.planDate,
+          driverId: input.fields.driverId,
+          status: input.fields.status,
+          emptyCity: input.fields.emptyCity
+        }
+      })
+    });
+    return entry;
+  });
+}
+
+export async function updateBookingPlanEntry(input: {
+  regionId: string;
+  actorId: string;
+  entryId: string;
+  fields: Partial<BookingPlanEntryWritableFields>;
+}): Promise<void> {
+  await runInRegionScope(input.regionId, async (tx) => {
+    const entry = await tx.bookingPlanEntry.findFirst({
+      where: withNonDeletedRegionScope(input.regionId, { id: input.entryId }),
+      select: { id: true }
+    });
+    if (!entry) throw new Error("Booking plan entry not found.");
+
+    if (input.fields.driverId) {
+      await assertDriverInRegion(tx, input.regionId, input.fields.driverId);
+    }
+
+    const { planDate, ...rest } = input.fields;
+    await tx.bookingPlanEntry.update({
+      where: { id: entry.id },
+      data: { ...rest, ...(planDate ? { planDate: planDateToUtc(planDate) } : {}) }
+    });
+    await tx.auditLog.create({
+      data: createAuditLog({
+        entityType: "BookingPlanEntry",
+        entityId: entry.id,
+        action: "REFERENCE_BOOKING_PLAN_UPDATE",
+        actorId: input.actorId,
+        timestamp: new Date(),
+        afterValue: input.fields
+      })
+    });
+  });
+}
+
+export async function softDeleteBookingPlanEntry(input: {
+  regionId: string;
+  actorId: string;
+  entryId: string;
+  reason: string;
+}): Promise<void> {
+  await runInRegionScope(input.regionId, async (tx) => {
+    const entry = await tx.bookingPlanEntry.findFirst({
+      where: withNonDeletedRegionScope(input.regionId, { id: input.entryId }),
+      select: { id: true, status: true, sourcedLoadId: true }
+    });
+    if (!entry) throw new Error("Booking plan entry not found.");
+
+    // A booked line is the provenance of a live Load — block removal (409) the
+    // same way an in-use driver/drop-lot is blocked.
+    if (entry.status === "BOOKED" || entry.sourcedLoadId) {
+      throw new Error("Booking plan entry is in use by its sourced load and cannot be removed.");
+    }
+
+    await tx.bookingPlanEntry.update({
+      where: { id: entry.id },
+      data: { deletedAt: new Date() }
+    });
+    await tx.auditLog.create({
+      data: createAuditLog({
+        entityType: "BookingPlanEntry",
+        entityId: entry.id,
+        action: "REFERENCE_BOOKING_PLAN_DELETE",
+        actorId: input.actorId,
+        timestamp: new Date(),
+        reason: input.reason
+      })
+    });
+  });
+}
+
+/**
+ * The book transition: creates a minimal BOOKED Load headed to the region's home
+ * DC (Leesport) via the existing createLoadFromReview path (metrics, Load audit,
+ * week-snapshot recompute), links it on the entry, and flips status to BOOKED.
+ */
+export async function bookBookingPlanEntry(input: {
+  regionId: string;
+  actorId: string;
+  entryId: string;
+}): Promise<{ loadId: string }> {
+  return runInRegionScope(input.regionId, async (tx) => {
+    const entry = await tx.bookingPlanEntry.findFirst({
+      where: withNonDeletedRegionScope(input.regionId, { id: input.entryId }),
+      select: {
+        id: true,
+        planDate: true,
+        status: true,
+        sourcedLoadId: true,
+        backhaulNote: true,
+        driver: { select: { id: true, code: true } }
+      }
+    });
+    if (!entry) throw new Error("Booking plan entry not found.");
+    if (entry.status === "BOOKED" || entry.sourcedLoadId) {
+      throw new Error("Booking plan entry is already booked.");
+    }
+
+    // "All roads lead home to Leesport" — resolve the region's home DC for the
+    // delivery side. A missing DC does not block booking (flagged in PLAN.md).
+    const homeDc = await tx.distributionCenter.findFirst({
+      where: withNonDeletedRegionScope(input.regionId),
+      orderBy: { name: "asc" },
+      select: { name: true, city: true, state: true }
+    });
+
+    const { loadId } = await createLoadFromReview(
+      {
+        actorId: input.actorId,
+        regionId: input.regionId,
+        pickupDate: entry.planDate,
+        bookingDate: new Date(),
+        receiverName: homeDc?.name,
+        lineHaulRate: new Prisma.Decimal(0),
+        loadedMiles: new Prisma.Decimal(0),
+        puDeadheadMiles: new Prisma.Decimal(0),
+        delDeadheadMiles: new Prisma.Decimal(0),
+        fscApplies: false
+      },
+      tx
+    );
+
+    // Additive follow-up write for fields createLoadFromReview doesn't accept:
+    // resolve the rostered driver (FK + existing free-text field) and point the
+    // delivery side home.
+    await tx.load.update({
+      where: { id: loadId },
+      data: {
+        pickupDriverId: entry.driver.id,
+        pickupDriverAssigned: entry.driver.code,
+        deliveryCity: homeDc?.city ?? null,
+        deliveryState: homeDc?.state ?? null,
+        coordinatorNotes: entry.backhaulNote ?? null
+      }
+    });
+
+    await tx.bookingPlanEntry.update({
+      where: { id: entry.id },
+      data: { status: BookingPlanStatus.BOOKED, sourcedLoadId: loadId }
+    });
+
+    await tx.auditLog.create({
+      data: createAuditLog({
+        entityType: "BookingPlanEntry",
+        entityId: entry.id,
+        action: "REFERENCE_BOOKING_PLAN_BOOK",
+        actorId: input.actorId,
+        timestamp: new Date(),
+        afterValue: {
+          status: BookingPlanStatus.BOOKED,
+          sourcedLoadId: loadId,
+          driverId: entry.driver.id,
+          homeDcResolved: Boolean(homeDc)
+        }
+      })
+    });
+
+    return { loadId };
   });
 }

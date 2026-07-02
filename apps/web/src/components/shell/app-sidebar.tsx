@@ -7,6 +7,7 @@ import {
   BoardIcon,
   BoxIcon,
   BuildingIcon,
+  CalendarIcon,
   ChartIcon,
   ClipboardIcon,
   DriverIcon,
@@ -66,6 +67,12 @@ export function AppSidebar({ viewerIsAdmin, viewerCanManageReference, regionCode
         </Link>
 
         <div className="db-side-group-label">Reference</div>
+        {viewerCanManageReference ? (
+          <Link href="/reference/booking-plan" className={`db-side-item${pathname.startsWith("/reference/booking-plan") ? " active" : ""}`} title="Booking plan">
+            <span className="db-side-ico" aria-hidden="true"><CalendarIcon size={18} /></span>
+            <span className="db-side-label">Booking plan</span>
+          </Link>
+        ) : null}
         {viewerCanManageReference ? (
           <Link href="/reference/lanes" className={`db-side-item${pathname.startsWith("/reference/lanes") ? " active" : ""}`} title="Lanes">
             <span className="db-side-ico" aria-hidden="true"><RouteIcon size={18} /></span>

@@ -327,3 +327,82 @@ export const directCustomerMutationSchema = z.discriminatedUnion("action", [
 ]);
 
 export type DirectCustomerMutation = z.infer<typeof directCustomerMutationSchema>;
+
+// ---------------------------------------------------------------------------
+// Booking plan (Phase 2 — Daily Booking Plan)
+// Append to apps/web/src/contracts/reference.ts after the DirectCustomer
+// section. Reuses the file-scope citySchema / stateSchema / scheduleStartSchema.
+// ---------------------------------------------------------------------------
+
+export const bookingPlanStatusSchema = z.enum(["NEEDS_BACKHAUL", "SOURCING", "BOOKED"]);
+// BOOKED is reachable only via book_booking_plan_entry — never settable directly.
+export const bookingPlanEditableStatusSchema = z.enum(["NEEDS_BACKHAUL", "SOURCING"]);
+
+const planDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD");
+const bookingPlanNoteSchema = z.string().trim().max(500);
+// Planner shorthand cells lifted from the sheet ("READING PA +25", "0800-1400").
+const bookingPlanShorthandSchema = z.string().trim().min(1).max(200);
+const emptyCityAltSchema = z.string().trim().min(1).max(160);
+
+export const bookingPlanEntryCreateSchema = z.object({
+  planDate: planDateSchema,
+  driverId: z.string().min(1),
+  expectedEmptyAt: scheduleStartSchema.nullable().optional(),
+  emptyCity: citySchema.nullable().optional(),
+  emptyState: stateSchema.nullable().optional(),
+  emptyCityAlt: emptyCityAltSchema.nullable().optional(),
+  backhaulNote: bookingPlanNoteSchema.nullable().optional(),
+  status: bookingPlanEditableStatusSchema.optional(),
+  puCityDh: bookingPlanShorthandSchema.nullable().optional(),
+  puTimes: bookingPlanShorthandSchema.nullable().optional(),
+  delCityDh: bookingPlanShorthandSchema.nullable().optional(),
+  delTimes: bookingPlanShorthandSchema.nullable().optional()
+});
+
+export const bookingPlanEntryUpdateFieldsSchema = z
+  .object({
+    planDate: planDateSchema.optional(),
+    driverId: z.string().min(1).optional(),
+    expectedEmptyAt: scheduleStartSchema.nullable().optional(),
+    emptyCity: citySchema.nullable().optional(),
+    emptyState: stateSchema.nullable().optional(),
+    emptyCityAlt: emptyCityAltSchema.nullable().optional(),
+    backhaulNote: bookingPlanNoteSchema.nullable().optional(),
+    status: bookingPlanEditableStatusSchema.optional(),
+    puCityDh: bookingPlanShorthandSchema.nullable().optional(),
+    puTimes: bookingPlanShorthandSchema.nullable().optional(),
+    delCityDh: bookingPlanShorthandSchema.nullable().optional(),
+    delTimes: bookingPlanShorthandSchema.nullable().optional()
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one field is required."
+  });
+
+export const bookingPlanMutationSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("create_booking_plan_entry"),
+    regionId: z.string().min(1).optional(),
+    entry: bookingPlanEntryCreateSchema
+  }),
+  z.object({
+    action: z.literal("update_booking_plan_entry"),
+    regionId: z.string().min(1).optional(),
+    entryId: z.string().min(1),
+    fields: bookingPlanEntryUpdateFieldsSchema
+  }),
+  z.object({
+    action: z.literal("delete_booking_plan_entry"),
+    regionId: z.string().min(1).optional(),
+    entryId: z.string().min(1),
+    reason: z.string().trim().min(1)
+  }),
+  // The "source a Load" transition: creates a minimal BOOKED Load headed to the
+  // region's home DC, links it, and flips the entry's status to BOOKED.
+  z.object({
+    action: z.literal("book_booking_plan_entry"),
+    regionId: z.string().min(1).optional(),
+    entryId: z.string().min(1)
+  })
+]);
+
+export type BookingPlanMutation = z.infer<typeof bookingPlanMutationSchema>;

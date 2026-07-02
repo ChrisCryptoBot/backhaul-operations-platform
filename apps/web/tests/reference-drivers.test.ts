@@ -23,6 +23,7 @@ interface FakeTx {
   dropLot: { findFirst: ReturnType<typeof vi.fn> };
   load: { count: ReturnType<typeof vi.fn> };
   loadLeg: { count: ReturnType<typeof vi.fn> };
+  bookingPlanEntry: { count: ReturnType<typeof vi.fn> };
   auditLog: { create: ReturnType<typeof vi.fn> };
 }
 
@@ -45,6 +46,7 @@ function makeTx(overrides: Partial<FakeTx> = {}): FakeTx {
     dropLot: { findFirst: vi.fn().mockResolvedValue({ id: "lot-1" }), ...overrides.dropLot },
     load: { count: vi.fn().mockResolvedValue(0), ...overrides.load },
     loadLeg: { count: vi.fn().mockResolvedValue(0), ...overrides.loadLeg },
+    bookingPlanEntry: { count: vi.fn().mockResolvedValue(0), ...overrides.bookingPlanEntry },
     auditLog: { create: vi.fn().mockResolvedValue(undefined), ...overrides.auditLog }
   };
 }
