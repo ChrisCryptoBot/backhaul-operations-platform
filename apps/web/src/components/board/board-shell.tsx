@@ -837,7 +837,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
               <thead>
                 <tr className="db-colgroup-row">
                   <th colSpan={3 + (showDetails ? 6 : 0)} className="g-primary">Load</th>
-                  <th colSpan={5 + (showDetails ? 3 : 0)} className="grp-start">Driver &amp; Equip</th>
+                  <th colSpan={4 + (showDetails ? 3 : 0)} className="grp-start">Driver &amp; Equip</th>
                   <th colSpan={3 + (showDetails ? 2 : 0)} className="grp-start">Pickup</th>
                   <th colSpan={4 + (showDetails ? 2 : 0)} className="grp-start">Delivery</th>
                   {showMetrics ? (
@@ -866,7 +866,6 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                       <th>TMW</th>
                     </>
                   ) : null}
-                  <th>PU Driver</th>
                   <th>Driver 1</th>
                   <th>Driver 2</th>
                   <th>Driver 3</th>
@@ -933,7 +932,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                         }
                       }}
                     >
-                      <td colSpan={16 + (showDetails ? 13 : 0) + (showMetrics ? 11 : 0)} className="db-section-cell">
+                      <td colSpan={15 + (showDetails ? 13 : 0) + (showMetrics ? 11 : 0)} className="db-section-cell">
                         <div className="db-section-inner">
                           <button
                             type="button"
@@ -961,7 +960,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                     </tr>
                     {collapsedSections.has(section.id) ? null : section.loads.length === 0 ? (
                       <tr className="db-empty-row">
-                        <td colSpan={16 + (showDetails ? 13 : 0) + (showMetrics ? 11 : 0)} className="db-empty-cell"><span className="dim">{section.type === "deliveries" ? "No deliveries due on this day." : `No loads booked for ${section.title}.`}</span></td>
+                        <td colSpan={15 + (showDetails ? 13 : 0) + (showMetrics ? 11 : 0)} className="db-empty-cell"><span className="dim">{section.type === "deliveries" ? "No deliveries due on this day." : `No loads booked for ${section.title}.`}</span></td>
                       </tr>
                     ) : (
                       section.loads.map((load, loadIndex) => (
@@ -1047,11 +1046,10 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                                 </td>
                               </>
                             ) : null}
-                            <td className="trunc">
-                              <DriverCellValue code={load.pickupDriverCode} fullName={load.pickupDriverFullName} freeText={load.pickupDriverAssigned} />
-                            </td>
                             {[0, 1, 2, 3].map((slot) => {
                               const leg = (load.legs ?? [])[slot];
+                              // Driver 1 = relay leg 0, or the load's pickup driver when there's no
+                              // relay (leg 0 is the pickup driver by definition — no separate column).
                               return (
                                 <td key={`relay-${slot}`} className="trunc db-relay-cell">
                                   {leg ? (
@@ -1059,6 +1057,8 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                                       <DriverCellValue code={leg.driverCode} fullName={leg.driverFullName} freeText={leg.driverName} />
                                       {leg.etaAtIso ? <span className="db-relay-eta mono dim"> {isoTime(leg.etaAtIso)}</span> : null}
                                     </>
+                                  ) : slot === 0 ? (
+                                    <DriverCellValue code={load.pickupDriverCode} fullName={load.pickupDriverFullName} freeText={load.pickupDriverAssigned} />
                                   ) : (
                                     "—"
                                   )}

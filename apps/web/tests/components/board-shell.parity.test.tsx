@@ -5,9 +5,10 @@ import { BoardShell } from "@/components/board/board-shell";
 import type { ViewBoardResponse } from "@/lib/ui/board-mappers";
 
 /** All 32 pre-Phase-3 column labels — every one must still be present. */
+// "PU Driver" was removed as redundant with Driver 1 (leg 0 = the pickup driver).
 const ORIGINAL_HEADERS = [
   "REF#", "STATUS", "NOTE", "SCALE BEF", "SCALE AFT", "PU#(s)", "Broker (rep)", "MG", "TMW",
-  "PU Driver", "Trk/Trlr", "Commodity", "Equip", "Shipper", "PU City, ST", "PU Window",
+  "Trk/Trlr", "Commodity", "Equip", "Shipper", "PU City, ST", "PU Window",
   "Receiver", "DEL City, ST", "DEL Date/Win", "POD", "Line Haul", "TONU Amt", "All-In Rev",
   "Ldd Mi", "PU DH", "DEL DH", "Total Mi", "Neg Mi", "Ldd RPM", "NBY", "Empty %", "Del"
 ];
@@ -177,7 +178,7 @@ describe("board shell — Phase 3 parity columns", () => {
     cleanup();
   });
 
-  test("with metrics shown, keeps all 32 original headers + 8 parity headers = 40 columns", () => {
+  test("with details + metrics shown, keeps every tracker column = 39 columns", () => {
     const { container } = render(<BoardShell board={boardFixture} />);
     // Secondary + metric columns are hidden by default now; reveal both for the full parity check.
     fireEvent.click(screen.getByRole("button", { name: "Details" }));
@@ -192,14 +193,14 @@ describe("board shell — Phase 3 parity columns", () => {
     for (const label of NEW_HEADERS) {
       expect(headerCells).toContain(label);
     }
-    expect(headerCells).toHaveLength(40);
+    expect(headerCells).toHaveLength(39);
 
     // Group-header colSpans must still cover every column.
     const groupSpan = Array.from(container.querySelectorAll("tr.db-colgroup-row th")).reduce(
       (sum, cell) => sum + Number(cell.getAttribute("colspan") ?? 1),
       0
     );
-    expect(groupSpan).toBe(40);
+    expect(groupSpan).toBe(39);
   });
 
   test("shows essentials only by default (financials, miles, and secondary columns hidden)", () => {
@@ -208,9 +209,11 @@ describe("board shell — Phase 3 parity columns", () => {
       (cell) => cell.textContent?.trim() ?? ""
     );
     // Essentials + the always-visible Del action remain.
-    for (const label of ["REF#", "STATUS", "PU#(s)", "PU Driver", "Driver 1", "PU City, ST", "PU Appt", "DEL City, ST", "DEL Date/Win", "DEL Status/ETA", "Del"]) {
+    for (const label of ["REF#", "STATUS", "PU#(s)", "Driver 1", "PU City, ST", "PU Appt", "DEL City, ST", "DEL Date/Win", "DEL Status/ETA", "Del"]) {
       expect(headerCells).toContain(label);
     }
+    // The redundant "PU Driver" column is gone (Driver 1 is the pickup driver).
+    expect(headerCells).not.toContain("PU Driver");
     // Metric columns are hidden…
     expect(headerCells).not.toContain("Line Haul");
     expect(headerCells).not.toContain("Neg Mi");
@@ -219,7 +222,7 @@ describe("board shell — Phase 3 parity columns", () => {
     expect(headerCells).not.toContain("Broker (rep)");
     expect(headerCells).not.toContain("Commodity");
     expect(headerCells).not.toContain("POD");
-    expect(headerCells).toHaveLength(16);
+    expect(headerCells).toHaveLength(15);
   });
 
   test("Details toggle reveals the secondary columns", () => {
@@ -233,7 +236,7 @@ describe("board shell — Phase 3 parity columns", () => {
     }
     // Metrics stay hidden (independent toggle).
     expect(headerCells).not.toContain("Neg Mi");
-    expect(headerCells).toHaveLength(29);
+    expect(headerCells).toHaveLength(28);
   });
 
   test("rostered drivers render the roster code with a marker; free-text renders as-is", () => {
@@ -242,18 +245,18 @@ describe("board shell — Phase 3 parity columns", () => {
     expect(row).not.toBeNull();
     const cells = within(row as HTMLElement);
 
-    // PU Driver: roster code wins over the stale free text; tooltip carries the full name.
-    expect(cells.getByText("SCHM2")).toBeInTheDocument();
-    expect(cells.queryByText("old free text")).toBeNull();
-    expect(cells.getByTitle("SCHM2 — S. Schmidt (rostered)")).toBeInTheDocument();
-
-    // Relay Driver 1 (leg 0, rostered) + its ETA marker cell; Driver 2 (leg 1, free text).
+    // Driver 1 = relay leg 0 (REES2, rostered). The redundant PU Driver column is gone, so
+    // the load's separate pickup-driver code (SCHM2) is no longer rendered.
     expect(cells.getByText("REES2")).toBeInTheDocument();
     expect(cells.getByTitle("REES2 — R. Reese (rostered)")).toBeInTheDocument();
+    expect(cells.queryByText("SCHM2")).toBeNull();
+    expect(cells.queryByText("old free text")).toBeNull();
+
+    // Driver 2 (leg 1) is free text.
     expect(cells.getByText("P. Kelly")).toBeInTheDocument();
 
-    // Rostered marker dots: PU driver + relay leg 1 (free-text P. Kelly gets none).
-    expect((row as HTMLElement).querySelectorAll(".db-roster-dot")).toHaveLength(2);
+    // Rostered marker dot: only Driver 1 (REES2); free-text P. Kelly gets none.
+    expect((row as HTMLElement).querySelectorAll(".db-roster-dot")).toHaveLength(1);
 
     // Empty relay slots (Driver 3 & 4) render em-dashes, not blanks.
     const relayCells = (row as HTMLElement).querySelectorAll("td.db-relay-cell");
