@@ -54,6 +54,7 @@ export interface ViewBoardLoadRow {
   equipmentOtherText: string | null;
   puStatusPreset: string;
   puStatusCustom: string | null;
+  pickupDate?: string | null;
   deliveryDate: string | null;
   deliveryApptType: string | null;
   deliveryWindowStartIso: string | null;
@@ -210,6 +211,7 @@ export function mapBoardRowToView(row: BoardLoadRow): ViewBoardLoadRow {
     equipmentOtherText: row.equipmentOtherText,
     puStatusPreset: row.puStatusPreset,
     puStatusCustom: row.puStatusCustom,
+    pickupDate: row.pickupDate,
     deliveryDate: row.deliveryDate,
     deliveryApptType: row.deliveryApptType,
     deliveryWindowStartIso: row.deliveryWindowStartIso,

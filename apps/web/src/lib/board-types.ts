@@ -126,6 +126,7 @@ export interface BoardLoadRow {
   puStatusPreset: string;
   puStatusCustom: string | null;
   receiverName: string | null;
+  pickupDate?: string | null;
   deliveryCityState: string | null;
   deliveryDate: string | null;
   deliveryWindow: string | null;

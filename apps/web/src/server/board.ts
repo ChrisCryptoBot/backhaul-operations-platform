@@ -2,7 +2,7 @@ import { LoadStatus, Prisma } from "@prisma/client";
 import { runInRegionScope } from "@/lib/db";
 import type { BoardLoadRow, BoardResponse, BoardSection } from "@/lib/board-types";
 import { safeDivideDecimal } from "@/lib/decimal-utils";
-import { boardDayRange, PHASE1_BOARD_TIMEZONE } from "@/lib/board-date";
+import { boardDayRange, PHASE1_BOARD_TIMEZONE, todayIsoInTimeZone } from "@/lib/board-date";
 import { stateToTimeZone, zonedDateTimeToUtc } from "@/lib/timezone";
 import { stageExitObligations, type ChecklistLoadInput } from "@/lib/ui/load-checklist";
 import { withNonDeletedRegionScope, withRegionScope } from "@/lib/scoped-query";
@@ -102,6 +102,7 @@ interface BoardLoadDbRow {
   receiverName: string | null;
   deliveryCity: string | null;
   deliveryState: string | null;
+  pickupDate: Date | null;
   deliveryDate: Date | null;
   deliveryWindow: string | null;
   deliveryApptType: string | null;
@@ -208,6 +209,7 @@ function loadToBoardRow(load: {
   receiverName: string | null;
   deliveryCity: string | null;
   deliveryState: string | null;
+  pickupDate: Date | null;
   deliveryDate: Date | null;
   deliveryWindow: string | null;
   deliveryApptType: string | null;
@@ -296,6 +298,7 @@ function loadToBoardRow(load: {
     puStatusCustom: load.puStatusCustom,
     receiverName: load.receiverName,
     deliveryCityState: cityState(load.deliveryCity, load.deliveryState),
+    pickupDate: load.pickupDate?.toISOString() ?? null,
     deliveryDate: load.deliveryDate?.toISOString() ?? null,
     deliveryWindow: load.deliveryWindow,
     deliveryApptType: load.deliveryApptType,
@@ -397,6 +400,7 @@ const boardLoadSelect = {
   receiverName: true,
   deliveryCity: true,
   deliveryState: true,
+  pickupDate: true,
   deliveryDate: true,
   deliveryWindow: true,
   deliveryApptType: true,
@@ -605,6 +609,41 @@ export async function getBoardResponse(input: {
         nby: nbyTotal?.toString() ?? null
       },
       config
+    };
+  });
+}
+
+export interface OpenDeliveriesResponse {
+  regionId: string;
+  /** Today's date (board timezone), for overdue/due-today computation in the view. */
+  asOf: string;
+  deliveries: BoardLoadRow[];
+}
+
+/**
+ * Global, day-independent delivery watchlist: every load still in the delivery
+ * pipeline (not yet POD-received/completed, and not canceled/failed), regardless of
+ * which day it was booked or is due. Unlike the board's per-day "deliveries due"
+ * section, this carries overdue loads forward so a missed delivery never falls off
+ * the radar when the coordinator moves to a new day. Ordered soonest-due first
+ * (Postgres sorts NULL delivery dates last).
+ */
+export async function getOpenDeliveries(input: { regionId: string }): Promise<OpenDeliveriesResponse> {
+  const asOf = todayIsoInTimeZone(PHASE1_BOARD_TIMEZONE);
+  return runInRegionScope(input.regionId, async (tx) => {
+    const loads = (await tx.load.findMany({
+      where: withNonDeletedRegionScope(input.regionId, {
+        status: {
+          notIn: [LoadStatus.POD_RECEIVED, LoadStatus.COMPLETED, LoadStatus.CANCELED, LoadStatus.FAILED]
+        }
+      }),
+      orderBy: [{ deliveryDate: "asc" }, { bookingDate: "asc" }, { createdAt: "asc" }],
+      select: boardLoadSelect
+    })) as unknown as BoardLoadDbRow[];
+    return {
+      regionId: input.regionId,
+      asOf,
+      deliveries: loads.map(loadToBoardRow)
     };
   });
 }

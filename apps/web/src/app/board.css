@@ -4403,3 +4403,64 @@ textarea.db-input { resize: vertical; min-height: 60px; line-height: 1.5; font-f
 .db-relay-eta { font-size: var(--db-text-2xs); }
 .db-appt-cell { white-space: nowrap; }
 .db-pudel-status { max-width: 150px; }
+
+/* ---------------------------------------------------------------------------
+   Deliveries — global day-independent delivery watchlist (Operations > Deliveries).
+   Token-based; overdue/due-today carry semantic tints. Also the shared driver-chain
+   (relay drivers joined by arrows) used here and on the board.
+--------------------------------------------------------------------------- */
+.db-del { display: flex; flex-direction: column; gap: 16px; }
+.db-del-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+.db-del-title { margin: 0; font-size: var(--db-text-lg); font-weight: var(--db-weight-semi); color: var(--db-fg); }
+.db-del-sub { margin: 4px 0 0; max-width: 62ch; font-size: var(--db-text-sm); color: var(--db-fg-dim); line-height: 1.5; }
+
+.db-del-stats { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.db-del-stat {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  padding: 6px 12px; border-radius: var(--db-r-md);
+  background: var(--db-bg-elev-2); border: 1px solid var(--db-border);
+  font-size: var(--db-text-xs); color: var(--db-fg-mid); white-space: nowrap;
+}
+.db-del-stat strong { font-size: var(--db-text-base); font-weight: var(--db-weight-semi); color: var(--db-fg); }
+.db-del-stat.is-overdue { background: var(--db-neg-bg); border-color: var(--db-neg-bg); color: var(--db-neg); }
+.db-del-stat.is-overdue strong { color: var(--db-neg); }
+.db-del-stat.is-today { background: var(--db-warn-bg); border-color: var(--db-warn-bg); color: var(--db-warn); }
+.db-del-stat.is-today strong { color: var(--db-warn); }
+
+.db-del-empty {
+  padding: 28px; border-radius: var(--db-r-md);
+  background: var(--db-pos-bg); border: 1px solid var(--db-pos-bg);
+  color: var(--db-pos); font-size: var(--db-text-sm);
+}
+
+.db-del-tablewrap { overflow-x: auto; border: 1px solid var(--db-border); border-radius: var(--db-r-md); background: var(--db-bg-rail); }
+.db-del-table { width: 100%; border-collapse: collapse; font-size: var(--db-text-sm); }
+.db-del-table thead th {
+  text-align: left; padding: 10px 12px; white-space: nowrap;
+  font-size: var(--db-text-2xs); font-weight: var(--db-weight-semi); letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--db-fg-dim);
+  background: var(--db-bg-elev-2); border-bottom: 1px solid var(--db-border);
+}
+.db-del-table td { padding: 9px 12px; border-bottom: 1px solid var(--db-border-soft, var(--db-border)); vertical-align: middle; }
+.db-del-row:hover { background: var(--db-bg-elev-1); }
+.db-del-row.db-del-overdue { box-shadow: inset 3px 0 0 var(--db-neg); }
+.db-del-row.db-del-today { box-shadow: inset 3px 0 0 var(--db-warn); }
+.db-del-ref { color: var(--db-fg); }
+
+.db-del-lane { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.db-del-arrow { color: var(--db-fg-faint, var(--db-fg-dim)); }
+
+.db-del-flag {
+  display: inline-block; padding: 2px 9px; border-radius: var(--db-r-pill);
+  font-size: var(--db-text-2xs); font-weight: var(--db-weight-semi); white-space: nowrap;
+}
+.db-del-flag-overdue { color: var(--db-neg); background: var(--db-neg-bg); }
+.db-del-flag-today { color: var(--db-warn); background: var(--db-warn-bg); }
+.db-del-flag-pod { color: var(--db-accent-fg); background: var(--db-accent-bg); }
+.db-del-flag-upcoming { color: var(--db-fg-mid); background: var(--db-bg-elev-2); }
+.db-del-flag-none { color: var(--db-fg-dim); background: var(--db-bg-elev-2); }
+
+/* Consolidated driver chain (relay drivers joined by arrows). */
+.db-driver-chain { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.db-driver-chain-seg { display: inline-flex; align-items: center; gap: 4px; }
+.db-driver-arrow { color: var(--db-fg-faint, var(--db-fg-dim)); }
