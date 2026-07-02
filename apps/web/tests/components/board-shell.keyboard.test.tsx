@@ -411,22 +411,18 @@ describe("board shell keyboard accessibility", () => {
     expect(container.querySelector('.db-sidebar[data-collapsed="true"]')).not.toBeNull();
   });
 
-  test("defaults to dark theme and persists light mode toggle", async () => {
-    const user = userEvent.setup();
+  test("locks the colour scheme to light mode + blue accent (no theme toggles)", async () => {
     render(
       <ThemeProvider>
         <BoardShell board={boardFixture} />
       </ThemeProvider>
     );
-    const themeToggle = screen.getByRole("button", { name: "Switch to light mode" });
 
     await waitFor(() => {
-      expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
-    });
-    await user.click(themeToggle);
-    await waitFor(() => {
       expect(document.documentElement.getAttribute("data-theme")).toBe("light");
-      expect(window.localStorage.getItem("db-theme")).toBe("light");
+      expect(document.documentElement.getAttribute("data-accent")).toBe("blue");
     });
+    // The theme + accent toggles have been removed — the scheme is fixed.
+    expect(screen.queryByRole("button", { name: /Switch to (light|dark) mode/i })).toBeNull();
   });
 });

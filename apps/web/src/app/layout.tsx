@@ -10,9 +10,9 @@ export const metadata: Metadata = {
   description: "NE operational flow bootstrap"
 };
 
-// Applies the persisted theme/accent to <html> before first paint so there's no
-// light-then-dark flash. Defaults: dark-first, brand orange.
-const THEME_BOOT_SCRIPT = `(function(){try{var d=document.documentElement;var t=localStorage.getItem('db-theme');var a=localStorage.getItem('db-accent');d.setAttribute('data-theme',t==='light'||t==='dark'?t:'dark');d.setAttribute('data-accent',a==='blue'?'blue':'orange');}catch(e){}})();`;
+// The app ships one locked colour scheme: light mode + blue accent. Pin it before
+// first paint and drop any legacy persisted choice so nothing flashes the old theme.
+const THEME_BOOT_SCRIPT = `(function(){try{var d=document.documentElement;d.setAttribute('data-theme','light');d.setAttribute('data-accent','blue');localStorage.removeItem('db-theme');localStorage.removeItem('db-accent');}catch(e){}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const publishableKey = getClerkPublishableKey();
@@ -25,7 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   }
 
   return (
-    <html lang="en" data-theme="dark" data-accent="orange">
+    <html lang="en" data-theme="light" data-accent="blue">
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
       </head>

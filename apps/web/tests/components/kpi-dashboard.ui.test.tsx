@@ -86,7 +86,6 @@ describe("KpiDashboard full parity surface", () => {
     expect(screen.getByRole("link", { name: "KPI Dashboard" })).toBeInTheDocument();
     expect(container.querySelector(".db-h-title")?.textContent).toContain("KPI Dashboard");
     expect(screen.getByRole("button", { name: "Select reporting week" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Switch to light mode" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
     expect(screen.getByText("Rev / Load")).toBeInTheDocument();
     expect(screen.getByText(/Default targets from DAT RateView/i)).toBeInTheDocument();

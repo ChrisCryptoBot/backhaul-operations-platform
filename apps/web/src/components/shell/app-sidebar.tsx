@@ -3,19 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
-import {
-  BoardIcon,
-  BoxIcon,
-  BuildingIcon,
-  CalendarIcon,
-  ChartIcon,
-  ClipboardIcon,
-  DriverIcon,
-  GearIcon,
-  LoopIcon,
-  PinIcon,
-  RouteIcon
-} from "@/components/icons";
+import { BoardIcon, BuildingIcon, ChevronDownIcon, GearIcon, LoopIcon } from "@/components/icons";
 
 export interface AppSidebarProps {
   viewerIsAdmin: boolean;
@@ -24,10 +12,27 @@ export interface AppSidebarProps {
   regionLabel?: string;
 }
 
+type IconComponent = React.ComponentType<{ size?: number }>;
+
+interface NavItem {
+  href: string;
+  label: string;
+  /** Match only the exact path (used for "/", which would otherwise match everything). */
+  exact?: boolean;
+}
+
+interface NavGroup {
+  id: string;
+  label: string;
+  Icon: IconComponent;
+  items: NavItem[];
+}
+
 /**
- * The app's primary navigation sidebar — shared by the board and every other
- * authed screen so the chrome is consistent app-wide. Self-manages its collapse
- * state (persisted to localStorage) so callers don't have to.
+ * The app's primary navigation sidebar — shared by the board and every other authed
+ * screen. Navigation is organised into three collapsible groups (Operations, Reference,
+ * System); only the group headers carry an icon, and each expands to reveal its modules.
+ * Self-manages collapse state (persisted) so callers don't have to.
  */
 export function AppSidebar({ viewerIsAdmin, viewerCanManageReference, regionCode, regionLabel }: AppSidebarProps) {
   const pathname = usePathname();
@@ -38,6 +43,74 @@ export function AppSidebar({ viewerIsAdmin, viewerCanManageReference, regionCode
   React.useEffect(() => {
     window.localStorage.setItem("db-sidebar-collapsed", isCollapsed ? "true" : "false");
   }, [isCollapsed]);
+
+  const groups: NavGroup[] = [
+    {
+      id: "operations",
+      label: "Operations",
+      Icon: BoardIcon,
+      items: [
+        { href: "/", label: "Daily Tracker", exact: true },
+        { href: "/dashboard", label: "KPI Dashboard" }
+      ]
+    },
+    ...(viewerCanManageReference
+      ? [
+          {
+            id: "reference",
+            label: "Reference",
+            Icon: BuildingIcon,
+            items: [
+              { href: "/reference/booking-plan", label: "Booking plan" },
+              { href: "/reference/lanes", label: "Lanes" },
+              { href: "/reference/brokers", label: "Brokers" },
+              { href: "/reference/drop-lots", label: "Drop lots" },
+              { href: "/reference/drivers", label: "Drivers" },
+              { href: "/reference/direct-customers", label: "Direct customers" }
+            ]
+          } satisfies NavGroup
+        ]
+      : []),
+    ...(viewerIsAdmin
+      ? [
+          {
+            id: "system",
+            label: "System",
+            Icon: GearIcon,
+            items: [
+              { href: "/audit", label: "Audit" },
+              { href: "/settings", label: "Settings" }
+            ]
+          } satisfies NavGroup
+        ]
+      : [])
+  ];
+
+  const isItemActive = React.useCallback(
+    (item: NavItem) => {
+      if (!pathname) return false;
+      return item.exact ? pathname === item.href : pathname.startsWith(item.href);
+    },
+    [pathname]
+  );
+  const activeGroupId = groups.find((group) => group.items.some(isItemActive))?.id ?? null;
+
+  // Group open-state: the active group defaults open; explicit toggles win. Navigating
+  // into a section always re-opens its group so the current page is never hidden.
+  const [openGroups, setOpenGroups] = React.useState<Record<string, boolean>>({});
+  React.useEffect(() => {
+    if (activeGroupId) setOpenGroups((prev) => ({ ...prev, [activeGroupId]: true }));
+  }, [activeGroupId]);
+  const isGroupOpen = (id: string) => openGroups[id] ?? id === activeGroupId;
+
+  function handleGroupClick(id: string) {
+    if (isCollapsed) {
+      setIsCollapsed(false);
+      setOpenGroups((prev) => ({ ...prev, [id]: true }));
+      return;
+    }
+    setOpenGroups((prev) => ({ ...prev, [id]: !(prev[id] ?? id === activeGroupId) }));
+  }
 
   return (
     <aside className="db-sidebar" data-collapsed={isCollapsed ? "true" : "false"} aria-label="Primary navigation">
@@ -55,69 +128,48 @@ export function AppSidebar({ viewerIsAdmin, viewerCanManageReference, regionCode
           <span className="db-side-sub">Co-Pilot</span>
         </span>
       </button>
+
       <nav className="db-side-nav" aria-label="Primary">
-        <div className="db-side-group-label">Operations</div>
-        <Link href="/" className={`db-side-item${pathname === "/" ? " active" : ""}`} title="Daily Tracker">
-          <span className="db-side-ico" aria-hidden="true"><BoardIcon size={18} /></span>
-          <span className="db-side-label">Daily Tracker</span>
-        </Link>
-        <Link href="/dashboard" className={`db-side-item${pathname === "/dashboard" ? " active" : ""}`} title="KPI Dashboard">
-          <span className="db-side-ico" aria-hidden="true"><ChartIcon size={18} /></span>
-          <span className="db-side-label">KPI Dashboard</span>
-        </Link>
-
-        <div className="db-side-group-label">Reference</div>
-        {viewerCanManageReference ? (
-          <Link href="/reference/booking-plan" className={`db-side-item${pathname.startsWith("/reference/booking-plan") ? " active" : ""}`} title="Booking plan">
-            <span className="db-side-ico" aria-hidden="true"><CalendarIcon size={18} /></span>
-            <span className="db-side-label">Booking plan</span>
-          </Link>
-        ) : null}
-        {viewerCanManageReference ? (
-          <Link href="/reference/lanes" className={`db-side-item${pathname.startsWith("/reference/lanes") ? " active" : ""}`} title="Lanes">
-            <span className="db-side-ico" aria-hidden="true"><RouteIcon size={18} /></span>
-            <span className="db-side-label">Lanes</span>
-          </Link>
-        ) : null}
-        {viewerCanManageReference ? (
-          <Link href="/reference/brokers" className={`db-side-item${pathname.startsWith("/reference/brokers") ? " active" : ""}`} title="Brokers">
-            <span className="db-side-ico" aria-hidden="true"><BuildingIcon size={18} /></span>
-            <span className="db-side-label">Brokers</span>
-          </Link>
-        ) : null}
-        {viewerCanManageReference ? (
-          <Link href="/reference/drop-lots" className={`db-side-item${pathname.startsWith("/reference/drop-lots") ? " active" : ""}`} title="Drop lots">
-            <span className="db-side-ico" aria-hidden="true"><PinIcon size={18} /></span>
-            <span className="db-side-label">Drop lots</span>
-          </Link>
-        ) : null}
-        {viewerCanManageReference ? (
-          <Link href="/reference/drivers" className={`db-side-item${pathname.startsWith("/reference/drivers") ? " active" : ""}`} title="Drivers">
-            <span className="db-side-ico" aria-hidden="true"><DriverIcon size={18} /></span>
-            <span className="db-side-label">Drivers</span>
-          </Link>
-        ) : null}
-        {viewerCanManageReference ? (
-          <Link href="/reference/direct-customers" className={`db-side-item${pathname.startsWith("/reference/direct-customers") ? " active" : ""}`} title="Direct customers">
-            <span className="db-side-ico" aria-hidden="true"><BoxIcon size={18} /></span>
-            <span className="db-side-label">Direct customers</span>
-          </Link>
-        ) : null}
-
-        <div className="db-side-group-label">System</div>
-        {viewerIsAdmin ? (
-          <Link href="/audit" className={`db-side-item${pathname.startsWith("/audit") ? " active" : ""}`} title="Audit">
-            <span className="db-side-ico" aria-hidden="true"><ClipboardIcon size={18} /></span>
-            <span className="db-side-label">Audit</span>
-          </Link>
-        ) : null}
-        {viewerIsAdmin ? (
-          <Link href="/settings" className={`db-side-item${pathname === "/settings" ? " active" : ""}`} title="Settings">
-            <span className="db-side-ico" aria-hidden="true"><GearIcon size={18} /></span>
-            <span className="db-side-label">Settings</span>
-          </Link>
-        ) : null}
+        {groups.map((group) => {
+          const open = isGroupOpen(group.id);
+          const groupActive = group.id === activeGroupId;
+          return (
+            <div
+              key={group.id}
+              className={`db-side-group${groupActive ? " has-active" : ""}`}
+              data-open={open ? "true" : "false"}
+            >
+              <button
+                type="button"
+                className="db-side-grouphead"
+                onClick={() => handleGroupClick(group.id)}
+                aria-expanded={open}
+                title={group.label}
+              >
+                <span className="db-side-ico" aria-hidden="true"><group.Icon size={18} /></span>
+                <span className="db-side-label">{group.label}</span>
+                <span className="db-side-chevron" aria-hidden="true"><ChevronDownIcon size={14} /></span>
+              </button>
+              <div className="db-side-sublist" role="group" aria-label={group.label}>
+                <div className="db-side-sublist-inner">
+                  {group.items.map((item) => (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`db-side-subitem${isItemActive(item) ? " active" : ""}`}
+                      title={item.label}
+                      tabIndex={open ? undefined : -1}
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </nav>
+
       <div className="db-side-foot">
         <div className="db-side-user" title={`${regionLabel ?? regionCode} · ${regionCode}`}>
           <span className="db-side-avatar" aria-hidden="true">{regionCode.slice(0, 2)}</span>

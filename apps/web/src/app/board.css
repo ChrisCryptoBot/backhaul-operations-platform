@@ -231,7 +231,8 @@
 .db-root select:focus-visible,
 .db-root textarea:focus-visible,
 .db-root [role="tab"]:focus-visible,
-.db-root .db-side-item:focus-visible,
+.db-root .db-side-grouphead:focus-visible,
+.db-root .db-side-subitem:focus-visible,
 .db-root .db-ref-tab:focus-visible {
   outline: 2px solid var(--db-accent);
   outline-offset: 1px;
@@ -2416,12 +2417,6 @@
   padding: 6px;
 }
 
-.db-theme-toggle {
-  font-size: 11px;
-  padding: 4px 9px;
-  border-radius: 999px;
-}
-
 .db-rail {
   width: 220px;
   padding: 12px 8px;
@@ -3621,62 +3616,98 @@
 .db-sidebar[data-collapsed="true"] .db-side-wordmark { display: none; }
 .db-sidebar[data-collapsed="true"] .db-side-brand { justify-content: center; padding: 0; }
 
-.db-side-nav { flex: 1; overflow-y: auto; padding: var(--db-2) var(--db-2); display: flex; flex-direction: column; gap: 2px; }
-.db-side-group-label {
-  font-size: var(--db-text-3xs);
-  font-weight: var(--db-weight-semi);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--db-fg-dim);
-  padding: 10px 10px 5px;
-  white-space: nowrap;
-}
-.db-side-nav > .db-side-group-label:first-child { padding-top: 4px; }
-.db-sidebar[data-collapsed="true"] .db-side-group-label { opacity: 0; height: 14px; padding: 4px 0; }
-.db-side-item {
+.db-side-nav { flex: 1; overflow-y: auto; padding: 10px var(--db-2); display: flex; flex-direction: column; gap: 3px; }
+
+/* --- Nav groups: collapsible dropdowns; only the head carries an icon --- */
+.db-side-group { display: flex; flex-direction: column; }
+
+.db-side-grouphead {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--db-r-md);
+  background: transparent;
+  color: var(--db-fg-mid);
+  font: inherit;
+  font-size: var(--db-text-sm);
+  font-weight: var(--db-weight-semi);
+  cursor: pointer;
+  white-space: nowrap;
+  text-align: left;
+}
+.db-side-grouphead:hover { background: var(--db-bg-elev-2); color: var(--db-fg); }
+.db-side-group.has-active .db-side-grouphead { color: var(--db-fg); }
+.db-side-group.has-active .db-side-ico { color: var(--db-accent); }
+
+.db-side-ico { flex: 0 0 20px; width: 20px; height: 20px; display: grid; place-items: center; color: currentColor; }
+.db-side-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.db-side-chevron {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  color: var(--db-fg-dim);
+  transition: transform 180ms cubic-bezier(.2, .7, .3, 1);
+}
+.db-side-group[data-open="true"] .db-side-chevron { transform: rotate(180deg); }
+
+/* Animated reveal: 0fr -> 1fr grid row eases height with no magic numbers. */
+.db-side-sublist {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 200ms cubic-bezier(.2, .7, .3, 1);
+}
+.db-side-group[data-open="true"] .db-side-sublist { grid-template-rows: 1fr; }
+.db-side-sublist-inner {
+  overflow: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 0 4px;
+}
+
+.db-side-subitem {
+  position: relative;
+  display: block;
+  margin-left: 30px;
+  padding: 6px 10px;
   border-radius: var(--db-r-md);
   font-size: var(--db-text-base);
   font-weight: var(--db-weight-medium);
-  color: var(--db-fg);
+  color: var(--db-fg-mid);
   text-decoration: none;
-  cursor: pointer;
   white-space: nowrap;
-  position: relative;
+  cursor: pointer;
 }
-.db-side-item:hover { background: var(--db-bg-elev-2); color: var(--db-fg); }
-.db-side-item.active { background: var(--db-bg-elev-3); color: var(--db-fg); }
-.db-side-item.active::before {
+/* Hairline rail visually tying the modules to their group. */
+.db-side-subitem::before {
   content: "";
   position: absolute;
-  left: -8px;
-  top: 6px;
-  bottom: 6px;
-  width: 3px;
-  border-radius: 0 2px 2px 0;
-  background: var(--db-accent);
+  left: -14px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--db-border);
 }
-.db-side-ico { flex: 0 0 18px; width: 18px; height: 18px; display: grid; place-items: center; color: currentColor; }
-.db-side-item.active .db-side-ico { color: var(--db-accent); }
-.db-side-label { flex: 1; min-width: 0; overflow: hidden; }
-/* Count pill on a nav item (mono, elev-4; .alert = warn). */
-.db-side-count {
-  font-family: var(--db-font-mono);
-  font-size: var(--db-text-2xs);
+.db-side-subitem:hover { background: var(--db-bg-elev-2); color: var(--db-fg); }
+.db-side-subitem.active {
+  color: var(--db-accent-fg);
+  background: var(--db-accent-bg);
   font-weight: var(--db-weight-semi);
-  color: var(--db-fg-mid);
-  background: var(--db-bg-elev-4);
-  border-radius: var(--db-r-pill);
-  padding: 1px 7px;
-  flex: 0 0 auto;
+  box-shadow: inset 0 0 0 1px var(--db-accent-bg-2);
 }
-.db-side-count.alert { color: var(--db-warn); background: var(--db-warn-bg); }
-.db-sidebar[data-collapsed="true"] .db-side-count { opacity: 0; }
-.db-sidebar[data-collapsed="true"] .db-side-label { opacity: 0; }
-.db-sidebar[data-collapsed="true"] .db-side-item { padding: 7px; justify-content: center; }
+.db-side-subitem.active::before { background: var(--db-accent); width: 2px; }
+
+/* Collapsed rail: only the three group icons, centred; labels + sublists gone. */
+.db-sidebar[data-collapsed="true"] .db-side-label,
+.db-sidebar[data-collapsed="true"] .db-side-chevron,
+.db-sidebar[data-collapsed="true"] .db-side-sublist { display: none; }
+.db-sidebar[data-collapsed="true"] .db-side-grouphead { justify-content: center; padding: 9px; }
+.db-sidebar[data-collapsed="true"] .db-side-group.has-active .db-side-grouphead { background: var(--db-accent-bg); }
+.db-sidebar[data-collapsed="true"] .db-side-group.has-active .db-side-ico { color: var(--db-accent); }
 .db-side-foot { flex: 0 0 auto; border-top: 1px solid var(--db-border); padding: var(--db-2); display: flex; flex-direction: column; gap: 2px; }
 .db-side-user { display: flex; align-items: center; gap: 9px; padding: 6px 8px; border-radius: var(--db-r-md); }
 .db-side-avatar {

@@ -171,7 +171,9 @@ describe("board page shell", () => {
     expect(markup).toContain("Co-Pilot");
     expect(markup).toContain("class=\"db-side-brand\"");
     expect(markup).toContain("aria-label=\"Primary navigation\"");
-    expect(markup).toContain("aria-label=\"Switch to light mode\"");
+    // Theme/accent toggles are removed — the scheme is locked to light + blue.
+    expect(markup).not.toContain("Switch to light mode");
+    expect(markup).toContain("class=\"db-side-grouphead\"");
     expect(markup).toContain("class=\"db-cap mono\"");
     expect(markup).not.toContain(">Route<");
     expect(markup).not.toContain(">Load #<");

@@ -19,16 +19,14 @@ import type { TrendSeriesPoint } from "@/components/kpi/trend-chart";
 import { buildTrendSeries } from "@/components/kpi/trend-chart";
 import { TopbarSignOutButton } from "@/components/auth/sign-out-button";
 import { AppSidebar } from "@/components/shell/app-sidebar";
-import { useTheme, AccentToggle } from "@/components/shell/theme";
+import { useTheme } from "@/components/shell/theme";
 import { CopilotPanel } from "@/components/copilot/copilot-panel";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
   CalendarIcon,
   ChevronDownIcon,
-  DashIcon,
-  MoonIcon,
-  SunIcon
+  DashIcon
 } from "@/components/icons";
 
 type TabId = "Lanes" | "Trend" | "Management Report" | "Reference Rules";
@@ -276,7 +274,7 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
   const [ackPendingId, setAckPendingId] = React.useState<string | null>(null);
   const [ackStatus, setAckStatus] = React.useState<string | null>(null);
   const [ackError, setAckError] = React.useState<string | null>(null);
-  const { theme: themeMode, toggleTheme: toggleThemeMode } = useTheme();
+  const { theme: themeMode } = useTheme();
   const tabsBodyRef = React.useRef<HTMLDivElement | null>(null);
   const tabRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
   const router = useRouter();
@@ -878,16 +876,6 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
             IB Entry
           </button>
 
-          <AccentToggle />
-          <button
-            type="button"
-            className="db-iconbtn"
-            onClick={toggleThemeMode}
-            title={themeMode === "dark" ? "Light theme" : "Dark theme"}
-            aria-label={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
-          >
-            {themeMode === "dark" ? <SunIcon size={16} /> : <MoonIcon size={16} />}
-          </button>
           <TopbarSignOutButton />
         </div>
       </header>

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
 import { SearchIcon } from "@/components/icons";
-import { useTheme, AccentToggle } from "@/components/shell/theme";
+import { useTheme } from "@/components/shell/theme";
 import type { ReviewRateConfirmation } from "@/server/review";
 
 interface ReviewPanelProps {
@@ -37,7 +37,7 @@ export function ReviewPanel({ initial, regionId }: ReviewPanelProps) {
   const [confirmReject, setConfirmReject] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
-  const { theme: themeMode, toggleTheme } = useTheme();
+  const { theme: themeMode } = useTheme();
 
   const refreshReview = React.useCallback(async () => {
     const response = await fetch(
@@ -153,15 +153,6 @@ export function ReviewPanel({ initial, regionId }: ReviewPanelProps) {
         <div className="db-topbar-right">
           <button className="db-btn db-btn-ghost db-btn-icon" title="Search" type="button" aria-label="Search">
             <SearchIcon size={14} />
-          </button>
-          <AccentToggle />
-          <button
-            type="button"
-            className="db-btn db-theme-toggle"
-            onClick={toggleTheme}
-            aria-label={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
-          >
-            {themeMode === "light" ? "Dark mode" : "Light mode"}
           </button>
           <div className="db-avatar">CM</div>
         </div>

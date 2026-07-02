@@ -2,7 +2,6 @@
 
 import React from "react";
 import { AppSidebar, type AppSidebarProps } from "@/components/shell/app-sidebar";
-import { ThemeToggleButton, AccentToggle } from "@/components/shell/theme";
 import { TopbarSignOutButton } from "@/components/auth/sign-out-button";
 import { CopilotPanel } from "@/components/copilot/copilot-panel";
 
@@ -29,8 +28,6 @@ export function AppShell({ title, children, ...sidebar }: AppShellProps) {
           </div>
           <div className="db-h-spacer" />
           <div className="db-topbar-right">
-            <AccentToggle />
-            <ThemeToggleButton />
             <TopbarSignOutButton />
           </div>
         </header>

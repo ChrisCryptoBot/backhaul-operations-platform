@@ -5,12 +5,10 @@ import {
   CalendarIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  MoonIcon,
-  SearchIcon,
-  SunIcon
+  SearchIcon
 } from "@/components/icons";
 import { AppSidebar } from "@/components/shell/app-sidebar";
-import { useTheme, AccentToggle } from "@/components/shell/theme";
+import { useTheme } from "@/components/shell/theme";
 import { int, money, pct, rpm } from "@/lib/ui/formatters";
 import { mapBoardResponseToView, resolveDriverLabel, type ViewBoardResponse } from "@/lib/ui/board-mappers";
 import { collectBoardAlertRollups, type LoadAlertRollup } from "@/lib/ui/load-alerts";
@@ -224,7 +222,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
   const [selectedLoadId, setSelectedLoadId] = React.useState<string | null>(null);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [uploadError, setUploadError] = React.useState<string | null>(null);
-  const { theme: themeMode, toggleTheme: toggleThemeMode } = useTheme();
+  const { theme: themeMode } = useTheme();
   const [density, setDensity] = React.useState<"comfortable" | "compact">("comfortable");
   const [dragOverSectionId, setDragOverSectionId] = React.useState<string | null>(null);
   const [highlightLoadId, setHighlightLoadId] = React.useState<string | null>(initialHighlightLoadId);
@@ -650,16 +648,6 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
               onChange={(event) => handleDateChange(event.target.value)}
             />
           </label>
-          <AccentToggle />
-          <button
-            type="button"
-            className="db-iconbtn"
-            onClick={toggleThemeMode}
-            title={themeMode === "dark" ? "Light theme" : "Dark theme"}
-            aria-label={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
-          >
-            {themeMode === "dark" ? <SunIcon size={16} /> : <MoonIcon size={16} />}
-          </button>
           <button
             type="button"
             className={`db-iconbtn db-alert-bell${alertNotifier.enabled ? " on" : ""}`}
