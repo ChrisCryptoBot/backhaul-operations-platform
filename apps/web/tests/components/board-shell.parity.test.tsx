@@ -1,6 +1,6 @@
 import React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { BoardShell } from "@/components/board/board-shell";
 import type { ViewBoardResponse } from "@/lib/ui/board-mappers";
 
@@ -177,8 +177,11 @@ describe("board shell — Phase 3 parity columns", () => {
     cleanup();
   });
 
-  test("keeps all 32 original headers, adds the 8 parity headers, totals 40 columns", () => {
+  test("with metrics shown, keeps all 32 original headers + 8 parity headers = 40 columns", () => {
     const { container } = render(<BoardShell board={boardFixture} />);
+    // Financials + miles are hidden by default now; reveal them for the full parity check.
+    fireEvent.click(screen.getByRole("button", { name: "Metrics" }));
+
     const headerCells = Array.from(container.querySelectorAll("tr.db-collabel-row th")).map(
       (cell) => cell.textContent?.trim() ?? ""
     );
@@ -196,6 +199,20 @@ describe("board shell — Phase 3 parity columns", () => {
       0
     );
     expect(groupSpan).toBe(40);
+  });
+
+  test("hides financials + miles by default, keeping the board scannable", () => {
+    const { container } = render(<BoardShell board={boardFixture} />);
+    const headerCells = Array.from(container.querySelectorAll("tr.db-collabel-row th")).map(
+      (cell) => cell.textContent?.trim() ?? ""
+    );
+    // Essentials + the always-visible Del action remain; metric columns are gone.
+    expect(headerCells).toContain("PU Appt");
+    expect(headerCells).toContain("DEL Status/ETA");
+    expect(headerCells).toContain("Del");
+    expect(headerCells).not.toContain("Line Haul");
+    expect(headerCells).not.toContain("Neg Mi");
+    expect(headerCells).toHaveLength(29);
   });
 
   test("rostered drivers render the roster code with a marker; free-text renders as-is", () => {

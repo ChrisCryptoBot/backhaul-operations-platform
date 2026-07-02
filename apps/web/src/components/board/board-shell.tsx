@@ -224,6 +224,10 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
   const [uploadError, setUploadError] = React.useState<string | null>(null);
   const { theme: themeMode } = useTheme();
   const [density, setDensity] = React.useState<"comfortable" | "compact">("comfortable");
+  // Metrics (financials + miles) are hidden by default to keep the board scannable;
+  // toggled on inline without opening the drawer. Yard sections collapse independently.
+  const [showMetrics, setShowMetrics] = React.useState(false);
+  const [collapsedSections, setCollapsedSections] = React.useState<Set<string>>(new Set());
   const [dragOverSectionId, setDragOverSectionId] = React.useState<string | null>(null);
   const [highlightLoadId, setHighlightLoadId] = React.useState<string | null>(initialHighlightLoadId);
   const [contextMenu, setContextMenu] = React.useState<{ loadId: string; x: number; y: number } | null>(null);
@@ -256,6 +260,42 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
     } catch {
       /* storage unavailable */
     }
+  }, []);
+
+  React.useEffect(() => {
+    if (window.localStorage.getItem("db-show-metrics") === "true") setShowMetrics(true);
+    try {
+      const raw = window.localStorage.getItem("db-collapsed-sections");
+      if (raw) setCollapsedSections(new Set(JSON.parse(raw) as string[]));
+    } catch {
+      /* ignore malformed persisted state */
+    }
+  }, []);
+
+  const toggleMetrics = React.useCallback(() => {
+    setShowMetrics((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem("db-show-metrics", next ? "true" : "false");
+      } catch {
+        /* storage unavailable */
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleSection = React.useCallback((sectionId: string) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(sectionId)) next.delete(sectionId);
+      else next.add(sectionId);
+      try {
+        window.localStorage.setItem("db-collapsed-sections", JSON.stringify([...next]));
+      } catch {
+        /* storage unavailable */
+      }
+      return next;
+    });
   }, []);
 
   const allSectionsEmpty = React.useMemo(
@@ -729,6 +769,15 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                 Compact
               </button>
             </div>
+            <button
+              type="button"
+              className={`db-metrics-toggle${showMetrics ? " active" : ""}`}
+              aria-pressed={showMetrics}
+              onClick={toggleMetrics}
+              title={showMetrics ? "Hide financials & miles" : "Show financials & miles"}
+            >
+              {showMetrics ? "Hide metrics" : "Metrics"}
+            </button>
             {filteredSections.length > 0 ? (
               <div className="db-tb-lots" aria-label="Jump to drop lot">
                 {filteredSections.map((section) => (
@@ -758,7 +807,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
 
 
           <div className="db-table-wrap">
-            <table className="db-table grouped">
+            <table className="db-table grouped" data-metrics={showMetrics ? "on" : "off"}>
               <caption className="db-sr-only">Daily load board sections and loads</caption>
               <thead>
                 <tr className="db-colgroup-row">
@@ -766,8 +815,13 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                   <th colSpan={8} className="grp-start">Driver &amp; Equip</th>
                   <th colSpan={5} className="grp-start">Pickup</th>
                   <th colSpan={6} className="grp-start">Delivery</th>
-                  <th colSpan={3} className="grp-start g-financial right">Financial</th>
-                  <th colSpan={9} className="grp-start right">Miles &amp; RPM</th>
+                  {showMetrics ? (
+                    <>
+                      <th colSpan={3} className="grp-start g-financial right">Financial</th>
+                      <th colSpan={8} className="grp-start right">Miles &amp; RPM</th>
+                    </>
+                  ) : null}
+                  <th colSpan={1} className="grp-start"><span className="db-sr-only">Actions</span></th>
                 </tr>
                 <tr className="db-collabel-row">
                   <th className="stick stick-ref">REF#</th>
@@ -798,17 +852,21 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                   <th>DEL Appt</th>
                   <th>DEL Status/ETA</th>
                   <th>POD</th>
-                  <th className="right">Line Haul</th>
-                  <th className="right">TONU Amt</th>
-                  <th className="right">All-In Rev</th>
-                  <th className="right">Ldd Mi</th>
-                  <th className="right">PU DH</th>
-                  <th className="right">DEL DH</th>
-                  <th className="right">Total Mi</th>
-                  <th className="right">Neg Mi</th>
-                  <th className="right">Ldd RPM</th>
-                  <th className="right">NBY</th>
-                  <th className="right">Empty %</th>
+                  {showMetrics ? (
+                    <>
+                      <th className="right">Line Haul</th>
+                      <th className="right">TONU Amt</th>
+                      <th className="right">All-In Rev</th>
+                      <th className="right">Ldd Mi</th>
+                      <th className="right">PU DH</th>
+                      <th className="right">DEL DH</th>
+                      <th className="right">Total Mi</th>
+                      <th className="right">Neg Mi</th>
+                      <th className="right">Ldd RPM</th>
+                      <th className="right">NBY</th>
+                      <th className="right">Empty %</th>
+                    </>
+                  ) : null}
                   <th className="right">Del</th>
                 </tr>
               </thead>
@@ -817,6 +875,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                   <React.Fragment key={section.id}>
                     <tr
                       className={`db-section-row ${dragOverSectionId === section.id ? "selected" : ""}`}
+                      data-collapsed={collapsedSections.has(section.id) ? "true" : "false"}
                       id={`sec-${section.id}`}
                       ref={(element) => { if (element) sectionRefs.current.set(section.id, element); }}
                       onDragOver={(event) => {
@@ -837,8 +896,18 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                         }
                       }}
                     >
-                      <td colSpan={BOARD_COLUMN_COUNT} className="db-section-cell">
+                      <td colSpan={showMetrics ? 40 : 29} className="db-section-cell">
                         <div className="db-section-inner">
+                          <button
+                            type="button"
+                            className="db-section-toggle"
+                            aria-expanded={!collapsedSections.has(section.id)}
+                            aria-label={`${collapsedSections.has(section.id) ? "Expand" : "Collapse"} ${section.title}`}
+                            title={collapsedSections.has(section.id) ? "Expand" : "Collapse"}
+                            onClick={(event) => { event.stopPropagation(); toggleSection(section.id); }}
+                          >
+                            <ChevronDownIcon size={14} />
+                          </button>
                           <span className="db-section-code mono">{section.code ?? sectionCode(section.id, section.title)}</span>
                           <span className="db-section-name">{section.title}</span>
                           {section.city && section.state && !section.title.toLowerCase().includes(section.city.toLowerCase()) ? <span className="db-section-city">{section.city}, {section.state}</span> : null}
@@ -853,9 +922,9 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                         </div>
                       </td>
                     </tr>
-                    {section.loads.length === 0 ? (
+                    {collapsedSections.has(section.id) ? null : section.loads.length === 0 ? (
                       <tr className="db-empty-row">
-                        <td colSpan={BOARD_COLUMN_COUNT} className="db-empty-cell"><span className="dim">{section.type === "deliveries" ? "No deliveries due on this day." : `No loads booked for ${section.title}.`}</span></td>
+                        <td colSpan={showMetrics ? 40 : 29} className="db-empty-cell"><span className="dim">{section.type === "deliveries" ? "No deliveries due on this day." : `No loads booked for ${section.title}.`}</span></td>
                       </tr>
                     ) : (
                       section.loads.map((load, loadIndex) => (
@@ -979,17 +1048,21 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                               {puDelStatusLabel(load.delStatusPreset, load.delStatusCustom) ?? "—"}
                             </td>
                             <td className="mono">{load.podStatus ?? "—"}</td>
-                            <td className="right mono num">{money(load.lineHaul)}</td>
-                            <td className="right mono num">{money(load.tonuAmount)}</td>
-                            <td className="right mono num">{money(load.allInRevenue)}</td>
-                            <td className="right mono num">{int(load.loadedMi)}</td>
-                            <td className="right mono num dim">{int(load.puDh)}</td>
-                            <td className="right mono num dim">{int(load.delDh)}</td>
-                            <td className="right mono num">{int(load.totalMi)}</td>
-                            <td className="right mono num">{int(load.negMi)}</td>
-                            <td className="right mono num">{rpm(load.loadedRpm)}</td>
-                            <td className={`right mono num ${nbyToneClass(load.nby)}`}>{rpm(load.nby)}</td>
-                            <td className={`right mono num ${emptyPctClass(load.emptyPct, boardState.config)}`}>{pct(load.emptyPct, { fromRatio: true })}</td>
+                            {showMetrics ? (
+                              <>
+                                <td className="right mono num">{money(load.lineHaul)}</td>
+                                <td className="right mono num">{money(load.tonuAmount)}</td>
+                                <td className="right mono num">{money(load.allInRevenue)}</td>
+                                <td className="right mono num">{int(load.loadedMi)}</td>
+                                <td className="right mono num dim">{int(load.puDh)}</td>
+                                <td className="right mono num dim">{int(load.delDh)}</td>
+                                <td className="right mono num">{int(load.totalMi)}</td>
+                                <td className="right mono num">{int(load.negMi)}</td>
+                                <td className="right mono num">{rpm(load.loadedRpm)}</td>
+                                <td className={`right mono num ${nbyToneClass(load.nby)}`}>{rpm(load.nby)}</td>
+                                <td className={`right mono num ${emptyPctClass(load.emptyPct, boardState.config)}`}>{pct(load.emptyPct, { fromRatio: true })}</td>
+                              </>
+                            ) : null}
                             <td className="right">
                               <button className="db-btn db-btn-mini db-btn-ghost" type="button" onClick={(event) => { event.stopPropagation(); void softDeleteLoad(load.id); }}>
                                 X

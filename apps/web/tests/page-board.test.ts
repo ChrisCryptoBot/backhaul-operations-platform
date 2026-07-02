@@ -163,7 +163,7 @@ describe("board page shell", () => {
     expect(markup).toContain("db-side-nav");
     expect(markup).toContain("PU City, ST");
     expect(markup).toContain("DEL City, ST");
-    expect(markup).toContain("Ldd RPM");
+    expect(markup).toContain("Driver 1");
     expect(markup).toContain("class=\"db-section-code mono\"");
     expect(markup).not.toContain("class=\"db-brand-mark\"");
     expect(markup).toContain("class=\"db-side-wordmark\"");
@@ -178,7 +178,10 @@ describe("board page shell", () => {
     expect(markup).not.toContain(">Route<");
     expect(markup).not.toContain(">Load #<");
     expect(markup).not.toContain(">PU #<");
-    expect(markup).toContain(">Neg Mi<");
+    // Financials + miles are hidden by default (revealed via the Metrics toggle);
+    // essentials render server-side.
+    expect(markup).not.toContain(">Neg Mi<");
+    expect(markup).toContain(">PU Appt<");
   }, 15000);
 
   test("renders fallback section labels", async () => {
