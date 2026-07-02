@@ -102,6 +102,7 @@ interface BoardLoadDbRow {
   receiverName: string | null;
   deliveryCity: string | null;
   deliveryState: string | null;
+  bookingDate: Date | null;
   pickupDate: Date | null;
   deliveryDate: Date | null;
   deliveryWindow: string | null;
@@ -209,6 +210,7 @@ function loadToBoardRow(load: {
   receiverName: string | null;
   deliveryCity: string | null;
   deliveryState: string | null;
+  bookingDate: Date | null;
   pickupDate: Date | null;
   deliveryDate: Date | null;
   deliveryWindow: string | null;
@@ -298,6 +300,7 @@ function loadToBoardRow(load: {
     puStatusCustom: load.puStatusCustom,
     receiverName: load.receiverName,
     deliveryCityState: cityState(load.deliveryCity, load.deliveryState),
+    bookingDate: load.bookingDate?.toISOString() ?? null,
     pickupDate: load.pickupDate?.toISOString() ?? null,
     deliveryDate: load.deliveryDate?.toISOString() ?? null,
     deliveryWindow: load.deliveryWindow,
@@ -400,6 +403,7 @@ const boardLoadSelect = {
   receiverName: true,
   deliveryCity: true,
   deliveryState: true,
+  bookingDate: true,
   pickupDate: true,
   deliveryDate: true,
   deliveryWindow: true,

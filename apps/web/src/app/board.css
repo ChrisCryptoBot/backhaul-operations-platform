@@ -4509,3 +4509,5 @@ textarea.db-input { resize: vertical; min-height: 60px; line-height: 1.5; font-f
 .db-section-toggle:hover { background: var(--db-bg-elev-3); color: var(--db-fg); }
 .db-section-row[data-collapsed="true"] .db-section-toggle { transform: rotate(-90deg); }
 .db-section-row[data-collapsed="true"] { opacity: 0.86; }
+.db-del-ref-link { color: var(--db-accent); text-decoration: none; font-weight: var(--db-weight-medium); }
+.db-del-ref-link:hover { text-decoration: underline; }

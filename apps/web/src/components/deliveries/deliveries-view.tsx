@@ -1,6 +1,13 @@
 import React from "react";
+import Link from "next/link";
 import { StatusPill } from "@/components/board/status-pill";
 import { resolveDriverLabel, type ViewBoardLoadRow } from "@/lib/ui/board-mappers";
+
+/** Deep-link to the load on the tracker (its booking day) with the detail drawer open. */
+function loadHref(row: ViewBoardLoadRow): string {
+  const day = row.bookingDate ? row.bookingDate.slice(0, 10) : null;
+  return day ? `/?date=${day}&load=${row.id}` : `/?load=${row.id}`;
+}
 
 interface DeliveriesViewProps {
   deliveries: ViewBoardLoadRow[];
@@ -137,7 +144,9 @@ export function DeliveriesView({ deliveries, asOf }: DeliveriesViewProps) {
               {flagged.map(({ row, flag }) => (
                 <tr key={row.id} className={`db-del-row db-del-${flag}`}>
                   <td><span className={`db-del-flag ${FLAG_META[flag].cls}`}>{FLAG_META[flag].label}</span></td>
-                  <td className="mono db-del-ref">{row.ref}</td>
+                  <td className="mono db-del-ref">
+                    <Link href={loadHref(row)} className="db-del-ref-link" title="Open in tracker to update status / POD">{row.ref}</Link>
+                  </td>
                   <td><StatusPill status={row.status} /></td>
                   <td className="db-del-lane">
                     <span>{laneText(row.pickupCityState)}</span>
