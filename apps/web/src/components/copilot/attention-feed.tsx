@@ -2,11 +2,18 @@
 
 import React from "react";
 import type { LoadAlertRollup } from "@/lib/ui/load-alerts";
+import { alertKindToFix, type AlertFix } from "@/lib/ui/alert-fix";
 
 interface AttentionFeedProps {
   rollups: LoadAlertRollup[];
   selectedLoadId: string | null;
   onSelect: (loadId: string) => void;
+  /**
+   * Phase B: resolve an obligation in-panel. When provided, reasons with a
+   * deterministic one-click fix (see `alertKindToFix`) render a "Fix" button
+   * that seeds a copilot confirm card. Omitted → feed is view-only (click→drawer).
+   */
+  onFix?: (fix: AlertFix) => void;
 }
 
 const MAX_REASONS = 3;
@@ -27,7 +34,7 @@ function Chevron() {
  * the chat, and a section-level collapse tucks it away without hiding the chat.
  * Renders nothing when the board is all-clear so the copilot stays uncluttered.
  */
-export function AttentionFeed({ rollups, selectedLoadId, onSelect }: AttentionFeedProps) {
+export function AttentionFeed({ rollups, selectedLoadId, onSelect, onFix }: AttentionFeedProps) {
   const total = rollups.length;
   const [collapsed, setCollapsed] = React.useState(false);
   // Loads whose full alert list is expanded (per-load, persists across refresh).
@@ -72,18 +79,31 @@ export function AttentionFeed({ rollups, selectedLoadId, onSelect }: AttentionFe
                     {rollup.count > 1 ? <span className="db-cop-attn-count">{rollup.count}</span> : null}
                   </button>
                   <ul className="db-cop-attn-reasons">
-                    {shown.map((alert) => (
-                      <li key={alert.key}>
-                        <button
-                          type="button"
-                          className={`db-cop-attn-reason${alert.isObligation ? " obl" : ""}`}
-                          onClick={() => onSelect(rollup.loadId)}
-                          title="Open this load to address it"
-                        >
-                          {alert.label}
-                        </button>
-                      </li>
-                    ))}
+                    {shown.map((alert) => {
+                      const fix = onFix ? alertKindToFix(alert.kind, rollup.loadId, rollup.ref) : null;
+                      return (
+                        <li key={alert.key} className={fix ? "has-fix" : undefined}>
+                          <button
+                            type="button"
+                            className={`db-cop-attn-reason${alert.isObligation ? " obl" : ""}`}
+                            onClick={() => onSelect(rollup.loadId)}
+                            title="Open this load to address it"
+                          >
+                            {alert.label}
+                          </button>
+                          {fix ? (
+                            <button
+                              type="button"
+                              className="db-cop-attn-fix"
+                              onClick={() => onFix!(fix)}
+                              title={fix.summary}
+                            >
+                              {fix.label}
+                            </button>
+                          ) : null}
+                        </li>
+                      );
+                    })}
                     {hasMore ? (
                       <li>
                         <button

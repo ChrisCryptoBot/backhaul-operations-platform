@@ -3,6 +3,7 @@
 import React from "react";
 import { MAX_UPLOAD_BYTES, isPdfUpload, readFileAsBase64 } from "@/lib/ui/upload-utils";
 import type { LoadAlertRollup } from "@/lib/ui/load-alerts";
+import type { AlertFix } from "@/lib/ui/alert-fix";
 import { AttentionFeed } from "@/components/copilot/attention-feed";
 
 interface CopilotPanelProps {
@@ -585,6 +586,18 @@ export function CopilotPanel({ regionId, date, onChanged, attention, selectedLoa
     }
   }
 
+  // Phase B: an attention "Fix" seeds a pending confirm card for its prefilled
+  // tool, resolved through the same review→confirm flow as an agent action.
+  // Deduped so double-clicking a Fix doesn't stack identical cards.
+  const handleFix = React.useCallback((fix: AlertFix) => {
+    setError(null);
+    setPending((prev) => {
+      const key = JSON.stringify({ tool: fix.tool, input: fix.input });
+      if (prev.some((p) => JSON.stringify({ tool: p.tool, input: p.input }) === key)) return prev;
+      return [...prev, { tool: fix.tool, input: fix.input, summary: fix.summary }];
+    });
+  }, []);
+
   // Collapsed: a thin rail with the brand mark + vertical wordmark, which expands on click.
   if (collapsed) {
     return (
@@ -632,7 +645,7 @@ export function CopilotPanel({ regionId, date, onChanged, attention, selectedLoa
 
       <div className="db-cop-body" ref={bodyRef}>
         {onSelectLoad ? (
-          <AttentionFeed rollups={attentionRollups} selectedLoadId={selectedLoadId} onSelect={onSelectLoad} />
+          <AttentionFeed rollups={attentionRollups} selectedLoadId={selectedLoadId} onSelect={onSelectLoad} onFix={handleFix} />
         ) : null}
         {briefLines.length ? <CopBrief lines={briefLines} /> : null}
         {turns.length === 0 && !briefLines.length && !intakeStage ? (

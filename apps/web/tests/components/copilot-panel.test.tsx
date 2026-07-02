@@ -32,13 +32,25 @@ const ROLLUPS: LoadAlertRollup[] = [
   }
 ];
 
+const FIXABLE: LoadAlertRollup = {
+  loadId: "load-9",
+  ref: "REF-9",
+  alerts: [alert("load-9", "TASK_MG", "INFO", "MG task not done")],
+  count: 1,
+  topSeverity: "INFO",
+  hasObligation: true,
+  score: 1_001_001
+};
+
 // The panel persists its collapse preference; start each test expanded so the
 // feed is on screen without a click (which would otherwise trigger auto-brief).
+// The mock body satisfies both the auto-brief (reads `reply`) and the confirm
+// endpoint (reads `ok`/`summary`).
 beforeEach(() => {
   window.localStorage.setItem("db-copilot-collapsed", "false");
   vi.stubGlobal(
     "fetch",
-    vi.fn(async () => new Response(JSON.stringify({ reply: "" }), { status: 200, headers: { "Content-Type": "application/json" } }))
+    vi.fn(async () => new Response(JSON.stringify({ ok: true, summary: "Applied", reply: "" }), { status: 200, headers: { "Content-Type": "application/json" } }))
   );
 });
 
@@ -81,5 +93,49 @@ describe("CopilotPanel attention feed", () => {
     window.localStorage.setItem("db-copilot-collapsed", "true");
     render(<CopilotPanel attention={ROLLUPS} selectedLoadId={null} onSelectLoad={() => undefined} />);
     expect(screen.getByLabelText("2 need attention")).toBeInTheDocument();
+  });
+});
+
+describe("CopilotPanel fix-with-copilot flow", () => {
+  test("a fixable reason shows a Fix button that seeds a confirm card and posts the prefilled tool", async () => {
+    render(<CopilotPanel attention={[FIXABLE]} selectedLoadId={null} onSelectLoad={() => undefined} onChanged={() => undefined} />);
+    const feed = await screen.findByRole("region", { name: "Needs attention" });
+
+    // The MG obligation offers a one-click fix.
+    const fixButton = within(feed).getByRole("button", { name: "Mark MG done" });
+    fireEvent.click(fixButton);
+
+    // A confirm card appears naming the tool; no request has fired yet.
+    const toolChip = await screen.findByText("update_load_fields");
+    expect(toolChip).toBeInTheDocument();
+    const confirmCalls = () =>
+      (fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.filter((c) => {
+        try {
+          return JSON.parse((c[1] as RequestInit).body as string).confirm;
+        } catch {
+          return false;
+        }
+      });
+    expect(confirmCalls()).toHaveLength(0);
+
+    // Confirming posts the prefilled update_load_fields payload to /api/copilot.
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    await screen.findByText(/Applied this session/i);
+
+    const calls = confirmCalls();
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse((calls[0][1] as RequestInit).body as string).confirm).toEqual({
+      tool: "update_load_fields",
+      input: { loadId: "load-9", fields: { mgStatusTask: "DONE" } }
+    });
+  });
+
+  test("clicking the same Fix twice does not stack duplicate confirm cards", async () => {
+    render(<CopilotPanel attention={[FIXABLE]} selectedLoadId={null} onSelectLoad={() => undefined} onChanged={() => undefined} />);
+    const feed = await screen.findByRole("region", { name: "Needs attention" });
+    const fixButton = within(feed).getByRole("button", { name: "Mark MG done" });
+    fireEvent.click(fixButton);
+    fireEvent.click(fixButton);
+    expect(await screen.findAllByText("update_load_fields")).toHaveLength(1);
   });
 });
