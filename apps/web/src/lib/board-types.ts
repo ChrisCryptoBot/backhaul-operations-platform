@@ -60,6 +60,10 @@ export interface BoardLoadLegRow {
   legIndex: number;
   legType: string;
   driverName: string | null;
+  /** Phase 3 (optional, additive): rostered-driver FK + resolved roster identity. */
+  driverId?: string | null;
+  driverCode?: string | null;
+  driverFullName?: string | null;
   startCity: string | null;
   startState: string | null;
   endCity: string | null;
@@ -98,6 +102,13 @@ export interface BoardLoadRow {
   tmwStatusTask: "NOT_DONE" | "DONE";
   pickupDriverAssigned: string | null;
   deliveryDriver: string | null;
+  /** Phase 3 (optional, additive): rostered-driver FKs + resolved roster identity. */
+  pickupDriverId?: string | null;
+  pickupDriverCode?: string | null;
+  pickupDriverFullName?: string | null;
+  deliveryDriverId?: string | null;
+  deliveryDriverCode?: string | null;
+  deliveryDriverFullName?: string | null;
   tractorTrailer1: string | null;
   tractorTrailer2: string | null;
   shipperName: string | null;
@@ -108,6 +119,10 @@ export interface BoardLoadRow {
   equipmentOtherText: string | null;
   pickupCityState: string | null;
   pickupWindow: string | null;
+  /** Phase 3 (optional, additive): PU appointment, mirroring the DEL appt trio below. */
+  pickupApptType?: string | null;
+  pickupWindowStartIso?: string | null;
+  pickupWindowEndIso?: string | null;
   puStatusPreset: string;
   puStatusCustom: string | null;
   receiverName: string | null;

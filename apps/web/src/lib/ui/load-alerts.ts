@@ -106,7 +106,12 @@ function hasAnyDriver(load: ViewBoardLoadRow): boolean {
   return Boolean(
     load.pickupDriverAssigned ||
       load.deliveryDriver ||
-      (load.legs ?? []).some((leg) => leg.driverName && leg.driverName.trim().length > 0)
+      // Phase 3: a resolved rostered-driver FK counts as coverage even without free text.
+      load.pickupDriverCode ||
+      load.deliveryDriverCode ||
+      (load.legs ?? []).some(
+        (leg) => (leg.driverName && leg.driverName.trim().length > 0) || leg.driverCode
+      )
   );
 }
 

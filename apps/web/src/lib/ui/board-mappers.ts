@@ -38,6 +38,13 @@ export interface ViewBoardLoadRow {
   tmwStatusTask: "NOT_DONE" | "DONE";
   pickupDriverAssigned: string | null;
   deliveryDriver: string | null;
+  /** Phase 3 (optional, additive): rostered-driver FKs + resolved roster identity. */
+  pickupDriverId?: string | null;
+  pickupDriverCode?: string | null;
+  pickupDriverFullName?: string | null;
+  deliveryDriverId?: string | null;
+  deliveryDriverCode?: string | null;
+  deliveryDriverFullName?: string | null;
   tractorTrailer1: string | null;
   tractorTrailer2: string | null;
   commodity: string | null;
@@ -61,6 +68,10 @@ export interface ViewBoardLoadRow {
   driverType: string | null;
   pickupCityState: string | null;
   pickupWindow: string | null;
+  /** Phase 3 (optional, additive): PU appointment, mirroring the DEL appt trio above. */
+  pickupApptType?: string | null;
+  pickupWindowStartIso?: string | null;
+  pickupWindowEndIso?: string | null;
   deliveryCityState: string | null;
   deliveryWindow: string | null;
   dropLotName: string | null;
@@ -69,6 +80,9 @@ export interface ViewBoardLoadRow {
     legIndex: number;
     legType: string;
     driverName: string | null;
+    driverId?: string | null;
+    driverCode?: string | null;
+    driverFullName?: string | null;
     startCity: string | null;
     startState: string | null;
     endCity: string | null;
@@ -118,6 +132,31 @@ export interface ViewBoardResponse {
   activeRegionId: string | null;
 }
 
+export interface ResolvedDriverLabel {
+  label: string | null;
+  /** True when the label comes from a resolved rostered Driver (FK), not free text. */
+  rostered: boolean;
+  code: string | null;
+  fullName: string | null;
+}
+
+/**
+ * Phase 3 driver resolution: prefer the rostered Driver resolved through the FK
+ * (roster code as the display label, full name for tooltips); otherwise fall back
+ * to the existing free-text value verbatim. Pure read — never mutates free text.
+ */
+export function resolveDriverLabel(
+  code: string | null | undefined,
+  fullName: string | null | undefined,
+  freeText: string | null | undefined
+): ResolvedDriverLabel {
+  if (code || fullName) {
+    return { label: code ?? fullName ?? null, rostered: true, code: code ?? null, fullName: fullName ?? null };
+  }
+  const trimmed = freeText?.trim() ?? "";
+  return { label: trimmed.length > 0 ? trimmed : null, rostered: false, code: null, fullName: null };
+}
+
 export function mapBoardRowToView(row: BoardLoadRow): ViewBoardLoadRow {
   return {
     id: row.id,
@@ -156,6 +195,12 @@ export function mapBoardRowToView(row: BoardLoadRow): ViewBoardLoadRow {
     tmwStatusTask: row.tmwStatusTask,
     pickupDriverAssigned: row.pickupDriverAssigned,
     deliveryDriver: row.deliveryDriver,
+    pickupDriverId: row.pickupDriverId ?? null,
+    pickupDriverCode: row.pickupDriverCode ?? null,
+    pickupDriverFullName: row.pickupDriverFullName ?? null,
+    deliveryDriverId: row.deliveryDriverId ?? null,
+    deliveryDriverCode: row.deliveryDriverCode ?? null,
+    deliveryDriverFullName: row.deliveryDriverFullName ?? null,
     tractorTrailer1: row.tractorTrailer1,
     tractorTrailer2: row.tractorTrailer2,
     commodity: row.commodity,
@@ -179,6 +224,9 @@ export function mapBoardRowToView(row: BoardLoadRow): ViewBoardLoadRow {
     driverType: row.driverType,
     pickupCityState: row.pickupCityState,
     pickupWindow: row.pickupWindow,
+    pickupApptType: row.pickupApptType ?? null,
+    pickupWindowStartIso: row.pickupWindowStartIso ?? null,
+    pickupWindowEndIso: row.pickupWindowEndIso ?? null,
     deliveryCityState: row.deliveryCityState,
     deliveryWindow: row.deliveryWindow,
     dropLotName: row.dropLotName,
@@ -187,6 +235,9 @@ export function mapBoardRowToView(row: BoardLoadRow): ViewBoardLoadRow {
       legIndex: leg.legIndex,
       legType: leg.legType,
       driverName: leg.driverName,
+      driverId: leg.driverId ?? null,
+      driverCode: leg.driverCode ?? null,
+      driverFullName: leg.driverFullName ?? null,
       startCity: leg.startCity,
       startState: leg.startState,
       endCity: leg.endCity,

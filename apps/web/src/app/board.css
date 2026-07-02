@@ -490,7 +490,7 @@
 
 .db-table {
   width: 100%;
-  min-width: 1650px;
+  min-width: 2150px;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 12px;
@@ -4340,3 +4340,15 @@ textarea.db-input { resize: vertical; min-height: 60px; line-height: 1.5; font-f
 .db-bp-side-empty { font-size: var(--db-text-sm); }
 .db-bp-side-link { font-size: var(--db-text-xs); color: var(--db-accent); text-decoration: none; }
 .db-bp-side-link:hover { text-decoration: underline; }
+
+/* ---------------------------------------------------------------------------
+   Phase 3 — board parity columns (Driver 1–4, PU/DEL Appt & Status/ETA).
+   Rostered-driver marker + relay/appt cell affordances. Token-based; additive.
+--------------------------------------------------------------------------- */
+.db-driver-rostered { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; }
+.db-driver-rostered .mono { overflow: hidden; text-overflow: ellipsis; }
+.db-roster-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--db-accent); flex: none; }
+.db-relay-cell { max-width: 130px; }
+.db-relay-eta { font-size: var(--db-text-2xs); }
+.db-appt-cell { white-space: nowrap; }
+.db-pudel-status { max-width: 150px; }

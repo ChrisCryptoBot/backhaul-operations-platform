@@ -12,7 +12,7 @@ import {
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { useTheme, AccentToggle } from "@/components/shell/theme";
 import { int, money, pct, rpm } from "@/lib/ui/formatters";
-import { mapBoardResponseToView, type ViewBoardResponse } from "@/lib/ui/board-mappers";
+import { mapBoardResponseToView, resolveDriverLabel, type ViewBoardResponse } from "@/lib/ui/board-mappers";
 import { collectBoardAlertRollups, type LoadAlertRollup } from "@/lib/ui/load-alerts";
 import { useAlertNotifier } from "@/lib/ui/use-alert-notifier";
 import { TopbarSignOutButton } from "@/components/auth/sign-out-button";
@@ -31,7 +31,78 @@ interface BoardShellProps {
   viewerCanManageReference?: boolean;
 }
 
-const BOARD_COLUMN_COUNT = 32;
+// 32 original columns + Phase 3: Driver 1–4, PU Appt, PU Status/ETA, DEL Appt, DEL Status/ETA.
+const BOARD_COLUMN_COUNT = 40;
+
+/** Master-planner preset labels for the PU/DEL Status/ETA cells (custom text wins). */
+const PU_DEL_PRESET_LABELS: Record<string, string> = {
+  ETA_TO_PU_DEL: "ETA TO PU/DEL",
+  LOADED_SET_TO_DEL: "LOADED, SET TO DEL",
+  LATE: "LATE",
+  DONE: "DONE",
+  OTHER: ""
+};
+
+function puDelStatusLabel(preset: string, custom: string | null): string | null {
+  const trimmed = custom?.trim();
+  if (trimmed) return trimmed;
+  return PU_DEL_PRESET_LABELS[preset] || null;
+}
+
+const APPT_TYPE_LABELS: Record<string, string> = {
+  FIRM_APPT: "FIRM",
+  OPEN_WINDOW: "OPEN",
+  FCFS: "FCFS"
+};
+
+/** Local 24h HH:MM from a UTC ISO instant (null-safe). */
+function isoTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+/** Appt cell text: "FIRM 08:00–14:00", "FCFS", a bare window, or null when nothing set. */
+function apptCell(
+  type: string | null | undefined,
+  startIso: string | null | undefined,
+  endIso: string | null | undefined
+): string | null {
+  const label = type ? (APPT_TYPE_LABELS[type] ?? type) : null;
+  const start = isoTime(startIso);
+  const end = isoTime(endIso);
+  const window = start && end ? `${start}–${end}` : (start ?? end);
+  if (label && window) return `${label} ${window}`;
+  return label ?? window;
+}
+
+/**
+ * Driver cell: rostered drivers (resolved Driver FK) show the roster code with an
+ * accent dot + full-name tooltip; free-text drivers render exactly as before.
+ */
+function DriverCellValue({
+  code,
+  fullName,
+  freeText
+}: {
+  code?: string | null;
+  fullName?: string | null;
+  freeText?: string | null;
+}) {
+  const resolved = resolveDriverLabel(code ?? null, fullName ?? null, freeText ?? null);
+  if (!resolved.label) return <>—</>;
+  if (!resolved.rostered) return <>{resolved.label}</>;
+  return (
+    <span
+      className="db-driver-rostered"
+      title={resolved.fullName ? `${resolved.label} — ${resolved.fullName} (rostered)` : `${resolved.label} (rostered)`}
+    >
+      <span className="mono">{resolved.label}</span>
+      <span className="db-roster-dot" aria-hidden="true" />
+    </span>
+  );
+}
 
 /** Empty% cell color class from the region's configurable thresholds (whole percents). */
 function emptyPctClass(emptyPct: number | null, config: { emptyPctAmber: number; emptyPctRed: number }): string {
@@ -704,9 +775,9 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
               <thead>
                 <tr className="db-colgroup-row">
                   <th colSpan={9} className="g-primary">Load</th>
-                  <th colSpan={4} className="grp-start">Driver &amp; Equip</th>
-                  <th colSpan={3} className="grp-start">Pickup</th>
-                  <th colSpan={4} className="grp-start">Delivery</th>
+                  <th colSpan={8} className="grp-start">Driver &amp; Equip</th>
+                  <th colSpan={5} className="grp-start">Pickup</th>
+                  <th colSpan={6} className="grp-start">Delivery</th>
                   <th colSpan={3} className="grp-start g-financial right">Financial</th>
                   <th colSpan={9} className="grp-start right">Miles &amp; RPM</th>
                 </tr>
@@ -721,15 +792,23 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                   <th>MG</th>
                   <th>TMW</th>
                   <th>PU Driver</th>
+                  <th>Driver 1</th>
+                  <th>Driver 2</th>
+                  <th>Driver 3</th>
+                  <th>Driver 4</th>
                   <th>Trk/Trlr</th>
                   <th>Commodity</th>
                   <th>Equip</th>
                   <th>Shipper</th>
                   <th>PU City, ST</th>
                   <th>PU Window</th>
+                  <th>PU Appt</th>
+                  <th>PU Status/ETA</th>
                   <th>Receiver</th>
                   <th>DEL City, ST</th>
                   <th>DEL Date/Win</th>
+                  <th>DEL Appt</th>
+                  <th>DEL Status/ETA</th>
                   <th>POD</th>
                   <th className="right">Line Haul</th>
                   <th className="right">TONU Amt</th>
@@ -866,13 +945,34 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                                 <option value="DONE">DONE</option>
                               </select>
                             </td>
-                            <td className="trunc" title={load.pickupDriverAssigned ?? undefined}>{load.pickupDriverAssigned ?? "—"}</td>
+                            <td className="trunc">
+                              <DriverCellValue code={load.pickupDriverCode} fullName={load.pickupDriverFullName} freeText={load.pickupDriverAssigned} />
+                            </td>
+                            {[0, 1, 2, 3].map((slot) => {
+                              const leg = (load.legs ?? [])[slot];
+                              return (
+                                <td key={`relay-${slot}`} className="trunc db-relay-cell">
+                                  {leg ? (
+                                    <>
+                                      <DriverCellValue code={leg.driverCode} fullName={leg.driverFullName} freeText={leg.driverName} />
+                                      {leg.etaAtIso ? <span className="db-relay-eta mono dim"> {isoTime(leg.etaAtIso)}</span> : null}
+                                    </>
+                                  ) : (
+                                    "—"
+                                  )}
+                                </td>
+                              );
+                            })}
                             <td className="trunc">{[load.tractorTrailer1, load.tractorTrailer2].filter(Boolean).join(" / ") || "—"}</td>
                             <td className="trunc">{load.commodity ?? "—"}</td>
                             <td className="trunc">{load.equipmentType ?? load.equipmentNeeds ?? "—"}</td>
                             <td className="trunc" title={load.shipper}>{load.shipper}</td>
                             <td><span className="db-city">{splitCityState(load.pickupCityState).city}</span>{splitCityState(load.pickupCityState).state ? <span className="db-state mono">{splitCityState(load.pickupCityState).state}</span> : null}</td>
                             <td className="mono dim">{load.pickupWindow ?? "—"}</td>
+                            <td className="mono dim db-appt-cell">{apptCell(load.pickupApptType, load.pickupWindowStartIso, load.pickupWindowEndIso) ?? "—"}</td>
+                            <td className="trunc db-pudel-status" title={puDelStatusLabel(load.puStatusPreset, load.puStatusCustom) ?? undefined}>
+                              {puDelStatusLabel(load.puStatusPreset, load.puStatusCustom) ?? "—"}
+                            </td>
                             <td className="trunc" title={load.receiver}>{load.receiver}</td>
                             <td><span className="db-city">{splitCityState(load.deliveryCityState).city}</span>{splitCityState(load.deliveryCityState).state ? <span className="db-state mono">{splitCityState(load.deliveryCityState).state}</span> : null}</td>
                             <td className="mono dim">
@@ -885,6 +985,10 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                                 onChange={(event) => void updateLoadFields(load.id, { deliveryDate: event.target.value || null })}
                               />
                               {" / "}{load.deliveryWindow ?? "—"}
+                            </td>
+                            <td className="mono dim db-appt-cell">{apptCell(load.deliveryApptType, load.deliveryWindowStartIso, load.deliveryWindowEndIso) ?? "—"}</td>
+                            <td className="trunc db-pudel-status" title={puDelStatusLabel(load.delStatusPreset, load.delStatusCustom) ?? undefined}>
+                              {puDelStatusLabel(load.delStatusPreset, load.delStatusCustom) ?? "—"}
                             </td>
                             <td className="mono">{load.podStatus ?? "—"}</td>
                             <td className="right mono num">{money(load.lineHaul)}</td>

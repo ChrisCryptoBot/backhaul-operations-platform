@@ -79,6 +79,10 @@ interface BoardLoadDbRow {
   tmwStatusTask: "NOT_DONE" | "DONE";
   pickupDriverAssigned: string | null;
   deliveryDriver: string | null;
+  pickupDriverId: string | null;
+  deliveryDriverId: string | null;
+  pickupDriverRef: { id: string; code: string; fullName: string } | null;
+  deliveryDriverRef: { id: string; code: string; fullName: string } | null;
   tractorTrailer1: string | null;
   tractorTrailer2: string | null;
   shipperName: string | null;
@@ -90,6 +94,9 @@ interface BoardLoadDbRow {
   pickupCity: string | null;
   pickupState: string | null;
   pickupWindow: string | null;
+  pickupApptType: string | null;
+  pickupWindowStart: Date | null;
+  pickupWindowEnd: Date | null;
   puStatusPreset: string;
   puStatusCustom: string | null;
   receiverName: string | null;
@@ -120,6 +127,8 @@ interface BoardLoadDbRow {
     legIndex: number;
     legType: string;
     driverName: string | null;
+    driverId: string | null;
+    driver: { id: string; code: string; fullName: string } | null;
     startCity: string | null;
     startState: string | null;
     endCity: string | null;
@@ -176,6 +185,10 @@ function loadToBoardRow(load: {
   tmwStatusTask: "NOT_DONE" | "DONE";
   pickupDriverAssigned: string | null;
   deliveryDriver: string | null;
+  pickupDriverId: string | null;
+  deliveryDriverId: string | null;
+  pickupDriverRef: { id: string; code: string; fullName: string } | null;
+  deliveryDriverRef: { id: string; code: string; fullName: string } | null;
   tractorTrailer1: string | null;
   tractorTrailer2: string | null;
   shipperName: string | null;
@@ -187,6 +200,9 @@ function loadToBoardRow(load: {
   pickupCity: string | null;
   pickupState: string | null;
   pickupWindow: string | null;
+  pickupApptType: string | null;
+  pickupWindowStart: Date | null;
+  pickupWindowEnd: Date | null;
   puStatusPreset: string;
   puStatusCustom: string | null;
   receiverName: string | null;
@@ -217,6 +233,8 @@ function loadToBoardRow(load: {
     legIndex: number;
     legType: string;
     driverName: string | null;
+    driverId: string | null;
+    driver: { id: string; code: string; fullName: string } | null;
     startCity: string | null;
     startState: string | null;
     endCity: string | null;
@@ -255,6 +273,12 @@ function loadToBoardRow(load: {
     tmwStatusTask: load.tmwStatusTask,
     pickupDriverAssigned: load.pickupDriverAssigned,
     deliveryDriver: load.deliveryDriver,
+    pickupDriverId: load.pickupDriverId,
+    pickupDriverCode: load.pickupDriverRef?.code ?? null,
+    pickupDriverFullName: load.pickupDriverRef?.fullName ?? null,
+    deliveryDriverId: load.deliveryDriverId,
+    deliveryDriverCode: load.deliveryDriverRef?.code ?? null,
+    deliveryDriverFullName: load.deliveryDriverRef?.fullName ?? null,
     tractorTrailer1: load.tractorTrailer1,
     tractorTrailer2: load.tractorTrailer2,
     shipperName: load.shipperName,
@@ -265,6 +289,9 @@ function loadToBoardRow(load: {
     equipmentOtherText: load.equipmentOtherText,
     pickupCityState: cityState(load.pickupCity, load.pickupState),
     pickupWindow: load.pickupWindow,
+    pickupApptType: load.pickupApptType,
+    pickupWindowStartIso: load.pickupWindowStart?.toISOString() ?? null,
+    pickupWindowEndIso: load.pickupWindowEnd?.toISOString() ?? null,
     puStatusPreset: load.puStatusPreset,
     puStatusCustom: load.puStatusCustom,
     receiverName: load.receiverName,
@@ -304,6 +331,9 @@ function loadToBoardRow(load: {
       legIndex: leg.legIndex,
       legType: leg.legType,
       driverName: leg.driverName,
+      driverId: leg.driverId,
+      driverCode: leg.driver?.code ?? null,
+      driverFullName: leg.driver?.fullName ?? null,
       startCity: leg.startCity,
       startState: leg.startState,
       endCity: leg.endCity,
@@ -344,6 +374,10 @@ const boardLoadSelect = {
   tmwStatusTask: true,
   pickupDriverAssigned: true,
   deliveryDriver: true,
+  pickupDriverId: true,
+  deliveryDriverId: true,
+  pickupDriverRef: { select: { id: true, code: true, fullName: true } },
+  deliveryDriverRef: { select: { id: true, code: true, fullName: true } },
   tractorTrailer1: true,
   tractorTrailer2: true,
   shipperName: true,
@@ -355,6 +389,9 @@ const boardLoadSelect = {
   pickupCity: true,
   pickupState: true,
   pickupWindow: true,
+  pickupApptType: true,
+  pickupWindowStart: true,
+  pickupWindowEnd: true,
   puStatusPreset: true,
   puStatusCustom: true,
   receiverName: true,
@@ -387,6 +424,8 @@ const boardLoadSelect = {
       legIndex: true,
       legType: true,
       driverName: true,
+      driverId: true,
+      driver: { select: { id: true, code: true, fullName: true } },
       startCity: true,
       startState: true,
       endCity: true,
