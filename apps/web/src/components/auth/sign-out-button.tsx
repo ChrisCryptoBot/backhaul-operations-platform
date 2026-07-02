@@ -2,8 +2,10 @@
 
 import React from "react";
 import { SignOutButton, useAuth } from "@clerk/nextjs";
+import { isClerkEnabled } from "@/lib/auth/clerk-config";
 
-export function TopbarSignOutButton() {
+/** The real sign-out control — only mounted when <ClerkProvider> is present. */
+function ClerkSignOutButton() {
   const { isSignedIn } = useAuth();
   if (!isSignedIn) {
     return null;
@@ -16,4 +18,16 @@ export function TopbarSignOutButton() {
       </button>
     </SignOutButton>
   );
+}
+
+/**
+ * In dev bypass there is no Clerk key, so the layout doesn't mount <ClerkProvider>
+ * and calling useAuth() would throw. Gate on the same condition and render nothing —
+ * the hook lives in the inner component, which is only reached when Clerk is enabled.
+ */
+export function TopbarSignOutButton() {
+  if (!isClerkEnabled()) {
+    return null;
+  }
+  return <ClerkSignOutButton />;
 }
