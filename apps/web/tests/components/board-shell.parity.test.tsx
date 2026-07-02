@@ -179,7 +179,8 @@ describe("board shell — Phase 3 parity columns", () => {
 
   test("with metrics shown, keeps all 32 original headers + 8 parity headers = 40 columns", () => {
     const { container } = render(<BoardShell board={boardFixture} />);
-    // Financials + miles are hidden by default now; reveal them for the full parity check.
+    // Secondary + metric columns are hidden by default now; reveal both for the full parity check.
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
     fireEvent.click(screen.getByRole("button", { name: "Metrics" }));
 
     const headerCells = Array.from(container.querySelectorAll("tr.db-collabel-row th")).map(
@@ -201,16 +202,36 @@ describe("board shell — Phase 3 parity columns", () => {
     expect(groupSpan).toBe(40);
   });
 
-  test("hides financials + miles by default, keeping the board scannable", () => {
+  test("shows essentials only by default (financials, miles, and secondary columns hidden)", () => {
     const { container } = render(<BoardShell board={boardFixture} />);
     const headerCells = Array.from(container.querySelectorAll("tr.db-collabel-row th")).map(
       (cell) => cell.textContent?.trim() ?? ""
     );
-    // Essentials + the always-visible Del action remain; metric columns are gone.
-    expect(headerCells).toContain("PU Appt");
-    expect(headerCells).toContain("DEL Status/ETA");
-    expect(headerCells).toContain("Del");
+    // Essentials + the always-visible Del action remain.
+    for (const label of ["REF#", "STATUS", "PU#(s)", "PU Driver", "Driver 1", "PU City, ST", "PU Appt", "DEL City, ST", "DEL Date/Win", "DEL Status/ETA", "Del"]) {
+      expect(headerCells).toContain(label);
+    }
+    // Metric columns are hidden…
     expect(headerCells).not.toContain("Line Haul");
+    expect(headerCells).not.toContain("Neg Mi");
+    // …and so are the secondary/detail columns.
+    expect(headerCells).not.toContain("NOTE");
+    expect(headerCells).not.toContain("Broker (rep)");
+    expect(headerCells).not.toContain("Commodity");
+    expect(headerCells).not.toContain("POD");
+    expect(headerCells).toHaveLength(16);
+  });
+
+  test("Details toggle reveals the secondary columns", () => {
+    const { container } = render(<BoardShell board={boardFixture} />);
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+    const headerCells = Array.from(container.querySelectorAll("tr.db-collabel-row th")).map(
+      (cell) => cell.textContent?.trim() ?? ""
+    );
+    for (const label of ["NOTE", "Broker (rep)", "Commodity", "Equip", "Shipper", "Receiver", "POD"]) {
+      expect(headerCells).toContain(label);
+    }
+    // Metrics stay hidden (independent toggle).
     expect(headerCells).not.toContain("Neg Mi");
     expect(headerCells).toHaveLength(29);
   });

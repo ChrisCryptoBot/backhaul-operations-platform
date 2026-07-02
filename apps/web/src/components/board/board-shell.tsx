@@ -227,6 +227,9 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
   // Metrics (financials + miles) are hidden by default to keep the board scannable;
   // toggled on inline without opening the drawer. Yard sections collapse independently.
   const [showMetrics, setShowMetrics] = React.useState(false);
+  // Secondary text columns (notes, tasks, equipment, shipper, receiver, POD) collapse
+  // behind "Details" so the board shows the coordinator's essentials by default.
+  const [showDetails, setShowDetails] = React.useState(false);
   const [collapsedSections, setCollapsedSections] = React.useState<Set<string>>(new Set());
   const [dragOverSectionId, setDragOverSectionId] = React.useState<string | null>(null);
   const [highlightLoadId, setHighlightLoadId] = React.useState<string | null>(initialHighlightLoadId);
@@ -264,6 +267,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
 
   React.useEffect(() => {
     if (window.localStorage.getItem("db-show-metrics") === "true") setShowMetrics(true);
+    if (window.localStorage.getItem("db-show-details") === "true") setShowDetails(true);
     try {
       const raw = window.localStorage.getItem("db-collapsed-sections");
       if (raw) setCollapsedSections(new Set(JSON.parse(raw) as string[]));
@@ -277,6 +281,18 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
       const next = !prev;
       try {
         window.localStorage.setItem("db-show-metrics", next ? "true" : "false");
+      } catch {
+        /* storage unavailable */
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleDetails = React.useCallback(() => {
+    setShowDetails((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem("db-show-details", next ? "true" : "false");
       } catch {
         /* storage unavailable */
       }
@@ -771,6 +787,15 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
             </div>
             <button
               type="button"
+              className={`db-metrics-toggle${showDetails ? " active" : ""}`}
+              aria-pressed={showDetails}
+              onClick={toggleDetails}
+              title={showDetails ? "Hide secondary columns" : "Show secondary columns (notes, tasks, equipment…)"}
+            >
+              {showDetails ? "Hide details" : "Details"}
+            </button>
+            <button
+              type="button"
               className={`db-metrics-toggle${showMetrics ? " active" : ""}`}
               aria-pressed={showMetrics}
               onClick={toggleMetrics}
@@ -811,10 +836,10 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
               <caption className="db-sr-only">Daily load board sections and loads</caption>
               <thead>
                 <tr className="db-colgroup-row">
-                  <th colSpan={9} className="g-primary">Load</th>
-                  <th colSpan={8} className="grp-start">Driver &amp; Equip</th>
-                  <th colSpan={5} className="grp-start">Pickup</th>
-                  <th colSpan={6} className="grp-start">Delivery</th>
+                  <th colSpan={3 + (showDetails ? 6 : 0)} className="g-primary">Load</th>
+                  <th colSpan={5 + (showDetails ? 3 : 0)} className="grp-start">Driver &amp; Equip</th>
+                  <th colSpan={3 + (showDetails ? 2 : 0)} className="grp-start">Pickup</th>
+                  <th colSpan={4 + (showDetails ? 2 : 0)} className="grp-start">Delivery</th>
                   {showMetrics ? (
                     <>
                       <th colSpan={3} className="grp-start g-financial right">Financial</th>
@@ -826,32 +851,44 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                 <tr className="db-collabel-row">
                   <th className="stick stick-ref">REF#</th>
                   <th className="stick stick-status stick-last">STATUS</th>
-                  <th>NOTE</th>
-                  <th>SCALE BEF</th>
-                  <th>SCALE AFT</th>
+                  {showDetails ? (
+                    <>
+                      <th>NOTE</th>
+                      <th>SCALE BEF</th>
+                      <th>SCALE AFT</th>
+                    </>
+                  ) : null}
                   <th>PU#(s)</th>
-                  <th>Broker (rep)</th>
-                  <th>MG</th>
-                  <th>TMW</th>
+                  {showDetails ? (
+                    <>
+                      <th>Broker (rep)</th>
+                      <th>MG</th>
+                      <th>TMW</th>
+                    </>
+                  ) : null}
                   <th>PU Driver</th>
                   <th>Driver 1</th>
                   <th>Driver 2</th>
                   <th>Driver 3</th>
                   <th>Driver 4</th>
-                  <th>Trk/Trlr</th>
-                  <th>Commodity</th>
-                  <th>Equip</th>
-                  <th>Shipper</th>
+                  {showDetails ? (
+                    <>
+                      <th>Trk/Trlr</th>
+                      <th>Commodity</th>
+                      <th>Equip</th>
+                      <th>Shipper</th>
+                    </>
+                  ) : null}
                   <th>PU City, ST</th>
-                  <th>PU Window</th>
+                  {showDetails ? <th>PU Window</th> : null}
                   <th>PU Appt</th>
                   <th>PU Status/ETA</th>
-                  <th>Receiver</th>
+                  {showDetails ? <th>Receiver</th> : null}
                   <th>DEL City, ST</th>
                   <th>DEL Date/Win</th>
                   <th>DEL Appt</th>
                   <th>DEL Status/ETA</th>
-                  <th>POD</th>
+                  {showDetails ? <th>POD</th> : null}
                   {showMetrics ? (
                     <>
                       <th className="right">Line Haul</th>
@@ -896,7 +933,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                         }
                       }}
                     >
-                      <td colSpan={showMetrics ? 40 : 29} className="db-section-cell">
+                      <td colSpan={16 + (showDetails ? 13 : 0) + (showMetrics ? 11 : 0)} className="db-section-cell">
                         <div className="db-section-inner">
                           <button
                             type="button"
@@ -924,7 +961,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                     </tr>
                     {collapsedSections.has(section.id) ? null : section.loads.length === 0 ? (
                       <tr className="db-empty-row">
-                        <td colSpan={showMetrics ? 40 : 29} className="db-empty-cell"><span className="dim">{section.type === "deliveries" ? "No deliveries due on this day." : `No loads booked for ${section.title}.`}</span></td>
+                        <td colSpan={16 + (showDetails ? 13 : 0) + (showMetrics ? 11 : 0)} className="db-empty-cell"><span className="dim">{section.type === "deliveries" ? "No deliveries due on this day." : `No loads booked for ${section.title}.`}</span></td>
                       </tr>
                     ) : (
                       section.loads.map((load, loadIndex) => (
@@ -953,55 +990,63 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                               </button>
                             </td>
                             <td className="stick stick-status stick-last"><StatusPill status={load.status} /></td>
-                            <td className="trunc" title={load.coordinatorNotes ?? load.lateCancelFailedNote ?? undefined}>
-                              {load.coordinatorNotes ?? load.lateCancelFailedNote ?? "—"}
-                            </td>
-                            <td>
-                              <select
-                                className="db-datepicker"
-                                aria-label={`Scale Before for ${load.ref}`}
-                                value={load.scaleBeforeTask}
-                                onChange={(event) => void updateLoadFields(load.id, { scaleBeforeTask: event.target.value })}
-                              >
-                                <option value="NOT_DONE">NOT_DONE</option>
-                                <option value="DONE">DONE</option>
-                              </select>
-                            </td>
-                            <td>
-                              <select
-                                className="db-datepicker"
-                                aria-label={`Scale After for ${load.ref}`}
-                                value={load.scaleAfterTask}
-                                onChange={(event) => void updateLoadFields(load.id, { scaleAfterTask: event.target.value })}
-                              >
-                                <option value="NOT_DONE">NOT_DONE</option>
-                                <option value="DONE">DONE</option>
-                              </select>
-                            </td>
+                            {showDetails ? (
+                              <>
+                                <td className="trunc" title={load.coordinatorNotes ?? load.lateCancelFailedNote ?? undefined}>
+                                  {load.coordinatorNotes ?? load.lateCancelFailedNote ?? "—"}
+                                </td>
+                                <td>
+                                  <select
+                                    className="db-datepicker"
+                                    aria-label={`Scale Before for ${load.ref}`}
+                                    value={load.scaleBeforeTask}
+                                    onChange={(event) => void updateLoadFields(load.id, { scaleBeforeTask: event.target.value })}
+                                  >
+                                    <option value="NOT_DONE">NOT_DONE</option>
+                                    <option value="DONE">DONE</option>
+                                  </select>
+                                </td>
+                                <td>
+                                  <select
+                                    className="db-datepicker"
+                                    aria-label={`Scale After for ${load.ref}`}
+                                    value={load.scaleAfterTask}
+                                    onChange={(event) => void updateLoadFields(load.id, { scaleAfterTask: event.target.value })}
+                                  >
+                                    <option value="NOT_DONE">NOT_DONE</option>
+                                    <option value="DONE">DONE</option>
+                                  </select>
+                                </td>
+                              </>
+                            ) : null}
                             <td className="mono">{(load.pickupNumbers ?? []).length > 0 ? (load.pickupNumbers ?? []).join(", ") : (load.pickupNumber ?? "—")}</td>
-                            <td className="trunc" title={load.brokerName ?? undefined}>{load.brokerName ?? "—"}{load.brokerRepName ? ` (${load.brokerRepName})` : ""}</td>
-                            <td>
-                              <select
-                                className="db-datepicker"
-                                aria-label={`MG task for ${load.ref}`}
-                                value={load.mgStatusTask}
-                                onChange={(event) => void updateLoadFields(load.id, { mgStatusTask: event.target.value })}
-                              >
-                                <option value="NOT_DONE">NOT_DONE</option>
-                                <option value="DONE">DONE</option>
-                              </select>
-                            </td>
-                            <td>
-                              <select
-                                className="db-datepicker"
-                                aria-label={`TMW task for ${load.ref}`}
-                                value={load.tmwStatusTask}
-                                onChange={(event) => void updateLoadFields(load.id, { tmwStatusTask: event.target.value })}
-                              >
-                                <option value="NOT_DONE">NOT_DONE</option>
-                                <option value="DONE">DONE</option>
-                              </select>
-                            </td>
+                            {showDetails ? (
+                              <>
+                                <td className="trunc" title={load.brokerName ?? undefined}>{load.brokerName ?? "—"}{load.brokerRepName ? ` (${load.brokerRepName})` : ""}</td>
+                                <td>
+                                  <select
+                                    className="db-datepicker"
+                                    aria-label={`MG task for ${load.ref}`}
+                                    value={load.mgStatusTask}
+                                    onChange={(event) => void updateLoadFields(load.id, { mgStatusTask: event.target.value })}
+                                  >
+                                    <option value="NOT_DONE">NOT_DONE</option>
+                                    <option value="DONE">DONE</option>
+                                  </select>
+                                </td>
+                                <td>
+                                  <select
+                                    className="db-datepicker"
+                                    aria-label={`TMW task for ${load.ref}`}
+                                    value={load.tmwStatusTask}
+                                    onChange={(event) => void updateLoadFields(load.id, { tmwStatusTask: event.target.value })}
+                                  >
+                                    <option value="NOT_DONE">NOT_DONE</option>
+                                    <option value="DONE">DONE</option>
+                                  </select>
+                                </td>
+                              </>
+                            ) : null}
                             <td className="trunc">
                               <DriverCellValue code={load.pickupDriverCode} fullName={load.pickupDriverFullName} freeText={load.pickupDriverAssigned} />
                             </td>
@@ -1020,17 +1065,21 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                                 </td>
                               );
                             })}
-                            <td className="trunc">{[load.tractorTrailer1, load.tractorTrailer2].filter(Boolean).join(" / ") || "—"}</td>
-                            <td className="trunc">{load.commodity ?? "—"}</td>
-                            <td className="trunc">{load.equipmentType ?? load.equipmentNeeds ?? "—"}</td>
-                            <td className="trunc" title={load.shipper}>{load.shipper}</td>
+                            {showDetails ? (
+                              <>
+                                <td className="trunc">{[load.tractorTrailer1, load.tractorTrailer2].filter(Boolean).join(" / ") || "—"}</td>
+                                <td className="trunc">{load.commodity ?? "—"}</td>
+                                <td className="trunc">{load.equipmentType ?? load.equipmentNeeds ?? "—"}</td>
+                                <td className="trunc" title={load.shipper}>{load.shipper}</td>
+                              </>
+                            ) : null}
                             <td><span className="db-city">{splitCityState(load.pickupCityState).city}</span>{splitCityState(load.pickupCityState).state ? <span className="db-state mono">{splitCityState(load.pickupCityState).state}</span> : null}</td>
-                            <td className="mono dim">{load.pickupWindow ?? "—"}</td>
+                            {showDetails ? <td className="mono dim">{load.pickupWindow ?? "—"}</td> : null}
                             <td className="mono dim db-appt-cell">{apptCell(load.pickupApptType, load.pickupWindowStartIso, load.pickupWindowEndIso) ?? "—"}</td>
                             <td className="trunc db-pudel-status" title={puDelStatusLabel(load.puStatusPreset, load.puStatusCustom) ?? undefined}>
                               {puDelStatusLabel(load.puStatusPreset, load.puStatusCustom) ?? "—"}
                             </td>
-                            <td className="trunc" title={load.receiver}>{load.receiver}</td>
+                            {showDetails ? <td className="trunc" title={load.receiver}>{load.receiver}</td> : null}
                             <td><span className="db-city">{splitCityState(load.deliveryCityState).city}</span>{splitCityState(load.deliveryCityState).state ? <span className="db-state mono">{splitCityState(load.deliveryCityState).state}</span> : null}</td>
                             <td className="mono dim">
                               <input
@@ -1047,7 +1096,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                             <td className="trunc db-pudel-status" title={puDelStatusLabel(load.delStatusPreset, load.delStatusCustom) ?? undefined}>
                               {puDelStatusLabel(load.delStatusPreset, load.delStatusCustom) ?? "—"}
                             </td>
-                            <td className="mono">{load.podStatus ?? "—"}</td>
+                            {showDetails ? <td className="mono">{load.podStatus ?? "—"}</td> : null}
                             {showMetrics ? (
                               <>
                                 <td className="right mono num">{money(load.lineHaul)}</td>
