@@ -16,7 +16,6 @@ import { useAlertNotifier } from "@/lib/ui/use-alert-notifier";
 import { TopbarSignOutButton } from "@/components/auth/sign-out-button";
 import { StatusPill } from "./status-pill";
 import { LoadDetailDrawer } from "./load-detail-drawer";
-import { AttentionRail } from "./attention-rail";
 import { CopilotPanel } from "@/components/copilot/copilot-panel";
 import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -218,7 +217,6 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
     for (const rollup of alertRollupList) map.set(rollup.loadId, rollup);
     return map;
   }, [alertRollupList]);
-  const [attentionCollapsed, setAttentionCollapsed] = React.useState(false);
   const [selectedLoadId, setSelectedLoadId] = React.useState<string | null>(null);
   const [searchQuery, setSearchQuery] = React.useState("");
   const [uploadError, setUploadError] = React.useState<string | null>(null);
@@ -1164,18 +1162,13 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
 
         </main>
 
-        <AttentionRail
-          rollups={alertRollupList}
-          selectedLoadId={selectedLoadId}
-          onSelect={(loadId) => setSelectedLoadId(loadId)}
-          collapsed={attentionCollapsed}
-          onToggleCollapsed={() => setAttentionCollapsed((value) => !value)}
-        />
-
         <CopilotPanel
           regionId={boardState.activeRegionId ?? boardState.regionId}
           date={boardState.date}
           onChanged={() => void reloadBoard()}
+          attention={alertRollupList}
+          selectedLoadId={selectedLoadId}
+          onSelectLoad={(loadId) => setSelectedLoadId(loadId)}
         />
       </div>
 

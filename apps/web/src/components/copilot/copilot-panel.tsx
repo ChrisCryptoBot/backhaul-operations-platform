@@ -2,6 +2,8 @@
 
 import React from "react";
 import { MAX_UPLOAD_BYTES, isPdfUpload, readFileAsBase64 } from "@/lib/ui/upload-utils";
+import type { LoadAlertRollup } from "@/lib/ui/load-alerts";
+import { AttentionFeed } from "@/components/copilot/attention-feed";
 
 interface CopilotPanelProps {
   /** Active region. Optional — the API resolves the Phase 1 region when omitted. */
@@ -10,6 +12,15 @@ interface CopilotPanelProps {
   date?: string;
   /** Called after the copilot applies/confirms a change. Defaults to a router refresh. */
   onChanged?: () => void;
+  /**
+   * "Needs attention" rollups to surface as the copilot's default feed. The board
+   * passes its already-memoized `alertRollupList`; omitted off-board (Phase C wires
+   * a tool-backed fetch there). `onSelectLoad` opens the load's drawer, as the old
+   * standalone rail did.
+   */
+  attention?: LoadAlertRollup[];
+  selectedLoadId?: string | null;
+  onSelectLoad?: (loadId: string) => void;
 }
 
 interface ChatTurn {
@@ -285,7 +296,9 @@ function CopParseBanner({ confidence }: { confidence: number | null }) {
   );
 }
 
-export function CopilotPanel({ regionId, date, onChanged }: CopilotPanelProps) {
+export function CopilotPanel({ regionId, date, onChanged, attention, selectedLoadId = null, onSelectLoad }: CopilotPanelProps) {
+  const attentionRollups = attention ?? [];
+  const attentionCount = attentionRollups.length;
   // After a copilot change, refresh so server-rendered data updates. The board passes
   // its own soft reload; elsewhere we fall back to a full reload (only ever called from
   // an action handler, never during render — keeps the component router-context-free).
@@ -582,8 +595,11 @@ export function CopilotPanel({ regionId, date, onChanged }: CopilotPanelProps) {
           onClick={() => setCollapsed(false)}
           aria-label="Expand copilot"
           aria-expanded={false}
-          title="Copilot"
+          title={attentionCount > 0 ? `Copilot — ${attentionCount} need attention` : "Copilot"}
         >
+          {attentionCount > 0 ? (
+            <span className="db-cop-rail-badge" aria-label={`${attentionCount} need attention`}>{attentionCount}</span>
+          ) : null}
           <span className="db-cop-mark" aria-hidden="true">{Icon.spark()}</span>
           <span className="db-cop-rail-word">Copilot</span>
           <span className="db-cop-rail-chev" aria-hidden="true">{Icon.chevL()}</span>
@@ -615,6 +631,9 @@ export function CopilotPanel({ regionId, date, onChanged }: CopilotPanelProps) {
       </header>
 
       <div className="db-cop-body" ref={bodyRef}>
+        {onSelectLoad ? (
+          <AttentionFeed rollups={attentionRollups} selectedLoadId={selectedLoadId} onSelect={onSelectLoad} />
+        ) : null}
         {briefLines.length ? <CopBrief lines={briefLines} /> : null}
         {turns.length === 0 && !briefLines.length && !intakeStage ? (
           <p className="db-cop-empty">
