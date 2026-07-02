@@ -597,10 +597,10 @@ export async function getBoardResponse(input: {
       sections: [
         ...dropLotSections,
         ...(adHocSection ? [adHocSection] : []),
-        deliveriesSection,
-        canceledSection,
         regionNextDaySection,
-        localAwleInboundSection
+        localAwleInboundSection,
+        canceledSection,
+        deliveriesSection
       ],
       dayTotals: {
         loadCount: activeLoads.length,

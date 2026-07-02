@@ -138,9 +138,12 @@ describe("board server contract", () => {
     expect(response.sections[1].dropLot?.name).toBe("CDC");
     expect(response.sections[2].type).toBe("adhoc");
     expect(response.sections[2].loads).toHaveLength(1);
-    expect(response.sections[3].type).toBe("deliveries");
-    expect(response.sections[4].type).toBe("canceled");
-    expect(response.sections[4].loads).toHaveLength(1);
+    // Canceled sits right before deliveries, which is pinned to the very bottom.
+    const types = response.sections.map((section) => section.type);
+    expect(types[types.length - 1]).toBe("deliveries");
+    expect(types[types.length - 2]).toBe("canceled");
+    const canceled = response.sections.find((section) => section.type === "canceled");
+    expect(canceled?.loads).toHaveLength(1);
     expect(response.dayTotals.loadCount).toBe(2);
   });
 
@@ -159,8 +162,9 @@ describe("board server contract", () => {
     const response = await getBoardResponse({ regionId: "region-1", date: "2026-04-29" });
     expect(response.sections).toHaveLength(5);
     expect(response.sections[0].type).toBe("adhoc");
-    expect(response.sections[1].type).toBe("deliveries");
-    expect(response.sections[2].type).toBe("canceled");
+    // Order: special buckets, then canceled, then deliveries pinned last.
+    expect(response.sections[3].type).toBe("canceled");
+    expect(response.sections[4].type).toBe("deliveries");
     expect(response.dayTotals.loadCount).toBe(0);
     expect(response.dayTotals.emptyMilePct).toBeNull();
   });
