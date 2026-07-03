@@ -3,7 +3,6 @@
 import Link from "next/link";
 import React from "react";
 import type { BookingPlanEntrySummary, DirectCustomerSummary, DriverSummary } from "@/server/reference";
-import { ReferenceTabs } from "@/components/reference/reference-tabs";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -222,7 +221,6 @@ export function BookingPlanManager({
 
   return (
     <div className="db-ref">
-      <ReferenceTabs />
       <div className="db-ref-body">
         <div className="db-ref-head">
           <div>

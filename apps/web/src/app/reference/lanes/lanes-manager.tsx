@@ -3,7 +3,6 @@
 import Link from "next/link";
 import React from "react";
 import type { LaneSummary } from "@/server/reference";
-import { ReferenceTabs } from "@/components/reference/reference-tabs";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -116,7 +115,6 @@ export function LanesManager({ initialLanes, canWrite }: LanesManagerProps) {
 
   return (
     <div className="db-ref">
-      <ReferenceTabs />
       <div className="db-ref-body">
         <div className="db-ref-head">
           <div>
