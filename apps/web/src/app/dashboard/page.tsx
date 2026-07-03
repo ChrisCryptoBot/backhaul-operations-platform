@@ -13,10 +13,9 @@ import { listAccessibleRegions } from "@/server/kpi-governance";
 import { AuthErrorState } from "@/components/auth/auth-error-state";
 import type { KpiDashboardFilters } from "@/server/kpi-dashboard";
 
-function previousWeekIso(): string {
-  const previousWeek = new Date();
-  previousWeek.setDate(previousWeek.getDate() - 7);
-  return weekIsoFromPickup(previousWeek);
+function currentWeekIso(): string {
+  const currentWeek = new Date();
+  return weekIsoFromPickup(currentWeek);
 }
 
 interface DashboardPageProps {
@@ -66,7 +65,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   }
 
   const weekIsoParam = searchParams?.weekIso;
-  const weekIso = typeof weekIsoParam === "string" ? weekIsoParam : previousWeekIso();
+  const weekIso = typeof weekIsoParam === "string" ? weekIsoParam : currentWeekIso();
   const comparisonModeParam = typeof searchParams?.comparisonMode === "string" ? searchParams.comparisonMode : undefined;
   const comparisonMode = comparisonModeParam === "rolling4" || comparisonModeParam === "qtd" ? comparisonModeParam : "wow";
   const weeksParam = typeof searchParams?.weeks === "string" ? Number(searchParams.weeks) : undefined;
