@@ -830,7 +830,7 @@ export function LoadDetailDrawer({
           <div className="db-drawer-body">
             {editing ? (
             <Section title="Edit · status & operations">
-              <div className="db-field-label" style={{ marginBottom: 4 }}>Lifecycle status</div>
+              <div className="db-field-label" style={{ marginBottom: "var(--db-1)" }}>Lifecycle status</div>
               <div className="db-status-ladder">
                 {LIFECYCLE_STAGES.map((stage) => {
                   const current = detail.status === stage;
@@ -1025,9 +1025,9 @@ export function LoadDetailDrawer({
                     </select>
                   </label>
                 </div>
-                <div className="db-field-label db-drawer-form-full" style={{ marginTop: 6 }}>
+                <div className="db-field-label db-drawer-form-full" style={{ marginTop: "var(--db-2)" }}>
                   Delivery exception
-                  <div className="db-row-with-actions" style={{ marginTop: 4 }}>
+                  <div className="db-row-with-actions" style={{ marginTop: "var(--db-1)" }}>
                     <span className="dim mono" style={{ alignSelf: "center" }}>
                       {formState.deliveryExceptionState === "WORK_IN_REQUESTED"
                         ? "Work-in requested"
@@ -1053,7 +1053,7 @@ export function LoadDetailDrawer({
                     </button>
                   </div>
                   {formState.deliveryExceptionState === "RESCHEDULED" ? (
-                    <label className="db-field-label" style={{ marginTop: 6 }}>
+                    <label className="db-field-label" style={{ marginTop: "var(--db-2)" }}>
                       Next-day driver assigned
                       <select
                         className="db-input"
@@ -1066,7 +1066,7 @@ export function LoadDetailDrawer({
                     </label>
                   ) : null}
                   {onRescheduleDelivery ? (
-                    <div className="db-drawer-form-grid" style={{ marginTop: 6 }}>
+                    <div className="db-drawer-form-grid" style={{ marginTop: "var(--db-2)" }}>
                       <label className="db-field-label">
                         New delivery date
                         <input
@@ -1198,7 +1198,7 @@ export function LoadDetailDrawer({
                 <KV label="PICK UP #" value={detail.ids.pickupNumber} mono />
               </div>
               {detail.ids.pickupNumbers.length > 1 ? (
-                <p className="dim" style={{ marginTop: 8, fontSize: 11 }}>
+                <p className="dim" style={{ marginTop: "var(--db-2)", fontSize: "var(--db-text-xs)" }}>
                   PU list: {detail.ids.pickupNumbers.join(", ")}
                 </p>
               ) : null}
@@ -1295,7 +1295,7 @@ export function LoadDetailDrawer({
                 </div>
               </div>
               {(detail.financials.puDh ?? 0) + (detail.financials.delDh ?? 0) > 80 ? (
-                <p className="db-upload-error" style={{ marginTop: 10 }}>
+                <p className="db-upload-error" style={{ marginTop: "var(--db-3)" }}>
                   DH alert: empty miles exceed 80. Confirm deadhead decision and exception note.
                 </p>
               ) : null}
@@ -1320,14 +1320,14 @@ export function LoadDetailDrawer({
                   <KV label="Scale After" value={detail.operations.scaleAfterTask} />
                 </div>
                 {detail.operations.attentionNote !== "—" ? (
-                  <p style={{ marginTop: 10 }}>
+                  <p style={{ marginTop: "var(--db-3)" }}>
                     <span className="db-kv-k">Attention · {detail.operations.attentionSeverity}</span>
                     <br />
                     {detail.operations.attentionNote}
                   </p>
                 ) : null}
                 {detail.operations.coordinatorNotes !== "—" ? (
-                  <p style={{ marginTop: 10 }}>
+                  <p style={{ marginTop: "var(--db-3)" }}>
                     <span className="db-kv-k">Coordinator notes</span>
                     <br />
                     {detail.operations.coordinatorNotes}
@@ -1448,7 +1448,7 @@ export function LoadDetailDrawer({
             <Section title="Legs">
               {detail.legs.map((leg) => (
                 <div key={leg.id} className="db-drawer-leg-row">
-                  <p className="mono" style={{ margin: 0, fontSize: 12 }}>
+                  <p className="mono" style={{ margin: 0, fontSize: "var(--db-text-sm)" }}>
                     #{leg.legIndex} {leg.legType} · {leg.start} → {leg.end} ({miles(leg.legMiles)} mi) · {leg.driverName}
                     {leg.trailer !== "—" ? ` · trailer ${leg.trailer}${leg.trailerHookConfirmed ? " ✓" : ""}` : ""}
                     {leg.etaAtIso ? ` · ETA ${isoToLocalDisplay(leg.etaAtIso)}` : ""}
@@ -1485,7 +1485,7 @@ export function LoadDetailDrawer({
                   <button
                     type="button"
                     className="db-btn db-btn-mini db-btn-ghost"
-                    style={{ marginTop: 8 }}
+                    style={{ marginTop: "var(--db-2)" }}
                     onClick={() => setRcPreviewOpen((value) => !value)}
                     aria-expanded={rcPreviewOpen}
                   >
@@ -1495,7 +1495,7 @@ export function LoadDetailDrawer({
                     <iframe
                       src={detail.rateConfirmation.sourceFileUrl}
                       title={`Rate confirmation ${detail.rateConfirmation.id}`}
-                      style={{ width: "100%", height: 360, border: "1px solid var(--db-border-soft)", marginTop: 8 }}
+                      style={{ width: "100%", height: "min(360px, 60vh)", border: "1px solid var(--db-border-soft)", marginTop: "var(--db-2)" }}
                     />
                   ) : null}
                 </>

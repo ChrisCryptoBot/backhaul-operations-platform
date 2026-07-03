@@ -101,6 +101,28 @@
   --db-shadow-pop: 0 4px 16px rgba(60, 45, 25, 0.14), 0 0 0 1px var(--db-border);
   --db-shadow-drawer: -16px 0 48px rgba(60, 45, 25, 0.16), 0 0 0 1px var(--db-border);
   --db-shadow-sticky: 6px 0 8px -6px rgba(60, 45, 25, 0.22);
+
+  /* ──────────────────────────────────────────────────────────────────────
+     Glass — frosted-surface primitive tokens (see .db-glass below). Theme-
+     aware: tint keys off light/dark, not accent. Err OPAQUE — the underlying
+     page must read as an unfocused wash, never as competing legible content.
+     --db-glass-bg is the opacity dial; --db-glass-blur is the dissolve dial.
+     ────────────────────────────────────────────────────────────────────── */
+  --db-glass-bg: rgba(255, 253, 249, 0.16);
+  --db-glass-blur: 40px;
+  --db-glass-border: rgba(255, 255, 255, 0.60);
+  --db-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  --db-glass-shadow: var(--db-shadow-drawer);
+  /* Strong tier: for scrim-LESS popups floating over live data (peek popover,
+     toast, dropdown). High opacity so text behind reads as a clean frost, not
+     mud. Same blur/rim as .db-glass; pop shadow (not the big drawer shadow). */
+  --db-glass-strong-bg: rgba(255, 253, 249, 0.80);
+  /* Standard scrim behind glass drawers/modals — light, so page colors frost
+     through (the gold-standard IB recipe). Distinct from legacy --db-overlay. */
+  --db-scrim-glass: rgba(0, 0, 0, 0.10);
+  /* Card surface — was referenced (chart/fallback/signin cards, week picker)
+     but never defined → silently transparent. Now a real elevated surface. */
+  --db-bg-card: var(--db-bg-elev-1);
 }
 
 /* Accent swap: <html data-accent="blue"> (default is the brand orange above). */
@@ -199,12 +221,96 @@
   --db-shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--db-border);
   --db-shadow-drawer: -16px 0 48px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--db-border);
   --db-shadow-sticky: 6px 0 10px -6px rgba(0, 0, 0, 0.6);
+
+  /* Glass — dark override (color tokens only; blur/shadow inherit from :root,
+     and --db-glass-shadow resolves to the dark --db-shadow-drawer above). */
+  --db-glass-bg: rgba(18, 18, 28, 0.30);
+  --db-glass-border: rgba(255, 255, 255, 0.10);
+  --db-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --db-glass-strong-bg: rgba(18, 18, 28, 0.82);
+  --db-scrim-glass: rgba(0, 0, 0, 0.28);
+  --db-bg-card: var(--db-bg-elev-1);
 }
 
 :root[data-theme="dark"][data-accent="blue"],
 .db-root[data-theme="dark"][data-accent="blue"] {
   --db-accent: #4d8bf5;  --db-accent-fg: #a8c5fb;  --db-accent-bg: #15233f;
   --db-accent-bg-2: #1d3158;  --db-accent-on: #07101f;  --db-accent-ring: rgba(77, 139, 245, 0.45);
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Glass surface primitive — frosted, theme-aware. GOLD-STANDARD REFERENCE.
+
+   USE for transient surfaces that float ABOVE content: drawers, modals,
+   popovers, toasts, command palette. The "hovering above the work" metaphor
+   must be honest — there should be a dim scrim behind it killing the page's
+   contrast (a bare glass panel over live data needs far more opacity).
+
+   NEVER on: the board grid, tables, KPI number tiles, form fields you type
+   into, or any large / scrolling surface. backdrop-filter is GPU-expensive
+   and repaints on scroll, and blur behind small text destroys legibility.
+   Never stack glass on glass (one frosted layer per z-context).
+   ────────────────────────────────────────────────────────────────────────── */
+.db-glass {
+  background: var(--db-glass-bg);
+  border: 1px solid var(--db-glass-border);
+  box-shadow: var(--db-glass-highlight), var(--db-glass-shadow);
+  backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
+}
+
+/* Strong tier — same frost, high-opacity tint + pop shadow. USE on scrim-less
+   popups that float over live data (peek popover, toast, dropdown) so text
+   behind stays legible. Do NOT pair with a scrim (it's meant to stand alone). */
+.db-glass-strong {
+  background: var(--db-glass-strong-bg);
+  border: 1px solid var(--db-glass-border);
+  box-shadow: var(--db-glass-highlight), var(--db-shadow-pop);
+  backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
+}
+
+/* Right-click board context menu — LAYOUT only; pair with .db-glass-strong in
+   markup for the (scrim-less over live data) surface + its fallbacks. */
+.db-context-menu {
+  border-radius: var(--db-r-lg);
+  padding: var(--db-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-2);
+}
+
+/* No backdrop-filter support → fall back to a solid, still-legible surface. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .db-glass { background: var(--db-bg-rail); }
+  .db-glass-strong { background: var(--db-bg-rail); }
+  .db-modal { background: var(--db-bg-rail); }
+  .db-peek { background: var(--db-bg-rail); }
+  .db-toast { background: var(--db-bg-rail); }
+  .db-drawer-head,
+  .db-drawer-audit { background: var(--db-bg-rail); }
+  /* Backdrop stays a scrim (not a solid panel); just drop the blur. */
+  .db-drawer-backdrop { background: var(--db-overlay); }
+}
+
+/* Honor the OS "reduce transparency" a11y setting → solid surface, no blur. */
+@media (prefers-reduced-transparency: reduce) {
+  .db-glass,
+  .db-glass-strong,
+  .db-modal,
+  .db-peek,
+  .db-toast,
+  .db-drawer-head,
+  .db-drawer-audit {
+    background: var(--db-bg-rail);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .db-drawer-backdrop {
+    background: var(--db-overlay);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
 }
 
 .db-root {
@@ -877,7 +983,12 @@
   position: fixed;
   inset: 48px 0 0 0;
   border: 0;
-  background: var(--db-overlay);
+  /* Light scrim + gentle frost so the page reads as "pushed back" behind the
+     drawer. A modest 8px blur (not the 40px surface blur) keeps this large-area
+     backdrop-filter cheap; it composites once (page is static while open). */
+  background: var(--db-scrim-glass);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   z-index: 9;
 }
 
@@ -890,7 +1001,12 @@
   border-bottom: 1px solid var(--db-border);
   position: sticky;
   top: 0;
-  background: var(--db-bg-elev-2);
+  /* Frosted sticky bar — the opaque drawer body scrolls under it. Small bounded
+     area, so the on-scroll backdrop-filter repaint is cheap (the acceptable use
+     of glass on a scrolling context — never the whole body). */
+  background: var(--db-glass-strong-bg);
+  backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
   z-index: 1;
 }
 
@@ -1230,7 +1346,10 @@
 /* Audit footer */
 .db-drawer-audit {
   padding: 12px 16px;
-  background: var(--db-bg-elev-1);
+  /* Frosted footer bar to match the sticky header chrome. */
+  background: var(--db-glass-strong-bg);
+  backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
   border-top: 1px solid var(--db-border);
   display: flex;
   flex-direction: column;
@@ -1318,18 +1437,27 @@
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: color-mix(in srgb, var(--db-overlay) 88%, transparent);
+  /* Light glass scrim — page colors frost through, matching the gold-standard
+     IB recipe. (Was a heavy 88% dim.) For destructive confirms that want more
+     focus, a per-dialog stronger scrim can be layered later. */
+  background: var(--db-scrim-glass);
   display: grid;
   place-items: center;
   padding: 16px;
 }
 
+/* Frosted glass box — thin tint (blurs the page behind it), but a SYMMETRIC
+   drop shadow (not .db-glass's left-cast drawer shadow, which is tuned for the
+   right-side drawer and would look wrong on a centered dialog). Keeps the glass
+   highlight rim. Fallbacks below cover no-backdrop-filter + reduced-transparency. */
 .db-modal {
   width: min(460px, 100%);
-  background: var(--db-bg-elev-1);
-  border: 1px solid var(--db-border-strong);
+  background: var(--db-glass-bg);
+  border: 1px solid var(--db-glass-border);
   border-radius: 8px;
-  box-shadow: 0 12px 30px color-mix(in srgb, var(--db-fg) 26%, transparent);
+  box-shadow: var(--db-glass-highlight), 0 12px 30px color-mix(in srgb, var(--db-fg) 26%, transparent);
+  backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -2557,13 +2685,17 @@
   outline-offset: 1px;
   border-radius: var(--db-r-sm);
 }
+/* Strong glass: floats over live board data with NO scrim, so high-opacity
+   tint keeps the numbers behind it a legible frost. (See .db-glass-strong.) */
 .db-peek {
   position: fixed;
   z-index: 45;
-  background: var(--db-bg-elev-1);
-  border: 1px solid var(--db-border-strong);
+  background: var(--db-glass-strong-bg);
+  border: 1px solid var(--db-glass-border);
   border-radius: var(--db-r-lg);
-  box-shadow: var(--db-shadow-pop);
+  box-shadow: var(--db-glass-highlight), var(--db-shadow-pop);
+  backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
   padding: var(--db-3);
   display: flex;
   flex-direction: column;
@@ -3325,11 +3457,14 @@
   align-items: center;
   gap: 12px;
   z-index: 70;
-  background: var(--db-bg-elev-3);
+  /* Strong glass — floats bottom-center over live content with no scrim. */
+  background: var(--db-glass-strong-bg);
   color: var(--db-fg);
-  border: 1px solid var(--db-border-strong);
+  border: 1px solid var(--db-glass-border);
   border-radius: var(--db-r-md);
-  box-shadow: var(--db-shadow-pop);
+  box-shadow: var(--db-glass-highlight), var(--db-shadow-pop);
+  backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
   padding: 9px 10px 9px 14px;
   font-size: var(--db-text-sm);
 }
@@ -4293,6 +4428,10 @@
   display: flex; flex-direction: column; position: relative;
   background: var(--db-bg-elev-2); border-left: 1px solid var(--db-border-strong);
   overflow: hidden;
+  /* Glass ACCENT (not a glass surface): a lit highlight just inside the left
+     border — light catching a glass edge. Theme-aware, no backdrop-filter, zero
+     perf cost. Keeps copilot the solid ground the frosted surfaces pop against. */
+  box-shadow: inset 1px 0 0 var(--db-glass-border);
   transition: flex-basis 160ms cubic-bezier(.2,.7,.3,1), width 160ms cubic-bezier(.2,.7,.3,1);
 }
 .db-copilot[data-collapsed="true"] { flex-basis: 48px; width: 48px; }
@@ -4329,6 +4468,8 @@
   flex: 0 0 auto; display: flex; align-items: center; gap: 9px;
   height: var(--db-header-h); padding: 0 10px 0 12px;
   border-bottom: 1px solid var(--db-border); background: var(--db-bg-elev-1);
+  /* Glass accent — lit top edge sheen (matches the panel's left-edge highlight). */
+  box-shadow: var(--db-glass-highlight);
 }
 .db-cop-mark {
   width: 24px; height: 24px; flex: 0 0 24px; display: grid; place-items: center;
@@ -4993,31 +5134,42 @@ textarea.db-input { resize: vertical; min-height: 60px; line-height: 1.5; font-f
 .db-driver-arrow { color: var(--db-fg-faint, var(--db-fg-dim)); }
 
 /* ---------------------------------------------------------------------------
-   Board declutter: Metrics toggle (hide financials + miles) + collapsible yard
-   sections. Token-based; the board is scannable by default, detail on demand.
+   Board declutter: data categories collapse behind their header chevrons +
+   collapsible yard sections. Scannable by default, detail on demand.
 --------------------------------------------------------------------------- */
-.db-metrics-toggle {
+/* Category collapse toggle — lives inside the grouped header cells; inherits the
+   header's uppercase/letter-spacing/color so it reads as the category label. */
+.db-app .db-table.grouped thead tr.db-colgroup-row th .db-grp-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   font: inherit;
-  font-size: var(--db-text-xs);
-  font-weight: var(--db-weight-medium);
-  color: var(--db-fg-mid);
-  background: var(--db-bg-elev-2);
-  border: 1px solid var(--db-border);
-  border-radius: var(--db-r-pill);
-  padding: 5px 12px;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
   cursor: pointer;
   white-space: nowrap;
 }
-.db-metrics-toggle:hover { color: var(--db-fg); background: var(--db-bg-elev-3); }
-.db-metrics-toggle.active {
-  color: var(--db-accent-fg);
-  background: var(--db-accent-bg);
-  border-color: var(--db-accent-bg-2);
-  font-weight: var(--db-weight-semi);
+.db-app .db-table.grouped thead tr.db-colgroup-row th .db-grp-toggle:hover { color: var(--db-fg); }
+.db-grp-toggle svg { flex: 0 0 auto; transition: transform 160ms cubic-bezier(.2, .7, .3, 1); }
+/* Chevron points down when expanded, right when collapsed (matches section toggle). */
+.db-grp-toggle[aria-expanded="false"] svg { transform: rotate(-90deg); }
+
+/* Collapsed Financials "rail" — a slim expander column at the right edge. */
+.db-app .db-table th.db-fin-rail,
+.db-app .db-table td.db-fin-rail {
+  width: 1%;
+  padding-left: 6px;
+  padding-right: 6px;
+  border-left: 1px solid var(--db-border);
 }
 
-/* Metrics hidden → fewer columns, so relax the wide min-width. */
-.db-table[data-metrics="off"] { min-width: 1450px; }
+/* Financials collapsed → fewer columns, so relax the wide min-width. */
+.db-table[data-fin="off"] { min-width: 1450px; }
 
 /* Section collapse chevron in the yard header row. */
 .db-section-toggle {

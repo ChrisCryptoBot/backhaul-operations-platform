@@ -301,15 +301,6 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
   const minYear = currentYear - 3;
   const maxYear = currentYear + 1;
 
-  // Inbound (IB) entry panel state. FSC parked (spot-broker-first) — FSC inputs/source removed;
-  // panel state kept under the fsc* names to ease a future FSC re-add.
-  const [fscPanelOpen, setFscPanelOpen] = React.useState(false);
-  const [fscReason, setFscReason] = React.useState("");
-  const [ibRevenue, setIbRevenue] = React.useState("");
-  const [ibMiles, setIbMiles] = React.useState("");
-  const [entrySubmitting, setEntrySubmitting] = React.useState(false);
-  const [entryStatus, setEntryStatus] = React.useState<string | null>(null);
-  const [entryError, setEntryError] = React.useState<string | null>(null);
 
   // New rule dialog state
   const [newRuleOpen, setNewRuleOpen] = React.useState(false);
@@ -475,47 +466,6 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
     [data.activeRegionId, router]
   );
 
-  const submitFscEntry = React.useCallback(async () => {
-    setEntrySubmitting(true);
-    setEntryStatus(null);
-    setEntryError(null);
-    try {
-      const hasIb = ibRevenue.trim().length > 0 || ibMiles.trim().length > 0;
-      if (!hasIb) {
-        setEntryError("Enter IB revenue or loaded miles.");
-        return;
-      }
-      if (fscReason.trim().length < 10) {
-        setEntryError("Reason must be at least 10 characters.");
-        return;
-      }
-      const results: string[] = [];
-      if (hasIb) {
-        const ibRes = await fetch("/api/kpi/inbound", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            regionId: data.activeRegionId,
-            weekIso: data.weekIso,
-            inboundRevenue: ibRevenue.trim() || "0",
-            inboundLoadedMiles: ibMiles.trim() || "0",
-            reason: fscReason.trim()
-          })
-        });
-        if (!ibRes.ok) {
-          const p = (await ibRes.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(p?.error ?? "IB save failed.");
-        }
-        results.push("IB data saved");
-      }
-      setEntryStatus(`${results.join(" & ")}. Reloading...`);
-      setTimeout(() => router.refresh(), 800);
-    } catch (error) {
-      setEntryError(error instanceof Error ? error.message : "Save failed.");
-    } finally {
-      setEntrySubmitting(false);
-    }
-  }, [data.activeRegionId, data.weekIso, fscReason, ibRevenue, ibMiles, router]);
 
   const submitNewRule = React.useCallback(async () => {
     setNewRuleSubmitting(true);
@@ -749,7 +699,7 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
             </button>
             {pickerOpen && (
               <div
-                className="db-week-picker"
+                className="db-week-picker db-glass-strong"
                 role="dialog"
                 aria-label="Week picker"
                 style={{
@@ -758,10 +708,9 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
                   right: 0,
                   zIndex: 50,
                   minWidth: 280,
-                  background: "var(--db-bg-card)",
-                  border: "1px solid var(--db-border-soft)",
+                  // Surface (bg/border/shadow) comes from .db-glass-strong — a
+                  // scrim-less dropdown over live content. Layout stays inline.
                   borderRadius: 6,
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
                   padding: "8px 0"
                 }}
               >
@@ -899,120 +848,10 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
             </span>
           ) : null}
 
-          {/* Inbound (IB) entry button */}
-          <button
-            type="button"
-            className="db-btn"
-            onClick={() => { setFscPanelOpen(true); setEntryStatus(null); setEntryError(null); }}
-            title="Enter inbound (IB) revenue / miles for this week"
-          >
-            IB Entry
-          </button>
-
           <TopbarSignOutButton />
         </div>
       </header>
 
-      {/* Inbound (IB) Entry Panel */}
-      {fscPanelOpen && (
-        <div
-          className="db-overlay"
-          onClick={() => setFscPanelOpen(false)}
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 100 }}
-        />
-      )}
-      <aside
-        style={{
-          position: "fixed",
-          top: 0,
-          right: 0,
-          width: 400,
-          height: "100%",
-          background: "var(--db-bg-card)",
-          borderLeft: "1px solid var(--db-border-soft)",
-          boxShadow: "-4px 0 16px rgba(0,0,0,0.12)",
-          zIndex: 101,
-          // Slide the whole panel (and its left drop-shadow) fully off-screen when
-          // closed — a translateX past its own width clears the shadow that was
-          // otherwise bleeding a "glass" strip over the collapsed copilot rail.
-          transform: fscPanelOpen ? "translateX(0)" : "translateX(calc(100% + 40px))",
-          transition: "transform 0.2s ease",
-          overflowY: "auto",
-          padding: "24px 20px"
-        }}
-        aria-label="Inbound (IB) data entry"
-        aria-hidden={!fscPanelOpen}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Inbound (IB) Entry · <span className="mono">{weekRangeCompact}</span></h3>
-          <button
-            type="button"
-            className="db-btn db-btn-mini db-btn-ghost"
-            onClick={() => setFscPanelOpen(false)}
-            aria-label="Close panel"
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="db-mgmt-notes" style={{ marginBottom: 16 }}>
-          <div className="db-mgmt-notes-h">Inbound Revenue / Miles</div>
-          <p className="dim" style={{ fontSize: 11, margin: "0 0 8px" }}>
-            Records this week&apos;s inbound revenue and loaded miles for regional totals.
-          </p>
-          <label style={{ display: "block", marginBottom: 8, fontSize: 12 }}>
-            <span className="dim">IB Revenue ($)</span>
-            <input
-              type="text"
-              className="db-datepicker"
-              style={{ display: "block", width: "100%", marginTop: 4 }}
-              placeholder="e.g. 12500.00"
-              value={ibRevenue}
-              onChange={(e) => setIbRevenue(e.target.value)}
-            />
-          </label>
-          <label style={{ display: "block", marginBottom: 8, fontSize: 12 }}>
-            <span className="dim">IB Loaded Miles</span>
-            <input
-              type="text"
-              className="db-datepicker"
-              style={{ display: "block", width: "100%", marginTop: 4 }}
-              placeholder="e.g. 1800"
-              value={ibMiles}
-              onChange={(e) => setIbMiles(e.target.value)}
-            />
-          </label>
-        </div>
-
-        <label style={{ display: "block", marginBottom: 12, fontSize: 12 }}>
-          <span className="dim">Reason (min 10 chars, required)</span>
-          <textarea
-            className="db-datepicker"
-            style={{ display: "block", width: "100%", marginTop: 4, minHeight: 60, resize: "vertical" }}
-            placeholder="Reason for inbound (IB) data entry..."
-            value={fscReason}
-            onChange={(e) => setFscReason(e.target.value)}
-          />
-        </label>
-
-        {entryError && <div className="db-upload-error" role="alert" style={{ marginBottom: 8 }}>{entryError}</div>}
-        {entryStatus && <div className="db-lanes-foot dim" role="status" style={{ marginBottom: 8 }}>{entryStatus}</div>}
-
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            type="button"
-            className="db-btn primary"
-            onClick={submitFscEntry}
-            disabled={entrySubmitting}
-            aria-busy={entrySubmitting}
-          >
-            {entrySubmitting ? "Saving..." : "Save"}
-          </button>
-          <button type="button" className="db-btn db-btn-ghost" onClick={() => setFscPanelOpen(false)}>
-            Cancel
-          </button>
-        </div>
-      </aside>
 
 
       <div className="db-shell-scroll">
