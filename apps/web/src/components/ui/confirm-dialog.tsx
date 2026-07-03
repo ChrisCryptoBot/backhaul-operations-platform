@@ -86,11 +86,14 @@ export function ConfirmDialog({
         <div style={{ flex: 1, minWidth: 0 }}>
           {message ? <p className="db-confirm-msg">{message}</p> : null}
           {reason ? (
-            <label className="db-field-label" style={{ marginTop: message ? 12 : 0 }}>
+            <label
+              className="db-field-label"
+              style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: message ? 12 : 0 }}
+            >
               {reason.label}
               <textarea
                 className="db-input"
-                rows={3}
+                rows={2}
                 value={reasonValue}
                 placeholder={reason.placeholder}
                 disabled={busy}
