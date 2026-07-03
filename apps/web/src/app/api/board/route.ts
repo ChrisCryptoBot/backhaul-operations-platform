@@ -16,6 +16,7 @@ import {
   updateBoardLoadFields,
   upsertBoardLoadLeg
 } from "@/server/board";
+import { DisruptionValidationError } from "@/server/disruptions";
 import { isAuthBypassed } from "@/lib/auth-mode";
 import { isIsoDay, todayIsoInTimeZone } from "@/lib/board-date";
 import { policyAdapter } from "@/domain/policy/policy-adapter";
@@ -120,7 +121,9 @@ export async function POST(request: Request) {
         loadId: body.loadId,
         status: body.status,
         actorId: actorUserId,
-        overrideReason: body.overrideReason
+        overrideReason: body.overrideReason,
+        reason: body.reason,
+        detail: body.detail
       });
     } else if (body.action === "update-fields") {
       await updateBoardLoadFields({
@@ -158,7 +161,9 @@ export async function POST(request: Request) {
         date: body.newDate,
         windowStart: body.windowStart,
         windowEnd: body.windowEnd,
-        apptType: body.apptType
+        apptType: body.apptType,
+        reason: body.reason,
+        detail: body.detail
       });
     }
 
@@ -183,7 +188,7 @@ export async function POST(request: Request) {
         { status: 409 }
       );
     }
-    if (error instanceof BoardRuleError) {
+    if (error instanceof BoardRuleError || error instanceof DisruptionValidationError) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

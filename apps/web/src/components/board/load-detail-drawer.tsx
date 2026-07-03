@@ -7,6 +7,8 @@ import type { LoadDetailResponse, ViewLoadDetail } from "@/lib/ui/drawer-mappers
 import { mapLoadDetailToView } from "@/lib/ui/drawer-mappers";
 import { deriveLoadChecklist } from "@/lib/ui/load-checklist";
 import { money, miles, pct, rpm } from "@/lib/ui/formatters";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DISRUPTION_REASON_OPTIONS } from "@/lib/disruptions";
 import { StatusPill } from "./status-pill";
 
 type LoadLifecycleStatus =
@@ -34,7 +36,12 @@ interface LoadDetailDrawerProps {
   regionId: string;
   fallbackLoad?: ViewBoardLoadRow | null;
   onClose: () => void;
-  onSetStatus?: (loadId: string, status: LoadLifecycleStatus, overrideReason?: string) => Promise<void>;
+  onSetStatus?: (
+    loadId: string,
+    status: LoadLifecycleStatus,
+    overrideReason?: string,
+    disruption?: { reason: string; detail?: string }
+  ) => Promise<void>;
   onUpdateFields?: (loadId: string, fields: any) => Promise<void>;
   onUpsertLeg?: (
     loadId: string,
@@ -63,6 +70,8 @@ interface LoadDetailDrawerProps {
       windowStart: string;
       windowEnd: string;
       apptType: "FIRM_APPT" | "OPEN_WINDOW" | "FCFS";
+      reason: string;
+      detail?: string;
     }
   ) => Promise<void>;
 }
@@ -317,8 +326,12 @@ export function LoadDetailDrawer({
     date: "",
     windowStart: "",
     windowEnd: "",
-    apptType: "FIRM_APPT"
+    apptType: "FIRM_APPT",
+    reason: "",
+    detail: ""
   });
+  // Open state for the "Mark Canceled" reason dialog (capture-first: a cancel needs a reason).
+  const [cancelPromptOpen, setCancelPromptOpen] = React.useState(false);
   const [legForm, setLegForm] = React.useState({
     id: "",
     legIndex: "1",
@@ -509,7 +522,11 @@ export function LoadDetailDrawer({
   );
 
   const applyStatus = React.useCallback(
-    async (status: LoadLifecycleStatus, reason?: string) => {
+    async (
+      status: LoadLifecycleStatus,
+      reason?: string,
+      disruption?: { reason: string; detail?: string }
+    ) => {
       if (!loadId || !onSetStatus) {
         return;
       }
@@ -517,10 +534,11 @@ export function LoadDetailDrawer({
       setSaveError(null);
       setSaveMessage(null);
       try {
-        await onSetStatus(loadId, status, reason);
+        await onSetStatus(loadId, status, reason, disruption);
         setSaveMessage(`Status updated to ${status}.`);
         setOverridePrompt(null);
         setOverrideReason("");
+        setCancelPromptOpen(false);
         setReloadNonce((value) => value + 1);
       } catch (err) {
         const gate = err as { needsOverrideReason?: boolean; openItems?: string[] };
@@ -715,6 +733,14 @@ export function LoadDetailDrawer({
       setSaveError("New date, start, and end are required to reschedule.");
       return;
     }
+    if (!rescheduleForm.reason) {
+      setSaveError("A reason is required to reschedule.");
+      return;
+    }
+    if (rescheduleForm.reason === "OTHER" && !rescheduleForm.detail.trim()) {
+      setSaveError("A detail is required when the reason is Other.");
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     setSaveMessage(null);
@@ -723,10 +749,12 @@ export function LoadDetailDrawer({
         newDate: rescheduleForm.date,
         windowStart: rescheduleForm.windowStart,
         windowEnd: rescheduleForm.windowEnd,
-        apptType: rescheduleForm.apptType as "FIRM_APPT" | "OPEN_WINDOW" | "FCFS"
+        apptType: rescheduleForm.apptType as "FIRM_APPT" | "OPEN_WINDOW" | "FCFS",
+        reason: rescheduleForm.reason,
+        detail: rescheduleForm.reason === "OTHER" ? rescheduleForm.detail.trim() : undefined
       });
       setSaveMessage("Delivery rescheduled.");
-      setRescheduleForm({ date: "", windowStart: "", windowEnd: "", apptType: "FIRM_APPT" });
+      setRescheduleForm({ date: "", windowStart: "", windowEnd: "", apptType: "FIRM_APPT", reason: "", detail: "" });
       setReloadNonce((value) => value + 1);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Reschedule failed.");
@@ -821,7 +849,7 @@ export function LoadDetailDrawer({
                 })}
               </div>
               <div className="db-row-with-actions db-drawer-actions-row">
-                <button className="db-btn db-btn-mini db-btn-ghost" type="button" disabled={saving} onClick={() => void applyStatus("CANCELED")}>
+                <button className="db-btn db-btn-mini db-btn-ghost" type="button" disabled={saving} onClick={() => setCancelPromptOpen(true)}>
                   Mark Canceled
                 </button>
                 <button className="db-btn db-btn-mini db-btn-ghost" type="button" disabled={saving} onClick={() => void applyStatus("FAILED")}>
@@ -869,6 +897,26 @@ export function LoadDetailDrawer({
                     </button>
                   </div>
                 </div>
+              ) : null}
+              {cancelPromptOpen ? (
+                <ConfirmDialog
+                  title="Cancel this load"
+                  message="Canceling records a disruption reason for the weekly ops analytics. This can't be backfilled."
+                  destructive
+                  confirmLabel="Mark Canceled"
+                  busyLabel="Canceling…"
+                  busy={saving}
+                  reasonSelect={{
+                    label: "Cancel reason",
+                    options: DISRUPTION_REASON_OPTIONS,
+                    detailWhen: "OTHER",
+                    detailLabel: "Detail",
+                    detailPlaceholder: "Add a short detail…",
+                    detailRequired: true
+                  }}
+                  onCancel={() => setCancelPromptOpen(false)}
+                  onConfirm={(reason, detail) => void applyStatus("CANCELED", undefined, { reason, detail })}
+                />
               ) : null}
               {/* Edit fields grouped by the lifecycle point they belong to (mirrors the Checklist). */}
               <div className="db-edit-stage">
@@ -1058,6 +1106,34 @@ export function LoadDetailDrawer({
                           onChange={(e) => setRescheduleForm((s) => ({ ...s, windowEnd: e.target.value }))}
                         />
                       </label>
+                      <label className="db-field-label">
+                        Reason
+                        <select
+                          className="db-input"
+                          value={rescheduleForm.reason}
+                          onChange={(e) => setRescheduleForm((s) => ({ ...s, reason: e.target.value }))}
+                        >
+                          <option value="" disabled>
+                            Select a reason…
+                          </option>
+                          {DISRUPTION_REASON_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {rescheduleForm.reason === "OTHER" ? (
+                        <label className="db-field-label">
+                          Detail
+                          <input
+                            className="db-input"
+                            value={rescheduleForm.detail}
+                            placeholder="Add a short detail…"
+                            onChange={(e) => setRescheduleForm((s) => ({ ...s, detail: e.target.value }))}
+                          />
+                        </label>
+                      ) : null}
                       <div className="db-row-with-actions db-drawer-form-full">
                         <button className="db-btn db-btn-mini" type="button" disabled={saving} onClick={() => void saveReschedule()}>
                           Save new appointment

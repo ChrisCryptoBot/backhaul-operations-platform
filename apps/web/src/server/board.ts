@@ -1,4 +1,4 @@
-import { LoadStatus, Prisma } from "@prisma/client";
+import { LoadStatus, Prisma, type DisruptionReason } from "@prisma/client";
 import { runInRegionScope } from "@/lib/db";
 import type { BoardLoadRow, BoardResponse, BoardSection } from "@/lib/board-types";
 import { safeDivideDecimal } from "@/lib/decimal-utils";
@@ -10,6 +10,7 @@ import { createAuditLog } from "@/lib/audit";
 import { computeLoadMetrics } from "@/server/kpi";
 import { getEffectiveFscRate } from "@/server/fsc";
 import { getRegionConfig } from "@/server/region-config";
+import { recordLoadDisruption, DisruptionValidationError } from "@/server/disruptions";
 import { workerOrchestratorAdapter } from "@/domain/workers/orchestrator-adapter";
 import { getEnv } from "@/lib/env";
 
@@ -657,11 +658,14 @@ export async function moveBoardLoad(input: {
   loadId: string;
   targetSectionId: string;
   actorId: string;
+  /** Cancel reason when moving to 'canceled'. Board drag omits it (exempt) → defaults to OTHER/(drag-canceled). */
+  reason?: DisruptionReason;
+  detail?: string;
 }): Promise<void> {
   await runInRegionScope(input.regionId, async (tx) => {
     const load = await tx.load.findFirst({
       where: withNonDeletedRegionScope(input.regionId, { id: input.loadId }),
-      select: { id: true, status: true, dropLotId: true, isTONU: true, tonuAmount: true }
+      select: { id: true, status: true, weekIso: true, dropLotId: true, isTONU: true, tonuAmount: true }
     });
     if (!load) {
       throw new Error("Load not found.");
@@ -671,6 +675,9 @@ export async function moveBoardLoad(input: {
     let nextStatus = load.status;
     let nextIsTonu = load.isTONU;
     let nextTonuAmount = load.tonuAmount;
+    // Drag-to-'canceled' is exempt from the reason prompt (a fast board gesture); we
+    // still record the disruption with reason=OTHER so the week's counts stay complete.
+    let draggedToCanceled = false;
 
     if (input.targetSectionId === "adhoc" || input.targetSectionId.startsWith("adhoc-")) {
       const ltlDropLot = await tx.dropLot.findFirst({
@@ -688,6 +695,7 @@ export async function moveBoardLoad(input: {
       nextStatus = "CANCELED";
       nextIsTonu = false;
       nextTonuAmount = new Prisma.Decimal(0);
+      draggedToCanceled = load.status !== "CANCELED";
     } else {
       const targetLot = await tx.dropLot.findFirst({
         where: withRegionScope(input.regionId, { id: input.targetSectionId }),
@@ -711,6 +719,17 @@ export async function moveBoardLoad(input: {
         tonuAmount: nextTonuAmount
       }
     });
+    if (draggedToCanceled) {
+      await recordLoadDisruption(tx, {
+        loadId: load.id,
+        regionId: input.regionId,
+        weekIso: load.weekIso,
+        kind: "CANCEL",
+        reason: input.reason ?? "OTHER",
+        detail: input.reason ? input.detail : "(drag-canceled)",
+        actorId: input.actorId
+      });
+    }
     await tx.auditLog.create({
       data: createAuditLog({
         entityType: "Load",
@@ -790,6 +809,10 @@ export async function setBoardLoadStatus(input: {
   actorId: string;
   /** Reason recorded when advancing past open SOFT obligations (accountability, not a bypass of hard gates). */
   overrideReason?: string;
+  /** Required when status === "CANCELED": the disruption taxonomy reason (captured, not backfillable). */
+  reason?: DisruptionReason;
+  /** Free-text detail; required when reason === "OTHER". */
+  detail?: string;
 }): Promise<void> {
   await runInRegionScope(input.regionId, async (tx) => {
     const load = await tx.load.findFirst({
@@ -797,6 +820,7 @@ export async function setBoardLoadStatus(input: {
       select: {
         id: true,
         status: true,
+        weekIso: true,
         isTONU: true,
         tonuAmount: true,
         // Checklist inputs for the lifecycle gate.
@@ -824,6 +848,12 @@ export async function setBoardLoadStatus(input: {
     // (Re-opening one should be a deliberate, separate action, not a status click.)
     if (TERMINAL_EXCEPTION_STATUSES.has(load.status) && load.status !== input.status) {
       throw new BoardRuleError(`Cannot change status of a ${load.status} load.`);
+    }
+
+    // Capture-first: an explicit cancel requires a taxonomy reason (not backfillable).
+    const isNewCancel = input.status === "CANCELED" && load.status !== "CANCELED";
+    if (isNewCancel && !input.reason) {
+      throw new DisruptionValidationError("A reason is required to cancel a load.");
     }
 
     // Lifecycle checklist gate — only on a forward advance along the ladder.
@@ -874,6 +904,19 @@ export async function setBoardLoadStatus(input: {
             : new Prisma.Decimal(0)
       }
     });
+    if (isNewCancel && input.reason) {
+      await recordLoadDisruption(tx, {
+        loadId: load.id,
+        regionId: input.regionId,
+        weekIso: load.weekIso,
+        kind: "CANCEL",
+        reason: input.reason,
+        detail: input.detail,
+        actorId: input.actorId
+      });
+    }
+    // Prefer the disruption reason on the audit trail for a cancel; otherwise the soft-gate override reason.
+    const auditReason = isNewCancel && input.reason ? input.reason : overriddenItems.length > 0 ? input.overrideReason : undefined;
     await tx.auditLog.create({
       data: createAuditLog({
         entityType: "Load",
@@ -881,7 +924,7 @@ export async function setBoardLoadStatus(input: {
         action: overriddenItems.length > 0 ? "BOARD_STATUS_OVERRIDE" : "BOARD_STATUS_UPDATE",
         actorId: input.actorId,
         timestamp: new Date(),
-        reason: overriddenItems.length > 0 ? input.overrideReason : undefined,
+        reason: auditReason,
         afterValue: overriddenItems.length > 0 ? { status: input.status, skipped: overriddenItems } : { status: input.status }
       })
     });
@@ -1192,13 +1235,22 @@ export async function rescheduleBoardLoadDelivery(input: {
   windowStart: string; // HH:MM
   windowEnd: string; // HH:MM
   apptType: "FIRM_APPT" | "OPEN_WINDOW" | "FCFS";
+  /** Required: the disruption taxonomy reason for the reschedule (captured, not backfillable). */
+  reason: DisruptionReason;
+  /** Free-text detail; required when reason === "OTHER". */
+  detail?: string;
 }): Promise<void> {
   await runInRegionScope(input.regionId, async (tx) => {
     const load = await tx.load.findFirst({
       where: withNonDeletedRegionScope(input.regionId, { id: input.loadId }),
-      select: { id: true, deliveryState: true, status: true }
+      select: { id: true, deliveryState: true, status: true, weekIso: true }
     });
     if (!load) throw new Error("Load not found.");
+
+    // Capture-first: a reschedule requires a taxonomy reason (not backfillable).
+    if (!input.reason) {
+      throw new DisruptionValidationError("A reason is required to reschedule a delivery.");
+    }
 
     // Only in-flight, undelivered loads can be rescheduled — a delivered/terminal
     // load has nothing left to reschedule.
@@ -1228,6 +1280,15 @@ export async function rescheduleBoardLoadDelivery(input: {
         rescheduleDriverConfirmed: "NOT_DONE"
       }
     });
+    await recordLoadDisruption(tx, {
+      loadId: load.id,
+      regionId: input.regionId,
+      weekIso: load.weekIso,
+      kind: "RESCHEDULE",
+      reason: input.reason,
+      detail: input.detail,
+      actorId: input.actorId
+    });
     await tx.auditLog.create({
       data: createAuditLog({
         entityType: "Load",
@@ -1235,6 +1296,7 @@ export async function rescheduleBoardLoadDelivery(input: {
         action: "BOARD_DELIVERY_RESCHEDULE",
         actorId: input.actorId,
         timestamp: new Date(),
+        reason: input.reason,
         afterValue: {
           ...input,
           windowStartIso: windowStart.toISOString(),

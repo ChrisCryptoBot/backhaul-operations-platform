@@ -48,6 +48,7 @@ const mocks = vi.hoisted(() => ({
     ]
   })),
   moveBoardLoad: vi.fn(async (_input: unknown) => undefined),
+  rescheduleBoardLoadDelivery: vi.fn(async (_input: unknown) => undefined),
   upsertBoardLoadLeg: vi.fn(async (_input: unknown) => undefined),
   deleteBoardLoadLeg: vi.fn(async (_input: unknown) => undefined),
   getKpiDashboard: vi.fn(async (_input: unknown) => ({
@@ -117,6 +118,7 @@ const {
   updateDropLot,
   getBoardResponse,
   moveBoardLoad,
+  rescheduleBoardLoadDelivery,
   upsertBoardLoadLeg,
   deleteBoardLoadLeg,
   getKpiDashboard,
@@ -146,6 +148,7 @@ vi.mock("@/server/board", () => ({
   softDeleteBoardLoad: mocks.softDeleteBoardLoad,
   getBoardResponse: mocks.getBoardResponse,
   moveBoardLoad: mocks.moveBoardLoad,
+  rescheduleBoardLoadDelivery: mocks.rescheduleBoardLoadDelivery,
   upsertBoardLoadLeg: mocks.upsertBoardLoadLeg,
   deleteBoardLoadLeg: mocks.deleteBoardLoadLeg
 }));
@@ -271,13 +274,45 @@ describe("copilot tool dispatch — safety", () => {
   });
 
   test("set_load_status to CANCELED needs confirmation; BOOKED does not", async () => {
-    const canceled = await dispatchTool("set_load_status", { loadId: "load-1", status: "CANCELED" }, ctx);
+    const canceled = await dispatchTool("set_load_status", { loadId: "load-1", status: "CANCELED", reason: "CARRIER_NO_SHOW" }, ctx);
     expect(canceled.needsConfirmation).toBe(true);
     expect(setBoardLoadStatus).not.toHaveBeenCalled();
 
     const booked = await dispatchTool("set_load_status", { loadId: "load-1", status: "BOOKED" }, ctx);
     expect(booked.needsConfirmation).toBeFalsy();
     expect(setBoardLoadStatus).toHaveBeenCalled();
+  });
+
+  test("set_load_status to CANCELED with no reason is rejected before confirming", async () => {
+    const result = await dispatchTool("set_load_status", { loadId: "load-1", status: "CANCELED" }, ctx);
+    expect((result.content as { error?: string }).error).toMatch(/reason/i);
+    expect(result.needsConfirmation).toBeFalsy();
+    expect(setBoardLoadStatus).not.toHaveBeenCalled();
+  });
+
+  test("set_load_status CANCELED with reason=OTHER requires a detail", async () => {
+    const result = await dispatchTool("set_load_status", { loadId: "load-1", status: "CANCELED", reason: "OTHER" }, ctx, { confirmed: true });
+    expect((result.content as { error?: string }).error).toMatch(/detail/i);
+    expect(setBoardLoadStatus).not.toHaveBeenCalled();
+  });
+
+  test("reschedule_delivery with no reason is rejected", async () => {
+    const result = await dispatchTool(
+      "reschedule_delivery",
+      { loadId: "load-1", newDate: "2026-06-25", windowStart: "09:00", windowEnd: "12:00", apptType: "FIRM_APPT" },
+      ctx
+    );
+    expect((result.content as { error?: string }).error).toMatch(/reason/i);
+    expect(rescheduleBoardLoadDelivery).not.toHaveBeenCalled();
+  });
+
+  test("reschedule_delivery with a reason threads it through", async () => {
+    await dispatchTool(
+      "reschedule_delivery",
+      { loadId: "load-1", newDate: "2026-06-25", windowStart: "09:00", windowEnd: "12:00", apptType: "FIRM_APPT", reason: "PARTY_RESCHEDULE" },
+      ctx
+    );
+    expect(rescheduleBoardLoadDelivery).toHaveBeenCalledWith(expect.objectContaining({ reason: "PARTY_RESCHEDULE" }));
   });
 });
 
@@ -464,8 +499,15 @@ describe("copilot tool dispatch — board awareness & legs", () => {
   });
 
   test("move_load to canceled stages for confirmation", async () => {
-    const result = await dispatchTool("move_load", { loadId: "load-1", targetSectionId: "canceled" }, ctx);
+    const result = await dispatchTool("move_load", { loadId: "load-1", targetSectionId: "canceled", reason: "LOAD_PULLED" }, ctx);
     expect(result.needsConfirmation).toBe(true);
+    expect(moveBoardLoad).not.toHaveBeenCalled();
+  });
+
+  test("move_load to canceled with no reason is rejected", async () => {
+    const result = await dispatchTool("move_load", { loadId: "load-1", targetSectionId: "canceled" }, ctx);
+    expect((result.content as { error?: string }).error).toMatch(/reason/i);
+    expect(result.needsConfirmation).toBeFalsy();
     expect(moveBoardLoad).not.toHaveBeenCalled();
   });
 

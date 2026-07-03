@@ -137,6 +137,29 @@ enum ApptType {
   FCFS
 }
 
+// ── Ops-analytics: disruption capture (cancels & reschedules) ────────────────
+// A cancel or reschedule that needs an operator-supplied reason. Reasons cannot
+// be backfilled, so this is captured at write time; weekIso is denormalized so
+// the KPI breakdown can group without re-deriving it from the Load.
+enum DisruptionKind {
+  CANCEL
+  RESCHEDULE
+}
+
+// The one shared 9-reason taxonomy used by the drawer, ConfirmDialog callers,
+// copilot tools, and the Phase-3 breakdown.
+enum DisruptionReason {
+  CARRIER_NO_SHOW
+  CARRIER_LATE_OR_NOT_EMPTY
+  PARTY_RESCHEDULE
+  NO_DOCK_TIME
+  WEATHER_ROAD
+  EQUIPMENT_ISSUE
+  RATE_BILLING_DISPUTE
+  LOAD_PULLED
+  OTHER
+}
+
 model Region {
   id        String   @id @default(cuid())
   code      String   @unique @db.VarChar(4)
@@ -157,6 +180,7 @@ model Region {
   drivers             Driver[]
   directCustomers     DirectCustomer[]
   bookingPlanEntries  BookingPlanEntry[]
+  disruptionEvents    LoadDisruptionEvent[]
   config              RegionConfig?
 }
 
@@ -362,6 +386,7 @@ model Load {
   deliveryDriverRef Driver? @relation("LoadDeliveryDriver", fields: [deliveryDriverId], references: [id], onDelete: SetNull)
   legs             LoadLeg[]
   bookingPlanEntry BookingPlanEntry?
+  disruptionEvents LoadDisruptionEvent[]
 
   @@index([regionId, weekIso])
   @@index([bookingDate])
@@ -397,6 +422,24 @@ model LoadLeg {
 
   @@index([loadId, legIndex])
   @@index([driverId])
+}
+
+model LoadDisruptionEvent {
+  id        String           @id @default(cuid())
+  loadId    String
+  regionId  String
+  weekIso   String
+  kind      DisruptionKind
+  reason    DisruptionReason
+  detail    String?
+  actorId   String
+  at        DateTime         @default(now())
+
+  load   Load   @relation(fields: [loadId], references: [id], onDelete: Cascade)
+  region Region @relation(fields: [regionId], references: [id], onDelete: Restrict)
+
+  @@index([regionId, weekIso, kind])
+  @@index([loadId])
 }
 
 model WeekSnapshot {

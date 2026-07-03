@@ -450,14 +450,24 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
     async (
       loadId: string,
       status: "BOOKED" | "DISPATCHED" | "PICKED_UP" | "DELIVERED" | "POD_RECEIVED" | "COMPLETED" | "CANCELED" | "FAILED",
-      overrideReason?: string
+      overrideReason?: string,
+      disruption?: { reason: string; detail?: string }
     ) => {
       // Dedicated fetch (not mutateBoard) so the soft-gate 409 (needsOverrideReason +
       // openItems) reaches the drawer, which prompts for a reason and retries.
       const response = await fetch("/api/board", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "status", loadId, status, overrideReason, date: boardState.date, regionId: boardState.regionId })
+        body: JSON.stringify({
+          action: "status",
+          loadId,
+          status,
+          overrideReason,
+          reason: disruption?.reason,
+          detail: disruption?.detail,
+          date: boardState.date,
+          regionId: boardState.regionId
+        })
       });
       const payload = (await response.json().catch(() => null)) as
         | { error?: string; needsOverrideReason?: boolean; openItems?: string[] }
@@ -552,7 +562,14 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
   const rescheduleDeliveryFromDrawer = React.useCallback(
     async (
       loadId: string,
-      appt: { newDate: string; windowStart: string; windowEnd: string; apptType: "FIRM_APPT" | "OPEN_WINDOW" | "FCFS" }
+      appt: {
+        newDate: string;
+        windowStart: string;
+        windowEnd: string;
+        apptType: "FIRM_APPT" | "OPEN_WINDOW" | "FCFS";
+        reason: string;
+        detail?: string;
+      }
     ) => {
       try {
         await mutateBoard({ action: "reschedule-delivery", loadId, ...appt });

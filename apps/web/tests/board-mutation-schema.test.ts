@@ -36,7 +36,31 @@ describe("boardMutationSchema — leg-upsert validation", () => {
 });
 
 describe("boardMutationSchema — reschedule-delivery validation", () => {
-  const base = { action: "reschedule-delivery" as const, ...BASE, newDate: "2026-06-22", apptType: "FIRM_APPT" as const };
+  const base = {
+    action: "reschedule-delivery" as const,
+    ...BASE,
+    newDate: "2026-06-22",
+    apptType: "FIRM_APPT" as const,
+    reason: "PARTY_RESCHEDULE" as const
+  };
+
+  test("rejects a reschedule with no reason", () => {
+    const { reason, ...noReason } = base;
+    expect(boardMutationSchema.safeParse({ ...noReason, windowStart: "00:01", windowEnd: "09:30" }).success).toBe(false);
+  });
+
+  test("rejects reason=OTHER with no detail", () => {
+    expect(
+      boardMutationSchema.safeParse({ ...base, reason: "OTHER", windowStart: "00:01", windowEnd: "09:30" }).success
+    ).toBe(false);
+  });
+
+  test("accepts reason=OTHER with a detail", () => {
+    expect(
+      boardMutationSchema.safeParse({ ...base, reason: "OTHER", detail: "dock closed", windowStart: "00:01", windowEnd: "09:30" })
+        .success
+    ).toBe(true);
+  });
 
   test("rejects windowEnd before windowStart", () => {
     expect(boardMutationSchema.safeParse({ ...base, windowStart: "14:00", windowEnd: "09:00" }).success).toBe(false);
@@ -79,5 +103,34 @@ describe("boardMutationSchema — status overrideReason", () => {
       boardMutationSchema.safeParse({ action: "status", ...BASE, status: "DELIVERED", overrideReason: "broker notified by phone" })
         .success
     ).toBe(true);
+  });
+});
+
+describe("boardMutationSchema — status cancel reason", () => {
+  test("rejects a CANCELED status with no reason", () => {
+    expect(boardMutationSchema.safeParse({ action: "status", ...BASE, status: "CANCELED" }).success).toBe(false);
+  });
+
+  test("accepts a CANCELED status with a reason", () => {
+    expect(
+      boardMutationSchema.safeParse({ action: "status", ...BASE, status: "CANCELED", reason: "CARRIER_NO_SHOW" }).success
+    ).toBe(true);
+  });
+
+  test("rejects a CANCELED status with reason=OTHER and no detail", () => {
+    expect(
+      boardMutationSchema.safeParse({ action: "status", ...BASE, status: "CANCELED", reason: "OTHER" }).success
+    ).toBe(false);
+  });
+
+  test("accepts a CANCELED status with reason=OTHER and a detail", () => {
+    expect(
+      boardMutationSchema.safeParse({ action: "status", ...BASE, status: "CANCELED", reason: "OTHER", detail: "load pulled by shipper" })
+        .success
+    ).toBe(true);
+  });
+
+  test("does not require a reason for a non-cancel status", () => {
+    expect(boardMutationSchema.safeParse({ action: "status", ...BASE, status: "DELIVERED" }).success).toBe(true);
   });
 });

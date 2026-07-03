@@ -11,6 +11,18 @@ const DECIMAL_2 = /^\d+(\.\d{1,2})?$/;
 
 const taskDoneSchema = z.enum(["NOT_DONE", "DONE"]);
 const puDelStatusSchema = z.enum(["ETA_TO_PU_DEL", "LOADED_SET_TO_DEL", "LATE", "DONE", "OTHER"]);
+/** The shared 9-reason disruption taxonomy (must mirror the Prisma DisruptionReason enum). */
+const disruptionReasonSchema = z.enum([
+  "CARRIER_NO_SHOW",
+  "CARRIER_LATE_OR_NOT_EMPTY",
+  "PARTY_RESCHEDULE",
+  "NO_DOCK_TIME",
+  "WEATHER_ROAD",
+  "EQUIPMENT_ISSUE",
+  "RATE_BILLING_DISPUTE",
+  "LOAD_PULLED",
+  "OTHER"
+]);
 
 export const boardMutationSchema = z
   .discriminatedUnion("action", [
@@ -36,7 +48,10 @@ export const boardMutationSchema = z
       loadId: z.string().min(1),
       status: z.enum(["BOOKED", "DISPATCHED", "PICKED_UP", "DELIVERED", "POD_RECEIVED", "COMPLETED", "CANCELED", "FAILED"]),
       // Recorded when advancing past open soft obligations (override-with-reason).
-      overrideReason: z.string().trim().min(1).optional()
+      overrideReason: z.string().trim().min(1).optional(),
+      // Required when status === "CANCELED": the disruption taxonomy reason (+ detail for OTHER).
+      reason: disruptionReasonSchema.optional(),
+      detail: z.string().trim().min(1).optional()
     }),
     z.object({
       action: z.literal("update-fields"),
@@ -148,7 +163,10 @@ export const boardMutationSchema = z
       newDate: z.string().regex(ISO_DAY),
       windowStart: z.string().regex(HHMM),
       windowEnd: z.string().regex(HHMM),
-      apptType: z.enum(["FIRM_APPT", "OPEN_WINDOW", "FCFS"])
+      apptType: z.enum(["FIRM_APPT", "OPEN_WINDOW", "FCFS"]),
+      // Required: the disruption taxonomy reason for the reschedule (+ detail for OTHER).
+      reason: disruptionReasonSchema,
+      detail: z.string().trim().min(1).optional()
     })
   ])
   .superRefine((val, ctx) => {
@@ -159,6 +177,17 @@ export const boardMutationSchema = z
         path: ["windowEnd"],
         message: "windowEnd must be after windowStart."
       });
+    }
+    // A cancel needs a reason; OTHER needs a detail (mirrors the server-side guard).
+    if (val.action === "status" && val.status === "CANCELED" && !val.reason) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["reason"], message: "A reason is required to cancel a load." });
+    }
+    if (
+      (val.action === "status" || val.action === "reschedule-delivery") &&
+      val.reason === "OTHER" &&
+      !val.detail
+    ) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["detail"], message: "A detail is required when the reason is Other." });
     }
     if (
       val.action === "leg-upsert" &&

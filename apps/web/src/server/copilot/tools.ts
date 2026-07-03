@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { withNonDeletedRegionScope } from "@/lib/scoped-query";
 import { policyAdapter } from "@/domain/policy/policy-adapter";
 import { getLoadDetail } from "@/server/board-detail";
+import { DISRUPTION_REASON_VALUES, DISRUPTION_REASON_OPTIONS } from "@/lib/disruptions";
+import type { DisruptionReason } from "@prisma/client";
 import {
   deleteBoardLoadLeg,
   rescheduleBoardLoadDelivery,
@@ -58,6 +60,16 @@ export interface CopilotContext {
   role: Role;
   /** The board date the user is currently viewing (YYYY-MM-DD), for relative phrasing. */
   boardDate: string;
+}
+
+/** Human-readable list of valid disruption reasons, for copilot error hints. */
+const DISRUPTION_REASON_HINT = DISRUPTION_REASON_OPTIONS.map((o) => o.value).join(", ");
+
+/** Coerce raw tool input to a valid DisruptionReason, or undefined if absent/invalid. */
+function parseDisruptionReason(value: unknown): DisruptionReason | undefined {
+  return typeof value === "string" && (DISRUPTION_REASON_VALUES as readonly string[]).includes(value)
+    ? (value as DisruptionReason)
+    : undefined;
 }
 
 export interface ToolDispatchResult {
@@ -482,7 +494,8 @@ export const COPILOT_TOOLS = [
       "Advance or set a load's lifecycle status. Forward progression is BOOKED → DISPATCHED → PICKED_UP → " +
       "DELIVERED → POD_RECEIVED → COMPLETED; CANCELED and FAILED are exception states (these two require confirmation). " +
       "A load with no driver/coverage assigned cannot reach DISPATCHED (hard gate). If the stage being left still has " +
-      "open obligations, the call is rejected unless overrideReason is provided (it's recorded in the audit trail).",
+      "open obligations, the call is rejected unless overrideReason is provided (it's recorded in the audit trail). " +
+      "Canceling (status=CANCELED) REQUIRES a `reason` from the disruption taxonomy; pass `detail` when reason is OTHER.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -491,7 +504,13 @@ export const COPILOT_TOOLS = [
           type: "string",
           enum: ["BOOKED", "DISPATCHED", "PICKED_UP", "DELIVERED", "POD_RECEIVED", "COMPLETED", "CANCELED", "FAILED"]
         },
-        overrideReason: { type: "string", description: "Reason for advancing past open obligations; recorded in the audit." }
+        overrideReason: { type: "string", description: "Reason for advancing past open obligations; recorded in the audit." },
+        reason: {
+          type: "string",
+          enum: [...DISRUPTION_REASON_VALUES],
+          description: "Required when status=CANCELED — why the load was canceled (disruption taxonomy)."
+        },
+        detail: { type: "string", description: "Free-text detail; required when reason is OTHER." }
       },
       required: ["loadId", "status"]
     }
@@ -526,12 +545,19 @@ export const COPILOT_TOOLS = [
     description:
       "Move a load to a different section of the board. targetSectionId is a drop-lot id (from find_drop_lots) to " +
       'reassign the load to that lot, "adhoc" to move it to the ad-hoc/LTL section, or "canceled" to cancel it. ' +
-      "Moving to a lot or ad-hoc sets the load BOOKED and clears TONU. Canceling requires confirmation.",
+      "Moving to a lot or ad-hoc sets the load BOOKED and clears TONU. Canceling requires confirmation and a `reason` " +
+      "from the disruption taxonomy (pass `detail` when reason is OTHER).",
     input_schema: {
       type: "object" as const,
       properties: {
         loadId: { type: "string" },
-        targetSectionId: { type: "string", description: 'A drop-lot id, or "adhoc", or "canceled".' }
+        targetSectionId: { type: "string", description: 'A drop-lot id, or "adhoc", or "canceled".' },
+        reason: {
+          type: "string",
+          enum: [...DISRUPTION_REASON_VALUES],
+          description: 'Required when targetSectionId is "canceled" — why the load was canceled (disruption taxonomy).'
+        },
+        detail: { type: "string", description: "Free-text detail; required when reason is OTHER." }
       },
       required: ["loadId", "targetSectionId"]
     }
@@ -589,7 +615,7 @@ export const COPILOT_TOOLS = [
       "(YYYY-MM-DD), window start/end as local HH:MM (24h), and apptType (FIRM_APPT, OPEN_WINDOW, FCFS). This " +
       "overwrites the delivery appointment (localised to the destination stop), marks the load RESCHEDULED, and " +
       "re-arms the 'assign next-day driver' nudge. Use update_load_fields with deliveryExceptionState=WORK_IN_REQUESTED " +
-      "for a same-day work-in instead.",
+      "for a same-day work-in instead. REQUIRES a `reason` from the disruption taxonomy (pass `detail` when reason is OTHER).",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -597,9 +623,15 @@ export const COPILOT_TOOLS = [
         newDate: { type: "string", description: "New delivery date, YYYY-MM-DD (local to the stop)." },
         windowStart: { type: "string", description: "New window start, local HH:MM (24h)." },
         windowEnd: { type: "string", description: "New window end, local HH:MM (24h)." },
-        apptType: { type: "string", enum: ["FIRM_APPT", "OPEN_WINDOW", "FCFS"] }
+        apptType: { type: "string", enum: ["FIRM_APPT", "OPEN_WINDOW", "FCFS"] },
+        reason: {
+          type: "string",
+          enum: [...DISRUPTION_REASON_VALUES],
+          description: "Required — why the delivery is being rescheduled (disruption taxonomy)."
+        },
+        detail: { type: "string", description: "Free-text detail; required when reason is OTHER." }
       },
-      required: ["loadId", "newDate", "windowStart", "windowEnd", "apptType"]
+      required: ["loadId", "newDate", "windowStart", "windowEnd", "apptType", "reason"]
     }
   },
   {
@@ -1423,12 +1455,19 @@ export async function dispatchTool(
       const loadId = String(input.loadId ?? "");
       const status = String(input.status ?? "") as LoadLifecycleStatus;
       const summary = `Set load ${loadId} status to ${status}`;
+      // A cancel must carry a taxonomy reason (capture-first; not backfillable).
+      const reason = parseDisruptionReason(input.reason);
+      const detail = typeof input.detail === "string" && input.detail.trim() ? input.detail.trim() : undefined;
+      if (status === "CANCELED") {
+        if (!reason) return { content: { error: `Canceling requires a reason. One of: ${DISRUPTION_REASON_HINT}.` } };
+        if (reason === "OTHER" && !detail) return { content: { error: "reason=OTHER requires a `detail`." } };
+      }
       // Forward progression is routine; only the exception transitions confirm.
       if ((status === "CANCELED" || status === "FAILED") && !opts.confirmed) {
         return { needsConfirmation: true, summary, content: { status: "confirmation_required", summary } };
       }
       const overrideReason = typeof input.overrideReason === "string" && input.overrideReason.trim() ? input.overrideReason.trim() : undefined;
-      await setBoardLoadStatus({ regionId: ctx.regionId, loadId, status, actorId: ctx.userId, overrideReason });
+      await setBoardLoadStatus({ regionId: ctx.regionId, loadId, status, actorId: ctx.userId, overrideReason, reason, detail });
       return { content: { status: "updated", loadId, newStatus: status }, summary };
     }
 
@@ -1464,10 +1503,16 @@ export async function dispatchTool(
       if (!targetSectionId) return { content: { error: "targetSectionId is required." } };
       const isCancel = targetSectionId === "canceled" || targetSectionId.startsWith("canceled-");
       const summary = `Move load ${loadId} to ${targetSectionId}`;
+      const reason = parseDisruptionReason(input.reason);
+      const detail = typeof input.detail === "string" && input.detail.trim() ? input.detail.trim() : undefined;
+      if (isCancel) {
+        if (!reason) return { content: { error: `Canceling requires a reason. One of: ${DISRUPTION_REASON_HINT}.` } };
+        if (reason === "OTHER" && !detail) return { content: { error: "reason=OTHER requires a `detail`." } };
+      }
       if (isCancel && !opts.confirmed) {
         return { needsConfirmation: true, summary, content: { status: "confirmation_required", summary } };
       }
-      await moveBoardLoad({ regionId: ctx.regionId, loadId, targetSectionId, actorId: ctx.userId });
+      await moveBoardLoad({ regionId: ctx.regionId, loadId, targetSectionId, actorId: ctx.userId, reason, detail });
       return { content: { status: "moved", loadId, targetSectionId }, summary };
     }
 
@@ -1529,6 +1574,10 @@ export async function dispatchTool(
       if (!["FIRM_APPT", "OPEN_WINDOW", "FCFS"].includes(apptType)) {
         return { content: { error: "apptType must be FIRM_APPT, OPEN_WINDOW, or FCFS." } };
       }
+      const reason = parseDisruptionReason(input.reason);
+      const detail = typeof input.detail === "string" && input.detail.trim() ? input.detail.trim() : undefined;
+      if (!reason) return { content: { error: `Rescheduling requires a reason. One of: ${DISRUPTION_REASON_HINT}.` } };
+      if (reason === "OTHER" && !detail) return { content: { error: "reason=OTHER requires a `detail`." } };
       await rescheduleBoardLoadDelivery({
         regionId: ctx.regionId,
         loadId,
@@ -1536,7 +1585,9 @@ export async function dispatchTool(
         date: newDate,
         windowStart,
         windowEnd,
-        apptType: apptType as "FIRM_APPT" | "OPEN_WINDOW" | "FCFS"
+        apptType: apptType as "FIRM_APPT" | "OPEN_WINDOW" | "FCFS",
+        reason,
+        detail
       });
       const summary = `Reschedule load ${loadId} delivery to ${newDate} ${windowStart}–${windowEnd} (${apptType})`;
       return { content: { status: "rescheduled", loadId }, summary };
