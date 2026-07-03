@@ -1360,6 +1360,11 @@
 }
 
 .db-input {
+  /* Border-box so width:100% includes the padding + border. Without this the
+     control overflows its container by 22px (padding 20 + border 2) — which is
+     why every bounded form context (.db-form-grid, .db-set, .db-aud-filters,
+     .db-drawer-form-grid, settings) used to re-patch box-sizing individually. */
+  box-sizing: border-box;
   width: 100%;
   border: 1px solid var(--db-border);
   background: var(--db-bg-elev-1);
