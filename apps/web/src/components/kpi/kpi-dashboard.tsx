@@ -871,7 +871,7 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
               Management Report tab is gone). */}
           <button
             type="button"
-            className="db-btn db-btn-ghost"
+            className="db-btn"
             onClick={() => triggerExport("pdf")}
             title="Export the weekly KPI summary as a PDF"
           >
@@ -879,7 +879,7 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
           </button>
           <button
             type="button"
-            className="db-btn db-btn-ghost"
+            className="db-btn"
             onClick={sendEmailSummary}
             disabled={isSendingEmail}
             aria-busy={isSendingEmail ? "true" : "false"}
@@ -902,7 +902,7 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
           {/* Inbound (IB) entry button */}
           <button
             type="button"
-            className="db-btn db-btn-ghost"
+            className="db-btn"
             onClick={() => { setFscPanelOpen(true); setEntryStatus(null); setEntryError(null); }}
             title="Enter inbound (IB) revenue / miles for this week"
           >
