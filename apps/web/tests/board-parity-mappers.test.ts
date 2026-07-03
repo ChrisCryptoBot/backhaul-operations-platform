@@ -26,6 +26,7 @@ function makeBoardRow(overrides: Partial<BoardLoadRow> = {}): BoardLoadRow {
     loadNumber: "LD1",
     pickupNumber: "PU1",
     pickupNumbers: ["PU1"],
+    referenceNumbers: [],
     brokerName: "Broker",
     brokerRepName: null,
     mgStatusTask: "DONE",

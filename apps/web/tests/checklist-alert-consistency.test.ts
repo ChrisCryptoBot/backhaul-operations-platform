@@ -31,6 +31,7 @@ function makeRow(o: Partial<ViewBoardLoadRow> = {}): ViewBoardLoadRow {
     loadNumber: "L1",
     pickupNumber: "PU-1",
     pickupNumbers: [],
+    referenceNumbers: [],
     lateCancelFailedNote: null,
     attentionSeverity: "INFO",
     scaleBeforeTask: "DONE",

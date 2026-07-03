@@ -1,6 +1,8 @@
 /**
  * Daily board response contract for the interactive load board.
  */
+import type { ReferenceNumber } from "@/lib/reference-numbers";
+
 export interface BoardResponse {
   regionId: string;
   regionCode?: string | null;
@@ -96,6 +98,7 @@ export interface BoardLoadRow {
   loadNumber: string | null;
   pickupNumber: string | null;
   pickupNumbers: string[];
+  referenceNumbers: ReferenceNumber[];
   brokerName: string | null;
   brokerRepName: string | null;
   mgStatusTask: "NOT_DONE" | "DONE";

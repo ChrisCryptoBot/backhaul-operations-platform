@@ -305,6 +305,10 @@ model Load {
   loadNumber           String?
   pickupNumber         String?
   pickupNumbers        String[]   @default([])
+  // Structured, labeled reference numbers off the rate con (PU#, PO#, BOL#, seal#, pro#,
+  // unlabeled → OTHER). Master store; pickupNumber(s) are derived from the PU-kind entries.
+  // Shape: Array<{ kind: string; value: string; source?: "RATE_CON" | "MANUAL" }>.
+  referenceNumbers     Json?
   threePlRefNumber     String?
   eventCode            String?
   mgStatus             String?

@@ -99,6 +99,9 @@ export const boardMutationSchema = z
           loadNumber: z.string().nullable().optional(),
           pickupNumber: z.string().nullable().optional(),
           pickupNumbers: z.array(z.string()).optional(),
+          referenceNumbers: z
+            .array(z.object({ kind: z.string(), value: z.string().trim().min(1), source: z.enum(["RATE_CON", "MANUAL"]).optional() }))
+            .optional(),
           threePlRefNumber: z.string().nullable().optional(),
           tractorTrailer1: z.string().nullable().optional(),
           tractorTrailer2: z.string().nullable().optional(),

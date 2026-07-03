@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { runInRegionScope } from "@/lib/db";
 import { safeDivideDecimal } from "@/lib/decimal-utils";
 import { getAuditHistory, resolveUserNames } from "@/server/audit-read";
+import { normalizeReferenceNumbers, type ReferenceNumber } from "@/lib/reference-numbers";
 
 export interface LoadDetailPayload {
   id: string;
@@ -12,6 +13,7 @@ export interface LoadDetailPayload {
   loadNumber: string | null;
   pickupNumber: string | null;
   pickupNumbers: string[];
+  referenceNumbers: ReferenceNumber[];
   shipperName: string | null;
   pickupCityState: string | null;
   pickupWindow: string | null;
@@ -90,6 +92,7 @@ interface LoadDetailDbRow {
   loadNumber: string | null;
   pickupNumber: string | null;
   pickupNumbers: string[];
+  referenceNumbers: Prisma.JsonValue | null;
   shipperName: string | null;
   pickupCity: string | null;
   pickupState: string | null;
@@ -190,6 +193,7 @@ export async function getLoadDetail(input: {
         loadNumber: true,
         pickupNumber: true,
         pickupNumbers: true,
+        referenceNumbers: true,
         shipperName: true,
         pickupCity: true,
         pickupState: true,
@@ -291,6 +295,7 @@ export async function getLoadDetail(input: {
       loadNumber: load.loadNumber,
       pickupNumber: load.pickupNumber,
       pickupNumbers: load.pickupNumbers,
+      referenceNumbers: normalizeReferenceNumbers(load.referenceNumbers),
       shipperName: load.shipperName,
       pickupCityState: cityState(load.pickupCity, load.pickupState),
       pickupWindow: load.pickupWindow,

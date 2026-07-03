@@ -2527,6 +2527,141 @@
   padding: 14px 16px;
 }
 
+/* ── Field peek popover (click a board number cell → copy/edit) ────────────── */
+.db-peek-trigger {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.db-peek-trigger:hover {
+  color: var(--db-accent);
+}
+.db-peek-trigger:focus-visible {
+  outline: 2px solid var(--db-accent-ring);
+  outline-offset: 1px;
+  border-radius: var(--db-r-sm);
+}
+.db-peek {
+  position: fixed;
+  z-index: 45;
+  background: var(--db-bg-elev-1);
+  border: 1px solid var(--db-border-strong);
+  border-radius: var(--db-r-lg);
+  box-shadow: var(--db-shadow-pop);
+  padding: var(--db-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-2);
+}
+.db-peek-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--db-2);
+}
+.db-peek-h-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--db-1);
+}
+.db-peek-close {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: var(--db-fg-mid);
+  border-radius: var(--db-r-md);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.db-peek-close:hover {
+  background: var(--db-bg-elev-3);
+  color: var(--db-fg);
+}
+.db-peek-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-1);
+  max-height: 230px;
+  overflow-y: auto;
+}
+.db-peek-row {
+  display: flex;
+  align-items: center;
+  gap: var(--db-2);
+}
+.db-peek-row.edit {
+  gap: var(--db-1);
+}
+.db-peek-kind {
+  flex: 0 0 auto;
+  min-width: 62px;
+  font-size: var(--db-text-2xs);
+  color: var(--db-fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.db-peek-kind-select {
+  flex: 0 0 auto;
+  width: 96px;
+  padding: 4px 6px;
+  font-size: var(--db-text-2xs);
+}
+.db-peek-val {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--db-text-xs);
+  color: var(--db-fg);
+}
+.db-peek-row.edit .db-input {
+  padding: 4px 8px;
+  font-size: var(--db-text-xs);
+}
+.db-peek-remove {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: var(--db-fg-dim);
+  border-radius: var(--db-r-md);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.db-peek-remove:hover {
+  background: var(--db-neg-bg);
+  color: var(--db-neg);
+}
+.db-peek-add {
+  align-self: flex-start;
+}
+.db-peek-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--db-2);
+  margin-top: var(--db-1);
+}
+.db-peek-empty {
+  font-size: var(--db-text-xs);
+  color: var(--db-fg-dim);
+  padding: var(--db-2) 0;
+}
+.db-peek-err {
+  font-size: var(--db-text-2xs);
+  color: var(--db-neg);
+}
+
 .db-mgmt-notes-h {
   font-size: 11px;
   letter-spacing: 0.12em;

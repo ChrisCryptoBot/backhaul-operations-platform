@@ -1,4 +1,5 @@
 import type { BoardLoadRow, BoardResponse, BoardSection } from "@/lib/board-types";
+import type { ReferenceNumber } from "@/lib/reference-numbers";
 import { toNumber } from "@/lib/ui/parse";
 
 export interface ViewBoardLoadRow {
@@ -21,6 +22,7 @@ export interface ViewBoardLoadRow {
   loadNumber: string | null;
   pickupNumber: string | null;
   pickupNumbers: string[];
+  referenceNumbers: ReferenceNumber[];
   lateCancelFailedNote: string | null;
   attentionSeverity: "INFO" | "WARN" | "URGENT";
   scaleBeforeTask: "NOT_DONE" | "DONE";
@@ -180,6 +182,7 @@ export function mapBoardRowToView(row: BoardLoadRow): ViewBoardLoadRow {
     loadNumber: row.loadNumber,
     pickupNumber: row.pickupNumber,
     pickupNumbers: row.pickupNumbers,
+    referenceNumbers: row.referenceNumbers ?? [],
     lateCancelFailedNote: row.lateCancelFailedNote,
     attentionSeverity: row.attentionSeverity,
     scaleBeforeTask: row.scaleBeforeTask,

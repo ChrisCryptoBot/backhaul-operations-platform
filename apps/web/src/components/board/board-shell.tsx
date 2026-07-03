@@ -10,7 +10,9 @@ import {
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { useTheme } from "@/components/shell/theme";
 import { int, money, pct, rpm } from "@/lib/ui/formatters";
-import { mapBoardResponseToView, resolveDriverLabel, type ViewBoardResponse } from "@/lib/ui/board-mappers";
+import { mapBoardResponseToView, resolveDriverLabel, type ViewBoardResponse, type ViewBoardLoadRow } from "@/lib/ui/board-mappers";
+import type { ReferenceNumber } from "@/lib/reference-numbers";
+import { FieldPeekPopover } from "./field-peek-popover";
 import { collectBoardAlertRollups, type LoadAlertRollup } from "@/lib/ui/load-alerts";
 import { useAlertNotifier } from "@/lib/ui/use-alert-notifier";
 import { TopbarSignOutButton } from "@/components/auth/sign-out-button";
@@ -192,6 +194,13 @@ function sectionCode(sectionId: string, title: string): string {
   return title.replace(/[^A-Z0-9]/gi, "").toUpperCase().slice(0, 6) || "LOT";
 }
 
+/** The numbers to show in the peek popover: the structured list, else a PU-kind fallback. */
+function peekValuesFor(load: ViewBoardLoadRow): ReferenceNumber[] {
+  if (load.referenceNumbers && load.referenceNumbers.length > 0) return load.referenceNumbers;
+  const pickups = (load.pickupNumbers ?? []).length > 0 ? load.pickupNumbers : load.pickupNumber ? [load.pickupNumber] : [];
+  return pickups.map((value) => ({ kind: "PU", value }));
+}
+
 export function BoardShell({ board, boardError = null, initialHighlightLoadId = null, viewerIsAdmin = false, viewerCanManageReference = false }: BoardShellProps) {
   const [boardState, setBoardState] = React.useState(board);
   // Client-only clock for time-based alerts (firm-appt escalation). Stays undefined
@@ -232,6 +241,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
   const [dragOverSectionId, setDragOverSectionId] = React.useState<string | null>(null);
   const [highlightLoadId, setHighlightLoadId] = React.useState<string | null>(initialHighlightLoadId);
   const [contextMenu, setContextMenu] = React.useState<{ loadId: string; x: number; y: number } | null>(null);
+  const [peek, setPeek] = React.useState<{ loadId: string; ref: string; anchorEl: HTMLElement; values: ReferenceNumber[] } | null>(null);
   type DialogState =
     | null
     | { kind: "tonu"; loadId: string; isTonu: boolean }
@@ -1033,7 +1043,19 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                                 </td>
                               </>
                             ) : null}
-                            <td className="mono">{(load.pickupNumbers ?? []).length > 0 ? (load.pickupNumbers ?? []).join(", ") : (load.pickupNumber ?? "—")}</td>
+                            <td className="mono">
+                              <button
+                                type="button"
+                                className="db-peek-trigger mono"
+                                aria-label={`Reference numbers for ${load.ref}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setPeek({ loadId: load.id, ref: load.ref, anchorEl: event.currentTarget, values: peekValuesFor(load) });
+                                }}
+                              >
+                                {(load.pickupNumbers ?? []).length > 0 ? (load.pickupNumbers ?? []).join(", ") : (load.pickupNumber ?? "—")}
+                              </button>
+                            </td>
                             {showDetails ? (
                               <>
                                 <td className="trunc" title={load.brokerName ?? undefined}>{load.brokerName ?? "—"}{load.brokerRepName ? ` (${load.brokerRepName})` : ""}</td>
@@ -1175,6 +1197,18 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                 <button className="db-btn db-btn-mini db-btn-ghost" onClick={() => setContextMenu(null)}>Close</button>
               </div>
             </div>
+          ) : null}
+
+          {peek ? (
+            <FieldPeekPopover
+              anchorEl={peek.anchorEl}
+              loadRef={peek.ref}
+              values={peek.values}
+              onClose={() => setPeek(null)}
+              onSave={async (fields) => {
+                await mutateBoard({ action: "update-fields", loadId: peek.loadId, fields });
+              }}
+            />
           ) : null}
 
         </main>

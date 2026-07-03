@@ -74,6 +74,7 @@ describe("board mapper", () => {
               loadNumber: null,
               pickupNumber: null,
               pickupNumbers: [],
+              referenceNumbers: [],
               brokerName: null,
               brokerRepName: null,
               mgStatusTask: "NOT_DONE" as const,

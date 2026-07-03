@@ -3,6 +3,36 @@ import { boardMutationSchema } from "@/app/api/board/schema";
 
 const BASE = { date: "2026-06-21", loadId: "load-1" };
 
+describe("boardMutationSchema — update-fields referenceNumbers", () => {
+  test("accepts a labeled reference-numbers list", () => {
+    const r = boardMutationSchema.safeParse({
+      action: "update-fields",
+      ...BASE,
+      fields: {
+        referenceNumbers: [
+          { kind: "PU", value: "100" },
+          { kind: "BOL", value: "200", source: "RATE_CON" }
+        ]
+      }
+    });
+    expect(r.success).toBe(true);
+  });
+
+  test("rejects an entry with a blank value", () => {
+    const r = boardMutationSchema.safeParse({
+      action: "update-fields",
+      ...BASE,
+      fields: { referenceNumbers: [{ kind: "PU", value: "  " }] }
+    });
+    expect(r.success).toBe(false);
+  });
+
+  test("accepts an empty list (clears the numbers)", () => {
+    const r = boardMutationSchema.safeParse({ action: "update-fields", ...BASE, fields: { referenceNumbers: [] } });
+    expect(r.success).toBe(true);
+  });
+});
+
 describe("boardMutationSchema — leg-upsert validation", () => {
   const leg = { legIndex: 0, legType: "PTP" as const };
 

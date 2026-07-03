@@ -75,6 +75,7 @@ const boardFixture: ViewBoardResponse = {
           loadNumber: "L1",
           pickupNumber: "P1",
           pickupNumbers: [],
+          referenceNumbers: [],
           lateCancelFailedNote: null,
           attentionSeverity: "INFO" as const,
           scaleBeforeTask: "NOT_DONE" as const,

@@ -11,6 +11,7 @@ import { computeLoadMetrics } from "@/server/kpi";
 import { getEffectiveFscRate } from "@/server/fsc";
 import { getRegionConfig } from "@/server/region-config";
 import { recordLoadDisruption, DisruptionValidationError } from "@/server/disruptions";
+import { normalizeReferenceNumbers, derivePickupNumbers } from "@/lib/reference-numbers";
 import { workerOrchestratorAdapter } from "@/domain/workers/orchestrator-adapter";
 import { getEnv } from "@/lib/env";
 
@@ -75,6 +76,7 @@ interface BoardLoadDbRow {
   loadNumber: string | null;
   pickupNumber: string | null;
   pickupNumbers: string[];
+  referenceNumbers: Prisma.JsonValue | null;
   broker: { name: string } | null;
   mgStatusTask: "NOT_DONE" | "DONE";
   tmwStatusTask: "NOT_DONE" | "DONE";
@@ -183,6 +185,7 @@ function loadToBoardRow(load: {
   loadNumber: string | null;
   pickupNumber: string | null;
   pickupNumbers: string[];
+  referenceNumbers: Prisma.JsonValue | null;
   broker: { name: string } | null;
   mgStatusTask: "NOT_DONE" | "DONE";
   tmwStatusTask: "NOT_DONE" | "DONE";
@@ -272,6 +275,7 @@ function loadToBoardRow(load: {
     loadNumber: load.loadNumber,
     pickupNumber: load.pickupNumber,
     pickupNumbers: load.pickupNumbers,
+    referenceNumbers: normalizeReferenceNumbers(load.referenceNumbers),
     brokerName: load.broker?.name ?? null,
     brokerRepName: null,
     mgStatusTask: load.mgStatusTask,
@@ -376,6 +380,7 @@ const boardLoadSelect = {
   loadNumber: true,
   pickupNumber: true,
   pickupNumbers: true,
+  referenceNumbers: true,
   broker: { select: { name: true } },
   mgStatusTask: true,
   tmwStatusTask: true,
@@ -973,6 +978,8 @@ export async function updateBoardLoadFields(input: {
     loadNumber: string | null;
     pickupNumber: string | null;
     pickupNumbers: string[];
+    /** Structured labeled numbers; master store. Derives pickupNumber(s) from PU-kind entries. */
+    referenceNumbers: Array<{ kind: string; value: string; source?: "RATE_CON" | "MANUAL" }>;
     threePlRefNumber: string | null;
     tractorTrailer1: string | null;
     tractorTrailer2: string | null;
@@ -1013,6 +1020,7 @@ export async function updateBoardLoadFields(input: {
       deliveryDate,
       lumperFeeAmount,
       pickupNumbers,
+      referenceNumbers,
       brokerId,
       lineHaulRate,
       loadedMiles,
@@ -1030,7 +1038,14 @@ export async function updateBoardLoadFields(input: {
     if (lumperFeeAmount !== undefined) {
       updateData.lumperFeeAmount = lumperFeeAmount ? new Prisma.Decimal(lumperFeeAmount) : null;
     }
-    if (pickupNumbers !== undefined) {
+    if (referenceNumbers !== undefined) {
+      // referenceNumbers is the master; derive the legacy pickup fields from its PU entries.
+      const normalized = normalizeReferenceNumbers(referenceNumbers);
+      const derived = derivePickupNumbers(normalized);
+      updateData.referenceNumbers = normalized;
+      updateData.pickupNumbers = derived.pickupNumbers;
+      updateData.pickupNumber = derived.pickupNumber;
+    } else if (pickupNumbers !== undefined) {
       updateData.pickupNumbers = pickupNumbers;
     }
     if (brokerId !== undefined) {
