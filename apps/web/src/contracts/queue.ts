@@ -37,6 +37,9 @@ export const parserExtractionSchema = z.object({
   receiverName: z.string().min(1),
   brokerName: z.string().min(1),
   loadNumber: z.string().min(1),
+  // Optional: every reference number found on the doc, classified by kind (PU/PO/BOL/
+  // SEAL/PRO/…, unlabeled → OTHER). Optional so the regex fallback + older payloads validate.
+  referenceNumbers: z.array(z.object({ kind: z.string().min(1), value: z.string().min(1) })).optional(),
   originCityState: z.string().min(3),
   destinationCityState: z.string().min(3)
 });

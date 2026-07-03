@@ -94,8 +94,10 @@ function mergeExtraction(primary: Extraction, fallback: Extraction): Record<stri
   };
 }
 
-function computeConfidence(extracted: Record<string, string>): number {
-  const values = Object.values(extracted);
+function computeConfidence(extracted: Record<string, unknown>): number {
+  // Only the scalar string fields drive the heuristic; skip structured fields
+  // like referenceNumbers (an array) that the regex fallback never produces.
+  const values = Object.values(extracted).filter((value): value is string => typeof value === "string");
   const nonFallbackCount = values.filter(
     (value) => !value.startsWith("Parsed ") && !value.startsWith("Unknown,") && !value.includes("AUTO")
   ).length;

@@ -237,6 +237,28 @@ describe("copilot tool dispatch — safety", () => {
     expect(updateBoardLoadFields).not.toHaveBeenCalled();
   });
 
+  test("organize_load_numbers stages for confirmation, then writes normalized reference numbers", async () => {
+    const input = {
+      loadId: "load-1",
+      referenceNumbers: [
+        { kind: "PU", value: "P1" },
+        { kind: "weird", value: "X9" },
+        { kind: "BOL", value: "   " }
+      ]
+    };
+    const staged = await dispatchTool("organize_load_numbers", input, ctx);
+    expect(staged.needsConfirmation).toBe(true);
+    expect(updateBoardLoadFields).not.toHaveBeenCalled();
+
+    await dispatchTool("organize_load_numbers", input, ctx, { confirmed: true });
+    expect(updateBoardLoadFields).toHaveBeenCalledWith(
+      expect.objectContaining({
+        loadId: "load-1",
+        fields: { referenceNumbers: [{ kind: "PU", value: "P1" }, { kind: "OTHER", value: "X9" }] }
+      })
+    );
+  });
+
   test("update_load_fields allows broker assignment and custom PU/DEL status (non-financial, applies directly)", async () => {
     const result = await dispatchTool(
       "update_load_fields",

@@ -4,6 +4,7 @@ import { withNonDeletedRegionScope } from "@/lib/scoped-query";
 import { policyAdapter } from "@/domain/policy/policy-adapter";
 import { getLoadDetail } from "@/server/board-detail";
 import { DISRUPTION_REASON_VALUES, DISRUPTION_REASON_OPTIONS } from "@/lib/disruptions";
+import { REFERENCE_NUMBER_KIND_VALUES, normalizeReferenceNumbers } from "@/lib/reference-numbers";
 import type { DisruptionReason } from "@prisma/client";
 import {
   deleteBoardLoadLeg,
@@ -113,7 +114,8 @@ export const RISKY_TOOLS = new Set([
   "delete_drop_lot",
   "review_rate_confirmation",
   "set_board_thresholds",
-  "set_llm_settings"
+  "set_llm_settings",
+  "organize_load_numbers"
 ]);
 
 /** Anthropic tool definitions exposed to the copilot. */
@@ -486,6 +488,35 @@ export const COPILOT_TOOLS = [
         }
       },
       required: ["loadId", "fields"]
+    }
+  },
+  {
+    name: "organize_load_numbers",
+    description:
+      "Set the structured, labeled reference numbers on a load (PU#, PO#, BOL#, seal#, pro#, order#, container#, etc.). " +
+      "Use this to collect and organize the numbers from a rate con or coordinator notes: read the load with " +
+      "get_load_detail, classify each number by kind using context clues from nearby labels, and put any number you " +
+      "can't confidently label under kind OTHER (never drop it). This REPLACES the load's reference-number list, so " +
+      "include EVERY number that should remain. The pickup number(s) are derived automatically from the PU-kind entries. " +
+      "Requires confirmation.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        loadId: { type: "string" },
+        referenceNumbers: {
+          type: "array",
+          description: "The full organized list — every number that should be on the load.",
+          items: {
+            type: "object",
+            properties: {
+              kind: { type: "string", enum: [...REFERENCE_NUMBER_KIND_VALUES] },
+              value: { type: "string", description: "The number value." }
+            },
+            required: ["kind", "value"]
+          }
+        }
+      },
+      required: ["loadId", "referenceNumbers"]
     }
   },
   {
@@ -1448,6 +1479,18 @@ export async function dispatchTool(
       }
       await updateBoardLoadFields({ regionId: ctx.regionId, loadId, actorId: ctx.userId, fields: fields as never });
       return { content: { status: "updated", loadId, fields: Object.keys(fields) }, summary };
+    }
+
+    case "organize_load_numbers": {
+      assertBoardWrite(ctx);
+      const loadId = String(input.loadId ?? "");
+      const refs = normalizeReferenceNumbers(input.referenceNumbers);
+      const summary = `Organize ${refs.length} reference number(s) on load ${loadId}`;
+      if (!opts.confirmed) {
+        return { needsConfirmation: true, summary, content: { status: "confirmation_required", summary, referenceNumbers: refs } };
+      }
+      await updateBoardLoadFields({ regionId: ctx.regionId, loadId, actorId: ctx.userId, fields: { referenceNumbers: refs } as never });
+      return { content: { status: "updated", loadId, referenceNumbers: refs }, summary };
     }
 
     case "set_load_status": {

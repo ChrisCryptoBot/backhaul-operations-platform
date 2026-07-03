@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { parserExtractionSchema } from "@/contracts/queue";
+import { REFERENCE_NUMBER_KIND_VALUES } from "@/lib/reference-numbers";
 import type { LlmExtractionResult, LlmExtractOptions, LlmProvider } from "@/server/llm/types";
 
 const PARSER_VERSION = "rc-llm-anthropic-v1";
@@ -27,6 +28,25 @@ const TOOL_INPUT_SCHEMA = {
     receiverName: { type: "string", description: "Receiver / destination facility name." },
     brokerName: { type: "string", description: "Broker / customer name." },
     loadNumber: { type: "string", description: "Load number / reference." },
+    referenceNumbers: {
+      type: "array",
+      description:
+        "EVERY reference/identifier number printed anywhere on the document, each classified by kind. " +
+        "Use context clues from nearby labels; put numbers with no clear label under kind OTHER. " +
+        "Include the pickup number(s) here too (kind PU).",
+      items: {
+        type: "object",
+        properties: {
+          kind: {
+            type: "string",
+            enum: [...REFERENCE_NUMBER_KIND_VALUES],
+            description: "PU=pickup, PO=purchase order, BOL=bill of lading, SEAL, PRO, ORDER, APPT, REF, CONTAINER, TRAILER, OTHER."
+          },
+          value: { type: "string", description: "The number exactly as printed." }
+        },
+        required: ["kind", "value"]
+      }
+    },
     originCityState: { type: "string", description: "Origin as 'City, ST' (two-letter state)." },
     destinationCityState: { type: "string", description: "Destination as 'City, ST' (two-letter state)." },
     pickupApptType: {
@@ -71,6 +91,9 @@ const SYSTEM_PROMPT =
   "Normalize the pickup date to YYYY-MM-DD and strip currency symbols and commas from numeric fields. " +
   "Capture pickup and delivery appointment windows as local HH:MM (24h) times plus their type " +
   "(FIRM_APPT / OPEN_WINDOW / FCFS) when the document states them; omit any you cannot read. " +
+  "For referenceNumbers, list EVERY identifier number on the document — pickup #, PO #, BOL #, seal #, " +
+  "pro #, order #, appointment #, container/trailer # — and classify each by kind using nearby labels; " +
+  "put any number you cannot confidently label under kind OTHER rather than dropping it. " +
   "If a field is genuinely not present, make your best inference and lower your confidence accordingly.";
 
 function clampConfidence(value: unknown): number {

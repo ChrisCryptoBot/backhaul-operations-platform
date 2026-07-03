@@ -8,6 +8,7 @@ import { runInRegionScope } from "@/lib/db";
 import { ReviewConflictError, ReviewNotFoundError, ReviewValidationError } from "@/lib/review-errors";
 import { computeLoadMetrics } from "./kpi";
 import { workerOrchestratorAdapter } from "@/domain/workers/orchestrator-adapter";
+import { normalizeReferenceNumbers, derivePickupNumbers, type ReferenceNumber } from "@/lib/reference-numbers";
 import { reviewContractVersion } from "@/contracts/review";
 
 type ReviewDecisionState = "PENDING" | "APPROVED" | "REJECTED";
@@ -23,6 +24,10 @@ export interface CreateLoadInput {
   dropLotId?: string;
   shipperName?: string;
   receiverName?: string;
+  loadNumber?: string;
+  pickupNumber?: string | null;
+  pickupNumbers?: string[];
+  referenceNumbers?: ReferenceNumber[];
   lineHaulRate: Prisma.Decimal;
   loadedMiles: Prisma.Decimal;
   puDeadheadMiles: Prisma.Decimal;
@@ -284,7 +289,22 @@ export function mapExtractedPayloadToCreateLoadInput(input: {
     end: "deliveryWindowEnd",
     cityState: "destinationCityState"
   });
+  // Structured reference numbers (LLM-classified). Stamp source=RATE_CON and fold the
+  // scalar pickupNumber in as a PU entry so nothing the parser found is dropped.
+  const parsedRefs: ReferenceNumber[] = normalizeReferenceNumbers(input.extractedPayload.referenceNumbers).map((r) => ({
+    ...r,
+    source: "RATE_CON" as const
+  }));
+  const parsedPickup = readString(input.extractedPayload, "pickupNumber");
+  if (parsedPickup && !parsedRefs.some((r) => r.value === parsedPickup)) {
+    parsedRefs.unshift({ kind: "PU", value: parsedPickup, source: "RATE_CON" });
+  }
+  const derivedPickups = derivePickupNumbers(parsedRefs);
   return {
+    loadNumber: readString(input.extractedPayload, "loadNumber") ?? undefined,
+    pickupNumber: derivedPickups.pickupNumber ?? undefined,
+    pickupNumbers: derivedPickups.pickupNumbers,
+    referenceNumbers: parsedRefs,
     actorId: input.actorId,
     regionId: input.regionId,
     rateConfirmationId: input.rateConfirmationId,
@@ -470,7 +490,10 @@ export async function createLoadFromReview(
     receiverName: input.receiverName,
     brokerId: input.brokerId,
     rateConfirmationId: input.rateConfirmationId ?? null,
-    pickupNumbers: [],
+    loadNumber: input.loadNumber ?? null,
+    pickupNumber: input.pickupNumber ?? null,
+    pickupNumbers: input.pickupNumbers ?? [],
+    referenceNumbers: (input.referenceNumbers ?? []) as unknown as Prisma.InputJsonValue,
     lineHaulRate: input.lineHaulRate,
     loadedMiles: input.loadedMiles,
     puDeadheadMiles: input.puDeadheadMiles,
