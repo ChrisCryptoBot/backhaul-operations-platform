@@ -494,10 +494,18 @@
 
 .db-table {
   width: 100%;
-  min-width: 2150px;
+  /* Wide tables (board tracker, lane scorecard) carry a large min-width so their many
+     columns stay legible; that min-width is scoped to `.db-table-wrap` (the scroll
+     container) below, so small summary tables that live outside a wrap fit their
+     container and never push the page into a horizontal scroll. */
+  min-width: 0;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 12px;
+}
+
+.db-table-wrap .db-table {
+  min-width: 2150px;
 }
 
 .db-table th,

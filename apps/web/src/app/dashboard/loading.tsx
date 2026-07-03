@@ -1,13 +1,15 @@
 export default function DashboardLoading() {
   return (
-    <main className="db-root db-dashboard-loading">
-      <div className="db-dashboard-loading-card">
-        <span className="db-spinner" aria-hidden="true" />
-        <div>
-          <h1 className="db-dashboard-loading-title">KPI Dashboard</h1>
-          <p className="db-dashboard-loading-copy">Loading KPI tracker data...</p>
+    <main className="db-root db-fallback-main">
+      <section className="db-loading-shell" aria-live="polite" aria-busy="true">
+        <div className="db-loading-line db-skel">KPI Dashboard</div>
+        <div className="db-loading-line db-loading-line-wide db-skel">Loading KPI tracker data...</div>
+        <div className="db-loading-grid">
+          <div className="db-loading-card db-skel">Cards</div>
+          <div className="db-loading-card db-skel">Lanes</div>
+          <div className="db-loading-card db-skel">Trend</div>
         </div>
-      </div>
+      </section>
     </main>
   );
 }
