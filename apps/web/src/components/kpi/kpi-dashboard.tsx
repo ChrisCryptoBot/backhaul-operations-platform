@@ -867,6 +867,38 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
             )}
           </div>
 
+          {/* Weekly report actions (the report is the dashboard itself now that the
+              Management Report tab is gone). */}
+          <button
+            type="button"
+            className="db-btn db-btn-ghost"
+            onClick={() => triggerExport("pdf")}
+            title="Export the weekly KPI summary as a PDF"
+          >
+            Export PDF
+          </button>
+          <button
+            type="button"
+            className="db-btn db-btn-ghost"
+            onClick={sendEmailSummary}
+            disabled={isSendingEmail}
+            aria-busy={isSendingEmail ? "true" : "false"}
+            title="Email the weekly KPI summary to the manager"
+          >
+            {isSendingEmail ? (
+              <>
+                <span className="db-spinner" aria-hidden="true" /> Sending…
+              </>
+            ) : (
+              "Email"
+            )}
+          </button>
+          {emailStatus ? (
+            <span className="dim mono" role="status" aria-live="polite" style={{ fontSize: 11 }}>
+              {emailStatus}
+            </span>
+          ) : null}
+
           {/* Inbound (IB) entry button */}
           <button
             type="button"

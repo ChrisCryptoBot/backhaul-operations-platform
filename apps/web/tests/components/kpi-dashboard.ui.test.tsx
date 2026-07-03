@@ -177,6 +177,18 @@ describe("KpiDashboard full parity surface", () => {
     expect(container.querySelector(".db-trend-selection .db-trend-popup-week")?.textContent).toBe("W16");
   });
 
+  test("header Email action shows a recoverable message when the request fails", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network")));
+    render(<KpiDashboard initialData={fixture} />);
+
+    await user.click(screen.getByRole("button", { name: /Email/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Unable to send summary email. Please try again.")).toBeInTheDocument();
+    });
+  });
+
   test("surfaces lane note API errors and keeps editor open", async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
