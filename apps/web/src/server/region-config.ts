@@ -6,12 +6,15 @@ export const DEFAULT_EMPTY_PCT_AMBER = 15;
 export const DEFAULT_EMPTY_PCT_RED = 25;
 /** Aggregate weekly empty-mile % that fires the KPI dashboard alert (distinct from the per-load board colors). */
 export const DEFAULT_EMPTY_PCT_ALERT = 6.5;
+/** Target on-time % for the reliability bullet cards (target line + pass/fail). */
+export const DEFAULT_ON_TIME_TARGET_PCT = 95;
 
 /** Per-region board tunables (Empty% color thresholds + the dashboard empty-mile alert, as whole percents). */
 export interface RegionThresholds {
   emptyPctAmber: number;
   emptyPctRed: number;
   emptyPctAlert: number;
+  onTimeTargetPct: number;
 }
 
 export class RegionConfigValidationError extends Error {}
@@ -25,13 +28,15 @@ export async function getRegionConfig(
     return {
       emptyPctAmber: DEFAULT_EMPTY_PCT_AMBER,
       emptyPctRed: DEFAULT_EMPTY_PCT_RED,
-      emptyPctAlert: DEFAULT_EMPTY_PCT_ALERT
+      emptyPctAlert: DEFAULT_EMPTY_PCT_ALERT,
+      onTimeTargetPct: DEFAULT_ON_TIME_TARGET_PCT
     };
   }
   return {
     emptyPctAmber: row.emptyPctAmber.toNumber(),
     emptyPctRed: row.emptyPctRed.toNumber(),
-    emptyPctAlert: row.emptyPctAlert.toNumber()
+    emptyPctAlert: row.emptyPctAlert.toNumber(),
+    onTimeTargetPct: row.onTimeTargetPct.toNumber()
   };
 }
 
@@ -43,6 +48,8 @@ export interface UpdateRegionConfigInput {
   emptyPctRed?: number | string | null;
   /** Aggregate weekly empty-mile % that fires the dashboard alert (e.g. 6.5). */
   emptyPctAlert?: number | string | null;
+  /** Target on-time % for the reliability cards (e.g. 95). */
+  onTimeTargetPct?: number | string | null;
   reason?: string;
 }
 
@@ -70,10 +77,12 @@ export async function updateRegionConfig(
   const currentAmber = existing ? existing.emptyPctAmber : new Prisma.Decimal(DEFAULT_EMPTY_PCT_AMBER);
   const currentRed = existing ? existing.emptyPctRed : new Prisma.Decimal(DEFAULT_EMPTY_PCT_RED);
   const currentAlert = existing ? existing.emptyPctAlert : new Prisma.Decimal(DEFAULT_EMPTY_PCT_ALERT);
+  const currentOnTime = existing ? existing.onTimeTargetPct : new Prisma.Decimal(DEFAULT_ON_TIME_TARGET_PCT);
 
   const nextAmber = isProvided(input.emptyPctAmber) ? toThresholdDecimal(input.emptyPctAmber, "amber") : currentAmber;
   const nextRed = isProvided(input.emptyPctRed) ? toThresholdDecimal(input.emptyPctRed, "red") : currentRed;
   const nextAlert = isProvided(input.emptyPctAlert) ? toThresholdDecimal(input.emptyPctAlert, "alert") : currentAlert;
+  const nextOnTime = isProvided(input.onTimeTargetPct) ? toThresholdDecimal(input.onTimeTargetPct, "onTimeTarget") : currentOnTime;
 
   if (
     nextAmber.lessThanOrEqualTo(0) ||
@@ -85,6 +94,9 @@ export async function updateRegionConfig(
   if (nextAlert.lessThanOrEqualTo(0) || nextAlert.greaterThan(100)) {
     throw new RegionConfigValidationError("Empty-mile alert threshold must satisfy 0 < alert <= 100.");
   }
+  if (nextOnTime.lessThanOrEqualTo(0) || nextOnTime.greaterThan(100)) {
+    throw new RegionConfigValidationError("On-time target must satisfy 0 < target <= 100.");
+  }
 
   const row = await db.regionConfig.upsert({
     where: { regionId: input.regionId },
@@ -93,12 +105,14 @@ export async function updateRegionConfig(
       emptyPctAmber: nextAmber,
       emptyPctRed: nextRed,
       emptyPctAlert: nextAlert,
+      onTimeTargetPct: nextOnTime,
       updatedById: input.actorId
     },
     update: {
       emptyPctAmber: nextAmber,
       emptyPctRed: nextRed,
       emptyPctAlert: nextAlert,
+      onTimeTargetPct: nextOnTime,
       updatedById: input.actorId
     }
   });
@@ -115,13 +129,15 @@ export async function updateRegionConfig(
         ? {
             emptyPctAmber: currentAmber.toString(),
             emptyPctRed: currentRed.toString(),
-            emptyPctAlert: currentAlert.toString()
+            emptyPctAlert: currentAlert.toString(),
+            onTimeTargetPct: currentOnTime.toString()
           }
         : Prisma.JsonNull,
       afterValue: {
         emptyPctAmber: row.emptyPctAmber.toString(),
         emptyPctRed: row.emptyPctRed.toString(),
-        emptyPctAlert: row.emptyPctAlert.toString()
+        emptyPctAlert: row.emptyPctAlert.toString(),
+        onTimeTargetPct: row.onTimeTargetPct.toString()
       }
     })
   });
@@ -129,6 +145,7 @@ export async function updateRegionConfig(
   return {
     emptyPctAmber: row.emptyPctAmber.toNumber(),
     emptyPctRed: row.emptyPctRed.toNumber(),
-    emptyPctAlert: row.emptyPctAlert.toNumber()
+    emptyPctAlert: row.emptyPctAlert.toNumber(),
+    onTimeTargetPct: row.onTimeTargetPct.toNumber()
   };
 }

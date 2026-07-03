@@ -1,5 +1,6 @@
 import { toNumber } from "@/lib/ui/parse";
 import { assertMileMaxUsage } from "@/domain/semantics";
+import type { KpiOpsAnalytics } from "@/contracts/kpi";
 
 export interface KpiCardDto {
   key: string;
@@ -43,6 +44,7 @@ export interface KpiDashboardResponse {
   comparisonWeekIso: string | null;
   comparisonMode?: "wow" | "rolling4" | "qtd";
   cards: KpiCardDto[];
+  opsAnalytics?: KpiOpsAnalytics;
   lanes: KpiLaneRowDto[];
   trend: KpiTrendPointDto[];
   chartCatalog?: {
@@ -128,6 +130,7 @@ export interface ViewKpiDashboard {
     inverted: boolean;
     noPrior: boolean;
   }>;
+  opsAnalytics?: KpiOpsAnalytics;
   lanes: Array<{
     lane: string;
     target: number | null;
@@ -245,6 +248,7 @@ export function mapKpiDashboardToView(input: KpiDashboardResponse): ViewKpiDashb
       inverted: Boolean(card.inverted),
       noPrior: Boolean(card.noPrior)
     })),
+    opsAnalytics: input.opsAnalytics,
     lanes: input.lanes.map((lane) => ({
       lane: lane.lane,
       target: toNumber(lane.target),

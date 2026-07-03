@@ -18,6 +18,7 @@ import {
   DEFAULT_EMPTY_PCT_ALERT,
   DEFAULT_EMPTY_PCT_AMBER,
   DEFAULT_EMPTY_PCT_RED,
+  DEFAULT_ON_TIME_TARGET_PCT,
   getRegionConfig,
   RegionConfigValidationError,
   updateRegionConfig
@@ -35,7 +36,8 @@ describe("region-config", () => {
     expect(cfg).toEqual({
       emptyPctAmber: DEFAULT_EMPTY_PCT_AMBER,
       emptyPctRed: DEFAULT_EMPTY_PCT_RED,
-      emptyPctAlert: DEFAULT_EMPTY_PCT_ALERT
+      emptyPctAlert: DEFAULT_EMPTY_PCT_ALERT,
+      onTimeTargetPct: DEFAULT_ON_TIME_TARGET_PCT
     });
   });
 
@@ -43,9 +45,10 @@ describe("region-config", () => {
     mocks.findUnique.mockResolvedValue({
       emptyPctAmber: new Prisma.Decimal("12"),
       emptyPctRed: new Prisma.Decimal("22"),
-      emptyPctAlert: new Prisma.Decimal("7")
+      emptyPctAlert: new Prisma.Decimal("7"),
+      onTimeTargetPct: new Prisma.Decimal("93")
     });
-    expect(await getRegionConfig("r1")).toEqual({ emptyPctAmber: 12, emptyPctRed: 22, emptyPctAlert: 7 });
+    expect(await getRegionConfig("r1")).toEqual({ emptyPctAmber: 12, emptyPctRed: 22, emptyPctAlert: 7, onTimeTargetPct: 93 });
   });
 
   test("updateRegionConfig upserts both thresholds and writes an audit entry", async () => {
@@ -54,10 +57,11 @@ describe("region-config", () => {
       id: "rc1",
       emptyPctAmber: new Prisma.Decimal("12"),
       emptyPctRed: new Prisma.Decimal("20"),
-      emptyPctAlert: new Prisma.Decimal("6.5")
+      emptyPctAlert: new Prisma.Decimal("6.5"),
+      onTimeTargetPct: new Prisma.Decimal("95")
     });
     const cfg = await updateRegionConfig({ actorId: "u1", regionId: "r1", emptyPctAmber: "12", emptyPctRed: "20" });
-    expect(cfg).toEqual({ emptyPctAmber: 12, emptyPctRed: 20, emptyPctAlert: 6.5 });
+    expect(cfg).toEqual({ emptyPctAmber: 12, emptyPctRed: 20, emptyPctAlert: 6.5, onTimeTargetPct: 95 });
     expect(mocks.upsert).toHaveBeenCalledTimes(1);
     expect(mocks.auditCreate).toHaveBeenCalledTimes(1);
   });
@@ -67,13 +71,15 @@ describe("region-config", () => {
       id: "rc1",
       emptyPctAmber: new Prisma.Decimal("15"),
       emptyPctRed: new Prisma.Decimal("25"),
-      emptyPctAlert: new Prisma.Decimal("6.5")
+      emptyPctAlert: new Prisma.Decimal("6.5"),
+      onTimeTargetPct: new Prisma.Decimal("95")
     });
     mocks.upsert.mockResolvedValue({
       id: "rc1",
       emptyPctAmber: new Prisma.Decimal("15"),
       emptyPctRed: new Prisma.Decimal("30"),
-      emptyPctAlert: new Prisma.Decimal("6.5")
+      emptyPctAlert: new Prisma.Decimal("6.5"),
+      onTimeTargetPct: new Prisma.Decimal("95")
     });
     await updateRegionConfig({ actorId: "u1", regionId: "r1", emptyPctRed: "30" });
     const arg = mocks.upsert.mock.calls[0][0] as {
@@ -90,7 +96,8 @@ describe("region-config", () => {
       id: "rc1",
       emptyPctAmber: new Prisma.Decimal("15"),
       emptyPctRed: new Prisma.Decimal("25"),
-      emptyPctAlert: new Prisma.Decimal("8")
+      emptyPctAlert: new Prisma.Decimal("8"),
+      onTimeTargetPct: new Prisma.Decimal("95")
     });
     const cfg = await updateRegionConfig({ actorId: "u1", regionId: "r1", emptyPctAlert: "8" });
     expect(cfg.emptyPctAlert).toBe(8);

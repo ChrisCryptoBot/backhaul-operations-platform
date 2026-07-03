@@ -7,6 +7,16 @@ import { assertMileMaxUsage, shouldIncludeInKpi } from "@/domain/semantics";
 import { kpiContractVersion } from "@/contracts/kpi";
 import { decodeLaneWeekMetadata } from "@/server/lane-week-metadata";
 import { getRegionConfig } from "@/server/region-config";
+import {
+  computeAvgShuttleDeadheadRadius,
+  computeDeadheadSplitPerLoad,
+  computeDisruptionReasonBreakdown,
+  computeGrowth,
+  computeRateVarianceHistogram,
+  computeReliabilityMetrics,
+  computeShuttleEmptyLeaderboard,
+  type OpsLoadInput
+} from "@/server/kpi-ops-metrics";
 
 export type ComparisonMode = "wow" | "rolling4" | "qtd";
 
@@ -220,6 +230,7 @@ async function fetchScorecardLoads(
 type DrilldownLoadRow = {
   weekIso: string;
   status: string;
+  driverType: string | null;
   pickupCity: string | null;
   pickupState: string | null;
   deliveryCity: string | null;
@@ -250,6 +261,7 @@ async function fetchDrilldownLoads(
     return {
     weekIso: String(payload.weekIso ?? input.weekIso),
     status: String(payload.status ?? "UNKNOWN"),
+    driverType: (payload.driverType as string | null | undefined) ?? null,
     pickupCity: (payload.pickupCity as string | null | undefined) ?? null,
     pickupState: (payload.pickupState as string | null | undefined) ?? null,
     deliveryCity: (payload.deliveryCity as string | null | undefined) ?? null,
@@ -603,6 +615,167 @@ async function buildChartCatalog(input: {
   };
 }
 
+/** Current-week loads normalized (with legs + resolved lane target) for the ops metrics. */
+async function fetchOpsLoads(
+  tx: Prisma.TransactionClient,
+  regionId: string,
+  weekIso: string,
+  targetByKey: Map<string, Prisma.Decimal>
+): Promise<OpsLoadInput[]> {
+  const loads = await tx.load.findMany({
+    where: { regionId, weekIso, deletedAt: null },
+    select: {
+      status: true,
+      driverType: true,
+      lineHaulRate: true,
+      loadedMiles: true,
+      puDeadheadMiles: true,
+      delDeadheadMiles: true,
+      fscAmount: true,
+      tonuAmount: true,
+      pickupCity: true,
+      pickupState: true,
+      deliveryCity: true,
+      deliveryState: true,
+      pickupWindowEnd: true,
+      deliveryWindowEnd: true,
+      deliveryApptType: true,
+      legs: { select: { legIndex: true, legType: true, driverId: true, driverName: true, arrivalAt: true } }
+    }
+  });
+  return loads.map((load) => {
+    const target = targetByKey.get(laneKey(load)) ?? null;
+    const kpiEligible = shouldIncludeInKpi({
+      status: load.status,
+      lineHaulRate: load.lineHaulRate,
+      fscAmount: load.fscAmount,
+      tonuAmount: load.tonuAmount,
+      loadedMiles: load.loadedMiles,
+      pickupDeadhead: load.puDeadheadMiles,
+      deliveryDeadhead: load.delDeadheadMiles
+    });
+    return {
+      status: load.status,
+      driverType: load.driverType,
+      lineHaulRate: toNumber(load.lineHaulRate) ?? 0,
+      puDeadheadMiles: toNumber(load.puDeadheadMiles) ?? 0,
+      delDeadheadMiles: toNumber(load.delDeadheadMiles) ?? 0,
+      loadedMiles: toNumber(load.loadedMiles) ?? 0,
+      pickupWindowEnd: load.pickupWindowEnd,
+      deliveryWindowEnd: load.deliveryWindowEnd,
+      deliveryApptType: load.deliveryApptType,
+      laneTarget: target ? target.toNumber() : null,
+      kpiEligible,
+      legs: load.legs.map((leg) => ({
+        legIndex: leg.legIndex,
+        legType: leg.legType,
+        driverId: leg.driverId,
+        driverName: leg.driverName,
+        arrivalAt: leg.arrivalAt
+      }))
+    };
+  });
+}
+
+/** Region-level headline scalars (percent) derived from the ops loads, for the 3 cards + WoW. */
+function opsWeekScalars(loads: OpsLoadInput[]): {
+  otdPct: number | null;
+  shuttleEmptyPct: number | null;
+  missedPct: number | null;
+} {
+  const reliability = computeReliabilityMetrics(loads);
+  const otdPct = reliability.otd.total > 0 ? (reliability.otd.onTime / reliability.otd.total) * 100 : null;
+  const missedPct = reliability.missed.total > 0 ? (reliability.missed.missed / reliability.missed.total) * 100 : null;
+  let deadhead = 0;
+  let loaded = 0;
+  for (const load of loads) {
+    if (!load.legs.some((leg) => leg.legType === "SHUTTLE")) continue;
+    deadhead += load.puDeadheadMiles + load.delDeadheadMiles;
+    loaded += load.loadedMiles;
+  }
+  const shuttleEmptyPct = deadhead + loaded > 0 ? (deadhead / (deadhead + loaded)) * 100 : null;
+  return { otdPct, shuttleEmptyPct, missedPct };
+}
+
+/**
+ * Assembles the whole `opsAnalytics` block + the current/prior headline scalars.
+ * Fetches current-week (and prior-week, for WoW) loads with legs, the multi-week
+ * drilldown for the deadhead-radius line, and the week's disruption events.
+ */
+async function buildOpsAnalytics(
+  tx: Prisma.TransactionClient,
+  input: {
+    regionId: string;
+    weekIso: string;
+    priorWeekIso: string | null;
+    weeks: number;
+    current: { loadCount: number; lineHaulRevenue: number | null };
+    prior: { loadCount: number; lineHaulRevenue: number | null } | null;
+  }
+) {
+  const laneRows = await tx.lane.findMany({
+    where: { regionId: input.regionId, deletedAt: null },
+    select: { originCity: true, originState: true, destinationCity: true, destinationState: true, targetRate: true }
+  });
+  const targetByKey = new Map<string, Prisma.Decimal>();
+  for (const lane of laneRows) {
+    const key = laneKey({
+      pickupCity: lane.originCity,
+      pickupState: lane.originState,
+      deliveryCity: lane.destinationCity,
+      deliveryState: lane.destinationState
+    });
+    targetByKey.set(key, new Prisma.Decimal(lane.targetRate));
+  }
+
+  const currentLoads = await fetchOpsLoads(tx, input.regionId, input.weekIso, targetByKey);
+  const priorLoads = input.priorWeekIso ? await fetchOpsLoads(tx, input.regionId, input.priorWeekIso, targetByKey) : [];
+
+  const drilldown = await fetchDrilldownLoads(tx, {
+    regionId: input.regionId,
+    weekIso: input.weekIso,
+    limit: input.weeks * 200
+  });
+
+  const grouped = await tx.loadDisruptionEvent.groupBy({
+    by: ["kind", "reason"],
+    where: { regionId: input.regionId, weekIso: input.weekIso },
+    _count: { _all: true }
+  });
+  const earliest = await tx.loadDisruptionEvent.findFirst({
+    where: { regionId: input.regionId },
+    orderBy: { weekIso: "asc" },
+    select: { weekIso: true }
+  });
+
+  const opsAnalytics = {
+    shuttleLeaderboard: computeShuttleEmptyLeaderboard(currentLoads),
+    deadheadSplit: computeDeadheadSplitPerLoad(currentLoads),
+    deadheadRadius: computeAvgShuttleDeadheadRadius(
+      drilldown.map((row) => ({
+        weekIso: row.weekIso,
+        driverType: row.driverType,
+        puDeadheadMiles: toNumber(row.puDeadheadMiles) ?? 0
+      }))
+    ),
+    rateVarianceHistogram: computeRateVarianceHistogram(currentLoads),
+    reliability: computeReliabilityMetrics(currentLoads),
+    disruptionBreakdown: computeDisruptionReasonBreakdown(
+      grouped.map((g) => ({ kind: g.kind, reason: g.reason, count: g._count._all })),
+      earliest?.weekIso ?? null
+    ),
+    growth: computeGrowth(input.current, input.prior)
+  };
+
+  return {
+    opsAnalytics,
+    scalars: {
+      current: opsWeekScalars(currentLoads),
+      prior: input.priorWeekIso ? opsWeekScalars(priorLoads) : null
+    }
+  };
+}
+
 export async function getKpiDashboard(input: {
   regionId: string;
   weekIso: string;
@@ -767,6 +940,46 @@ export async function getKpiDashboard(input: {
         noPrior: true
       }
     ];
+    // Ops-analytics block + the 3 headline cards. Additive and defensive: if it
+    // fails (e.g. an empty week), the rest of the dashboard still renders.
+    const ops = await buildOpsAnalytics(tx, {
+      regionId: input.regionId,
+      weekIso: input.weekIso,
+      priorWeekIso: prior?.weekIso ?? null,
+      weeks: Math.max(4, Math.min(trendWeeks, 52)),
+      current: { loadCount: currentValues.loadCount, lineHaulRevenue: currentValues.lineHaulRevenue },
+      prior: priorValues ? { loadCount: priorValues.loadCount, lineHaulRevenue: priorValues.lineHaulRevenue } : null
+    }).catch(() => null);
+    if (ops) {
+      const s = ops.scalars.current;
+      const p = ops.scalars.prior;
+      cards.push(
+        {
+          key: "otd",
+          label: "On-Time DEL %",
+          value: s.otdPct !== null ? s.otdPct.toFixed(1) : "—",
+          ...buildCardDelta(s.otdPct, p?.otdPct ?? null),
+          deltaLabel: "WoW"
+        },
+        {
+          key: "shuttleEmptyPct",
+          label: "Shuttle Empty %",
+          value: s.shuttleEmptyPct !== null ? s.shuttleEmptyPct.toFixed(1) : "—",
+          ...buildCardDelta(s.shuttleEmptyPct, p?.shuttleEmptyPct ?? null),
+          deltaLabel: "WoW",
+          inverted: true
+        },
+        {
+          key: "missedAppts",
+          label: "Missed Appt %",
+          value: s.missedPct !== null ? s.missedPct.toFixed(1) : "—",
+          ...buildCardDelta(s.missedPct, p?.missedPct ?? null),
+          deltaLabel: "WoW",
+          inverted: true
+        }
+      );
+    }
+
     const comparisonInsights = computeComparisonInsights({
       currentWeekIso: input.weekIso,
       previousWeekIso: prior?.weekIso ?? null,
@@ -822,6 +1035,7 @@ export async function getKpiDashboard(input: {
       comparisonWeekIso: prior?.weekIso ?? null,
       comparisonMode: input.comparisonMode ?? "wow",
       cards,
+      opsAnalytics: ops?.opsAnalytics,
       lanes: lanesWithNotes,
       mileMaxMissingInbound: current?.mileMaxMissingInbound ?? true,
       trend,

@@ -574,6 +574,7 @@ model RegionConfig {
   emptyPctAmber Decimal  @default(15) @db.Decimal(5, 2)
   emptyPctRed   Decimal  @default(25) @db.Decimal(5, 2)
   emptyPctAlert Decimal  @default(6.5) @db.Decimal(5, 2)
+  onTimeTargetPct Decimal @default(95) @db.Decimal(5, 2)
   updatedById   String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

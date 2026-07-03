@@ -87,12 +87,70 @@ export const kpiDashboardChartCatalogSchema = z.object({
   )
 });
 
+const onTimeBucketSchema = z.object({
+  onTime: z.number(),
+  total: z.number(),
+  unverified: z.number()
+});
+
+const growthMetricSchema = z.object({
+  current: z.number(),
+  prior: z.number().nullable(),
+  pct: z.number().nullable()
+});
+
+/** Ops-analytics extension (Drivers + Reliability tabs, variance & growth charts). Optional: an
+ * empty/failed week omits it and the rest of the dashboard still renders. */
+export const kpiOpsAnalyticsSchema = z.object({
+  shuttleLeaderboard: z.array(
+    z.object({
+      driverId: z.string(),
+      driverName: z.string().nullable(),
+      deadheadMiles: z.number(),
+      loadedMiles: z.number(),
+      emptyPct: z.number()
+    })
+  ),
+  deadheadSplit: z.object({
+    controllable: z.object({ pickupDh: z.number(), deliveryDh: z.number() }),
+    expected: z.object({ pickupDh: z.number(), deliveryDh: z.number() })
+  }),
+  deadheadRadius: z.array(
+    z.object({ weekIso: z.string(), avgRadius: z.number(), loadCount: z.number() })
+  ),
+  rateVarianceHistogram: z.object({
+    bins: z.array(z.object({ lo: z.number(), hi: z.number(), count: z.number(), underTarget: z.boolean() })),
+    median: z.number().nullable(),
+    count: z.number(),
+    binSize: z.number()
+  }),
+  reliability: z.object({
+    otd: onTimeBucketSchema,
+    otp: onTimeBucketSchema,
+    firmAppt: onTimeBucketSchema,
+    missed: z.object({ missed: z.number(), total: z.number(), unverified: z.number() })
+  }),
+  disruptionBreakdown: z.object({
+    reasons: z.array(
+      z.object({ reason: z.string(), label: z.string(), cancel: z.number(), reschedule: z.number() })
+    ),
+    totalCancel: z.number(),
+    totalReschedule: z.number(),
+    trackedFromWeekIso: z.string().nullable()
+  }),
+  growth: z.object({
+    loadCount: growthMetricSchema,
+    lineHaulRevenue: growthMetricSchema
+  })
+});
+
 export const kpiDashboardSchema = z.object({
   contractVersion: z.literal(kpiContractVersion),
   weekIso: z.string().regex(/^\d{4}-W\d{2}$/),
   comparisonWeekIso: z.string().regex(/^\d{4}-W\d{2}$/).nullable(),
   comparisonMode: comparisonModeSchema,
   cards: z.array(kpiDashboardCardSchema),
+  opsAnalytics: kpiOpsAnalyticsSchema.optional(),
   lanes: z.array(kpiDashboardLaneSchema),
   trend: z.array(kpiDashboardTrendSchema),
   chartCatalog: kpiDashboardChartCatalogSchema,
@@ -154,4 +212,5 @@ export const kpiDashboardSchema = z.object({
 });
 
 export type KpiDashboardContract = z.infer<typeof kpiDashboardSchema>;
+export type KpiOpsAnalytics = z.infer<typeof kpiOpsAnalyticsSchema>;
 
