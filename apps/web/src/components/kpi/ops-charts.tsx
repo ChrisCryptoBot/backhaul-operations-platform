@@ -13,6 +13,11 @@ import type { KpiOpsAnalytics } from "@/contracts/kpi";
 type Leaderboard = KpiOpsAnalytics["shuttleLeaderboard"];
 type DeadheadSplit = KpiOpsAnalytics["deadheadSplit"];
 type DeadheadRadius = KpiOpsAnalytics["deadheadRadius"];
+type Reliability = KpiOpsAnalytics["reliability"];
+type OnTimeBucket = Reliability["otd"];
+type DisruptionBreakdown = KpiOpsAnalytics["disruptionBreakdown"];
+type RateVarianceHistogram = KpiOpsAnalytics["rateVarianceHistogram"];
+type Growth = KpiOpsAnalytics["growth"];
 
 function niceCeil(value: number, step: number): number {
   return Math.max(step, Math.ceil(value / step) * step);
@@ -233,6 +238,245 @@ export function OpsDriversTab({ ops }: { ops: KpiOpsAnalytics }) {
           <DeadheadRadiusLine points={ops.deadheadRadius} />
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Reliability bullet cards (OTD / OTP / firm-appt / missed) ─────────────────
+
+function ReliabilityBullet({
+  label,
+  bucket,
+  target,
+  lowerIsBetter = false,
+  scaleMin,
+  scaleMax
+}: {
+  label: string;
+  bucket: OnTimeBucket | { missed: number; total: number; unverified: number };
+  target: number;
+  lowerIsBetter?: boolean;
+  scaleMin: number;
+  scaleMax: number;
+}) {
+  const numerator = "onTime" in bucket ? bucket.onTime : bucket.missed;
+  const { total, unverified } = bucket;
+  const pct = total > 0 ? (numerator / total) * 100 : null;
+  const clampPos = (v: number) => Math.max(0, Math.min(100, ((v - scaleMin) / (scaleMax - scaleMin)) * 100));
+  const pass = pct === null ? null : lowerIsBetter ? pct <= target : pct >= target;
+
+  return (
+    <div className="db-bullet" data-screen-label={`Reliability ${label}`}>
+      <div className="db-bullet-head">
+        <span className="db-bullet-label">{label}</span>
+        {pass === null ? (
+          <span className="db-ops-chip">—</span>
+        ) : (
+          <span className={`db-ops-chip ${pass ? "ok" : "neg"}`}>{pass ? "✓" : "✗"}</span>
+        )}
+      </div>
+      <div className="db-bullet-value mono">{pct === null ? "—" : `${pct.toFixed(1)}%`}</div>
+      <div className="db-bullet-track">
+        <span className="db-bullet-fill" style={{ left: `${clampPos(scaleMin)}%`, width: pct === null ? "0%" : `${clampPos(pct)}%` }} />
+        <span className="db-bullet-target" style={{ left: `${clampPos(target)}%` }} title={`Target ${target}%`} />
+      </div>
+      <div className="db-bullet-foot dim mono">
+        <span>
+          {numerator}/{total} verified
+        </span>
+        <span>
+          {lowerIsBetter ? "lower is better · " : ""}unverified: {unverified}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── Cancel & reschedule reason breakdown (paired columns over the 9 reasons) ──
+
+export function DisruptionBreakdownChart({ breakdown }: { breakdown: DisruptionBreakdown }) {
+  const active = breakdown.reasons.filter((r) => r.cancel > 0 || r.reschedule > 0);
+  const max = Math.max(1, ...active.map((r) => Math.max(r.cancel, r.reschedule)));
+  const w = (v: number) => `${(v / max) * 100}%`;
+
+  return (
+    <div className="db-reasons">
+      <div className="db-reasons-head">
+        <span className="db-legend-item">
+          <span className="db-legend-sw" style={{ background: "var(--db-neg)" }} /> Cancels
+        </span>
+        <span className="db-legend-item">
+          <span className="db-legend-sw" style={{ background: "var(--db-warn)" }} /> Reschedules
+        </span>
+        {breakdown.trackedFromWeekIso ? (
+          <span className="db-reasons-tracked dim mono">
+            Tracked from {(breakdown.trackedFromWeekIso.split("-")[1] ?? breakdown.trackedFromWeekIso).toUpperCase()}
+          </span>
+        ) : null}
+      </div>
+      {active.length === 0 ? (
+        <div className="db-chart-empty">No cancels or reschedules recorded this week.</div>
+      ) : (
+        <div className="db-reasons-rows">
+          {active.map((r) => (
+            <div key={r.reason} className="db-reasons-row">
+              <span className="db-reasons-label dim">{r.label}</span>
+              <span className="db-reasons-bars">
+                <span className="db-reasons-bar-line">
+                  <span className="db-reasons-bar neg" style={{ width: w(r.cancel) }} />
+                  <span className="mono db-reasons-num">{r.cancel}</span>
+                </span>
+                <span className="db-reasons-bar-line">
+                  <span className="db-reasons-bar warn" style={{ width: w(r.reschedule) }} />
+                  <span className="mono db-reasons-num">{r.reschedule}</span>
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Reliability tab body ─────────────────────────────────────────────────────
+
+export function OpsReliabilityTab({ ops }: { ops: KpiOpsAnalytics }) {
+  const r = ops.reliability;
+  const target = ops.config.onTimeTargetPct;
+  return (
+    <div className="db-chart-group">
+      <div className="db-chart-card" data-screen-label="On-time reliability">
+        <div className="db-chart-card-head">
+          <span className="db-chart-card-title">On-time reliability</span>
+          <span className="db-chart-card-unit">% of verified loads · target {target}%</span>
+        </div>
+        <div className="db-bullet-grid">
+          <ReliabilityBullet label="On-Time Delivery" bucket={r.otd} target={target} scaleMin={80} scaleMax={100} />
+          <ReliabilityBullet label="On-Time Pickup" bucket={r.otp} target={target} scaleMin={80} scaleMax={100} />
+          <ReliabilityBullet label="Firm Appt On-Time" bucket={r.firmAppt} target={target} scaleMin={80} scaleMax={100} />
+          <ReliabilityBullet label="Missed Appointments" bucket={r.missed} target={2} lowerIsBetter scaleMin={0} scaleMax={8} />
+        </div>
+      </div>
+      <div className="db-chart-card" data-screen-label="Cancel and reschedule reasons">
+        <div className="db-chart-card-head">
+          <span className="db-chart-card-title">Cancel &amp; reschedule reasons</span>
+          <span className="db-chart-card-unit">counts · why loads slipped</span>
+        </div>
+        <DisruptionBreakdownChart breakdown={ops.disruptionBreakdown} />
+      </div>
+    </div>
+  );
+}
+
+// ── Rate-vs-target variance histogram ($100 bins) ─────────────────────────────
+
+export function RateVarianceHistogramChart({ hist }: { hist: RateVarianceHistogram }) {
+  if (hist.count === 0 || hist.bins.length === 0) {
+    return <div className="db-chart-empty">No rated loads with a lane target this week.</div>;
+  }
+  const W = 620;
+  const H = 190;
+  const padL = 10;
+  const padR = 10;
+  const padTop = 12;
+  const padBottom = 26;
+  const plotW = W - padL - padR;
+  const plotH = H - padTop - padBottom;
+  const n = hist.bins.length;
+  const bw = plotW / n;
+  const maxCount = Math.max(...hist.bins.map((b) => b.count));
+  const xAt = (dollars: number) => {
+    const lo = hist.bins[0].lo;
+    return padL + ((dollars - lo) / (n * hist.binSize)) * plotW;
+  };
+  const zeroX = xAt(0);
+  const medianX = hist.median === null ? null : xAt(hist.median);
+  const baseY = padTop + plotH;
+
+  return (
+    <svg
+      width="100%"
+      height={H}
+      viewBox={`0 0 ${W} ${H}`}
+      preserveAspectRatio="xMidYMid meet"
+      role="img"
+      aria-label="Histogram of per-load dollar variance versus lane target"
+    >
+      <line x1={padL} y1={baseY} x2={W - padR} y2={baseY} stroke="var(--db-border-soft)" strokeWidth="1" />
+      {hist.bins.map((b, i) => {
+        const h = maxCount > 0 ? (b.count / maxCount) * plotH : 0;
+        const x = padL + i * bw;
+        return (
+          <rect
+            key={b.lo}
+            x={x + 1}
+            y={baseY - h}
+            width={Math.max(0, bw - 2)}
+            height={h}
+            fill={b.underTarget ? "var(--db-neg)" : "var(--db-accent)"}
+            opacity={b.count === 0 ? 0.15 : 0.9}
+          />
+        );
+      })}
+      {/* $0 target line */}
+      <line x1={zeroX} y1={padTop - 4} x2={zeroX} y2={baseY} stroke="var(--db-fg)" strokeWidth="1.5" />
+      <text x={zeroX} y={padTop - 6} className="mono" fontSize="9" fill="var(--db-fg)" textAnchor="middle">
+        $0
+      </text>
+      {/* median marker */}
+      {medianX !== null ? (
+        <>
+          <line x1={medianX} y1={padTop} x2={medianX} y2={baseY} stroke="var(--db-fg-dim)" strokeWidth="1" strokeDasharray="3 3" />
+          <text x={medianX} y={baseY + 11} className="mono" fontSize="9" fill="var(--db-fg-dim)" textAnchor="middle">
+            median ${Math.round(hist.median ?? 0)}
+          </text>
+        </>
+      ) : null}
+      <text x={padL} y={baseY + 11} className="mono" fontSize="9" fill="var(--db-fg-dim)">
+        ${hist.bins[0].lo}
+      </text>
+      <text x={W - padR} y={baseY + 11} className="mono" fontSize="9" fill="var(--db-fg-dim)" textAnchor="end">
+        ${hist.bins[n - 1].hi}
+      </text>
+    </svg>
+  );
+}
+
+// ── Volume & revenue growth (diverging WoW % columns) ─────────────────────────
+
+export function GrowthBars({ growth }: { growth: Growth }) {
+  const rows = [
+    { key: "loads", label: "Load volume", pct: growth.loadCount.pct },
+    { key: "revenue", label: "Line-haul revenue", pct: growth.lineHaulRevenue.pct }
+  ];
+  const max = Math.max(5, ...rows.map((r) => Math.abs(r.pct ?? 0)));
+  return (
+    <div className="db-growth">
+      {rows.map((r) => {
+        const pct = r.pct;
+        const half = pct === null ? 0 : (Math.abs(pct) / max) * 50;
+        const positive = (pct ?? 0) >= 0;
+        return (
+          <div key={r.key} className="db-growth-row">
+            <span className="db-growth-label dim">{r.label}</span>
+            <span className="db-growth-track">
+              <span className="db-growth-axis" />
+              {pct === null ? (
+                <span className="db-growth-na dim mono">no prior</span>
+              ) : (
+                <span
+                  className={`db-growth-bar ${positive ? "pos" : "neg"}`}
+                  style={{ left: positive ? "50%" : `${50 - half}%`, width: `${half}%` }}
+                />
+              )}
+            </span>
+            <span className={`db-growth-val mono ${pct === null ? "dim" : positive ? "pos" : "neg"}`}>
+              {pct === null ? "—" : `${pct > 0 ? "+" : ""}${pct.toFixed(1)}%`}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -17,7 +17,7 @@ import { kpiDashboardSchema } from "@/contracts/kpi";
 import { int, money } from "@/lib/ui/formatters";
 import type { TrendSeriesPoint } from "@/components/kpi/trend-chart";
 import { buildTrendSeries } from "@/components/kpi/trend-chart";
-import { OpsDriversTab } from "@/components/kpi/ops-charts";
+import { OpsDriversTab, OpsReliabilityTab, RateVarianceHistogramChart, GrowthBars } from "@/components/kpi/ops-charts";
 import { TopbarSignOutButton } from "@/components/auth/sign-out-button";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { useTheme } from "@/components/shell/theme";
@@ -30,7 +30,7 @@ import {
   DashIcon
 } from "@/components/icons";
 
-type TabId = "Lanes" | "Drivers" | "Trend" | "Management Report" | "Reference Rules";
+type TabId = "Lanes" | "Drivers" | "Reliability" | "Trend" | "Management Report" | "Reference Rules";
 
 interface KpiDashboardProps {
   initialData: unknown;
@@ -331,7 +331,10 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
   const [laneTargetSavingLane, setLaneTargetSavingLane] = React.useState<string | null>(null);
   const [laneTargetError, setLaneTargetError] = React.useState<string | null>(null);
 
-  const tabIds = React.useMemo<TabId[]>(() => ["Lanes", "Drivers", "Trend", "Management Report", "Reference Rules"], []);
+  const tabIds = React.useMemo<TabId[]>(
+    () => ["Lanes", "Drivers", "Reliability", "Trend", "Management Report", "Reference Rules"],
+    []
+  );
   const tabButtonId = React.useCallback((id: TabId) => `kpi-tab-${id.toLowerCase().replace(/\s+/g, "-")}`, []);
   const tabPanelId = React.useCallback((id: TabId) => `kpi-tabpanel-${id.toLowerCase().replace(/\s+/g, "-")}`, []);
 
@@ -1482,6 +1485,20 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
                 <div className="db-lanes-foot dim">
                   NBY ($/mi) = line haul ÷ total trip miles (loaded + all deadhead), shown per lane and in totals.
                 </div>
+                {data.opsAnalytics ? (
+                  <div className="db-chart-card" style={{ marginTop: 20 }} data-screen-label="Variance distribution">
+                    <div className="db-chart-card-head">
+                      <span className="db-chart-card-title">Rate vs lane target · variance distribution</span>
+                      <span className="db-chart-card-unit">
+                        $ per load vs lane target · n={data.opsAnalytics.rateVarianceHistogram.count} rated loads
+                      </span>
+                    </div>
+                    <RateVarianceHistogramChart hist={data.opsAnalytics.rateVarianceHistogram} />
+                    <div className="db-chart-foot dim">
+                      Under-target bins in red (a verdict); at-or-over in accent (measurement). $0 and median marked.
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -1500,6 +1517,26 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
               </div>
               {data.opsAnalytics ? (
                 <OpsDriversTab ops={data.opsAnalytics} />
+              ) : (
+                <div className="db-chart-empty">Ops analytics unavailable for this week.</div>
+              )}
+            </div>
+
+            <div
+              id={tabPanelId("Reliability")}
+              role="tabpanel"
+              aria-labelledby={tabButtonId("Reliability")}
+              hidden={tab !== "Reliability"}
+              className={`db-tab-panel ${tab === "Reliability" ? "active" : ""}`}
+            >
+              <div className="db-tab-headrow">
+                <h2 className="db-tab-h">Reliability · {weekOfRange}</h2>
+                <div className="db-tab-meta dim">
+                  Why we failed — on-time family (% of verified) + cancel/reschedule reasons. Loads with no arrival are unverified.
+                </div>
+              </div>
+              {data.opsAnalytics ? (
+                <OpsReliabilityTab ops={data.opsAnalytics} />
               ) : (
                 <div className="db-chart-empty">Ops analytics unavailable for this week.</div>
               )}
@@ -1685,6 +1722,15 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
                     </tbody>
                   </table>
                 </div>
+                {data.opsAnalytics ? (
+                  <div className="db-chart-card" style={{ marginTop: 16 }} data-screen-label="Volume and revenue growth">
+                    <div className="db-chart-card-head">
+                      <span className="db-chart-card-title">Volume &amp; revenue growth</span>
+                      <span className="db-chart-card-unit">week-over-week %</span>
+                    </div>
+                    <GrowthBars growth={data.opsAnalytics.growth} />
+                  </div>
+                ) : null}
               </div>
             </div>
 

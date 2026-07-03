@@ -1717,6 +1717,11 @@
   border: 1px dashed var(--db-border);
   border-radius: var(--db-r-md);
 }
+.db-chart-foot {
+  font-size: var(--db-text-2xs);
+  color: var(--db-fg-dim);
+  padding-top: var(--db-2);
+}
 
 /* Shuttle empty-mile leaderboard (hero) */
 .db-ldr {
@@ -1944,6 +1949,183 @@
   font-size: var(--db-text-2xs);
   color: var(--db-fg-mid);
   font-variant-numeric: tabular-nums;
+}
+
+/* Reliability bullet cards */
+.db-bullet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--db-4);
+}
+.db-bullet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-2);
+  padding: var(--db-3);
+  border: 1px solid var(--db-border-soft);
+  border-radius: var(--db-r-md);
+  background: var(--db-bg-elev-1);
+}
+.db-bullet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.db-bullet-label {
+  font-size: var(--db-text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--db-fg-dim);
+}
+.db-bullet-value {
+  font-size: var(--db-text-xl, 22px);
+  font-weight: var(--db-weight-medium);
+  color: var(--db-fg);
+  font-variant-numeric: tabular-nums;
+}
+.db-bullet-track {
+  position: relative;
+  height: 10px;
+  background: var(--db-bg-elev-2);
+  border-radius: var(--db-r-sm);
+  overflow: visible;
+}
+.db-bullet-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--db-accent);
+  border-radius: var(--db-r-sm);
+}
+.db-bullet-target {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--db-fg);
+  transform: translateX(-50%);
+}
+.db-bullet-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--db-2);
+  font-size: var(--db-text-2xs);
+}
+
+/* Cancel & reschedule reason breakdown */
+.db-reasons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-3);
+}
+.db-reasons-head {
+  display: flex;
+  align-items: center;
+  gap: var(--db-3);
+  flex-wrap: wrap;
+}
+.db-reasons-tracked {
+  margin-left: auto;
+  font-size: var(--db-text-2xs);
+}
+.db-reasons-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-2);
+}
+.db-reasons-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 190px) 1fr;
+  align-items: center;
+  gap: var(--db-3);
+}
+.db-reasons-label {
+  font-size: var(--db-text-2xs);
+}
+.db-reasons-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.db-reasons-bar-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.db-reasons-bar {
+  height: 10px;
+  border-radius: var(--db-r-sm);
+  min-width: 1px;
+}
+.db-reasons-bar.neg {
+  background: var(--db-neg);
+}
+.db-reasons-bar.warn {
+  background: var(--db-warn);
+}
+.db-reasons-num {
+  font-size: var(--db-text-2xs);
+  color: var(--db-fg-mid);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Volume & revenue growth (diverging columns) */
+.db-growth {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-3);
+}
+.db-growth-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 140px) 1fr 64px;
+  align-items: center;
+  gap: var(--db-3);
+}
+.db-growth-label {
+  font-size: var(--db-text-2xs);
+}
+.db-growth-track {
+  position: relative;
+  height: 16px;
+  background: var(--db-bg-elev-2);
+  border-radius: var(--db-r-sm);
+}
+.db-growth-axis {
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--db-fg-dim);
+}
+.db-growth-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: var(--db-r-sm);
+}
+.db-growth-bar.pos {
+  background: var(--db-pos);
+}
+.db-growth-bar.neg {
+  background: var(--db-neg);
+}
+.db-growth-na {
+  position: absolute;
+  left: 52%;
+  top: 1px;
+  font-size: var(--db-text-2xs);
+}
+.db-growth-val {
+  text-align: right;
+  font-size: var(--db-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.db-growth-val.pos {
+  color: var(--db-pos);
+}
+.db-growth-val.neg {
+  color: var(--db-neg);
 }
 
 .db-kpi-label {
