@@ -30,7 +30,7 @@ import {
   DashIcon
 } from "@/components/icons";
 
-type TabId = "Lanes" | "Drivers" | "Reliability" | "Trend" | "Management Report" | "Reference Rules";
+type TabId = "Lanes" | "Drivers" | "Reliability" | "Trend";
 
 interface KpiDashboardProps {
   initialData: unknown;
@@ -331,10 +331,7 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
   const [laneTargetSavingLane, setLaneTargetSavingLane] = React.useState<string | null>(null);
   const [laneTargetError, setLaneTargetError] = React.useState<string | null>(null);
 
-  const tabIds = React.useMemo<TabId[]>(
-    () => ["Lanes", "Drivers", "Reliability", "Trend", "Management Report", "Reference Rules"],
-    []
-  );
+  const tabIds = React.useMemo<TabId[]>(() => ["Lanes", "Drivers", "Reliability", "Trend"], []);
   const tabButtonId = React.useCallback((id: TabId) => `kpi-tab-${id.toLowerCase().replace(/\s+/g, "-")}`, []);
   const tabPanelId = React.useCallback((id: TabId) => `kpi-tabpanel-${id.toLowerCase().replace(/\s+/g, "-")}`, []);
 
@@ -896,14 +893,18 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
         style={{
           position: "fixed",
           top: 0,
-          right: fscPanelOpen ? 0 : "-420px",
+          right: 0,
           width: 400,
           height: "100%",
           background: "var(--db-bg-card)",
           borderLeft: "1px solid var(--db-border-soft)",
           boxShadow: "-4px 0 16px rgba(0,0,0,0.12)",
           zIndex: 101,
-          transition: "right 0.2s ease",
+          // Slide the whole panel (and its left drop-shadow) fully off-screen when
+          // closed — a translateX past its own width clears the shadow that was
+          // otherwise bleeding a "glass" strip over the collapsed copilot rail.
+          transform: fscPanelOpen ? "translateX(0)" : "translateX(calc(100% + 40px))",
+          transition: "transform 0.2s ease",
           overflowY: "auto",
           padding: "24px 20px"
         }}
@@ -981,113 +982,6 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
         </div>
       </aside>
 
-      {/* New Rule Dialog */}
-      {newRuleOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="New operational rule"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 200,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center"
-          }}
-        >
-          <div
-            style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.4)" }}
-            onClick={() => setNewRuleOpen(false)}
-          />
-          <div
-            style={{
-              position: "relative",
-              background: "var(--db-bg-card)",
-              border: "1px solid var(--db-border-soft)",
-              borderRadius: 8,
-              padding: "24px",
-              width: 480,
-              maxWidth: "95vw",
-              maxHeight: "90vh",
-              overflowY: "auto",
-              boxShadow: "0 12px 40px rgba(0,0,0,0.2)"
-            }}
-          >
-            <h3 style={{ margin: "0 0 16px", fontSize: 14, fontWeight: 700 }}>New Operational Rule</h3>
-            <label style={{ display: "block", marginBottom: 10, fontSize: 12 }}>
-              <span className="dim">Code (UPPERCASE_WITH_UNDERSCORES)</span>
-              <input
-                type="text"
-                className="db-datepicker"
-                style={{ display: "block", width: "100%", marginTop: 4 }}
-                placeholder="e.g. BUFFER_0900"
-                value={newRuleCode}
-                onChange={(e) => setNewRuleCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, "_"))}
-              />
-            </label>
-            <label style={{ display: "block", marginBottom: 10, fontSize: 12 }}>
-              <span className="dim">Title</span>
-              <input
-                type="text"
-                className="db-datepicker"
-                style={{ display: "block", width: "100%", marginTop: 4 }}
-                placeholder="e.g. No live pickups before 09:00"
-                value={newRuleTitle}
-                onChange={(e) => setNewRuleTitle(e.target.value)}
-              />
-            </label>
-            <label style={{ display: "block", marginBottom: 10, fontSize: 12 }}>
-              <span className="dim">Severity</span>
-              <select
-                className="db-datepicker"
-                style={{ display: "block", width: "100%", marginTop: 4 }}
-                value={newRuleSeverity}
-                onChange={(e) => setNewRuleSeverity(e.target.value as "INFO" | "WARN" | "ACTION_REQUIRED")}
-              >
-                <option value="INFO">INFO — context only</option>
-                <option value="WARN">WARN — caution flag</option>
-                <option value="ACTION_REQUIRED">ACTION REQUIRED — must resolve</option>
-              </select>
-            </label>
-            <label style={{ display: "block", marginBottom: 10, fontSize: 12 }}>
-              <span className="dim">Statement</span>
-              <textarea
-                className="db-datepicker"
-                style={{ display: "block", width: "100%", marginTop: 4, minHeight: 80, resize: "vertical" }}
-                placeholder="Describe the rule in plain language..."
-                value={newRuleStatement}
-                onChange={(e) => setNewRuleStatement(e.target.value)}
-              />
-            </label>
-            <label style={{ display: "block", marginBottom: 16, fontSize: 12 }}>
-              <span className="dim">Applies to (lot names, &quot;Region&quot;, or leave default)</span>
-              <input
-                type="text"
-                className="db-datepicker"
-                style={{ display: "block", width: "100%", marginTop: 4 }}
-                value={newRuleAppliesTo}
-                onChange={(e) => setNewRuleAppliesTo(e.target.value)}
-              />
-            </label>
-            {newRuleError && <div className="db-upload-error" role="alert" style={{ marginBottom: 10 }}>{newRuleError}</div>}
-            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button type="button" className="db-btn db-btn-ghost" onClick={() => setNewRuleOpen(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="db-btn primary"
-                onClick={submitNewRule}
-                disabled={newRuleSubmitting}
-                aria-busy={newRuleSubmitting}
-              >
-                {newRuleSubmitting ? "Saving..." : "Create rule"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       <div className="db-shell-scroll">
       <main className="db-dash-main">
@@ -1114,16 +1008,6 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
             <span className="dim">Compared to</span>
             <span className="mono">{comparisonRange}</span>
             <span className="db-dash-meta-pill mono">LIVE</span>
-            <select
-              className="db-datepicker"
-              value={data.comparisonMode}
-              onChange={(event) => updateQuery({ comparisonMode: event.target.value })}
-              aria-label="Select comparison mode"
-            >
-              <option value="wow">WoW</option>
-              <option value="rolling4">Rolling 4</option>
-              <option value="qtd">QTD</option>
-            </select>
             {openAlerts.length > 0 ? (
               <span className="db-delta down" aria-label={`${openAlerts.length} open alerts`}>
                 {openAlerts.length} ALERTS
@@ -1731,162 +1615,6 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
                     <GrowthBars growth={data.opsAnalytics.growth} />
                   </div>
                 ) : null}
-              </div>
-            </div>
-
-            <div
-              id={tabPanelId("Management Report")}
-              role="tabpanel"
-              aria-labelledby={tabButtonId("Management Report")}
-              hidden={tab !== "Management Report"}
-              className={`db-tab-panel ${tab === "Management Report" ? "active" : ""}`}
-            >
-              <div className="db-mgmt">
-                <header className="db-mgmt-head">
-                  <div>
-                    <div className="db-mgmt-eyebrow mono">MANAGEMENT REPORT</div>
-                    <h3 className="db-mgmt-h">{activeRegionCode} · {weekRange}</h3>
-                  </div>
-                  <div className="db-mgmt-actions">
-                    <button className="db-btn" type="button" onClick={() => triggerExport("pdf")}>
-                      Export PDF
-                    </button>
-                    <button
-                      className="db-btn primary"
-                      type="button"
-                      onClick={sendEmailSummary}
-                      disabled={isSendingEmail}
-                      aria-busy={isSendingEmail ? "true" : "false"}
-                    >
-                      {isSendingEmail ? (
-                        <>
-                          <span className="db-spinner" aria-hidden="true" />
-                          Sending...
-                        </>
-                      ) : (
-                        "Email manager"
-                      )}
-                    </button>
-                  </div>
-                </header>
-                <div className="db-mgmt-grid">
-                  {topCards.map((card) => (
-                    <div key={card.key} className="db-mgmt-cell">
-                      <div className="db-mgmt-k">{card.label}</div>
-                      <div className="db-mgmt-v mono">{formattedCardValue(card.key, card.value)}</div>
-                      <div className="db-mgmt-d">
-                        <Delta value={card.delta} label={card.deltaLabel} inverted={card.inverted} noPrior={card.noPrior} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div className="db-mgmt-notes">
-                  <div className="db-mgmt-notes-h">Operational notes</div>
-                  {managementNotes.map((note) => (
-                    <p key={note}>{note}</p>
-                  ))}
-                </div>
-                <footer className="db-mgmt-foot">
-                  <div className="db-mgmt-sig">
-                    <div className="db-mgmt-sig-line" />
-                    <div className="dim">Christopher McDaniel · Backhaul Coordinator</div>
-                  </div>
-                  <div className="dim mono">Generated live · Drop Bucket</div>
-                </footer>
-                {emailStatus ? (
-                  <div className="db-lanes-foot dim" role="status" aria-live="polite">
-                    {emailStatus}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            <div
-              id={tabPanelId("Reference Rules")}
-              role="tabpanel"
-              aria-labelledby={tabButtonId("Reference Rules")}
-              hidden={tab !== "Reference Rules"}
-              className={`db-tab-panel ${tab === "Reference Rules" ? "active" : ""}`}
-            >
-              <div className="db-rules">
-                <div className="db-tab-headrow">
-                  <h2 className="db-tab-h">Operational rules · {activeRegionCode}</h2>
-                  <button
-                    className="db-btn"
-                    type="button"
-                    onClick={() => { setNewRuleOpen(true); setNewRuleError(null); }}
-                  >
-                    + New rule
-                  </button>
-                </div>
-                <div className="db-rules-list">
-                  {ackError ? (
-                    <div className="db-lanes-foot dim" role="status" aria-live="polite">
-                      {ackError}
-                    </div>
-                  ) : null}
-                  {ackStatus ? (
-                    <div className="db-lanes-foot dim" role="status" aria-live="polite">
-                      {ackStatus}
-                    </div>
-                  ) : null}
-                  {alerts.length > 0 ? (
-                    <div className="db-rule">
-                      <div className="db-rule-l">
-                        <span className="db-rule-sev warn">ALERTS</span>
-                      </div>
-                      <div className="db-rule-m">
-                        <div className="db-rule-title">Operational alerts</div>
-                        <div className="db-rule-body dim">
-                          {alerts.map((alert) => (
-                            <div key={alert.id} className="db-alert-row">
-                              <strong>{alert.title}</strong> — {alert.message}{" "}
-                              {alert.acknowledgedAt ? (
-                                <span className="dim">Acknowledged</span>
-                              ) : (
-                                <button
-                                  className="db-btn db-btn-mini"
-                                  type="button"
-                                  onClick={() => acknowledgeAlert(alert.id)}
-                                  disabled={ackPendingId === alert.id}
-                                >
-                                  {ackPendingId === alert.id ? "Acknowledging..." : "Acknowledge"}
-                                </button>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="db-rule-r">
-                        <div className="db-rule-lots-l">OPEN</div>
-                        <div className="db-rule-lots mono">{openAlerts.length}</div>
-                      </div>
-                    </div>
-                  ) : null}
-                  {data.rules.map((rule) => (
-                    <div key={rule.code} className="db-rule">
-                      <div className="db-rule-l">
-                        <span className={`db-rule-sev ${rule.severity.toLowerCase()}`}>{rule.severity}</span>
-                        <span className="db-rule-code mono">{rule.code}</span>
-                      </div>
-                      <div className="db-rule-m">
-                        <div className="db-rule-title" title={rule.title}>
-                          {rule.title}
-                        </div>
-                        <div className="db-rule-body dim">{rule.statement}</div>
-                      </div>
-                      <div className="db-rule-r">
-                        <div className="db-rule-lots-l">APPLIES TO</div>
-                        <div className="db-rule-lots mono">{rule.appliesTo}</div>
-                      </div>
-                    </div>
-                  ))}
-                  {alerts.length === 0 && data.rules.length === 0 ? (
-                    <div className="db-rule">
-                      <div className="db-rule-m dim">No reference rules are configured for this region yet.</div>
-                    </div>
-                  ) : null}
-                </div>
               </div>
             </div>
           </div>

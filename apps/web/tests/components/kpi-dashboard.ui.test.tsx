@@ -99,7 +99,7 @@ describe("KpiDashboard full parity surface", () => {
     expect(screen.queryByText("MileMax RPM")).not.toBeInTheDocument();
   });
 
-  test("renders trend, management, and rules parity elements", async () => {
+  test("renders trend parity elements", async () => {
     const user = userEvent.setup();
     render(<KpiDashboard initialData={fixture} />);
 
@@ -110,14 +110,9 @@ describe("KpiDashboard full parity surface", () => {
     expect(screen.getByRole("columnheader", { name: "Tender %" })).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "MileMax" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "Management Report" }));
-    expect(screen.getByText("MANAGEMENT REPORT")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Export PDF" })).toBeInTheDocument();
-    expect(screen.getByText("Operational notes")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("tab", { name: "Reference Rules" }));
-    expect(screen.getByRole("button", { name: "+ New rule" })).toBeInTheDocument();
-    expect(screen.getByText("APPLIES TO")).toBeInTheDocument();
+    // The Management Report and Reference Rules tabs were removed as obsolete.
+    expect(screen.queryByRole("tab", { name: "Management Report" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "Reference Rules" })).not.toBeInTheDocument();
   }, 15000);
 
   test("updates query when selecting a reporting week", async () => {
@@ -155,9 +150,9 @@ describe("KpiDashboard full parity surface", () => {
     expect(driversTab).toHaveAttribute("aria-selected", "true");
 
     await user.keyboard("{End}");
-    const rulesTab = screen.getByRole("tab", { name: "Reference Rules" });
-    expect(rulesTab).toHaveFocus();
-    expect(rulesTab).toHaveAttribute("aria-selected", "true");
+    const lastTab = screen.getByRole("tab", { name: "Trend" });
+    expect(lastTab).toHaveFocus();
+    expect(lastTab).toHaveAttribute("aria-selected", "true");
 
     await user.keyboard("{Home}");
     const lanesTabAgain = screen.getByRole("tab", { name: "Lanes" });
@@ -180,19 +175,6 @@ describe("KpiDashboard full parity surface", () => {
 
     priorPoint.focus();
     expect(container.querySelector(".db-trend-selection .db-trend-popup-week")?.textContent).toBe("W16");
-  });
-
-  test("shows a recoverable message when email request fails", async () => {
-    const user = userEvent.setup();
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network")));
-    render(<KpiDashboard initialData={fixture} />);
-
-    await user.click(screen.getByRole("tab", { name: "Management Report" }));
-    await user.click(screen.getByRole("button", { name: "Email manager" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("Unable to send summary email. Please try again.")).toBeInTheDocument();
-    });
   });
 
   test("surfaces lane note API errors and keeps editor open", async () => {
