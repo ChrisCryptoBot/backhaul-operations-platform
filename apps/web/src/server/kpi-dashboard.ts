@@ -748,7 +748,14 @@ async function buildOpsAnalytics(
     select: { weekIso: true }
   });
 
+  const config = await getRegionConfig(input.regionId, tx);
+
   const opsAnalytics = {
+    config: {
+      emptyPctAmber: config.emptyPctAmber,
+      emptyPctRed: config.emptyPctRed,
+      onTimeTargetPct: config.onTimeTargetPct
+    },
     shuttleLeaderboard: computeShuttleEmptyLeaderboard(currentLoads),
     deadheadSplit: computeDeadheadSplitPerLoad(currentLoads),
     deadheadRadius: computeAvgShuttleDeadheadRadius(

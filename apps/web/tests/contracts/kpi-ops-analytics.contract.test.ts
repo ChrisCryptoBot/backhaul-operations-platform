@@ -36,6 +36,7 @@ describe("kpiOpsAnalyticsSchema ⇔ metric function output", () => {
 
   test("assembled opsAnalytics parses cleanly", () => {
     const opsAnalytics = {
+      config: { emptyPctAmber: 15, emptyPctRed: 25, onTimeTargetPct: 95 },
       shuttleLeaderboard: computeShuttleEmptyLeaderboard(loads),
       deadheadSplit: computeDeadheadSplitPerLoad(loads),
       deadheadRadius: computeAvgShuttleDeadheadRadius([
@@ -55,6 +56,7 @@ describe("kpiOpsAnalyticsSchema ⇔ metric function output", () => {
 
   test("an empty week still produces a parseable block", () => {
     const opsAnalytics = {
+      config: { emptyPctAmber: 15, emptyPctRed: 25, onTimeTargetPct: 95 },
       shuttleLeaderboard: computeShuttleEmptyLeaderboard([]),
       deadheadSplit: computeDeadheadSplitPerLoad([]),
       deadheadRadius: computeAvgShuttleDeadheadRadius([]),

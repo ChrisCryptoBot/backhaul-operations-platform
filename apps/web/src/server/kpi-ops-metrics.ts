@@ -72,7 +72,9 @@ function round(value: number, dp = 1): number {
 // ── 1. Shuttle empty-mile leaderboard ───────────────────────────────────────
 
 export interface ShuttleEmptyLeaderboardRow {
-  driverId: string;
+  /** Stable identity for keying/rank — a driverId when linked, else `name:<driverName>`. */
+  key: string;
+  driverId: string | null;
   driverName: string | null;
   deadheadMiles: number;
   loadedMiles: number;
@@ -80,41 +82,46 @@ export interface ShuttleEmptyLeaderboardRow {
 }
 
 /**
- * Attributes deadhead miles to drivers so the worst shuttle empty-mile offenders
- * surface first. Deadhead is a LOAD-level number, so we attribute:
- *   - pickup deadhead → the driver of the FIRST shuttle leg (the hauler),
- *   - delivery deadhead → the driver of the FINAL delivery leg.
- * Loads with no shuttle leg are excluded (a PTP deadheading out is expected, not
- * a shuttle running empty). Loaded miles are attributed to the shuttle hauler so
- * an empty-% denominator exists. Worst-first by deadhead miles.
+ * Attributes shuttle empty miles to drivers so the worst offenders surface first.
+ * Deadhead is a LOAD-level number and loaded miles are only known at the load level,
+ * so we attribute the whole load — pickup + delivery deadhead AND loaded miles — to
+ * the shuttle hauler (the driver of the FIRST shuttle leg), who owns the shuttle run.
+ * Loads with no shuttle leg are excluded (a PTP deadheading out is expected, not a
+ * shuttle running empty). Splitting delivery deadhead onto the final delivery driver
+ * would need per-leg loaded miles to yield a meaningful empty-% (see the spec's
+ * DH_ATTRIBUTION flag); the PU-vs-DEL nuance lives in the aggregate split chart
+ * instead. Worst-first by deadhead miles; per-driver empty-% is honest here.
  */
 export function computeShuttleEmptyLeaderboard(loads: OpsLoadInput[]): ShuttleEmptyLeaderboardRow[] {
-  const byDriver = new Map<string, { driverName: string | null; deadheadMiles: number; loadedMiles: number }>();
+  const byDriver = new Map<
+    string,
+    { driverId: string | null; driverName: string | null; deadheadMiles: number; loadedMiles: number }
+  >();
 
   const bump = (driverId: string | null, name: string | null, deadhead: number, loaded: number) => {
-    if (!driverId) return; // can't attribute without a driver
-    const row = byDriver.get(driverId) ?? { driverName: name, deadheadMiles: 0, loadedMiles: 0 };
+    // Attribute to the linked driver when available, else fall back to the free-text
+    // name — many legs carry only a name. Skip only when neither identity exists.
+    const key = driverId ?? (name ? `name:${name}` : null);
+    if (!key) return;
+    const row = byDriver.get(key) ?? { driverId, driverName: name, deadheadMiles: 0, loadedMiles: 0 };
     row.deadheadMiles += deadhead;
     row.loadedMiles += loaded;
     if (!row.driverName && name) row.driverName = name;
-    byDriver.set(driverId, row);
+    byDriver.set(key, row);
   };
 
   for (const load of loads) {
     const shuttle = firstShuttleLeg(load);
     if (!shuttle) continue; // exclude non-shuttle loads
-    // Hauler carries the pickup deadhead + the load's loaded miles.
-    bump(shuttle.driverId, shuttle.driverName, load.puDeadheadMiles, load.loadedMiles);
-    // Delivery deadhead is the final delivery driver's repositioning (no loaded miles, to avoid double count).
-    const delivery = finalDeliveryLeg(load);
-    if (delivery) bump(delivery.driverId, delivery.driverName, load.delDeadheadMiles, 0);
+    bump(shuttle.driverId, shuttle.driverName, load.puDeadheadMiles + load.delDeadheadMiles, load.loadedMiles);
   }
 
   return Array.from(byDriver.entries())
-    .map(([driverId, row]) => {
+    .map(([key, row]) => {
       const totalMiles = row.deadheadMiles + row.loadedMiles;
       return {
-        driverId,
+        key,
+        driverId: row.driverId,
         driverName: row.driverName,
         deadheadMiles: round(row.deadheadMiles),
         loadedMiles: round(row.loadedMiles),

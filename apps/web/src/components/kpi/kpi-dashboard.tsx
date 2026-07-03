@@ -17,6 +17,7 @@ import { kpiDashboardSchema } from "@/contracts/kpi";
 import { int, money } from "@/lib/ui/formatters";
 import type { TrendSeriesPoint } from "@/components/kpi/trend-chart";
 import { buildTrendSeries } from "@/components/kpi/trend-chart";
+import { OpsDriversTab } from "@/components/kpi/ops-charts";
 import { TopbarSignOutButton } from "@/components/auth/sign-out-button";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { useTheme } from "@/components/shell/theme";
@@ -29,7 +30,7 @@ import {
   DashIcon
 } from "@/components/icons";
 
-type TabId = "Lanes" | "Trend" | "Management Report" | "Reference Rules";
+type TabId = "Lanes" | "Drivers" | "Trend" | "Management Report" | "Reference Rules";
 
 interface KpiDashboardProps {
   initialData: unknown;
@@ -330,12 +331,12 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
   const [laneTargetSavingLane, setLaneTargetSavingLane] = React.useState<string | null>(null);
   const [laneTargetError, setLaneTargetError] = React.useState<string | null>(null);
 
-  const tabIds = React.useMemo<TabId[]>(() => ["Lanes", "Trend", "Management Report", "Reference Rules"], []);
+  const tabIds = React.useMemo<TabId[]>(() => ["Lanes", "Drivers", "Trend", "Management Report", "Reference Rules"], []);
   const tabButtonId = React.useCallback((id: TabId) => `kpi-tab-${id.toLowerCase().replace(/\s+/g, "-")}`, []);
   const tabPanelId = React.useCallback((id: TabId) => `kpi-tabpanel-${id.toLowerCase().replace(/\s+/g, "-")}`, []);
 
   // MileMax is removed from the UI (server compute kept dormant); NBY is the only $/mi metric.
-  const topCards = data.cards.filter((card) => card.key !== "mileMaxRpm").slice(0, 8);
+  const topCards = data.cards.filter((card) => card.key !== "mileMaxRpm").slice(0, 9);
   const trendWindow = Math.max(4, Math.min(52, data.activeFilters.weeks ?? 12));
   const trendSeries = React.useMemo(() => buildTrendSeries(data.trend), [data.trend]);
   const visibleTrendSeries = React.useMemo(() => trendSeries.slice(-trendWindow), [trendSeries, trendWindow]);
@@ -1482,6 +1483,26 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
                   NBY ($/mi) = line haul ÷ total trip miles (loaded + all deadhead), shown per lane and in totals.
                 </div>
               </div>
+            </div>
+
+            <div
+              id={tabPanelId("Drivers")}
+              role="tabpanel"
+              aria-labelledby={tabButtonId("Drivers")}
+              hidden={tab !== "Drivers"}
+              className={`db-tab-panel ${tab === "Drivers" ? "active" : ""}`}
+            >
+              <div className="db-tab-headrow">
+                <h2 className="db-tab-h">Shuttle deadhead · driver leaderboard · {weekOfRange}</h2>
+                <div className="db-tab-meta dim">
+                  Who to coach — worst shuttle empty-mile offenders first. Thresholds wired to region config.
+                </div>
+              </div>
+              {data.opsAnalytics ? (
+                <OpsDriversTab ops={data.opsAnalytics} />
+              ) : (
+                <div className="db-chart-empty">Ops analytics unavailable for this week.</div>
+              )}
             </div>
 
             <div

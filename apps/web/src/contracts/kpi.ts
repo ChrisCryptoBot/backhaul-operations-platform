@@ -102,9 +102,15 @@ const growthMetricSchema = z.object({
 /** Ops-analytics extension (Drivers + Reliability tabs, variance & growth charts). Optional: an
  * empty/failed week omits it and the rest of the dashboard still renders. */
 export const kpiOpsAnalyticsSchema = z.object({
+  config: z.object({
+    emptyPctAmber: z.number(),
+    emptyPctRed: z.number(),
+    onTimeTargetPct: z.number()
+  }),
   shuttleLeaderboard: z.array(
     z.object({
-      driverId: z.string(),
+      key: z.string(),
+      driverId: z.string().nullable(),
       driverName: z.string().nullable(),
       deadheadMiles: z.number(),
       loadedMiles: z.number(),

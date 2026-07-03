@@ -150,9 +150,9 @@ describe("KpiDashboard full parity surface", () => {
     expect(lanesTab).toHaveFocus();
 
     await user.keyboard("{ArrowRight}");
-    const trendTab = screen.getByRole("tab", { name: "Trend" });
-    expect(trendTab).toHaveFocus();
-    expect(trendTab).toHaveAttribute("aria-selected", "true");
+    const driversTab = screen.getByRole("tab", { name: "Drivers" });
+    expect(driversTab).toHaveFocus();
+    expect(driversTab).toHaveAttribute("aria-selected", "true");
 
     await user.keyboard("{End}");
     const rulesTab = screen.getByRole("tab", { name: "Reference Rules" });

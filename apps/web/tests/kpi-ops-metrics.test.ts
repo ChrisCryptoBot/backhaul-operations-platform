@@ -62,7 +62,22 @@ describe("computeShuttleEmptyLeaderboard", () => {
     expect(rows[0].emptyPct).toBeCloseTo(47.4, 1); // 90 / (90+100)
   });
 
-  test("attributes delivery deadhead to the final delivery driver", () => {
+  test("falls back to driverName when a leg has no linked driverId", () => {
+    const rows = computeShuttleEmptyLeaderboard([
+      load({
+        puDeadheadMiles: 25,
+        loadedMiles: 100,
+        legs: [{ legIndex: 0, legType: "SHUTTLE", driverId: null, driverName: "Cara", arrivalAt: null }]
+      })
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].driverId).toBeNull();
+    expect(rows[0].driverName).toBe("Cara");
+    expect(rows[0].key).toBe("name:Cara");
+    expect(rows[0].deadheadMiles).toBe(25);
+  });
+
+  test("attributes the whole load (pickup + delivery deadhead + loaded) to the shuttle hauler", () => {
     const rows = computeShuttleEmptyLeaderboard([
       load({
         puDeadheadMiles: 10,
@@ -71,11 +86,12 @@ describe("computeShuttleEmptyLeaderboard", () => {
         legs: [shuttleLeg("d1", "Ann", 0), deliveryLeg("d2", "Bob", 2)]
       })
     ]);
-    const ann = rows.find((r) => r.driverId === "d1");
-    const bob = rows.find((r) => r.driverId === "d2");
-    expect(ann?.deadheadMiles).toBe(10);
-    expect(bob?.deadheadMiles).toBe(40);
-    expect(bob?.loadedMiles).toBe(0); // delivery driver gets no loaded miles
+    // Single-attribution to the hauler avoids degenerate 100%-empty rows for
+    // delivery-only drivers (we lack per-leg loaded miles).
+    expect(rows).toHaveLength(1);
+    expect(rows[0].driverId).toBe("d1");
+    expect(rows[0].deadheadMiles).toBe(50); // 10 pickup + 40 delivery
+    expect(rows[0].loadedMiles).toBe(100);
   });
 });
 
