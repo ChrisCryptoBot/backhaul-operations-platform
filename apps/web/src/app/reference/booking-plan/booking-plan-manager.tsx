@@ -356,12 +356,13 @@ export function BookingPlanManager({
                                   Book
                                 </button>
                               ) : null}
-                              <button type="button" className="db-iconbtn-sm" title="Edit plan line" disabled={busy} onClick={() => openEdit(entry)}>
+                              <button type="button" className="db-iconbtn-sm" aria-label="Edit plan line" title="Edit plan line" disabled={busy} onClick={() => openEdit(entry)}>
                                 <PencilIcon size={15} />
                               </button>
                               <button
                                 type="button"
                                 className="db-iconbtn-sm danger"
+                                aria-label="Remove plan line"
                                 title="Remove plan line"
                                 disabled={busy || entry.status === "BOOKED"}
                                 onClick={() => setDeleteTarget(entry)}

@@ -49,12 +49,19 @@ export default async function DeliveriesPage() {
     );
   }
 
-  const { deliveries, asOf } = await getOpenDeliveries({ regionId });
-  const rows = deliveries.map(mapBoardRowToView);
-
-  return (
-    <AppShell title="Deliveries" viewerIsAdmin={viewerIsAdmin} viewerCanManageReference={canWrite} regionCode={getPhase1RegionCode()}>
-      <DeliveriesView deliveries={rows} asOf={asOf} />
-    </AppShell>
-  );
+  try {
+    const { deliveries, asOf } = await getOpenDeliveries({ regionId });
+    const rows = deliveries.map(mapBoardRowToView);
+    return (
+      <AppShell title="Deliveries" viewerIsAdmin={viewerIsAdmin} viewerCanManageReference={canWrite} regionCode={getPhase1RegionCode()}>
+        <DeliveriesView deliveries={rows} asOf={asOf} />
+      </AppShell>
+    );
+  } catch {
+    return (
+      <main className="db-root db-fallback-main">
+        <AuthErrorState title="Deliveries" description="Unable to load deliveries right now." />
+      </main>
+    );
+  }
 }

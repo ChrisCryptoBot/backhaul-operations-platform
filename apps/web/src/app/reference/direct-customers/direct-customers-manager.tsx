@@ -202,10 +202,10 @@ export function DirectCustomersManager({ initialDirectCustomers, canWrite }: Dir
                     {canWrite ? (
                       <td className="actions right">
                         <span className="db-rowbtns">
-                          <button type="button" className="db-iconbtn-sm" title="Edit direct customer" disabled={busy} onClick={() => openEdit(customer)}>
+                          <button type="button" className="db-iconbtn-sm" aria-label="Edit direct customer" title="Edit direct customer" disabled={busy} onClick={() => openEdit(customer)}>
                             <PencilIcon size={15} />
                           </button>
-                          <button type="button" className="db-iconbtn-sm danger" title="Remove direct customer" disabled={busy} onClick={() => setDeleteTarget(customer)}>
+                          <button type="button" className="db-iconbtn-sm danger" aria-label="Remove direct customer" title="Remove direct customer" disabled={busy} onClick={() => setDeleteTarget(customer)}>
                             <TrashIcon size={15} />
                           </button>
                         </span>

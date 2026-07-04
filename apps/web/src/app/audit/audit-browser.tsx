@@ -183,7 +183,7 @@ export function AuditBrowser({ initialPage, filterOptions }: AuditBrowserProps) 
           <label className="db-field-label grow">
             Search
             <div className="db-prefix-input">
-              <span className="pfx"><SearchIcon size={13} /></span>
+              <span className="pfx" aria-hidden="true"><SearchIcon size={13} /></span>
               <input className="db-input" value={search} placeholder="entity id, action, or reason" onChange={(event) => setSearch(event.target.value)} />
             </div>
           </label>
@@ -245,7 +245,7 @@ export function AuditBrowser({ initialPage, filterOptions }: AuditBrowserProps) 
                         {entry.reason ?? <span className="faint">—</span>}
                       </td>
                       <td className="right">
-                        <button type="button" className="db-btn db-btn-ghost" onClick={() => setDetail(entry)}>View</button>
+                        <button type="button" className="db-btn db-btn-ghost" aria-label={`View details for ${entry.action} on ${entry.entityType} ${entry.entityId}`} onClick={() => setDetail(entry)}>View</button>
                       </td>
                     </tr>
                   ))}
@@ -299,7 +299,7 @@ export function AuditBrowser({ initialPage, filterOptions }: AuditBrowserProps) 
               <DiffPre value={detail.beforeValue} other={detail.afterValue} kind="del" />
             </div>
             <div>
-              <div className="db-diff-col-h" style={{ color: "var(--db-pos)" }}>After</div>
+              <div className="db-diff-col-h">After</div>
               <DiffPre value={detail.afterValue} other={detail.beforeValue} kind="add" />
             </div>
           </div>

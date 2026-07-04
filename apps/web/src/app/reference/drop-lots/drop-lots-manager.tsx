@@ -7,7 +7,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/empty-state";
 import { UndoToast, useToast } from "@/components/ui/toast";
-import { InfoIcon, LockIcon, PencilIcon, PinIcon, PlusIcon, TrashIcon, GripIcon } from "@/components/icons";
+import { InfoIcon, LockIcon, PencilIcon, PinIcon, PlusIcon, TrashIcon } from "@/components/icons";
 
 interface DropLotsManagerProps {
   initialDropLots: DropLotSummary[];
@@ -208,7 +208,7 @@ export function DropLotsManager({ initialDropLots, canWrite }: DropLotsManagerPr
                 {dropLots.map((lot, index) => (
                   <tr key={lot.id} className={`db-row${index % 2 ? " odd" : ""}`}>
                     <td>
-                      <span className="db-ord"><span className="grip" aria-hidden="true"><GripIcon size={12} /></span><span className="n">{lot.sortOrder}</span></span>
+                      <span className="db-ord"><span className="n">{lot.sortOrder}</span></span>
                     </td>
                     <td>
                       <div className="strong">{lot.name}</div>
@@ -223,10 +223,10 @@ export function DropLotsManager({ initialDropLots, canWrite }: DropLotsManagerPr
                     {canWrite ? (
                       <td className="actions right">
                         <span className="db-rowbtns">
-                          <button type="button" className="db-iconbtn-sm" title="Edit drop lot" disabled={busy} onClick={() => openEdit(lot)}>
+                          <button type="button" className="db-iconbtn-sm" aria-label="Edit drop lot" title="Edit drop lot" disabled={busy} onClick={() => openEdit(lot)}>
                             <PencilIcon size={15} />
                           </button>
-                          <button type="button" className="db-iconbtn-sm danger" title="Remove drop lot" disabled={busy} onClick={() => setDeleteTarget(lot)}>
+                          <button type="button" className="db-iconbtn-sm danger" aria-label="Remove drop lot" title="Remove drop lot" disabled={busy} onClick={() => setDeleteTarget(lot)}>
                             <TrashIcon size={15} />
                           </button>
                         </span>

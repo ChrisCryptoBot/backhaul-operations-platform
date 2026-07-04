@@ -67,6 +67,12 @@ export function SettingsForm({ initialStatus, supportedProviders, initialThresho
   const modelOptions = MODEL_OPTIONS[provider] ?? MODEL_OPTIONS.anthropic;
   const keyPlaceholder = hasKey ? (last4 ? `···· ${last4} — leave blank to keep` : "Key configured — leave blank to keep") : "Paste API key";
 
+  // Mirror ThresholdPreview's rule so the UI blocks invalid submits (server also guards).
+  const amberNum = Number(amber);
+  const redNum = Number(red);
+  const thresholdsValid =
+    Number.isFinite(amberNum) && Number.isFinite(redNum) && amberNum > 0 && amberNum < redNum && redNum <= 100;
+
   function onProviderChange(next: string) {
     setProvider(next);
     const options = MODEL_OPTIONS[next] ?? [];
@@ -252,7 +258,7 @@ export function SettingsForm({ initialStatus, supportedProviders, initialThresho
                 {thError ? <p className="db-upload-error">{thError}</p> : null}
 
                 <div className="db-set-foot">
-                  <button type="submit" className="db-btn primary" disabled={thBusy}>
+                  <button type="submit" className="db-btn primary" disabled={thBusy || !thresholdsValid}>
                     {thBusy ? "Saving…" : "Save thresholds"}
                   </button>
                 </div>

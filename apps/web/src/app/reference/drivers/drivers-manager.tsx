@@ -311,10 +311,10 @@ export function DriversManager({ initialDrivers, dropLots, canWrite }: DriversMa
                     {canWrite ? (
                       <td className="actions right">
                         <span className="db-rowbtns">
-                          <button type="button" className="db-iconbtn-sm" title="Edit driver" disabled={busy} onClick={() => openEdit(driver)}>
+                          <button type="button" className="db-iconbtn-sm" aria-label="Edit driver" title="Edit driver" disabled={busy} onClick={() => openEdit(driver)}>
                             <PencilIcon size={15} />
                           </button>
-                          <button type="button" className="db-iconbtn-sm danger" title="Remove driver" disabled={busy} onClick={() => setDeleteTarget(driver)}>
+                          <button type="button" className="db-iconbtn-sm danger" aria-label="Remove driver" title="Remove driver" disabled={busy} onClick={() => setDeleteTarget(driver)}>
                             <TrashIcon size={15} />
                           </button>
                         </span>

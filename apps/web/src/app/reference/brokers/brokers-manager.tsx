@@ -161,10 +161,10 @@ export function BrokersManager({ initialBrokers, canWrite }: BrokersManagerProps
                     {canWrite ? (
                       <td className="actions right">
                         <span className="db-rowbtns">
-                          <button type="button" className="db-iconbtn-sm" title="Edit broker" disabled={busy} onClick={() => setSelectedId(broker.id)}>
+                          <button type="button" className="db-iconbtn-sm" aria-label="Edit broker" title="Edit broker" disabled={busy} onClick={() => setSelectedId(broker.id)}>
                             <PencilIcon size={15} />
                           </button>
-                          <button type="button" className="db-iconbtn-sm danger" title="Remove broker" disabled={busy} onClick={() => setDeleteTarget(broker)}>
+                          <button type="button" className="db-iconbtn-sm danger" aria-label="Remove broker" title="Remove broker" disabled={busy} onClick={() => setDeleteTarget(broker)}>
                             <TrashIcon size={15} />
                           </button>
                         </span>
@@ -381,7 +381,7 @@ function BrokerEditor({ broker, busy, mutate, onDone }: BrokerEditorProps) {
                 <td className="mono dim">{rep.email ?? "—"}</td>
                 <td className="mono dim">{rep.phone ?? "—"}</td>
                 <td className="right">
-                  <button type="button" className="db-iconbtn-sm danger" title="Remove contact" disabled={busy} onClick={() => void onDeleteRep(rep.id)}>
+                  <button type="button" className="db-iconbtn-sm danger" aria-label="Remove contact" title="Remove contact" disabled={busy} onClick={() => void onDeleteRep(rep.id)}>
                     <TrashIcon size={15} />
                   </button>
                 </td>
