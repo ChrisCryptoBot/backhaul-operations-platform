@@ -999,15 +999,21 @@
   gap: 10px;
   padding: 14px 16px 10px;
   border-bottom: 1px solid var(--db-border);
-  position: sticky;
-  top: 0;
-  /* Frosted sticky bar — the opaque drawer body scrolls under it. Small bounded
-     area, so the on-scroll backdrop-filter repaint is cheap (the acceptable use
-     of glass on a scrolling context — never the whole body). */
+  /* Relative (not sticky) — the header + status ribbon are pinned together by
+     .db-drawer-stickytop below, so a tall wrapping title can't overlap the ribbon.
+     Relative also gives the letterhead ::after (paper.css) its positioning context. */
+  position: relative;
+  /* Frosted bar — the opaque drawer body scrolls under the pinned top block. */
   background: var(--db-glass-strong-bg);
   backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
   -webkit-backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
-  z-index: 1;
+}
+
+/* Header + status ribbon pin as ONE unit (heights vary with title wrapping). */
+.db-drawer-stickytop {
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .db-drawer-head-left {
@@ -1046,9 +1052,6 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  position: sticky;
-  top: 62px;
-  z-index: 1;
 }
 
 .db-drawer-meta-sep {

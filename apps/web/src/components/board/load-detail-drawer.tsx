@@ -779,6 +779,7 @@ export function LoadDetailDrawer({
         tabIndex={-1}
         onKeyDown={handleDialogKeyDown}
       >
+        <div className="db-drawer-stickytop">
         <header className="db-drawer-head">
           <div className="db-drawer-head-left">
             <div className="db-drawer-eyebrow mono">LOAD · {detail?.section ?? "—"}</div>
@@ -817,6 +818,7 @@ export function LoadDetailDrawer({
             ) : null}
           </div>
         ) : null}
+        </div>
         {loading ? (
           <div className="db-drawer-block">
             <div className="db-drawer-skeleton-title db-skel">Loading details</div>
