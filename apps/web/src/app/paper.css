@@ -1,0 +1,135 @@
+/* ===========================================================================
+   paper.css — "manila business paper" polish, layered ON TOP of board.css.
+
+   Purely additive, CSS-only, theme-aware. Touches no board.css rule and no
+   component. Imported once in globals.css (after board.css).
+
+   REVERT (whole pass): delete the `@import "./paper.css";` line in globals.css.
+   REVERT (one effect): delete that numbered section below.
+   =========================================================================== */
+
+/* Theme-aware knobs the effects read from (one place to retune per theme). */
+.db-root {
+  --db-emboss: 0 1px 0 rgba(255, 255, 255, 0.6);   /* engraved-into-paper highlight */
+  --db-grain-opacity: 0.05;                        /* paper-fiber film strength */
+}
+.db-root[data-theme="dark"],
+:root[data-theme="dark"] .db-root {
+  --db-emboss: 0 1px 0 rgba(0, 0, 0, 0.45);
+  --db-grain-opacity: 0.06;
+}
+
+/* ---------------------------------------------------------------------------
+   1. LETTERPRESS EMBOSS — prominent uppercase labels look printed into the
+      paper. Top-highlight only (no dark component) so small text stays crisp.
+--------------------------------------------------------------------------- */
+.db-dash-eyebrow,
+.db-drawer-eyebrow,
+.db-modal-eyebrow,
+.db-set-eyebrow,
+.db-drawer-section-title,
+.db-section-tag,
+.db-section-code,
+.db-app .db-table thead th,
+.db-app .db-table.grouped thead tr.db-colgroup-row th,
+.db-stat-label,
+.db-rail-label,
+.db-side-wordmark,
+.db-side-sub,
+.db-cop-rail-word,
+.db-cop-attn-title,
+.db-cop-card-kicker,
+.db-kpi-meta-label,
+.db-audit-h,
+.db-mgmt-notes-h,
+.db-field-label,
+.db-cl-stage,
+.db-edit-stage-head,
+.db-cop-msg-role,
+.db-cop-seed-h,
+.db-cop-stage-title,
+.db-cop-applied-h,
+.db-diff-col-h,
+.db-diff-meta .k {
+  text-shadow: var(--db-emboss);
+}
+
+/* ---------------------------------------------------------------------------
+   2. PAPER GRAIN FILM — a fixed, full-viewport fiber texture over the whole UI.
+      pointer-events:none so it never intercepts clicks. Intensity dial above
+      (--db-grain-opacity). If it reads heavy on dense tables, lower it.
+--------------------------------------------------------------------------- */
+.db-root::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: var(--db-grain-opacity);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+
+/* ---------------------------------------------------------------------------
+   3. LETTERHEAD DOUBLE-RULE — a thin second hairline under report/report-like
+      headers (added as a decorative ::after; the primary rule already exists).
+--------------------------------------------------------------------------- */
+/* Only the modal head needs an explicit positioning context for its ::after —
+   the dashboard + drawer heads are already `position: sticky` (a positioned
+   context), so forcing `position: relative` here would CLOBBER their stickiness. */
+.db-modal-head {
+  position: relative;
+}
+.db-dash-head::after,
+.db-modal-head::after,
+.db-drawer-head::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  border-bottom: 1px solid var(--db-border-soft);
+  pointer-events: none;
+}
+/* The KPI dashboard head has no bottom border of its own — give it the first rule. */
+.db-dash-head {
+  border-bottom: 1px solid var(--db-border);
+  padding-bottom: 8px;
+}
+
+/* ---------------------------------------------------------------------------
+   4. FOLDER-TAB MOTIF — a small accent "tab spine" on each board drop-lot
+      section header, so each lot reads as a file folder. Restrained: a flex
+      pseudo at the start of the section header inner. (Review closely.)
+--------------------------------------------------------------------------- */
+.db-section-inner::before {
+  content: "";
+  flex: 0 0 3px;
+  align-self: center;
+  width: 3px;
+  height: 14px;
+  margin-right: 4px;
+  border-radius: 2px 2px 0 0;
+  background: var(--db-accent);
+}
+
+/* ---------------------------------------------------------------------------
+   5. RED-PEN URGENCY — a proofreader's margin rule on flagged rows, on top of
+      the existing soft tint. Red for urgent, amber for warn.
+--------------------------------------------------------------------------- */
+.db-row--urgent td.stick-ref::before,
+.db-row--warn td.stick-ref::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  pointer-events: none;
+}
+.db-row--urgent td.stick-ref::before {
+  background: var(--db-neg);
+}
+.db-row--warn td.stick-ref::before {
+  background: var(--db-warn);
+}
