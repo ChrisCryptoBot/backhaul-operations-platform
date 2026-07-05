@@ -147,16 +147,10 @@ export const CHECKLIST_ITEMS: ChecklistItemDef[] = [
     applies: () => true,
     isDone: (l) => l.pickupEtaAdvised === "DONE"
   },
-  // PICKED_UP — done by the time the load is delivered. BOL-match lives here:
-  // the driver doesn't get the BOL paperwork until they're at the shipper + loaded.
-  {
-    key: "BOL_MATCH",
-    label: "BOL matches rate con",
-    stage: "PICKED_UP",
-    severity: "URGENT",
-    applies: () => true,
-    isDone: (l) => l.bolMatchTask === "DONE"
-  },
+  // PICKED_UP — done by the time the load is delivered. Ordered to the real
+  // pickup-stop sequence: arrive → check BOL (only in hand once at the shipper +
+  // loaded) → cross the scale → give the delivery ETA once rolling. Mirrors the
+  // Delivered group (arrival → scale → next paperwork).
   {
     key: "ADVISE_PU_ARRIVAL",
     label: "Advise broker of pickup arrival",
@@ -166,12 +160,12 @@ export const CHECKLIST_ITEMS: ChecklistItemDef[] = [
     isDone: (l) => l.pickupArrivalAdvised === "DONE"
   },
   {
-    key: "ADVISE_DEL_ETA",
-    label: "Advise broker of delivery ETA",
+    key: "BOL_MATCH",
+    label: "BOL matches rate con",
     stage: "PICKED_UP",
-    severity: "WARN",
+    severity: "URGENT",
     applies: () => true,
-    isDone: (l) => l.deliveryEtaAdvised === "DONE"
+    isDone: (l) => l.bolMatchTask === "DONE"
   },
   {
     key: "TASK_SCALE_BEFORE",
@@ -180,6 +174,14 @@ export const CHECKLIST_ITEMS: ChecklistItemDef[] = [
     severity: "INFO",
     applies: () => true,
     isDone: (l) => l.scaleBeforeTask === "DONE"
+  },
+  {
+    key: "ADVISE_DEL_ETA",
+    label: "Advise broker of delivery ETA",
+    stage: "PICKED_UP",
+    severity: "WARN",
+    applies: () => true,
+    isDone: (l) => l.deliveryEtaAdvised === "DONE"
   },
   // DELIVERED — done by the time POD is received.
   {
