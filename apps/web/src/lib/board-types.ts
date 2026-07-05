@@ -42,6 +42,22 @@ export interface BoardSection {
   filledCount: number;
   dropLot: BoardDropLotMeta | null;
   loads: BoardLoadRow[];
+  /** Demand rows (booking-plan entries still needing a backhaul). Only the
+   *  region_next_day section carries these; they are NOT loads. */
+  demand?: DemandRow[];
+}
+
+/** An empty truck that still needs a backhaul, surfaced from the Daily Booking Plan
+ *  onto the board's next-day-prep section. Distinct from a booked Load. */
+export interface DemandRow {
+  id: string;
+  driverCode: string;
+  driverName: string;
+  emptyCity: string | null;
+  emptyState: string | null;
+  emptyTime: string | null;
+  status: "NEEDS_BACKHAUL" | "SOURCING";
+  backhaulNote: string | null;
 }
 
 export interface BoardDropLotMeta {

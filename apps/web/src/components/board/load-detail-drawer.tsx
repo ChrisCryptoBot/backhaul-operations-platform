@@ -136,6 +136,7 @@ function buildFallbackDetail(load: ViewBoardLoadRow): ViewLoadDetail {
     loadedRpm: load.loadedRpm === null ? null : String(load.loadedRpm),
     emptyMilePct: emptyPctRatio === null ? null : String(emptyPctRatio),
     nby: nbyRatio === null ? null : String(nbyRatio),
+    marketRate: null,
     brokerName: load.brokerName,
     pickupDriverAssigned: load.pickupDriverAssigned,
     tractorTrailer1: load.tractorTrailer1,
@@ -155,6 +156,11 @@ function buildFallbackDetail(load: ViewBoardLoadRow): ViewLoadDetail {
     deliveryArrivalAdvised: load.deliveryArrivalAdvised,
     deliveryExceptionState: load.deliveryExceptionState,
     rescheduleDriverConfirmed: load.rescheduleDriverConfirmed,
+    // Booking gates aren't carried on the board row; the degraded fallback defaults them
+    // (the primary detail fetch supplies the real values).
+    rateConReceived: "NOT_DONE",
+    receiptReceived: "NOT_DONE",
+    mgRateUpdated: "NOT_DONE",
     coordinatorNotes: load.coordinatorNotes,
     attentionNote: load.lateCancelFailedNote,
     attentionSeverity: load.attentionSeverity,
@@ -309,8 +315,12 @@ export function LoadDetailDrawer({
     deliveryArrivalAdvised: "NOT_DONE",
     deliveryExceptionState: "NONE",
     rescheduleDriverConfirmed: "NOT_DONE",
+    rateConReceived: "NOT_DONE",
+    receiptReceived: "NOT_DONE",
+    mgRateUpdated: "NOT_DONE",
     pickupDriverAssigned: "",
     commodity: "",
+    marketRate: "",
     equipmentNeeds: "",
     podStatus: "",
     driverType: "",
@@ -424,8 +434,12 @@ export function LoadDetailDrawer({
         ? detail.operations.deliveryExceptionState
         : "NONE",
       rescheduleDriverConfirmed: detail.operations.rescheduleDriverConfirmed === "DONE" ? "DONE" : "NOT_DONE",
+      rateConReceived: detail.operations.rateConReceived === "DONE" ? "DONE" : "NOT_DONE",
+      receiptReceived: detail.operations.receiptReceived === "DONE" ? "DONE" : "NOT_DONE",
+      mgRateUpdated: detail.operations.mgRateUpdated === "DONE" ? "DONE" : "NOT_DONE",
       pickupDriverAssigned: dashToEmpty(detail.operations.pickupDriverAssigned),
       commodity: dashToEmpty(detail.operations.commodity),
+      marketRate: detail.financials.marketRate !== null ? String(detail.financials.marketRate) : "",
       equipmentNeeds: dashToEmpty(detail.operations.equipmentNeeds),
       podStatus: dashToEmpty(detail.operations.podStatus),
       driverType: dashToEmpty(detail.operations.driverType),
@@ -603,6 +617,7 @@ export function LoadDetailDrawer({
         rescheduleDriverConfirmed: formState.rescheduleDriverConfirmed,
         pickupDriverAssigned: formState.pickupDriverAssigned.trim() || null,
         commodity: formState.commodity.trim() || null,
+        marketRate: formState.marketRate.trim() || null,
         equipmentNeeds: formState.equipmentNeeds.trim() || null,
         podStatus: formState.podStatus.trim() || null,
         driverType: formState.driverType.trim() || null,
@@ -940,6 +955,32 @@ export function LoadDetailDrawer({
                 </div>
               </div>
               <div className="db-edit-stage">
+                <div className="db-edit-stage-head">Booking paperwork</div>
+                <div className="db-drawer-form-grid">
+                  <label className="db-field-label">
+                    Rate Con received
+                    <select className="db-input" value={formState.rateConReceived} onChange={(e) => void commitField({ rateConReceived: e.target.value })}>
+                      <option value="NOT_DONE">NOT_DONE</option>
+                      <option value="DONE">DONE</option>
+                    </select>
+                  </label>
+                  <label className="db-field-label">
+                    Receipt
+                    <select className="db-input" value={formState.receiptReceived} onChange={(e) => void commitField({ receiptReceived: e.target.value })}>
+                      <option value="NOT_DONE">NOT_DONE</option>
+                      <option value="DONE">DONE</option>
+                    </select>
+                  </label>
+                  <label className="db-field-label">
+                    MG Rate updated
+                    <select className="db-input" value={formState.mgRateUpdated} onChange={(e) => void commitField({ mgRateUpdated: e.target.value })}>
+                      <option value="NOT_DONE">NOT_DONE</option>
+                      <option value="DONE">DONE</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+              <div className="db-edit-stage">
                 <div className="db-edit-stage-head">Dispatched</div>
                 <div className="db-drawer-form-grid">
                   <label className="db-field-label">
@@ -1161,6 +1202,10 @@ export function LoadDetailDrawer({
                     <input className="db-input" value={formState.commodity} onChange={(e) => setFormState((s) => ({ ...s, commodity: e.target.value }))} />
                   </label>
                   <label className="db-field-label">
+                    DAT market rate ($/mi)
+                    <input className="db-input mono" inputMode="decimal" placeholder="per-load override" value={formState.marketRate} onChange={(e) => setFormState((s) => ({ ...s, marketRate: e.target.value }))} />
+                  </label>
+                  <label className="db-field-label">
                     Equipment Needs
                     <input className="db-input" value={formState.equipmentNeeds} onChange={(e) => setFormState((s) => ({ ...s, equipmentNeeds: e.target.value }))} />
                   </label>
@@ -1295,6 +1340,13 @@ export function LoadDetailDrawer({
                   <div className="db-rpm-label">Empty %</div>
                   <div className="db-rpm-value mono">{pct(detail.financials.emptyPct, { fromRatio: true })}</div>
                 </div>
+                <div className="db-rpm">
+                  <div className="db-rpm-label">DAT market</div>
+                  <div className="db-rpm-value mono">
+                    {detail.financials.marketRate === null ? "—" : `$${detail.financials.marketRate.toFixed(2)}`}
+                    {detail.financials.marketRate !== null ? <span className="db-rpm-suffix">/mi</span> : null}
+                  </div>
+                </div>
               </div>
               {(detail.financials.puDh ?? 0) + (detail.financials.delDh ?? 0) > 80 ? (
                 <p className="db-upload-error" style={{ marginTop: "var(--db-3)" }}>
@@ -1320,6 +1372,9 @@ export function LoadDetailDrawer({
                   <KV label="TMW Task" value={detail.operations.tmwStatusTask} />
                   <KV label="Scale Before" value={detail.operations.scaleBeforeTask} />
                   <KV label="Scale After" value={detail.operations.scaleAfterTask} />
+                  <KV label="Rate Con" value={detail.operations.rateConReceived} />
+                  <KV label="Receipt" value={detail.operations.receiptReceived} />
+                  <KV label="MG Rate Upd" value={detail.operations.mgRateUpdated} />
                 </div>
                 {detail.operations.attentionNote !== "—" ? (
                   <p style={{ marginTop: "var(--db-3)" }}>

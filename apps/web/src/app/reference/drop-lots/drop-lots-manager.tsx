@@ -5,6 +5,7 @@ import React from "react";
 import type { DropLotSummary } from "@/server/reference";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
+import { Toggle } from "@/components/ui/toggle";
 import { EmptyState } from "@/components/ui/empty-state";
 import { UndoToast, useToast } from "@/components/ui/toast";
 import { InfoIcon, LockIcon, PencilIcon, PinIcon, PlusIcon, TrashIcon } from "@/components/icons";
@@ -22,9 +23,11 @@ interface LotForm {
   capacity: string;
   order: string;
   note: string;
+  slipSeat: boolean;
+  dropHookRequired: boolean;
 }
 
-const EMPTY_FORM: LotForm = { name: "", code: "", city: "", state: "", capacity: "", order: "", note: "" };
+const EMPTY_FORM: LotForm = { name: "", code: "", city: "", state: "", capacity: "", order: "", note: "", slipSeat: false, dropHookRequired: false };
 
 function formFromLot(lot: DropLotSummary): LotForm {
   return {
@@ -34,7 +37,9 @@ function formFromLot(lot: DropLotSummary): LotForm {
     state: lot.state,
     capacity: lot.dailyCapacity == null ? "" : String(lot.dailyCapacity),
     order: String(lot.sortOrder),
-    note: lot.note ?? ""
+    note: lot.note ?? "",
+    slipSeat: lot.slipSeat,
+    dropHookRequired: lot.dropHookRequired
   };
 }
 
@@ -125,7 +130,9 @@ export function DropLotsManager({ initialDropLots, canWrite }: DropLotsManagerPr
       city: form.city.trim(),
       state: form.state.trim(),
       sortOrder: form.order.trim() ? Number(form.order) : 0,
-      dailyCapacity: form.capacity.trim() ? Number(form.capacity) : null
+      dailyCapacity: form.capacity.trim() ? Number(form.capacity) : null,
+      slipSeat: form.slipSeat,
+      dropHookRequired: form.dropHookRequired
     };
     const ok =
       formMode === "create"
@@ -291,6 +298,16 @@ export function DropLotsManager({ initialDropLots, canWrite }: DropLotsManagerPr
               Board order
               <input className="db-input mono" type="number" min="0" value={form.order} onChange={(event) => setField("order", event.target.value)} />
               <span className="db-field-hint">section position</span>
+            </label>
+            <label className="db-field-label">
+              Slip-seat
+              <Toggle on={form.slipSeat} onChange={(value) => setField("slipSeat", value)} label={form.slipSeat ? "Slip-seat yard" : "Off"} />
+              <span className="db-field-hint">drivers swap into pre-staged tractors here</span>
+            </label>
+            <label className="db-field-label">
+              Drop &amp; hook
+              <Toggle on={form.dropHookRequired} onChange={(value) => setField("dropHookRequired", value)} label={form.dropHookRequired ? "Required" : "Not required"} />
+              <span className="db-field-hint">trailers dropped/hooked (not live) at this lot</span>
             </label>
             <label className="db-field-label db-form-full">
               Note

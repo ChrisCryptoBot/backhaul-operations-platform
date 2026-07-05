@@ -16,9 +16,11 @@ export interface KpiLaneRowDto {
   lane: string;
   target: string | number | null;
   targetSource?: "MANUAL_WEEKLY" | "LANE_DEFAULT" | "NONE";
+  datRate?: string | number | null;
   loads: number;
   revenue: string | number | null;
   vsTarget: string | number | null;
+  vsMarket?: string | number | null;
   emptyPct: string | number | null;
   nby?: string | number | null;
   fsc?: string | number | null;
@@ -135,9 +137,11 @@ export interface ViewKpiDashboard {
     lane: string;
     target: number | null;
     targetSource: "MANUAL_WEEKLY" | "LANE_DEFAULT" | "NONE";
+    datRate: number | null;
     loads: number;
     revenue: number | null;
     vsTarget: number | null;
+    vsMarket: number | null;
     emptyPct: number | null;
     nby: number | null;
     fsc: number | null;
@@ -253,9 +257,11 @@ export function mapKpiDashboardToView(input: KpiDashboardResponse): ViewKpiDashb
       lane: lane.lane,
       target: toNumber(lane.target),
       targetSource: lane.targetSource ?? "NONE",
+      datRate: toNumber(lane.datRate ?? null),
       loads: lane.loads,
       revenue: toNumber(lane.revenue),
       vsTarget: toNumber(lane.vsTarget),
+      vsMarket: toNumber(lane.vsMarket ?? null),
       emptyPct: toNumber(lane.emptyPct),
       nby: toNumber(lane.nby ?? null),
       fsc: toNumber(lane.fsc ?? null),

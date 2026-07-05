@@ -30,6 +30,7 @@ export interface LoadDetailPayload {
   emptyMilePct: string | null;
   /** Net Backhaul Yield = line haul ÷ total system miles (loaded + all DH). Null if no trip miles. */
   nby: string | null;
+  marketRate: string | null;
   brokerName: string | null;
   pickupDriverAssigned: string | null;
   tractorTrailer1: string | null;
@@ -49,6 +50,9 @@ export interface LoadDetailPayload {
   deliveryArrivalAdvised: string;
   deliveryExceptionState: string;
   rescheduleDriverConfirmed: string;
+  rateConReceived: string;
+  receiptReceived: string;
+  mgRateUpdated: string;
   coordinatorNotes: string | null;
   attentionNote: string | null;
   attentionSeverity: string;
@@ -109,6 +113,7 @@ interface LoadDetailDbRow {
   negotiableMiles: { toString(): string } | null;
   loadedRpm: { toString(): string } | null;
   emptyMilePct: { toString(): string } | null;
+  marketRate: { toString(): string } | null;
   pickupDriverAssigned: string | null;
   tractorTrailer1: string | null;
   tractorTrailer2: string | null;
@@ -127,6 +132,9 @@ interface LoadDetailDbRow {
   deliveryArrivalAdvised: string;
   deliveryExceptionState: string;
   rescheduleDriverConfirmed: string;
+  rateConReceived: string;
+  receiptReceived: string;
+  mgRateUpdated: string;
   coordinatorNotes: string | null;
   attentionNote: string | null;
   attentionSeverity: string;
@@ -210,6 +218,7 @@ export async function getLoadDetail(input: {
         negotiableMiles: true,
         loadedRpm: true,
         emptyMilePct: true,
+        marketRate: true,
         pickupDriverAssigned: true,
         tractorTrailer1: true,
         tractorTrailer2: true,
@@ -228,6 +237,9 @@ export async function getLoadDetail(input: {
         deliveryArrivalAdvised: true,
         deliveryExceptionState: true,
         rescheduleDriverConfirmed: true,
+        rateConReceived: true,
+        receiptReceived: true,
+        mgRateUpdated: true,
         coordinatorNotes: true,
         attentionNote: true,
         attentionSeverity: true,
@@ -311,6 +323,7 @@ export async function getLoadDetail(input: {
       loadedRpm: load.loadedRpm?.toString() ?? null,
       emptyMilePct: load.emptyMilePct?.toString() ?? null,
       nby: nbyDecimal?.toString() ?? null,
+      marketRate: load.marketRate?.toString() ?? null,
       brokerName: load.broker?.name ?? null,
       pickupDriverAssigned: load.pickupDriverAssigned,
       tractorTrailer1: load.tractorTrailer1,
@@ -330,6 +343,9 @@ export async function getLoadDetail(input: {
       deliveryArrivalAdvised: load.deliveryArrivalAdvised,
       deliveryExceptionState: load.deliveryExceptionState,
       rescheduleDriverConfirmed: load.rescheduleDriverConfirmed,
+      rateConReceived: load.rateConReceived,
+      receiptReceived: load.receiptReceived,
+      mgRateUpdated: load.mgRateUpdated,
       coordinatorNotes: load.coordinatorNotes,
       attentionNote: load.attentionNote,
       attentionSeverity: load.attentionSeverity,

@@ -343,6 +343,8 @@ const bookingPlanNoteSchema = z.string().trim().max(500);
 // Planner shorthand cells lifted from the sheet ("READING PA +25", "0800-1400").
 const bookingPlanShorthandSchema = z.string().trim().min(1).max(200);
 const emptyCityAltSchema = z.string().trim().min(1).max(160);
+// Booking-log capture: the broker sourced from and the agreed amount (decimal string).
+const bookingPlanAmountSchema = z.string().trim().regex(/^\d+(\.\d{1,4})?$/, "Enter a dollar amount");
 
 export const bookingPlanEntryCreateSchema = z.object({
   planDate: planDateSchema,
@@ -353,6 +355,8 @@ export const bookingPlanEntryCreateSchema = z.object({
   emptyCityAlt: emptyCityAltSchema.nullable().optional(),
   backhaulNote: bookingPlanNoteSchema.nullable().optional(),
   status: bookingPlanEditableStatusSchema.optional(),
+  brokerId: z.string().min(1).nullable().optional(),
+  bookedAmount: bookingPlanAmountSchema.nullable().optional(),
   puCityDh: bookingPlanShorthandSchema.nullable().optional(),
   puTimes: bookingPlanShorthandSchema.nullable().optional(),
   delCityDh: bookingPlanShorthandSchema.nullable().optional(),
@@ -369,6 +373,8 @@ export const bookingPlanEntryUpdateFieldsSchema = z
     emptyCityAlt: emptyCityAltSchema.nullable().optional(),
     backhaulNote: bookingPlanNoteSchema.nullable().optional(),
     status: bookingPlanEditableStatusSchema.optional(),
+    brokerId: z.string().min(1).nullable().optional(),
+    bookedAmount: bookingPlanAmountSchema.nullable().optional(),
     puCityDh: bookingPlanShorthandSchema.nullable().optional(),
     puTimes: bookingPlanShorthandSchema.nullable().optional(),
     delCityDh: bookingPlanShorthandSchema.nullable().optional(),

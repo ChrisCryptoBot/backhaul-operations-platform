@@ -13,6 +13,7 @@ const payloadSchema = z.object({
   emptyPctAmber: z.string().regex(thresholdPattern).optional(),
   emptyPctRed: z.string().regex(thresholdPattern).optional(),
   emptyPctAlert: z.string().regex(thresholdPattern).optional(),
+  onTimeTargetPct: z.string().regex(thresholdPattern).optional(),
   reason: z.string().max(280).optional()
 });
 
@@ -58,6 +59,7 @@ export async function POST(request: Request) {
       emptyPctAmber: payload.emptyPctAmber,
       emptyPctRed: payload.emptyPctRed,
       emptyPctAlert: payload.emptyPctAlert,
+      onTimeTargetPct: payload.onTimeTargetPct,
       reason: payload.reason ?? "Updated via settings"
     });
     return NextResponse.json({ ok: true, config }, { status: 200 });

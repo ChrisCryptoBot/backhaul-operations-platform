@@ -23,6 +23,7 @@ function load(overrides: Partial<OpsLoadInput> = {}): OpsLoadInput {
     deliveryWindowEnd: null,
     deliveryApptType: null,
     laneTarget: null,
+    marketRate: null,
     kpiEligible: true,
     legs: [],
     ...overrides

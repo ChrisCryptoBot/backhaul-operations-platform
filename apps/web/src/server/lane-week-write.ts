@@ -44,11 +44,11 @@ export async function setLaneNote(input: {
     }
     await tx.weekSnapshot.upsert({
       where: { regionId_weekIso: { regionId: input.regionId, weekIso: input.weekIso } },
-      update: { laneIssueNotes: encodeLaneWeekMetadata({ notes, marketRates: current.marketRates }) },
+      update: { laneIssueNotes: encodeLaneWeekMetadata({ ...current, notes }) },
       create: {
         regionId: input.regionId,
         weekIso: input.weekIso,
-        laneIssueNotes: encodeLaneWeekMetadata({ notes, marketRates: {} }),
+        laneIssueNotes: encodeLaneWeekMetadata({ notes }),
         ...EMPTY_SNAPSHOT_DEFAULTS
       }
     });
@@ -88,11 +88,11 @@ export async function setLaneWeeklyTarget(input: {
     }
     await tx.weekSnapshot.upsert({
       where: { regionId_weekIso: { regionId: input.regionId, weekIso: input.weekIso } },
-      update: { laneIssueNotes: encodeLaneWeekMetadata({ notes: current.notes, marketRates }) },
+      update: { laneIssueNotes: encodeLaneWeekMetadata({ ...current, marketRates }) },
       create: {
         regionId: input.regionId,
         weekIso: input.weekIso,
-        laneIssueNotes: encodeLaneWeekMetadata({ notes: {}, marketRates }),
+        laneIssueNotes: encodeLaneWeekMetadata({ marketRates }),
         ...EMPTY_SNAPSHOT_DEFAULTS
       }
     });
@@ -105,6 +105,55 @@ export async function setLaneWeeklyTarget(input: {
         timestamp: new Date(),
         reason: `Lane market target updated for ${input.lane}`,
         afterValue: { lane: input.lane, targetRate: normalized || null }
+      })
+    });
+  });
+}
+
+/**
+ * The DAT market rate per lane for the week — the external benchmark, distinct from
+ * the internal target above. Stored in the separate `datRates` map. Manual for now;
+ * the future DAT API will write here too. Empty clears the value.
+ */
+export async function setLaneDatRate(input: {
+  regionId: string;
+  weekIso: string;
+  lane: string;
+  /** Normalized decimal string; empty clears. Caller validates positivity. */
+  datRate: string;
+  actorId: string;
+}): Promise<void> {
+  const normalized = input.datRate.trim();
+  await runInRegionScope(input.regionId, async (tx) => {
+    const existing = await tx.weekSnapshot.findUnique({
+      where: { regionId_weekIso: { regionId: input.regionId, weekIso: input.weekIso } }
+    });
+    const current = decodeLaneWeekMetadata(existing?.laneIssueNotes);
+    const datRates = { ...current.datRates };
+    if (normalized) {
+      datRates[input.lane] = normalized;
+    } else {
+      delete datRates[input.lane];
+    }
+    await tx.weekSnapshot.upsert({
+      where: { regionId_weekIso: { regionId: input.regionId, weekIso: input.weekIso } },
+      update: { laneIssueNotes: encodeLaneWeekMetadata({ ...current, datRates }) },
+      create: {
+        regionId: input.regionId,
+        weekIso: input.weekIso,
+        laneIssueNotes: encodeLaneWeekMetadata({ datRates }),
+        ...EMPTY_SNAPSHOT_DEFAULTS
+      }
+    });
+    await tx.auditLog.create({
+      data: createAuditLog({
+        entityType: "WeekSnapshot",
+        entityId: `${input.regionId}:${input.weekIso}`,
+        action: "UPDATE",
+        actorId: input.actorId,
+        timestamp: new Date(),
+        reason: `Lane DAT market rate updated for ${input.lane}`,
+        afterValue: { lane: input.lane, datRate: normalized || null }
       })
     });
   });

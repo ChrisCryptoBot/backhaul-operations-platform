@@ -1006,7 +1006,26 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                         </div>
                       </td>
                     </tr>
-                    {collapsedSections.has(section.id) ? null : section.loads.length === 0 ? (
+                    {!collapsedSections.has(section.id)
+                      ? (section.demand ?? []).map((demand) => (
+                          <tr key={`demand-${demand.id}`} className="db-demand-row">
+                            <td colSpan={totalCols} className="db-demand-cell">
+                              <div className="db-demand-inner">
+                                <span className={`db-flag${demand.status === "NEEDS_BACKHAUL" ? " warn" : ""}`}>
+                                  {demand.status === "NEEDS_BACKHAUL" ? "NEEDS BH" : "SOURCING"}
+                                </span>
+                                <span className="mono db-demand-driver">{demand.driverCode}</span>
+                                <span className="db-demand-empty">
+                                  {[demand.emptyCity, demand.emptyState].filter(Boolean).join(", ") || "—"}
+                                  {demand.emptyTime ? ` · ${demand.emptyTime}` : ""}
+                                </span>
+                                {demand.backhaulNote ? <span className="dim db-demand-note">{demand.backhaulNote}</span> : null}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      : null}
+                    {collapsedSections.has(section.id) ? null : section.loads.length === 0 && (section.demand ?? []).length === 0 ? (
                       <tr className="db-empty-row">
                         <td colSpan={totalCols} className="db-empty-cell"><span className="dim">{section.type === "deliveries" ? "No deliveries due on this day." : `No loads booked for ${section.title}.`}</span></td>
                       </tr>
@@ -1023,7 +1042,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                               event.dataTransfer.setData("text/plain", load.id);
                               event.dataTransfer.effectAllowed = "move";
                             }}
-                            className={`db-row ${loadIndex % 2 === 1 ? "odd" : ""} ${selectedLoadId === load.id || highlightLoadId === load.id ? "selected" : ""} ${rowAlertTintClass(alertRollupById.get(load.id))}`}
+                            className={`db-row db-row-in ${loadIndex % 2 === 1 ? "odd" : ""} ${selectedLoadId === load.id || highlightLoadId === load.id ? "selected" : ""} ${rowAlertTintClass(alertRollupById.get(load.id))}`}
                             onClick={() => setSelectedLoadId(load.id)}
                             onContextMenu={(event) => {
                               event.preventDefault();

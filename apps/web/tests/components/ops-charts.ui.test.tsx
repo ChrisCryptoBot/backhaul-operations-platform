@@ -85,6 +85,7 @@ const opsFixture: KpiOpsAnalytics = {
   deadheadSplit: { controllable: { pickupDh: 0, deliveryDh: 0 }, expected: { pickupDh: 0, deliveryDh: 0 } },
   deadheadRadius: [],
   rateVarianceHistogram: { bins: [], median: null, count: 0, binSize: 100 },
+  marketVarianceHistogram: { bins: [], median: null, count: 0, binSize: 100 },
   reliability: {
     otd: { onTime: 19, total: 20, unverified: 3 },
     otp: { onTime: 18, total: 20, unverified: 2 },

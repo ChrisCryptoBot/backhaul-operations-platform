@@ -183,6 +183,7 @@ export function DirectCustomersManager({ initialDirectCustomers, canWrite }: Dir
                 <tr>
                   <th>Customer</th>
                   <th style={{ width: 130 }}>Cadence</th>
+                  <th className="right" style={{ width: 100 }} title="Loads attributed this ISO week vs the expected weekly cadence (DAY cadence × 5 business days)">This week</th>
                   <th>Notes</th>
                   {canWrite ? <th className="right" style={{ width: 88 }}>Actions</th> : null}
                 </tr>
@@ -195,6 +196,26 @@ export function DirectCustomersManager({ initialDirectCustomers, canWrite }: Dir
                     </td>
                     <td>
                       <CadenceCell customer={customer} />
+                    </td>
+                    <td className="right mono num">
+                      {(() => {
+                        const expected =
+                          customer.cadencePeriod === "WEEK"
+                            ? customer.cadenceCount
+                            : customer.cadencePeriod === "DAY" && customer.cadenceCount
+                              ? customer.cadenceCount * 5
+                              : null;
+                        const cls = expected
+                          ? customer.bookedThisWeek >= expected
+                            ? "pos"
+                            : customer.bookedThisWeek > 0
+                              ? "warn"
+                              : "dim"
+                          : customer.bookedThisWeek > 0
+                            ? ""
+                            : "faint";
+                        return <span className={cls}>{expected ? `${customer.bookedThisWeek}/${expected}` : customer.bookedThisWeek || "—"}</span>;
+                      })()}
                     </td>
                     <td>
                       {customer.notes ? <span className="db-subnote">{customer.notes}</span> : <span className="faint">—</span>}

@@ -31,7 +31,7 @@ interface FakeTx {
     create: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
   };
-  load: { count: ReturnType<typeof vi.fn> };
+  load: { count: ReturnType<typeof vi.fn>; groupBy: ReturnType<typeof vi.fn> };
   auditLog: { create: ReturnType<typeof vi.fn> };
 }
 
@@ -64,7 +64,7 @@ function makeTx(overrides: Partial<FakeTx> = {}): FakeTx {
       update: vi.fn().mockResolvedValue(undefined),
       ...overrides.dropLot
     },
-    load: { count: vi.fn().mockResolvedValue(0), ...overrides.load },
+    load: { count: vi.fn().mockResolvedValue(0), groupBy: vi.fn().mockResolvedValue([]), ...overrides.load },
     auditLog: { create: vi.fn().mockResolvedValue(undefined), ...overrides.auditLog }
   };
 }
@@ -293,7 +293,7 @@ describe("server/reference — drop-lot action layer", () => {
   });
 
   test("softDeleteDropLot blocks removal while loads still reference the lot", async () => {
-    const tx = makeTx({ load: { count: vi.fn().mockResolvedValue(3) } });
+    const tx = makeTx({ load: { count: vi.fn().mockResolvedValue(3), groupBy: vi.fn().mockResolvedValue([]) } });
     bindTx(tx);
 
     const { softDeleteDropLot } = await import("@/server/reference");
@@ -304,7 +304,7 @@ describe("server/reference — drop-lot action layer", () => {
   });
 
   test("softDeleteDropLot sets deletedAt when no loads reference it", async () => {
-    const tx = makeTx({ load: { count: vi.fn().mockResolvedValue(0) } });
+    const tx = makeTx({ load: { count: vi.fn().mockResolvedValue(0), groupBy: vi.fn().mockResolvedValue([]) } });
     bindTx(tx);
 
     const { softDeleteDropLot } = await import("@/server/reference");

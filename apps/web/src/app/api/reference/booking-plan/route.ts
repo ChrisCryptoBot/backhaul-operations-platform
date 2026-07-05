@@ -96,6 +96,8 @@ export async function POST(request: Request) {
           emptyCityAlt: body.entry.emptyCityAlt ?? null,
           backhaulNote: body.entry.backhaulNote ?? null,
           status: body.entry.status ?? "NEEDS_BACKHAUL",
+          brokerId: body.entry.brokerId ?? null,
+          bookedAmount: body.entry.bookedAmount ?? null,
           puCityDh: body.entry.puCityDh ?? null,
           puTimes: body.entry.puTimes ?? null,
           delCityDh: body.entry.delCityDh ?? null,

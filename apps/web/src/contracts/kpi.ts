@@ -130,6 +130,12 @@ export const kpiOpsAnalyticsSchema = z.object({
     count: z.number(),
     binSize: z.number()
   }),
+  marketVarianceHistogram: z.object({
+    bins: z.array(z.object({ lo: z.number(), hi: z.number(), count: z.number(), underTarget: z.boolean() })),
+    median: z.number().nullable(),
+    count: z.number(),
+    binSize: z.number()
+  }),
   reliability: z.object({
     otd: onTimeBucketSchema,
     otp: onTimeBucketSchema,

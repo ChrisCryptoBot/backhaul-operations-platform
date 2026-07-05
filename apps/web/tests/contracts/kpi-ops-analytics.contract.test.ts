@@ -5,6 +5,7 @@ import {
   computeDeadheadSplitPerLoad,
   computeDisruptionReasonBreakdown,
   computeGrowth,
+  computeMarketVarianceHistogram,
   computeRateVarianceHistogram,
   computeReliabilityMetrics,
   computeShuttleEmptyLeaderboard,
@@ -26,6 +27,7 @@ describe("kpiOpsAnalyticsSchema ⇔ metric function output", () => {
       deliveryWindowEnd: new Date("2026-07-03T17:00:00.000Z"),
       deliveryApptType: "FIRM_APPT",
       laneTarget: 1000,
+      marketRate: null,
       kpiEligible: true,
       legs: [
         { legIndex: 0, legType: "SHUTTLE", driverId: "d1", driverName: "Ann", arrivalAt: new Date("2026-07-03T11:00:00.000Z") },
@@ -43,6 +45,7 @@ describe("kpiOpsAnalyticsSchema ⇔ metric function output", () => {
         { weekIso: "2026-W27", driverType: "SHUTTLE", puDeadheadMiles: 40 }
       ]),
       rateVarianceHistogram: computeRateVarianceHistogram(loads),
+      marketVarianceHistogram: computeMarketVarianceHistogram(loads),
       reliability: computeReliabilityMetrics(loads),
       disruptionBreakdown: computeDisruptionReasonBreakdown(
         [{ kind: "CANCEL" as const, reason: "CARRIER_NO_SHOW" as const, count: 2 }],
@@ -61,6 +64,7 @@ describe("kpiOpsAnalyticsSchema ⇔ metric function output", () => {
       deadheadSplit: computeDeadheadSplitPerLoad([]),
       deadheadRadius: computeAvgShuttleDeadheadRadius([]),
       rateVarianceHistogram: computeRateVarianceHistogram([]),
+      marketVarianceHistogram: computeMarketVarianceHistogram([]),
       reliability: computeReliabilityMetrics([]),
       disruptionBreakdown: computeDisruptionReasonBreakdown([], null),
       growth: computeGrowth({ loadCount: 0, lineHaulRevenue: 0 }, null)

@@ -61,6 +61,17 @@
   --db-accent-bg-2: #ffd6ac;             /* accent hover/pressed fill */
   --db-accent-ring: rgba(244, 129, 32, 0.40);
 
+  /* ──────────────────────────────────────────────────────────────────────
+     Motion system (2026-07) — theme-agnostic, defined once, cascades to dark.
+     Restrained by design: 120–200ms, ease-out, no bounce. --db-ease-out is the
+     curve that was previously copy-pasted across sidebar/copilot/toggle rules.
+     ────────────────────────────────────────────────────────────────────── */
+  --db-ease-out: cubic-bezier(.2, .7, .3, 1);
+  --db-ease-in-out: cubic-bezier(.4, 0, .2, 1);
+  --db-dur-fast: 120ms;
+  --db-dur-base: 160ms;
+  --db-dur-slow: 200ms;
+
   /* Status pills (fg + soft bg, AA on the bg) */
   --db-status-booked-fg: #1f5bbf;      --db-status-booked-bg: #e2ecfb;
   --db-status-dispatched-fg: #8a5200;  --db-status-dispatched-bg: #fdeccb;
@@ -975,7 +986,7 @@
   border-left: 1px solid var(--db-border-strong);
   overflow: auto;
   z-index: 10;
-  animation: db-drawer-enter 160ms ease-out;
+  animation: db-drawer-enter var(--db-dur-base) var(--db-ease-out);
   box-shadow: var(--db-shadow-drawer, -10px 0 28px color-mix(in srgb, var(--db-fg) 10%, transparent));
 }
 
@@ -1373,6 +1384,15 @@
   color: var(--db-fg);
   border-radius: 4px;
   padding: 4px 8px;
+  transition: background var(--db-dur-fast) var(--db-ease-out),
+    border-color var(--db-dur-fast) var(--db-ease-out),
+    color var(--db-dur-fast) var(--db-ease-out),
+    transform var(--db-dur-fast) var(--db-ease-out);
+}
+
+/* Understated press — no scale, no bounce. Skipped when disabled/busy. */
+.db-btn:active:not(:disabled):not([aria-busy="true"]) {
+  transform: translateY(0.5px);
 }
 
 .db-btn:hover {
@@ -1387,6 +1407,22 @@
 
 .db-btn[aria-busy="true"] {
   cursor: progress;
+}
+
+/* Consistent in-flight affordance — any button marked aria-busy grows an inline
+   spinner before its label, so every save reads the same way (reference
+   managers, Settings, etc.). Reuses @keyframes db-spin. */
+.db-btn[aria-busy="true"]::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border: 1.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  display: inline-block;
+  vertical-align: -1px;
+  animation: db-spin 0.7s linear infinite;
 }
 
 .db-btn-danger {
@@ -1436,6 +1472,25 @@
   border-color: transparent;
 }
 
+/* Motion (2026-07): understated hover easing on nav/chrome + selectable rows,
+   so state changes fade rather than snap. Kept to background/border/color. */
+.db-topnav-item,
+.db-rail-item,
+.db-date-btn,
+.db-datepicker,
+.db-ratecon-link {
+  transition: background var(--db-dur-fast) var(--db-ease-out),
+    border-color var(--db-dur-fast) var(--db-ease-out),
+    color var(--db-dur-fast) var(--db-ease-out);
+}
+.db-table tbody tr {
+  transition: background var(--db-dur-fast) var(--db-ease-out);
+}
+/* Rows fade in as they mount (initial paint + section expand). */
+.db-row-in {
+  animation: db-row-in var(--db-dur-fast) var(--db-ease-out);
+}
+
 .db-modal-overlay {
   position: fixed;
   inset: 0;
@@ -1464,7 +1519,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  animation: db-modal-enter 150ms ease-out;
+  animation: db-modal-enter var(--db-dur-base) var(--db-ease-out);
 }
 
 .db-modal-head {
@@ -2703,6 +2758,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--db-2);
+  animation: db-pop-in var(--db-dur-base) var(--db-ease-out);
 }
 .db-peek-h {
   display: flex;
@@ -3297,6 +3353,30 @@
   text-align: center;
 }
 
+/* Demand rows (booking-plan entries needing a backhaul) in the next-day-prep section.
+   Rendered as a full-width row, distinct from load rows. */
+.db-demand-cell {
+  padding: 5px 10px;
+  background: var(--db-bg-elev-2);
+  border-bottom: 1px solid var(--db-border);
+}
+.db-demand-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--db-text-sm);
+}
+.db-demand-driver {
+  font-weight: var(--db-weight-semi);
+}
+.db-demand-empty {
+  color: var(--db-fg-mid);
+}
+.db-demand-note {
+  margin-left: auto;
+  font-size: var(--db-text-xs);
+}
+
 .db-bucket {
   border-top: 1px solid var(--db-border-strong);
   display: grid;
@@ -3470,6 +3550,7 @@
   -webkit-backdrop-filter: blur(var(--db-glass-blur)) saturate(1.4);
   padding: 9px 10px 9px 14px;
   font-size: var(--db-text-sm);
+  animation: db-toast-in var(--db-dur-base) var(--db-ease-out);
 }
 .db-toast .ok {
   color: var(--db-pos);
@@ -3834,6 +3915,44 @@
   }
 }
 
+/* Glass popover fade-in — floats over live data, so it eases in rather than
+   popping. Applied to .db-peek. */
+@keyframes db-pop-in {
+  from {
+    transform: translateY(2px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Toast keeps its translateX(-50%) centering in both frames, only easing up. */
+@keyframes db-toast-in {
+  from {
+    transform: translateX(-50%) translateY(6px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Restrained appear-fade for rows/cells that mount on expand (see board-shell
+   collapse handling). No layout-height animation — just a soft settle. */
+@keyframes db-row-in {
+  from {
+    transform: translateY(3px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 @keyframes db-spin {
   to {
     transform: rotate(360deg);
@@ -3850,10 +3969,21 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Neutralize all interaction + entrance motion app-wide — durations collapse
+     to near-zero so state still changes, it just doesn't animate. */
+  .db-root *,
+  .db-root *::before,
+  .db-root *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  /* Decorative loops read better fully stopped than flickering once. */
   .db-spinner,
   .db-skel,
-  .db-drawer,
-  .db-modal,
+  .db-cop-dots i,
+  .db-cop-parsebar i,
   .db-bucket-card.ready,
   .db-bucket-upload-label.uploading {
     animation: none !important;
@@ -4134,7 +4264,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: width 160ms cubic-bezier(.2,.7,.3,1), flex-basis 160ms cubic-bezier(.2,.7,.3,1);
+  transition: width var(--db-dur-base) var(--db-ease-out), flex-basis var(--db-dur-base) var(--db-ease-out);
 }
 .db-sidebar[data-collapsed="true"] {
   flex-basis: var(--db-sidebar-w-collapsed);
@@ -4232,7 +4362,7 @@
   display: grid;
   place-items: center;
   color: var(--db-fg-dim);
-  transition: transform 180ms cubic-bezier(.2, .7, .3, 1);
+  transition: transform var(--db-dur-slow) var(--db-ease-out);
 }
 .db-side-group[data-open="true"] .db-side-chevron { transform: rotate(180deg); }
 
@@ -4240,7 +4370,7 @@
 .db-side-sublist {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 200ms cubic-bezier(.2, .7, .3, 1);
+  transition: grid-template-rows var(--db-dur-slow) var(--db-ease-out);
 }
 .db-side-group[data-open="true"] .db-side-sublist { grid-template-rows: 1fr; }
 .db-side-sublist-inner {
@@ -4326,7 +4456,7 @@
   white-space: nowrap;
 }
 .db-side-collapse:hover { background: var(--db-bg-elev-2); color: var(--db-fg); }
-.db-side-collapse svg { transform: rotate(180deg); transition: transform 160ms cubic-bezier(.2,.7,.3,1); }
+.db-side-collapse svg { transform: rotate(180deg); transition: transform var(--db-dur-base) var(--db-ease-out); }
 .db-sidebar[data-collapsed="true"] .db-side-collapse svg { transform: rotate(0deg); }
 .db-sidebar[data-collapsed="true"] .db-side-collapse { justify-content: center; padding: 7px; }
 .db-sidebar[data-collapsed="true"] .db-side-collapse span:last-child { opacity: 0; position: absolute; }
@@ -4413,7 +4543,7 @@
   border: 0;
   cursor: pointer;
   box-shadow: var(--db-shadow-pop);
-  transition: background 120ms, transform 120ms;
+  transition: background var(--db-dur-fast) var(--db-ease-out), transform var(--db-dur-fast) var(--db-ease-out);
 }
 .db-fab:hover { background: var(--db-accent-bg-2); transform: translateY(-1px); }
 .db-fab:active { transform: translateY(0); }
@@ -4435,7 +4565,7 @@
      border — light catching a glass edge. Theme-aware, no backdrop-filter, zero
      perf cost. Keeps copilot the solid ground the frosted surfaces pop against. */
   box-shadow: inset 1px 0 0 var(--db-glass-border);
-  transition: flex-basis 160ms cubic-bezier(.2,.7,.3,1), width 160ms cubic-bezier(.2,.7,.3,1);
+  transition: flex-basis var(--db-dur-base) var(--db-ease-out), width var(--db-dur-base) var(--db-ease-out);
 }
 .db-copilot[data-collapsed="true"] { flex-basis: 48px; width: 48px; }
 
@@ -4516,7 +4646,7 @@
   font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums;
   background: var(--db-neg-bg-soft); color: var(--db-neg);
 }
-.db-cop-attn-chev { margin-left: auto; display: inline-flex; color: var(--db-fg-mid); transition: transform 120ms; }
+.db-cop-attn-chev { margin-left: auto; display: inline-flex; color: var(--db-fg-mid); transition: transform var(--db-dur-fast) var(--db-ease-out); }
 .db-cop-attn-chev[data-collapsed="true"] { transform: rotate(-90deg); }
 .db-cop-attn-list {
   list-style: none; margin: 0; padding: 6px;
@@ -4941,8 +5071,8 @@ textarea.db-input { resize: vertical; min-height: 60px; line-height: 1.5; font-f
 
 /* Toggle switch. */
 .db-switch { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-size: var(--db-text-sm); background: none; border: 0; padding: 0; color: var(--db-fg); }
-.db-switch .track { width: 34px; height: 19px; border-radius: var(--db-r-pill); background: var(--db-bg-elev-4); border: 1px solid var(--db-border); position: relative; transition: background 120ms, border-color 120ms; flex: 0 0 auto; }
-.db-switch .knob { position: absolute; top: 1px; left: 1px; width: 15px; height: 15px; border-radius: 50%; background: var(--db-fg-faint); transition: transform 120ms, background 120ms; }
+.db-switch .track { width: 34px; height: 19px; border-radius: var(--db-r-pill); background: var(--db-bg-elev-4); border: 1px solid var(--db-border); position: relative; transition: background var(--db-dur-fast) var(--db-ease-out), border-color var(--db-dur-fast) var(--db-ease-out); flex: 0 0 auto; }
+.db-switch .knob { position: absolute; top: 1px; left: 1px; width: 15px; height: 15px; border-radius: 50%; background: var(--db-fg-faint); transition: transform var(--db-dur-fast) var(--db-ease-out), background var(--db-dur-fast) var(--db-ease-out); }
 .db-switch.on .track { background: var(--db-accent); border-color: var(--db-accent); }
 .db-switch.on .knob { transform: translateX(15px); background: var(--db-accent-on); }
 .db-switch:disabled { opacity: 0.5; cursor: default; }
@@ -5158,7 +5288,7 @@ textarea.db-input { resize: vertical; min-height: 60px; line-height: 1.5; font-f
   white-space: nowrap;
 }
 .db-app .db-table.grouped thead tr.db-colgroup-row th .db-grp-toggle:hover { color: var(--db-fg); }
-.db-grp-toggle svg { flex: 0 0 auto; transition: transform 160ms cubic-bezier(.2, .7, .3, 1); }
+.db-grp-toggle svg { flex: 0 0 auto; transition: transform var(--db-dur-base) var(--db-ease-out); }
 /* Chevron points down when expanded, right when collapsed (matches section toggle). */
 .db-grp-toggle[aria-expanded="false"] svg { transform: rotate(-90deg); }
 
@@ -5186,7 +5316,7 @@ textarea.db-input { resize: vertical; min-height: 60px; line-height: 1.5; font-f
   background: transparent;
   color: var(--db-fg-mid);
   cursor: pointer;
-  transition: transform 160ms cubic-bezier(.2, .7, .3, 1);
+  transition: transform var(--db-dur-base) var(--db-ease-out);
 }
 .db-section-toggle:hover { background: var(--db-bg-elev-3); color: var(--db-fg); }
 .db-section-row[data-collapsed="true"] .db-section-toggle { transform: rotate(-90deg); }

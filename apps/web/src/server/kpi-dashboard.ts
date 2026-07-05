@@ -12,6 +12,7 @@ import {
   computeDeadheadSplitPerLoad,
   computeDisruptionReasonBreakdown,
   computeGrowth,
+  computeMarketVarianceHistogram,
   computeRateVarianceHistogram,
   computeReliabilityMetrics,
   computeShuttleEmptyLeaderboard,
@@ -303,6 +304,8 @@ export async function getLaneScorecard(input: {
   weekIso: string;
   filters?: KpiDashboardFilters;
   manualTargetRates?: Record<string, string>;
+  /** DAT market rate per lane (the external benchmark), keyed by lane label. */
+  laneDatRates?: Record<string, string>;
 }) {
   return runInRegionScope(input.regionId, async (tx) => {
     const [loads, lanes, brokers, lots] = await Promise.all([
@@ -426,10 +429,21 @@ export async function getLaneScorecard(input: {
           }
         }
         const target = manualTarget ?? laneDefaultTarget;
+        const datRateInput = input.laneDatRates?.[row.lane] ?? null;
+        let datRate: Prisma.Decimal | null = null;
+        if (datRateInput) {
+          try {
+            datRate = new Prisma.Decimal(datRateInput);
+          } catch {
+            datRate = null;
+          }
+        }
         const emptyPct = safeDivideDecimal(row.puDh.plus(row.delDh), row.loadedMiles.plus(row.puDh).plus(row.delDh));
         const nby = safeDivideDecimal(row.revenue, row.loadedMiles.plus(row.puDh).plus(row.delDh));
         const revLoad = safeDivideDecimal(row.revenue, new Prisma.Decimal(row.loads));
         const vsTarget = target && revLoad ? revLoad.minus(target) : null;
+        // Distance from DAT market: negative = booked below market.
+        const vsMarket = datRate && revLoad ? revLoad.minus(datRate) : null;
         const status: "ON_TARGET" | "BELOW_NEAR" | "BELOW" | "NO_LOADS" = !target
           ? "NO_LOADS"
           : !vsTarget
@@ -447,9 +461,11 @@ export async function getLaneScorecard(input: {
         return {
           lane: row.lane,
           target: target?.toString() ?? null,
+          datRate: datRate?.toString() ?? null,
           loads: row.loads,
           revenue: row.revenue.toString(),
           vsTarget: vsTarget?.toString() ?? null,
+          vsMarket: vsMarket?.toString() ?? null,
           emptyPct: emptyPct ? emptyPct.toNumber() * 100 : null,
           nby: nby?.toString() ?? null,
           fsc: row.fsc.toString(),
@@ -628,6 +644,7 @@ async function fetchOpsLoads(
       status: true,
       driverType: true,
       lineHaulRate: true,
+      marketRate: true,
       loadedMiles: true,
       puDeadheadMiles: true,
       delDeadheadMiles: true,
@@ -665,6 +682,7 @@ async function fetchOpsLoads(
       deliveryWindowEnd: load.deliveryWindowEnd,
       deliveryApptType: load.deliveryApptType,
       laneTarget: target ? target.toNumber() : null,
+      marketRate: toNumber(load.marketRate),
       kpiEligible,
       legs: load.legs.map((leg) => ({
         legIndex: leg.legIndex,
@@ -766,6 +784,7 @@ async function buildOpsAnalytics(
       }))
     ),
     rateVarianceHistogram: computeRateVarianceHistogram(currentLoads),
+    marketVarianceHistogram: computeMarketVarianceHistogram(currentLoads),
     reliability: computeReliabilityMetrics(currentLoads),
     disruptionBreakdown: computeDisruptionReasonBreakdown(
       grouped.map((g) => ({ kind: g.kind, reason: g.reason, count: g._count._all })),
@@ -815,12 +834,14 @@ export async function getKpiDashboard(input: {
       regionId: input.regionId,
       weekIso: input.weekIso,
       filters: input.filters,
-      manualTargetRates: laneMetadata.marketRates
+      manualTargetRates: laneMetadata.marketRates,
+      laneDatRates: laneMetadata.datRates
     }).catch(() => []);
     const allLanes = await getLaneScorecard({
       regionId: input.regionId,
       weekIso: input.weekIso,
-      manualTargetRates: laneMetadata.marketRates
+      manualTargetRates: laneMetadata.marketRates,
+      laneDatRates: laneMetadata.datRates
     }).catch(() => []);
     const trend = await getWeeklyTrend({ regionId: input.regionId, weekIso: input.weekIso, weeks: trendWeeks }).catch(
       () => []

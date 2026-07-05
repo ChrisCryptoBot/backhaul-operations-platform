@@ -26,7 +26,7 @@ import { getLlmSettingsStatus, updateLlmSettings } from "@/server/llm/settings";
 import { SUPPORTED_PROVIDERS } from "@/server/llm/registry";
 import { acknowledgeKpiAlert } from "@/server/kpi-alerts";
 import { getRateConfirmationActivity } from "@/server/rate-confirmation-activity";
-import { setLaneNote, setLaneWeeklyTarget } from "@/server/lane-week-write";
+import { setLaneDatRate, setLaneNote, setLaneWeeklyTarget } from "@/server/lane-week-write";
 import { listOperationalRules, createOperationalRule } from "@/server/operational-rules";
 import { createManualLoad, approveRateConfirmationReview, rejectRateConfirmationReview } from "@/server/review";
 import { getRoadMiles } from "@/server/distance";
@@ -39,6 +39,7 @@ import {
   createDropLot,
   createLane,
   listBrokers,
+  listDirectCustomers,
   listDistributionCenters,
   listDropLots,
   listLanes,
@@ -87,15 +88,16 @@ export interface ToolDispatchResult {
 const ALLOWED_LOAD_FIELDS = new Set([
   "shipperName", "receiverName", "pickupCity", "pickupState", "pickupWindow",
   "deliveryCity", "deliveryState", "deliveryWindow", "deliveryDate", "loadNumber",
-  "pickupNumber", "pickupNumbers", "threePlRefNumber", "brokerId", "tractorTrailer1", "tractorTrailer2",
+  "pickupNumber", "pickupNumbers", "threePlRefNumber", "brokerId", "directCustomerId", "tractorTrailer1", "tractorTrailer2",
   "commodity", "equipmentNeeds", "equipmentType", "equipmentAccessory", "equipmentOtherText",
   "lumperFeeAmount", "pickupDriverAssigned", "driverType", "coordinatorNotes", "attentionNote",
   "attentionSeverity", "podStatus", "mgStatusTask", "tmwStatusTask", "scaleBeforeTask",
   "scaleAfterTask", "puStatusPreset", "puStatusCustom", "delStatusPreset", "delStatusCustom",
   "deliveryExceptionState", "rescheduleDriverConfirmed",
-  "lineHaulRate", "loadedMiles", "puDeadheadMiles", "delDeadheadMiles", "fscApplies"
+  "rateConReceived", "receiptReceived", "mgRateUpdated",
+  "lineHaulRate", "loadedMiles", "puDeadheadMiles", "delDeadheadMiles", "fscApplies", "marketRate"
 ]);
-const FINANCIAL_FIELDS = new Set(["lineHaulRate", "loadedMiles", "puDeadheadMiles", "delDeadheadMiles", "fscApplies"]);
+const FINANCIAL_FIELDS = new Set(["lineHaulRate", "loadedMiles", "puDeadheadMiles", "delDeadheadMiles", "fscApplies", "marketRate"]);
 
 /** Positive decimal string, up to 4 dp (money/mileage inputs). */
 const DECIMAL_RE = /^\d+(\.\d{1,4})?$/;
@@ -369,6 +371,15 @@ export const COPILOT_TOOLS = [
       type: "object" as const,
       properties: { lane: { type: "string" }, targetRate: { type: "string", description: "Positive decimal string, or empty to clear." } },
       required: ["lane", "targetRate"]
+    }
+  },
+  {
+    name: "set_lane_market_rate",
+    description: "Set (or clear) the DAT market rate for a lane in the week the user is viewing. This is the external market benchmark, distinct from the internal target. Empty clears it.",
+    input_schema: {
+      type: "object" as const,
+      properties: { lane: { type: "string" }, marketRate: { type: "string", description: "Positive decimal string, or empty to clear." } },
+      required: ["lane", "marketRate"]
     }
   },
   {
@@ -674,6 +685,19 @@ export const COPILOT_TOOLS = [
       type: "object" as const,
       properties: {
         query: { type: "string", description: "Optional case-insensitive substring match on broker name." }
+      }
+    }
+  },
+  {
+    name: "find_direct_customers",
+    description:
+      "List direct customers in the current region (optionally filtered by name). Use this to resolve which " +
+      "direct customer to attribute a load to (set directCustomerId via update_load_fields). Returns ids, " +
+      "names, cadence, and loads booked this week.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string", description: "Optional case-insensitive substring match on customer name." }
       }
     }
   },
@@ -1356,6 +1380,19 @@ export async function dispatchTool(
       return { content: { status: "ok", lane, weekIso }, summary: targetRate ? `Set weekly target ${targetRate} on lane ${lane}` : `Cleared weekly target on lane ${lane}` };
     }
 
+    case "set_lane_market_rate": {
+      assertKpiWrite(ctx);
+      const lane = typeof input.lane === "string" ? input.lane.trim() : "";
+      if (!lane) return { content: { error: "lane is required." } };
+      const marketRate = typeof input.marketRate === "string" ? input.marketRate.trim() : "";
+      if (marketRate && !DECIMAL_RE.test(marketRate)) {
+        return { content: { status: "need_info", message: "Market rate must be a positive number (or empty to clear)." } };
+      }
+      const weekIso = weekIsoFromPickup(new Date(ctx.boardDate));
+      await setLaneDatRate({ regionId: ctx.regionId, weekIso, lane, datRate: marketRate, actorId: ctx.userId });
+      return { content: { status: "ok", lane, weekIso }, summary: marketRate ? `Set DAT market rate ${marketRate} on lane ${lane}` : `Cleared DAT market rate on lane ${lane}` };
+    }
+
     case "add_broker_rep": {
       assertReferenceWrite(ctx);
       const brokerId = typeof input.brokerId === "string" ? input.brokerId : "";
@@ -1647,6 +1684,21 @@ export async function dispatchTool(
           onboardingStatus: b.onboardingStatus,
           fscDefaultApplies: b.fscDefaultApplies,
           reps: b.reps.map((rep) => ({ id: rep.id, name: rep.name, email: rep.email, phone: rep.phone }))
+        }))
+      };
+    }
+
+    case "find_direct_customers": {
+      const q = typeof input.query === "string" ? input.query.trim().toLowerCase() : "";
+      const customers = await listDirectCustomers({ regionId: ctx.regionId });
+      const filtered = q ? customers.filter((c) => c.name.toLowerCase().includes(q)) : customers;
+      return {
+        content: filtered.map((c) => ({
+          id: c.id,
+          name: c.name,
+          cadenceCount: c.cadenceCount,
+          cadencePeriod: c.cadencePeriod,
+          bookedThisWeek: c.bookedThisWeek
         }))
       };
     }

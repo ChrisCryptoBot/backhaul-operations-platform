@@ -33,6 +33,7 @@ export interface LoadDetailResponse {
   loadedRpm: string | null;
   emptyMilePct: string | null;
   nby: string | null;
+  marketRate: string | null;
   brokerName: string | null;
   pickupDriverAssigned: string | null;
   tractorTrailer1: string | null;
@@ -52,6 +53,9 @@ export interface LoadDetailResponse {
   deliveryArrivalAdvised: string;
   deliveryExceptionState: string;
   rescheduleDriverConfirmed: string;
+  rateConReceived: string;
+  receiptReceived: string;
+  mgRateUpdated: string;
   coordinatorNotes: string | null;
   attentionNote: string | null;
   attentionSeverity: string;
@@ -118,6 +122,8 @@ export interface ViewLoadDetail {
     emptyPct: number | null;
     /** Net Backhaul Yield = line haul ÷ total system miles. */
     nby: number | null;
+    /** DAT market-rate benchmark snapshotted on the load (per-load override). */
+    marketRate: number | null;
   };
   operations: {
     brokerName: string;
@@ -138,6 +144,9 @@ export interface ViewLoadDetail {
     deliveryArrivalAdvised: string;
     deliveryExceptionState: string;
     rescheduleDriverConfirmed: string;
+    rateConReceived: string;
+    receiptReceived: string;
+    mgRateUpdated: string;
     coordinatorNotes: string;
     attentionNote: string;
     attentionSeverity: string;
@@ -237,7 +246,8 @@ export function mapLoadDetailToView(input: LoadDetailResponse): ViewLoadDetail {
       negMi: toNumber(input.negotiableMiles),
       loadedRpm: toNumber(input.loadedRpm),
       emptyPct: toNumber(input.emptyMilePct),
-      nby: toNumber(input.nby)
+      nby: toNumber(input.nby),
+      marketRate: toNumber(input.marketRate)
     },
     operations: {
       brokerName: dash(input.brokerName),
@@ -258,6 +268,9 @@ export function mapLoadDetailToView(input: LoadDetailResponse): ViewLoadDetail {
       deliveryArrivalAdvised: dash(input.deliveryArrivalAdvised),
       deliveryExceptionState: dash(input.deliveryExceptionState),
       rescheduleDriverConfirmed: dash(input.rescheduleDriverConfirmed),
+      rateConReceived: dash(input.rateConReceived),
+      receiptReceived: dash(input.receiptReceived),
+      mgRateUpdated: dash(input.mgRateUpdated),
       coordinatorNotes: dash(input.coordinatorNotes),
       attentionNote: dash(input.attentionNote),
       attentionSeverity: dash(input.attentionSeverity),

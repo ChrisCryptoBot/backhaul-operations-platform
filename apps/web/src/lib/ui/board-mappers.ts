@@ -1,4 +1,4 @@
-import type { BoardLoadRow, BoardResponse, BoardSection } from "@/lib/board-types";
+import type { BoardLoadRow, BoardResponse, BoardSection, DemandRow } from "@/lib/board-types";
 import type { ReferenceNumber } from "@/lib/reference-numbers";
 import { toNumber } from "@/lib/ui/parse";
 
@@ -113,6 +113,8 @@ export interface ViewBoardSection {
   slipSeat: boolean;
   dropHookRequired: boolean;
   loads: ViewBoardLoadRow[];
+  /** Demand rows for the next-day-prep section; optional so fixtures needn't set it. */
+  demand?: DemandRow[];
 }
 
 export interface ViewBoardResponse {
@@ -284,7 +286,8 @@ export function mapBoardResponseToView(response: BoardResponse): ViewBoardRespon
       state: section.dropLot?.state ?? null,
       slipSeat: section.dropLot?.slipSeat ?? false,
       dropHookRequired: section.dropLot?.dropHookRequired ?? false,
-      loads: section.loads.map(mapBoardRowToView)
+      loads: section.loads.map(mapBoardRowToView),
+      demand: section.demand ?? []
     })),
     totals: {
       loads: response.dayTotals.loadCount,

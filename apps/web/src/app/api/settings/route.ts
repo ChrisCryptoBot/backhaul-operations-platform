@@ -7,6 +7,7 @@ import { POLICY_FORBIDDEN_MESSAGE, PolicyViolationError } from "@/lib/policy-err
 import { resolvePhase1RegionId } from "@/lib/scope";
 import type { AccessContext } from "@/lib/rbac";
 import { getLlmSettingsStatus, updateLlmSettings } from "@/server/llm/settings";
+import { getDatSettingsStatus, updateDatSettings } from "@/server/dat/settings";
 import { SUPPORTED_PROVIDERS } from "@/server/llm/registry";
 
 const settingsPayloadSchema = z.object({
@@ -15,6 +16,8 @@ const settingsPayloadSchema = z.object({
   copilotModel: z.string().max(128).nullable().optional(),
   // Optional: omit/empty to keep the existing stored key.
   apiKey: z.string().max(512).optional(),
+  // DAT market-rate API key — optional, same keep-existing semantics.
+  datApiKey: z.string().max(512).optional(),
   isActive: z.boolean().optional()
 });
 
@@ -47,8 +50,11 @@ export async function GET() {
     if (access instanceof NextResponse) {
       return access;
     }
-    const status = await getLlmSettingsStatus();
-    return NextResponse.json({ supportedProviders: SUPPORTED_PROVIDERS, settings: status }, { status: 200 });
+    const [status, datStatus] = await Promise.all([getLlmSettingsStatus(), getDatSettingsStatus()]);
+    return NextResponse.json(
+      { supportedProviders: SUPPORTED_PROVIDERS, settings: status, datSettings: datStatus },
+      { status: 200 }
+    );
   } catch (error) {
     if (error instanceof PolicyViolationError) {
       return NextResponse.json({ error: POLICY_FORBIDDEN_MESSAGE }, { status: 403 });
@@ -81,7 +87,13 @@ export async function POST(request: Request) {
       isActive: payload.isActive
     });
 
-    return NextResponse.json({ ok: true, settings: status }, { status: 200 });
+    // Only touch the DAT config when a key was actually submitted (write-only field).
+    const datStatus =
+      payload.datApiKey !== undefined && payload.datApiKey.trim().length > 0
+        ? await updateDatSettings({ actorId: access.userId, apiKey: payload.datApiKey })
+        : await getDatSettingsStatus();
+
+    return NextResponse.json({ ok: true, settings: status, datSettings: datStatus }, { status: 200 });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json({ error: "Invalid request payload", details: error.issues }, { status: 400 });

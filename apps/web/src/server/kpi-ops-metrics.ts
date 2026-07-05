@@ -33,6 +33,8 @@ export interface OpsLoadInput {
   deliveryApptType: string | null;
   /** Pre-resolved lane dollar target for this load (from the lane targets map), or null. */
   laneTarget: number | null;
+  /** DAT market-rate benchmark snapshotted on the load (Load.marketRate), or null. */
+  marketRate: number | null;
   /** Whether this load counts toward the revenue KPIs (mirrors shouldIncludeInKpi). */
   kpiEligible: boolean;
   legs: OpsLegInput[];
@@ -219,6 +221,41 @@ export function computeRateVarianceHistogram(loads: OpsLoadInput[], binSize = 10
   for (const load of loads) {
     if (!load.kpiEligible || load.laneTarget === null) continue;
     variances.push(load.lineHaulRate - load.laneTarget);
+  }
+  if (variances.length === 0) {
+    return { bins: [], median: null, count: 0, binSize };
+  }
+  const binIndex = (v: number) => Math.floor(v / binSize);
+  const minIdx = Math.min(...variances.map(binIndex));
+  const maxIdx = Math.max(...variances.map(binIndex));
+  const counts = new Map<number, number>();
+  for (const v of variances) {
+    const idx = binIndex(v);
+    counts.set(idx, (counts.get(idx) ?? 0) + 1);
+  }
+  const bins: RateVarianceBin[] = [];
+  for (let idx = minIdx; idx <= maxIdx; idx += 1) {
+    const lo = idx * binSize;
+    const hi = lo + binSize;
+    bins.push({ lo, hi, count: counts.get(idx) ?? 0, underTarget: hi <= 0 });
+  }
+  const sorted = [...variances].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+  return { bins, median: round(median), count: variances.length, binSize };
+}
+
+/**
+ * Per-load variance against the DAT market rate (lineHaulRate − marketRate), $100 bins.
+ * Identical shape/logic to computeRateVarianceHistogram but keyed off the market
+ * benchmark instead of the internal lane target, so the two can be shown side by side.
+ * "underTarget" here means booked under market.
+ */
+export function computeMarketVarianceHistogram(loads: OpsLoadInput[], binSize = 100): RateVarianceHistogram {
+  const variances: number[] = [];
+  for (const load of loads) {
+    if (!load.kpiEligible || load.marketRate === null) continue;
+    variances.push(load.lineHaulRate - load.marketRate);
   }
   if (variances.length === 0) {
     return { bins: [], median: null, count: 0, binSize };

@@ -140,6 +140,8 @@ export function BrokersManager({ initialBrokers, canWrite }: BrokersManagerProps
                   <th style={{ width: 150 }}>Onboarding</th>
                   <th style={{ width: 170 }}>Fuel surcharge</th>
                   <th style={{ width: 130 }}>Contacts</th>
+                  <th className="right" style={{ width: 80 }}>Loads</th>
+                  <th className="right" style={{ width: 100 }}>Avg rate</th>
                   {canWrite ? <th className="right" style={{ width: 88 }}>Actions</th> : null}
                 </tr>
               </thead>
@@ -158,6 +160,8 @@ export function BrokersManager({ initialBrokers, canWrite }: BrokersManagerProps
                     <td className="dim">
                       {broker.reps.length ? `${broker.reps.length} contact${broker.reps.length > 1 ? "s" : ""}` : <span className="faint">—</span>}
                     </td>
+                    <td className="right mono num">{broker.performance.loadsBooked > 0 ? broker.performance.loadsBooked : <span className="faint">—</span>}</td>
+                    <td className="right mono num">{broker.performance.avgRate !== null ? `$${broker.performance.avgRate.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : <span className="faint">—</span>}</td>
                     {canWrite ? (
                       <td className="actions right">
                         <span className="db-rowbtns">
@@ -352,7 +356,7 @@ function BrokerEditor({ broker, busy, mutate, onDone }: BrokerEditorProps) {
           </div>
         </div>
         <div className="db-form-full" style={{ display: "flex", justifyContent: "flex-end" }}>
-          <button type="button" className="db-btn primary" disabled={busy || !dirty} onClick={() => void onSaveBroker()}>
+          <button type="button" className="db-btn primary" disabled={busy || !dirty} aria-busy={busy} onClick={() => void onSaveBroker()}>
             {busy ? "Saving…" : "Save broker"}
           </button>
         </div>

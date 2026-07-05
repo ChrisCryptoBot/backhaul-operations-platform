@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import React from "react";
-import type { BookingPlanEntrySummary, DirectCustomerSummary, DriverSummary } from "@/server/reference";
+import type { BookingPlanEntrySummary, BrokerSummary, DirectCustomerSummary, DriverSummary } from "@/server/reference";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Modal } from "@/components/ui/modal";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -27,6 +27,7 @@ interface BookingPlanManagerProps {
   initialPlanDate: string; // "YYYY-MM-DD"
   drivers: DriverSummary[];
   directCustomers: DirectCustomerSummary[];
+  brokers: BrokerSummary[];
   canWrite: boolean;
 }
 
@@ -39,6 +40,9 @@ interface EntryForm {
   emptyCityAlt: string;
   backhaulNote: string;
   status: "NEEDS_BACKHAUL" | "SOURCING";
+  // Booking-log capture — carried onto the Load when this entry is Booked.
+  brokerId: string;
+  bookedAmount: string;
   puCityDh: string;
   puTimes: string;
   delCityDh: string;
@@ -55,6 +59,8 @@ function emptyForm(planDate: string): EntryForm {
     emptyCityAlt: "",
     backhaulNote: "",
     status: "NEEDS_BACKHAUL",
+    brokerId: "",
+    bookedAmount: "",
     puCityDh: "",
     puTimes: "",
     delCityDh: "",
@@ -72,6 +78,8 @@ function formFromEntry(entry: BookingPlanEntrySummary): EntryForm {
     emptyCityAlt: entry.emptyCityAlt ?? "",
     backhaulNote: entry.backhaulNote ?? "",
     status: entry.status === "SOURCING" ? "SOURCING" : "NEEDS_BACKHAUL",
+    brokerId: entry.brokerId ?? "",
+    bookedAmount: entry.bookedAmount ?? "",
     puCityDh: entry.puCityDh ?? "",
     puTimes: entry.puTimes ?? "",
     delCityDh: entry.delCityDh ?? "",
@@ -84,6 +92,7 @@ export function BookingPlanManager({
   initialPlanDate,
   drivers,
   directCustomers,
+  brokers,
   canWrite
 }: BookingPlanManagerProps) {
   const [entries, setEntries] = React.useState<BookingPlanEntrySummary[]>(initialEntries);
@@ -175,6 +184,8 @@ export function BookingPlanManager({
       emptyCityAlt: form.emptyCityAlt.trim() || null,
       backhaulNote: form.backhaulNote.trim() || null,
       status: form.status,
+      brokerId: form.brokerId || null,
+      bookedAmount: form.bookedAmount.trim() || null,
       puCityDh: form.puCityDh.trim() || null,
       puTimes: form.puTimes.trim() || null,
       delCityDh: form.delCityDh.trim() || null,
@@ -486,6 +497,27 @@ export function BookingPlanManager({
               Backhaul note
               <textarea className="db-input" value={form.backhaulNote} maxLength={500} onChange={(event) => setField("backhaulNote", event.target.value)} />
               <span className="db-field-hint">freight being sourced — copied to the load&apos;s coordinator notes on book</span>
+            </label>
+            <label className="db-field-label">
+              Broker
+              <select className="db-input" value={form.brokerId} onChange={(event) => setField("brokerId", event.target.value)}>
+                <option value="">— none yet —</option>
+                {brokers.map((broker) => (
+                  <option key={broker.id} value={broker.id}>{broker.name}</option>
+                ))}
+              </select>
+              <span className="db-field-hint">carried onto the load on book</span>
+            </label>
+            <label className="db-field-label">
+              Amount ($)
+              <input
+                className="db-input mono"
+                inputMode="decimal"
+                value={form.bookedAmount}
+                placeholder="e.g. 250.00"
+                onChange={(event) => setField("bookedAmount", event.target.value)}
+              />
+              <span className="db-field-hint">booked rate — becomes the load&apos;s line haul on book</span>
             </label>
             <label className="db-field-label">
               PU city &amp; DH

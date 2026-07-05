@@ -9,7 +9,7 @@ import { PolicyViolationError } from "@/lib/policy-error";
 import { AuthErrorState } from "@/components/auth/auth-error-state";
 import { getPhase1RegionCode } from "@/lib/env";
 import { AppShell } from "@/components/shell/app-shell";
-import { listBookingPlanEntries, listDirectCustomers, listDrivers } from "@/server/reference";
+import { listBookingPlanEntries, listBrokers, listDirectCustomers, listDrivers } from "@/server/reference";
 import { BookingPlanManager } from "./booking-plan-manager";
 
 /** Default plan date: tomorrow (the plan is written for the NEXT day). UTC date math only. */
@@ -49,10 +49,11 @@ export default async function BookingPlanPage() {
   }
 
   const planDate = defaultPlanDate();
-  const [entries, drivers, directCustomers] = await Promise.all([
+  const [entries, drivers, directCustomers, brokers] = await Promise.all([
     listBookingPlanEntries({ regionId, planDate }),
     listDrivers({ regionId }),
-    listDirectCustomers({ regionId })
+    listDirectCustomers({ regionId }),
+    listBrokers({ regionId })
   ]);
 
   return (
@@ -62,6 +63,7 @@ export default async function BookingPlanPage() {
         initialPlanDate={planDate}
         drivers={drivers}
         directCustomers={directCustomers}
+        brokers={brokers}
         canWrite={canWrite}
       />
     </AppShell>

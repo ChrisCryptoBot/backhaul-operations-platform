@@ -321,6 +321,10 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
   const [laneTargetValue, setLaneTargetValue] = React.useState("");
   const [laneTargetSavingLane, setLaneTargetSavingLane] = React.useState<string | null>(null);
   const [laneTargetError, setLaneTargetError] = React.useState<string | null>(null);
+  const [editingLaneMarket, setEditingLaneMarket] = React.useState<string | null>(null);
+  const [laneMarketValue, setLaneMarketValue] = React.useState("");
+  const [laneMarketSavingLane, setLaneMarketSavingLane] = React.useState<string | null>(null);
+  const [laneMarketError, setLaneMarketError] = React.useState<string | null>(null);
 
   const tabIds = React.useMemo<TabId[]>(() => ["Lanes", "Drivers", "Reliability", "Trend"], []);
   const tabButtonId = React.useCallback((id: TabId) => `kpi-tab-${id.toLowerCase().replace(/\s+/g, "-")}`, []);
@@ -555,6 +559,28 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
       setLaneTargetError(error instanceof Error ? error.message : "Lane target save failed.");
     } finally {
       setLaneTargetSavingLane(null);
+    }
+  }, [data.activeRegionId, data.weekIso, router]);
+
+  const saveLaneMarketRate = React.useCallback(async (lane: string, marketRate: string) => {
+    setLaneMarketSavingLane(lane);
+    setLaneMarketError(null);
+    try {
+      const response = await fetch("/api/kpi/lane-market-rate", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ regionId: data.activeRegionId, weekIso: data.weekIso, lane, marketRate })
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? "Lane market rate save failed.");
+      }
+      setEditingLaneMarket(null);
+      router.refresh();
+    } catch (error) {
+      setLaneMarketError(error instanceof Error ? error.message : "Lane market rate save failed.");
+    } finally {
+      setLaneMarketSavingLane(null);
     }
   }, [data.activeRegionId, data.weekIso, router]);
 
@@ -1049,6 +1075,7 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
                       <th className="right">Revenue</th>
                       <th className="right">NBY</th>
                       <th className="right">vs Target</th>
+                      <th className="right">vs Market</th>
                       <th className="right">Empty %</th>
                       <th className="right">TONU</th>
                       <th className="right">Rev / Load</th>
@@ -1064,6 +1091,8 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
                       const isSavingNote = laneNoteSavingLane === lane.lane;
                       const isEditingTarget = editingLaneTarget === lane.lane;
                       const isSavingTarget = laneTargetSavingLane === lane.lane;
+                      const isEditingMarket = editingLaneMarket === lane.lane;
+                      const isSavingMarket = laneMarketSavingLane === lane.lane;
                       return (
                         <tr key={lane.lane}>
                           <td className="strong">
@@ -1139,6 +1168,65 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
                               ? "—"
                               : `${lane.vsTarget >= 0 ? "+" : "-"}$${Math.abs(lane.vsTarget).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
                           </td>
+                          <td className="right mono num">
+                            {isEditingMarket ? (
+                              <div style={{ display: "flex", gap: 4, justifyContent: "flex-end", alignItems: "flex-start" }}>
+                                <input
+                                  autoFocus
+                                  type="number"
+                                  min="0.01"
+                                  step="0.01"
+                                  className="db-datepicker"
+                                  style={{ width: 96, textAlign: "right", fontSize: 11 }}
+                                  value={laneMarketValue}
+                                  disabled={isSavingMarket}
+                                  onChange={(e) => setLaneMarketValue(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.preventDefault();
+                                      void saveLaneMarketRate(lane.lane, laneMarketValue.trim());
+                                    }
+                                    if (e.key === "Escape") {
+                                      setEditingLaneMarket(null);
+                                    }
+                                  }}
+                                />
+                                <button
+                                  className="db-btn db-btn-mini"
+                                  disabled={isSavingMarket}
+                                  aria-busy={isSavingMarket}
+                                  onClick={() => void saveLaneMarketRate(lane.lane, laneMarketValue.trim())}
+                                >
+                                  {isSavingMarket ? "..." : "✓"}
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                className="db-row-open-btn"
+                                style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }}
+                                title={lane.datRate !== null ? `DAT market $${lane.datRate.toFixed(2)}/mi — click to edit` : "Set the DAT market rate for this lane"}
+                                onClick={() => {
+                                  setLaneMarketError(null);
+                                  setEditingLaneMarket(lane.lane);
+                                  setLaneMarketValue(lane.datRate !== null ? String(lane.datRate) : "");
+                                }}
+                              >
+                                <span
+                                  className={`mono num strong ${lane.vsMarket === null ? "dim" : lane.vsMarket >= 0 ? "pos" : "neg"}`}
+                                >
+                                  {lane.vsMarket === null
+                                    ? "—"
+                                    : `${lane.vsMarket >= 0 ? "+" : "-"}$${Math.abs(lane.vsMarket).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                                </span>
+                              </button>
+                            )}
+                            {laneMarketError && isEditingMarket ? (
+                              <div className="db-upload-error" role="alert" style={{ marginTop: 4 }}>
+                                {laneMarketError}
+                              </div>
+                            ) : null}
+                          </td>
                           <td className="right mono num">{hasLoads && lane.emptyPct !== null ? `${lane.emptyPct.toFixed(1)}%` : "—"}</td>
                           <td className="right mono num">{hasLoads && lane.tonu !== null && lane.tonu > 0 ? money(lane.tonu, { decimals: 0 }) : "—"}</td>
                           <td className="right mono num">{hasLoads && lane.revLoad !== null ? money(lane.revLoad, { decimals: 0 }) : "—"}</td>
@@ -1196,7 +1284,7 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
                     })}
                     {data.lanes.length === 0 ? (
                       <tr>
-                        <td colSpan={12} className="dim">
+                        <td colSpan={13} className="dim">
                           No lane data for selected filters.
                         </td>
                       </tr>
@@ -1206,7 +1294,7 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
                           .filter((group) => group.lane === expandedLane)
                           .map((group) => (
                             <tr key={`${group.lane}:drill`}>
-                              <td colSpan={12}>
+                              <td colSpan={13}>
                                 <div className="db-mgmt-notes">
                                   <div className="db-mgmt-notes-h">Lane drilldown · {group.lane}</div>
                                   <table className="db-table compact">
@@ -1251,6 +1339,20 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
                     <RateVarianceHistogramChart hist={data.opsAnalytics.rateVarianceHistogram} />
                     <div className="db-chart-foot dim">
                       Under-target bins in red (a verdict); at-or-over in accent (measurement). $0 and median marked.
+                    </div>
+                  </div>
+                ) : null}
+                {data.opsAnalytics ? (
+                  <div className="db-chart-card" style={{ marginTop: 20 }} data-screen-label="Market variance distribution">
+                    <div className="db-chart-card-head">
+                      <span className="db-chart-card-title">Rate vs DAT market · variance distribution</span>
+                      <span className="db-chart-card-unit">
+                        $ per load vs DAT market · n={data.opsAnalytics.marketVarianceHistogram.count} rated loads
+                      </span>
+                    </div>
+                    <RateVarianceHistogramChart hist={data.opsAnalytics.marketVarianceHistogram} />
+                    <div className="db-chart-foot dim">
+                      Under-market bins in red; at-or-over in accent. $0 and median marked.
                     </div>
                   </div>
                 ) : null}

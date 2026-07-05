@@ -3,6 +3,7 @@ import { runInRegionScope } from "@/lib/db";
 import { withNonDeletedRegionScope } from "@/lib/scoped-query";
 import { createAuditLog } from "@/lib/audit";
 import { createLoadFromReview } from "@/server/review";
+import { weekIsoFromPickup } from "@/lib/week";
 
 /**
  * Reference-data action layer (brokers + broker reps for now; lanes/drop-lots follow).
@@ -20,49 +21,76 @@ export interface BrokerRepSummary {
   phone: string | null;
 }
 
+/** Derived performance from the broker's booked loads (non-deleted, this region). */
+export interface BrokerPerformance {
+  loadsBooked: number;
+  avgRate: number | null;
+  totalRevenue: number;
+}
+
 export interface BrokerSummary {
   id: string;
   name: string;
   onboardingStatus: BrokerOnboardingStatus;
   fscDefaultApplies: boolean;
   reps: BrokerRepSummary[];
+  performance: BrokerPerformance;
   createdAt: string;
   updatedAt: string;
 }
 
 export async function listBrokers(input: { regionId: string }): Promise<BrokerSummary[]> {
   return runInRegionScope(input.regionId, async (tx) => {
-    const brokers = await tx.broker.findMany({
-      where: withNonDeletedRegionScope(input.regionId),
-      orderBy: { name: "asc" },
-      select: {
-        id: true,
-        name: true,
-        onboardingStatus: true,
-        fscDefaultApplies: true,
-        createdAt: true,
-        updatedAt: true,
-        brokerReps: {
-          where: { deletedAt: null },
-          orderBy: { name: "asc" },
-          select: { id: true, name: true, email: true, phone: true }
+    const [brokers, perfRows] = await Promise.all([
+      tx.broker.findMany({
+        where: withNonDeletedRegionScope(input.regionId),
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          onboardingStatus: true,
+          fscDefaultApplies: true,
+          createdAt: true,
+          updatedAt: true,
+          brokerReps: {
+            where: { deletedAt: null },
+            orderBy: { name: "asc" },
+            select: { id: true, name: true, email: true, phone: true }
+          }
         }
-      }
+      }),
+      // One grouped pass over the region's loads → per-broker booked count + rate.
+      tx.load.groupBy({
+        by: ["brokerId"],
+        where: { regionId: input.regionId, deletedAt: null, brokerId: { not: null } },
+        _count: { _all: true },
+        _avg: { lineHaulRate: true },
+        _sum: { lineHaulRate: true }
+      })
+    ]);
+    const perfById = new Map(perfRows.map((row) => [row.brokerId, row]));
+    return brokers.map((broker) => {
+      const perf = perfById.get(broker.id);
+      return {
+        id: broker.id,
+        name: broker.name,
+        onboardingStatus: broker.onboardingStatus,
+        fscDefaultApplies: broker.fscDefaultApplies,
+        performance: {
+          loadsBooked: perf?._count._all ?? 0,
+          avgRate: perf?._avg.lineHaulRate ? Number(perf._avg.lineHaulRate) : null,
+          totalRevenue: perf?._sum.lineHaulRate ? Number(perf._sum.lineHaulRate) : 0
+        },
+        createdAt: broker.createdAt.toISOString(),
+        updatedAt: broker.updatedAt.toISOString(),
+        reps: broker.brokerReps.map((rep) => ({
+          id: rep.id,
+          name: rep.name,
+          email: rep.email,
+          phone: rep.phone
+        }))
+      };
     });
-    return brokers.map((broker) => ({
-      id: broker.id,
-      name: broker.name,
-      onboardingStatus: broker.onboardingStatus,
-      fscDefaultApplies: broker.fscDefaultApplies,
-      createdAt: broker.createdAt.toISOString(),
-      updatedAt: broker.updatedAt.toISOString(),
-      reps: broker.brokerReps.map((rep) => ({
-        id: rep.id,
-        name: rep.name,
-        email: rep.email,
-        phone: rep.phone
-      }))
-    }));
   });
 }
 
@@ -817,6 +845,8 @@ export interface DirectCustomerSummary {
   cadenceCount: number | null;
   cadencePeriod: CadencePeriod | null;
   notes: string | null;
+  /** Loads attributed to this customer in the current ISO week (booked-vs-expected). */
+  bookedThisWeek: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -829,26 +859,37 @@ type DirectCustomerWritableFields = {
 };
 
 export async function listDirectCustomers(input: { regionId: string }): Promise<DirectCustomerSummary[]> {
+  const currentWeekIso = weekIsoFromPickup(new Date());
   return runInRegionScope(input.regionId, async (tx) => {
-    const customers = await tx.directCustomer.findMany({
-      where: withNonDeletedRegionScope(input.regionId),
-      orderBy: { name: "asc" },
-      select: {
-        id: true,
-        name: true,
-        cadenceCount: true,
-        cadencePeriod: true,
-        notes: true,
-        createdAt: true,
-        updatedAt: true
-      }
-    });
+    const [customers, bookedRows] = await Promise.all([
+      tx.directCustomer.findMany({
+        where: withNonDeletedRegionScope(input.regionId),
+        orderBy: { name: "asc" },
+        select: {
+          id: true,
+          name: true,
+          cadenceCount: true,
+          cadencePeriod: true,
+          notes: true,
+          createdAt: true,
+          updatedAt: true
+        }
+      }),
+      // Loads attributed to a direct customer in the current week → booked count.
+      tx.load.groupBy({
+        by: ["directCustomerId"],
+        where: { regionId: input.regionId, deletedAt: null, weekIso: currentWeekIso, directCustomerId: { not: null } },
+        _count: { _all: true }
+      })
+    ]);
+    const bookedById = new Map(bookedRows.map((row) => [row.directCustomerId, row._count._all]));
     return customers.map((customer) => ({
       id: customer.id,
       name: customer.name,
       cadenceCount: customer.cadenceCount,
       cadencePeriod: customer.cadencePeriod,
       notes: customer.notes,
+      bookedThisWeek: bookedById.get(customer.id) ?? 0,
       createdAt: customer.createdAt.toISOString(),
       updatedAt: customer.updatedAt.toISOString()
     }));
@@ -970,6 +1011,9 @@ export interface BookingPlanEntrySummary {
   emptyCityAlt: string | null;
   backhaulNote: string | null;
   status: BookingPlanStatus;
+  brokerId: string | null;
+  broker: { id: string; name: string } | null;
+  bookedAmount: string | null;
   sourcedLoadId: string | null;
   sourcedLoad: { id: string; loadNumber: string | null; status: string } | null;
   puCityDh: string | null;
@@ -989,6 +1033,9 @@ type BookingPlanEntryWritableFields = {
   emptyCityAlt: string | null;
   backhaulNote: string | null;
   status: Extract<BookingPlanStatus, "NEEDS_BACKHAUL" | "SOURCING">;
+  // Booking-log capture carried onto the Load at Book time.
+  brokerId: string | null;
+  bookedAmount: string | null;
   puCityDh: string | null;
   puTimes: string | null;
   delCityDh: string | null;
@@ -1029,6 +1076,9 @@ const BOOKING_PLAN_ENTRY_SELECT = {
   emptyCityAlt: true,
   backhaulNote: true,
   status: true,
+  brokerId: true,
+  broker: { select: { id: true, name: true } },
+  bookedAmount: true,
   sourcedLoadId: true,
   sourcedLoad: { select: { id: true, loadNumber: true, status: true } },
   puCityDh: true,
@@ -1050,6 +1100,9 @@ type BookingPlanEntryRow = {
   emptyCityAlt: string | null;
   backhaulNote: string | null;
   status: BookingPlanStatus;
+  brokerId: string | null;
+  broker: { id: string; name: string } | null;
+  bookedAmount: Prisma.Decimal | null;
   sourcedLoadId: string | null;
   sourcedLoad: { id: string; loadNumber: string | null; status: string } | null;
   puCityDh: string | null;
@@ -1072,6 +1125,9 @@ function mapBookingPlanEntry(entry: BookingPlanEntryRow): BookingPlanEntrySummar
     emptyCityAlt: entry.emptyCityAlt,
     backhaulNote: entry.backhaulNote,
     status: entry.status,
+    brokerId: entry.brokerId,
+    broker: entry.broker,
+    bookedAmount: entry.bookedAmount?.toString() ?? null,
     sourcedLoadId: entry.sourcedLoadId,
     sourcedLoad: entry.sourcedLoad,
     puCityDh: entry.puCityDh,
@@ -1224,6 +1280,8 @@ export async function bookBookingPlanEntry(input: {
         status: true,
         sourcedLoadId: true,
         backhaulNote: true,
+        brokerId: true,
+        bookedAmount: true,
         driver: { select: { id: true, code: true } }
       }
     });
@@ -1247,7 +1305,9 @@ export async function bookBookingPlanEntry(input: {
         pickupDate: entry.planDate,
         bookingDate: new Date(),
         receiverName: homeDc?.name,
-        lineHaulRate: new Prisma.Decimal(0),
+        // Carry the booking-log amount (if the coordinator captured one while
+        // sourcing) so booking no longer creates a Load at rate 0.
+        lineHaulRate: entry.bookedAmount ?? new Prisma.Decimal(0),
         loadedMiles: new Prisma.Decimal(0),
         puDeadheadMiles: new Prisma.Decimal(0),
         delDeadheadMiles: new Prisma.Decimal(0),
@@ -1264,6 +1324,7 @@ export async function bookBookingPlanEntry(input: {
       data: {
         pickupDriverId: entry.driver.id,
         pickupDriverAssigned: entry.driver.code,
+        brokerId: entry.brokerId ?? null,
         deliveryCity: homeDc?.city ?? null,
         deliveryState: homeDc?.state ?? null,
         coordinatorNotes: entry.backhaulNote ?? null
@@ -1286,6 +1347,8 @@ export async function bookBookingPlanEntry(input: {
           status: BookingPlanStatus.BOOKED,
           sourcedLoadId: loadId,
           driverId: entry.driver.id,
+          brokerId: entry.brokerId ?? null,
+          bookedAmount: entry.bookedAmount?.toString() ?? null,
           homeDcResolved: Boolean(homeDc)
         }
       })

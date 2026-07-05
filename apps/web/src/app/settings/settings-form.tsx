@@ -3,12 +3,14 @@
 import Link from "next/link";
 import React from "react";
 import type { LlmSettingsStatus } from "@/server/llm/settings";
+import type { DatSettingsStatus } from "@/server/dat/settings";
 import type { RegionThresholds } from "@/server/region-config";
 import { UndoToast, useToast } from "@/components/ui/toast";
 import { SlidersIcon, InfoIcon, KeyIcon } from "@/components/icons";
 
 interface SettingsFormProps {
   initialStatus: LlmSettingsStatus;
+  initialDatStatus: DatSettingsStatus;
   supportedProviders: string[];
   initialThresholds: RegionThresholds;
 }
@@ -45,7 +47,7 @@ function ThresholdPreview({ amber, red }: { amber: number; red: number }) {
   );
 }
 
-export function SettingsForm({ initialStatus, supportedProviders, initialThresholds }: SettingsFormProps) {
+export function SettingsForm({ initialStatus, initialDatStatus, supportedProviders, initialThresholds }: SettingsFormProps) {
   const [provider, setProvider] = React.useState(initialStatus.provider);
   const [model, setModel] = React.useState(initialStatus.model);
   const [copilotModel, setCopilotModel] = React.useState(initialStatus.copilotModel ?? "claude-sonnet-4-6");
@@ -53,12 +55,17 @@ export function SettingsForm({ initialStatus, supportedProviders, initialThresho
   const [hasKey, setHasKey] = React.useState(initialStatus.hasKey);
   const [last4, setLast4] = React.useState(initialStatus.apiKeyLast4);
   const [updatedAt, setUpdatedAt] = React.useState(initialStatus.updatedAt);
+  // DAT market-rate API key (write-only, same masked pattern as the LLM key).
+  const [datApiKey, setDatApiKey] = React.useState("");
+  const [datHasKey, setDatHasKey] = React.useState(initialDatStatus.hasKey);
+  const [datLast4, setDatLast4] = React.useState(initialDatStatus.apiKeyLast4);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   const [amber, setAmber] = React.useState(String(initialThresholds.emptyPctAmber));
   const [red, setRed] = React.useState(String(initialThresholds.emptyPctRed));
   const [alert, setAlert] = React.useState(String(initialThresholds.emptyPctAlert));
+  const [onTime, setOnTime] = React.useState(String(initialThresholds.onTimeTargetPct));
   const [thBusy, setThBusy] = React.useState(false);
   const [thError, setThError] = React.useState<string | null>(null);
 
@@ -66,6 +73,11 @@ export function SettingsForm({ initialStatus, supportedProviders, initialThresho
 
   const modelOptions = MODEL_OPTIONS[provider] ?? MODEL_OPTIONS.anthropic;
   const keyPlaceholder = hasKey ? (last4 ? `···· ${last4} — leave blank to keep` : "Key configured — leave blank to keep") : "Paste API key";
+  const datKeyPlaceholder = datHasKey
+    ? datLast4
+      ? `···· ${datLast4} — leave blank to keep`
+      : "Key configured — leave blank to keep"
+    : "Paste DAT API key (optional)";
 
   // Mirror ThresholdPreview's rule so the UI blocks invalid submits (server also guards).
   const amberNum = Number(amber);
@@ -89,9 +101,20 @@ export function SettingsForm({ initialStatus, supportedProviders, initialThresho
       const response = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, model, copilotModel: copilotModel || null, apiKey: apiKey.trim() ? apiKey.trim() : undefined })
+        body: JSON.stringify({
+          provider,
+          model,
+          copilotModel: copilotModel || null,
+          apiKey: apiKey.trim() ? apiKey.trim() : undefined,
+          datApiKey: datApiKey.trim() ? datApiKey.trim() : undefined
+        })
       });
-      const payload = (await response.json().catch(() => null)) as { error?: string; ok?: boolean; settings?: LlmSettingsStatus } | null;
+      const payload = (await response.json().catch(() => null)) as {
+        error?: string;
+        ok?: boolean;
+        settings?: LlmSettingsStatus;
+        datSettings?: DatSettingsStatus;
+      } | null;
       if (!response.ok || !payload?.ok || !payload.settings) {
         throw new Error(payload?.error ?? "Failed to save settings.");
       }
@@ -99,6 +122,11 @@ export function SettingsForm({ initialStatus, supportedProviders, initialThresho
       setLast4(payload.settings.apiKeyLast4);
       setUpdatedAt(payload.settings.updatedAt);
       setApiKey("");
+      if (payload.datSettings) {
+        setDatHasKey(payload.datSettings.hasKey);
+        setDatLast4(payload.datSettings.apiKeyLast4);
+      }
+      setDatApiKey("");
       show({ message: "Settings saved." });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to save settings.");
@@ -115,7 +143,7 @@ export function SettingsForm({ initialStatus, supportedProviders, initialThresho
       const response = await fetch("/api/region-config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emptyPctAmber: amber.trim(), emptyPctRed: red.trim(), emptyPctAlert: alert.trim() })
+        body: JSON.stringify({ emptyPctAmber: amber.trim(), emptyPctRed: red.trim(), emptyPctAlert: alert.trim(), onTimeTargetPct: onTime.trim() })
       });
       const payload = (await response.json().catch(() => null)) as { error?: string; ok?: boolean; config?: RegionThresholds } | null;
       if (!response.ok || !payload?.ok || !payload.config) {
@@ -124,6 +152,7 @@ export function SettingsForm({ initialStatus, supportedProviders, initialThresho
       setAmber(String(payload.config.emptyPctAmber));
       setRed(String(payload.config.emptyPctRed));
       setAlert(String(payload.config.emptyPctAlert));
+      setOnTime(String(payload.config.onTimeTargetPct));
       show({ message: "Board thresholds saved." });
     } catch (submitError) {
       setThError(submitError instanceof Error ? submitError.message : "Failed to save thresholds.");
@@ -199,6 +228,23 @@ export function SettingsForm({ initialStatus, supportedProviders, initialThresho
                   </div>
                   <span className="db-field-hint">write-only · rotates the stored key</span>
                 </label>
+                <label className="db-field-label">
+                  DAT API key
+                  <div className="db-prefix-input">
+                    <span className="pfx"><KeyIcon size={14} /></span>
+                    <input
+                      type="password"
+                      className="db-input"
+                      value={datApiKey}
+                      onChange={(event) => setDatApiKey(event.target.value)}
+                      placeholder={datKeyPlaceholder}
+                      autoComplete="off"
+                    />
+                  </div>
+                  <span className="db-field-hint">
+                    {datHasKey ? "Key configured" : "Not set"} · for automatic DAT market rates (manual entry works meanwhile)
+                  </span>
+                </label>
 
                 {error ? <p className="db-upload-error db-form-full">{error}</p> : null}
 
@@ -207,7 +253,7 @@ export function SettingsForm({ initialStatus, supportedProviders, initialThresho
                   {updatedAt ? ` · updated ${new Date(updatedAt).toLocaleString()}` : ""}
                 </div>
                 <div className="db-set-foot db-form-full">
-                  <button type="submit" className="db-btn primary" disabled={busy}>
+                  <button type="submit" className="db-btn primary" disabled={busy} aria-busy={busy}>
                     {busy ? "Saving…" : "Save provider"}
                   </button>
                   <span className="note">Staged actions are confirmable; the copilot can change these too.</span>
@@ -245,6 +291,11 @@ export function SettingsForm({ initialStatus, supportedProviders, initialThresho
                       <input className="db-input mono" type="number" step={0.1} value={alert} onChange={(event) => setAlert(event.target.value)} />
                       <span className="db-field-hint">aggregate weekly empty-mile %</span>
                     </label>
+                    <label className="db-field-label db-form-full">
+                      On-time target %
+                      <input className="db-input mono" type="number" min={1} max={100} value={onTime} onChange={(event) => setOnTime(event.target.value)} />
+                      <span className="db-field-hint">reliability cards target line (OTD/OTP/firm-appt)</span>
+                    </label>
                     <div className="db-form-full" style={{ fontSize: "var(--db-text-2xs)", color: "var(--db-fg-dim)", display: "flex", gap: 6, alignItems: "center" }}>
                       <InfoIcon size={13} /> Must satisfy 0 &lt; amber &lt; red ≤ 100.
                     </div>
@@ -258,7 +309,7 @@ export function SettingsForm({ initialStatus, supportedProviders, initialThresho
                 {thError ? <p className="db-upload-error">{thError}</p> : null}
 
                 <div className="db-set-foot">
-                  <button type="submit" className="db-btn primary" disabled={thBusy || !thresholdsValid}>
+                  <button type="submit" className="db-btn primary" disabled={thBusy || !thresholdsValid} aria-busy={thBusy}>
                     {thBusy ? "Saving…" : "Save thresholds"}
                   </button>
                 </div>

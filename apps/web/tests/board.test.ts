@@ -18,6 +18,7 @@ describe("board server contract", () => {
 
   test("orders drop-lot sections by sortOrder and groups adhoc/canceled buckets", async () => {
     const tx = {
+      bookingPlanEntry: { findMany: vi.fn().mockResolvedValue([]) },
       dropLot: {
         findMany: vi.fn().mockResolvedValue([
           {
@@ -149,6 +150,7 @@ describe("board server contract", () => {
 
   test("returns empty sections and zero totals when no loads found", async () => {
     const tx = {
+      bookingPlanEntry: { findMany: vi.fn().mockResolvedValue([]) },
       dropLot: {
         findMany: vi.fn().mockResolvedValue([])
       },
@@ -171,6 +173,7 @@ describe("board server contract", () => {
 
   test("folds no-drop-lot loads into LTL drop-lot section when LTL lot exists", async () => {
     const tx = {
+      bookingPlanEntry: { findMany: vi.fn().mockResolvedValue([]) },
       dropLot: {
         findMany: vi.fn().mockResolvedValue([
           {
@@ -233,6 +236,7 @@ describe("board server contract", () => {
   test("uses America/New_York boundaries for date filtering", async () => {
     const loadFindMany = vi.fn().mockResolvedValue([]);
     const tx = {
+      bookingPlanEntry: { findMany: vi.fn().mockResolvedValue([]) },
       dropLot: {
         findMany: vi.fn().mockResolvedValue([])
       },
@@ -266,6 +270,7 @@ describe("board server contract", () => {
         }
       ]);
     const tx = {
+      bookingPlanEntry: { findMany: vi.fn().mockResolvedValue([]) },
       dropLot: { findMany: vi.fn().mockResolvedValue([]) },
       load: { findMany: loadFindMany }
     };

@@ -11,6 +11,7 @@ import { PermissionDenied } from "@/components/ui/permission-denied";
 import { getPhase1RegionCode } from "@/lib/env";
 import { AppShell } from "@/components/shell/app-shell";
 import { getLlmSettingsStatus } from "@/server/llm/settings";
+import { getDatSettingsStatus } from "@/server/dat/settings";
 import { SUPPORTED_PROVIDERS } from "@/server/llm/registry";
 import { getRegionConfig } from "@/server/region-config";
 import { SettingsForm } from "./settings-form";
@@ -45,11 +46,17 @@ export default async function SettingsPage() {
   }
 
   const status = await getLlmSettingsStatus();
+  const datStatus = await getDatSettingsStatus();
   const thresholds = await getRegionConfig(await resolvePhase1RegionId());
 
   return (
     <AppShell title="Settings" viewerIsAdmin viewerCanManageReference regionCode={getPhase1RegionCode()}>
-      <SettingsForm initialStatus={status} supportedProviders={SUPPORTED_PROVIDERS} initialThresholds={thresholds} />
+      <SettingsForm
+        initialStatus={status}
+        initialDatStatus={datStatus}
+        supportedProviders={SUPPORTED_PROVIDERS}
+        initialThresholds={thresholds}
+      />
     </AppShell>
   );
 }

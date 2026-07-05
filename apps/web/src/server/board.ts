@@ -1,6 +1,6 @@
-import { LoadStatus, Prisma, type DisruptionReason } from "@prisma/client";
+import { BookingPlanStatus, LoadStatus, Prisma, type DisruptionReason } from "@prisma/client";
 import { runInRegionScope } from "@/lib/db";
-import type { BoardLoadRow, BoardResponse, BoardSection } from "@/lib/board-types";
+import type { BoardLoadRow, BoardResponse, BoardSection, DemandRow } from "@/lib/board-types";
 import { safeDivideDecimal } from "@/lib/decimal-utils";
 import { boardDayRange, PHASE1_BOARD_TIMEZONE, todayIsoInTimeZone } from "@/lib/board-date";
 import { stateToTimeZone, zonedDateTimeToUtc } from "@/lib/timezone";
@@ -568,12 +568,44 @@ export async function getBoardResponse(input: {
       loads: deliveryLoads.map(loadToBoardRow)
     };
 
+    // Demand signal: empty trucks on the Daily Booking Plan for this date that still
+    // need a backhaul (or are being sourced). Surfaced here so the coordinator works
+    // demand off the same board as booked loads instead of a separate spreadsheet.
+    const demandEntries = await tx.bookingPlanEntry.findMany({
+      where: withNonDeletedRegionScope(input.regionId, {
+        planDate: new Date(`${input.date}T00:00:00.000Z`),
+        status: { in: [BookingPlanStatus.NEEDS_BACKHAUL, BookingPlanStatus.SOURCING] }
+      }),
+      orderBy: [{ expectedEmptyAt: "asc" }, { createdAt: "asc" }],
+      select: {
+        id: true,
+        expectedEmptyAt: true,
+        emptyCity: true,
+        emptyState: true,
+        status: true,
+        backhaulNote: true,
+        driver: { select: { code: true, fullName: true } }
+      }
+    });
+    const demandRows: DemandRow[] = demandEntries.map((entry) => ({
+      id: entry.id,
+      driverCode: entry.driver.code,
+      driverName: entry.driver.fullName,
+      emptyCity: entry.emptyCity,
+      emptyState: entry.emptyState,
+      emptyTime: entry.expectedEmptyAt,
+      status: entry.status === "SOURCING" ? "SOURCING" : "NEEDS_BACKHAUL",
+      backhaulNote: entry.backhaulNote
+    }));
+
     const regionNextDaySection: BoardSection = {
       type: "region_next_day",
       title: "REGION (next-day prep)",
-      filledCount: 0,
+      note: demandRows.length ? "Empty trucks needing a backhaul (from the Daily Booking Plan)." : undefined,
+      filledCount: demandRows.length,
       dropLot: null,
-      loads: []
+      loads: [],
+      demand: demandRows
     };
 
     const localAwleInboundSection: BoardSection = {
@@ -952,6 +984,10 @@ export async function updateBoardLoadFields(input: {
     deliveryArrivalAdvised: "NOT_DONE" | "DONE";
     deliveryExceptionState: "NONE" | "WORK_IN_REQUESTED" | "RESCHEDULED";
     rescheduleDriverConfirmed: "NOT_DONE" | "DONE";
+    // Booking/paperwork gates (pass through unchanged).
+    rateConReceived: "NOT_DONE" | "DONE";
+    receiptReceived: "NOT_DONE" | "DONE";
+    mgRateUpdated: "NOT_DONE" | "DONE";
     puStatusPreset: "ETA_TO_PU_DEL" | "LOADED_SET_TO_DEL" | "LATE" | "DONE" | "OTHER";
     puStatusCustom: string | null;
     delStatusPreset: "ETA_TO_PU_DEL" | "LOADED_SET_TO_DEL" | "LATE" | "DONE" | "OTHER";
@@ -987,7 +1023,12 @@ export async function updateBoardLoadFields(input: {
     equipmentAccessory: "STRAPS" | "TARPS" | "CHAINS" | "BARS" | "NONE" | "OTHER" | null;
     equipmentOtherText: string | null;
     brokerId: string | null;
+    // Direct-customer source (validated FK); powers booked-vs-expected analytics.
+    directCustomerId: string | null;
     lumperFeeAmount: string | null;
+    // DAT market-rate benchmark (string decimal); a plain snapshot/override, does
+    // NOT drive the derived metrics recompute.
+    marketRate: string | null;
     // Financial inputs (string decimals) — changing any triggers a metrics
     // recompute and a week-snapshot recompute job.
     lineHaulRate: string;
@@ -1019,9 +1060,11 @@ export async function updateBoardLoadFields(input: {
     const {
       deliveryDate,
       lumperFeeAmount,
+      marketRate,
       pickupNumbers,
       referenceNumbers,
       brokerId,
+      directCustomerId,
       lineHaulRate,
       loadedMiles,
       puDeadheadMiles,
@@ -1037,6 +1080,9 @@ export async function updateBoardLoadFields(input: {
     }
     if (lumperFeeAmount !== undefined) {
       updateData.lumperFeeAmount = lumperFeeAmount ? new Prisma.Decimal(lumperFeeAmount) : null;
+    }
+    if (marketRate !== undefined) {
+      updateData.marketRate = marketRate ? new Prisma.Decimal(marketRate) : null;
     }
     if (referenceNumbers !== undefined) {
       // referenceNumbers is the master; derive the legacy pickup fields from its PU entries.
@@ -1057,6 +1103,16 @@ export async function updateBoardLoadFields(input: {
         if (!broker) throw new Error("Broker not found for region.");
       }
       updateData.brokerId = brokerId;
+    }
+    if (directCustomerId !== undefined) {
+      if (directCustomerId) {
+        const customer = await tx.directCustomer.findFirst({
+          where: withNonDeletedRegionScope(input.regionId, { id: directCustomerId }),
+          select: { id: true }
+        });
+        if (!customer) throw new Error("Direct customer not found for region.");
+      }
+      updateData.directCustomerId = directCustomerId;
     }
 
     // Financial recompute: when any pricing/mileage input changes, recompute the
