@@ -40,6 +40,21 @@ describe("deriveLoadChecklist", () => {
     expect(c.summary.total).toBeGreaterThan(0);
   });
 
+  test("items render in real chronological order within each stage (order regression)", () => {
+    // One source of truth (CHECKLIST_ITEMS) drives EVERY load's drawer, so this
+    // pins the ordering globally. Any accidental reorder / stage move fails here.
+    // Picked-up especially follows the real pickup-stop sequence:
+    // arrive → check BOL → scale → advise delivery ETA (mirrors Delivered).
+    const order = deriveLoadChecklist(makeLoad()).groups.map((g) => [g.stage, g.items.map((i) => i.key)]);
+    expect(order).toEqual([
+      ["BOOKED", ["COVERAGE_GAP", "MISSING_RATECON", "MISSING_PICKUP_NUMBER"]],
+      ["DISPATCHED", ["TASK_MG", "TASK_TMW", "ADVISE_PU_ETA"]],
+      ["PICKED_UP", ["ADVISE_PU_ARRIVAL", "BOL_MATCH", "TASK_SCALE_BEFORE", "ADVISE_DEL_ETA"]],
+      ["DELIVERED", ["ADVISE_DEL_ARRIVAL", "TASK_SCALE_AFTER", "POD_REQUESTED"]],
+      ["POD_RECEIVED", ["POD_SEND_OBLIGATION"]]
+    ]);
+  });
+
   test("no driver → coverage is the one blocked (hard) item", () => {
     const c = deriveLoadChecklist(makeLoad({ pickupDriverAssigned: null, deliveryDriver: null, legs: [] }));
     expect(c.summary.openHard).toBe(1);
