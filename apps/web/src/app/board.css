@@ -5369,3 +5369,31 @@ textarea.db-input { resize: vertical; min-height: 60px; line-height: 1.5; font-f
 .db-section-row[data-collapsed="true"] { opacity: 0.86; }
 .db-del-ref-link { color: var(--db-accent); text-decoration: none; font-weight: var(--db-weight-medium); }
 .db-del-ref-link:hover { text-decoration: underline; }
+
+/* Sortable column headers */
+.db-sort-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.db-sort-btn:hover {
+  color: var(--db-accent);
+}
+.db-sort-dir {
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.6;
+}
+.db-sort-btn:hover .db-sort-dir {
+  opacity: 1;
+}

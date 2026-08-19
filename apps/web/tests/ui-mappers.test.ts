@@ -211,6 +211,8 @@ describe("drawer mapper", () => {
       attentionSeverity: "INFO",
       driverType: null,
       podStatus: "None",
+      puStatusPreset: "ETA_TO_PU_DEL",
+      delStatusPreset: "ETA_TO_PU_DEL",
       rateConfirmation: {
         id: "rc-1",
         sourceFileUrl: "https://example.com/file.pdf",
@@ -310,6 +312,8 @@ describe("drawer mapper", () => {
       attentionSeverity: "INFO",
       driverType: null,
       podStatus: null,
+      puStatusPreset: "ETA_TO_PU_DEL",
+      delStatusPreset: "ETA_TO_PU_DEL",
       rateConfirmation: null,
       legs: [],
       createdAt: "2026-04-29T00:00:00.000Z",

@@ -243,7 +243,19 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
   }, [alertRollupList]);
   const [selectedLoadId, setSelectedLoadId] = React.useState<string | null>(null);
   const [searchQuery, setSearchQuery] = React.useState("");
+  const [sortKey, setSortKey] = React.useState<"default" | "puDate" | "puCity" | "ref">("default");
+  const [sortDir, setSortDir] = React.useState<"asc" | "desc">("asc");
   const [uploadError, setUploadError] = React.useState<string | null>(null);
+
+  const handleSort = React.useCallback((key: "puDate" | "puCity" | "ref") => {
+    if (sortKey === key) {
+      if (sortDir === "asc") setSortDir("desc");
+      else setSortKey("default");
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }, [sortKey, sortDir]);
   const { theme: themeMode } = useTheme();
   const [density, setDensity] = React.useState<"comfortable" | "compact">("comfortable");
   // Each data category's extra columns collapse independently behind its header chevron;
@@ -727,6 +739,32 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
     });
   }, [boardState.sections, searchQuery]);
 
+  const sortedSections = React.useMemo(() => {
+    if (sortKey === "default") {
+      return filteredSections;
+    }
+    return filteredSections.map((section) => {
+      const loads = [...section.loads].sort((a, b) => {
+        let cmp = 0;
+        if (sortKey === "puDate") {
+          const aDate = a.pickupDate ?? "";
+          const bDate = b.pickupDate ?? "";
+          cmp = aDate.localeCompare(bDate);
+        } else if (sortKey === "puCity") {
+          const aVal = a.pickupCityState ?? "";
+          const bVal = b.pickupCityState ?? "";
+          cmp = aVal.localeCompare(bVal);
+        } else if (sortKey === "ref") {
+          const aVal = a.ref ?? "";
+          const bVal = b.ref ?? "";
+          cmp = aVal.localeCompare(bVal);
+        }
+        return sortDir === "asc" ? cmp : -cmp;
+      });
+      return { ...section, loads };
+    });
+  }, [filteredSections, sortKey, sortDir]);
+
   React.useEffect(() => {
     if (!highlightLoadId) return;
     setSelectedLoadId(highlightLoadId);
@@ -904,9 +942,9 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                 Compact
               </button>
             </div>
-            {filteredSections.length > 0 ? (
+            {sortedSections.length > 0 ? (
               <div className="db-tb-lots" aria-label="Jump to drop lot">
-                {filteredSections.map((section) => (
+                {sortedSections.map((section) => (
                   <a
                     key={section.id}
                     href={`#sec-${section.id}`}
@@ -967,7 +1005,12 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                   <th colSpan={1} className="grp-start"><span className="db-sr-only">Actions</span></th>
                 </tr>
                 <tr className="db-collabel-row">
-                  <th className="stick stick-ref">REF#</th>
+                  <th className="stick stick-ref">
+                    <button type="button" className="db-sort-btn" onClick={() => handleSort("ref")}>
+                      REF#
+                      <span className="db-sort-dir">{sortKey === "ref" ? (sortDir === "asc" ? "▲" : "▼") : ""}</span>
+                    </button>
+                  </th>
                   <th className="stick stick-status stick-last">STATUS</th>
                   {expLoad ? (
                     <>
@@ -996,8 +1039,18 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                       <th>Shipper</th>
                     </>
                   ) : null}
-                  <th>PU Date</th>
-                  <th>PU City, ST</th>
+                  <th>
+                    <button type="button" className="db-sort-btn" onClick={() => handleSort("puDate")}>
+                      PU Date
+                      <span className="db-sort-dir">{sortKey === "puDate" ? (sortDir === "asc" ? "▲" : "▼") : ""}</span>
+                    </button>
+                  </th>
+                  <th>
+                    <button type="button" className="db-sort-btn" onClick={() => handleSort("puCity")}>
+                      PU City, ST
+                      <span className="db-sort-dir">{sortKey === "puCity" ? (sortDir === "asc" ? "▲" : "▼") : ""}</span>
+                    </button>
+                  </th>
                   {expPickDel ? <th>PU Window</th> : null}
                   <th>PU Appt</th>
                   <th>PU Status/ETA</th>
@@ -1028,7 +1081,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                 </tr>
               </thead>
               <tbody>
-                {filteredSections.map((section) => (
+                {sortedSections.map((section) => (
                   <React.Fragment key={section.id}>
                     <tr
                       className={`db-section-row ${dragOverSectionId === section.id ? "selected" : ""}`}

@@ -166,6 +166,8 @@ function buildFallbackDetail(load: ViewBoardLoadRow): ViewLoadDetail {
     attentionSeverity: load.attentionSeverity,
     driverType: load.driverType,
     podStatus: load.podStatus,
+    puStatusPreset: load.puStatusPreset,
+    delStatusPreset: load.delStatusPreset,
     rateConfirmation: load.rateConfirmationId
       ? {
           id: load.rateConfirmationId,
@@ -208,6 +210,21 @@ const STAGE_LABELS: Record<string, string> = {
   POD_RECEIVED: "POD recv",
   COMPLETED: "Completed"
 };
+
+const PU_DEL_PRESET_OPTIONS = [
+  { value: "ETA_TO_PU_DEL", label: "ETA TO PU/DEL" },
+  { value: "LOADED_SET_TO_DEL", label: "LOADED, SET TO DEL" },
+  { value: "LOADED", label: "LOADED" },
+  { value: "LATE", label: "LATE" },
+  { value: "DONE", label: "DONE" },
+  { value: "OTHER", label: "OTHER" },
+  { value: "NEED_DRVR", label: "NEED DRVR" },
+  { value: "NEED_ETA_TO_PU", label: "NEED ETA TO PU" },
+  { value: "NEED_ETA_TO_DEL", label: "NEED ETA TO DEL" },
+  { value: "NEED_DEL_DRVR", label: "NEED DEL DRVR" },
+  { value: "NEED_RELAY_DRVR", label: "NEED RELAY DRVR" },
+  { value: "TRANSFER", label: "TRANSFER" }
+];
 
 function Timeline({ timeline }: Pick<ViewLoadDetail, "timeline">) {
   return (
@@ -323,6 +340,8 @@ export function LoadDetailDrawer({
     marketRate: "",
     equipmentNeeds: "",
     podStatus: "",
+    puStatusPreset: "ETA_TO_PU_DEL",
+    delStatusPreset: "ETA_TO_PU_DEL",
     driverType: "",
     pickupWindow: "",
     deliveryWindow: "",
@@ -442,6 +461,8 @@ export function LoadDetailDrawer({
       marketRate: detail.financials.marketRate !== null ? String(detail.financials.marketRate) : "",
       equipmentNeeds: dashToEmpty(detail.operations.equipmentNeeds),
       podStatus: dashToEmpty(detail.operations.podStatus),
+      puStatusPreset: detail.operations.puStatusPreset,
+      delStatusPreset: detail.operations.delStatusPreset,
       driverType: dashToEmpty(detail.operations.driverType),
       pickupWindow: dashToEmpty(detail.geography.pickupWindow),
       deliveryWindow: dashToEmpty(detail.geography.deliveryWindow),
@@ -620,6 +641,8 @@ export function LoadDetailDrawer({
         marketRate: formState.marketRate.trim() || null,
         equipmentNeeds: formState.equipmentNeeds.trim() || null,
         podStatus: formState.podStatus.trim() || null,
+        puStatusPreset: formState.puStatusPreset,
+        delStatusPreset: formState.delStatusPreset,
         driverType: formState.driverType.trim() || null,
         pickupWindow: formState.pickupWindow.trim() || null,
         deliveryWindow: formState.deliveryWindow.trim() || null,
@@ -1004,6 +1027,14 @@ export function LoadDetailDrawer({
                       <option value="DONE">DONE</option>
                     </select>
                   </label>
+                  <label className="db-field-label">
+                    PU Status
+                    <select className="db-input" value={formState.puStatusPreset} onChange={(e) => void commitField({ puStatusPreset: e.target.value })}>
+                      {PU_DEL_PRESET_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </label>
                 </div>
               </div>
               <div className="db-edit-stage">
@@ -1065,6 +1096,14 @@ export function LoadDetailDrawer({
                       <option value="UPLOADED">UPLOADED</option>
                       <option value="SENT_TO_BROKER">SENT_TO_BROKER</option>
                       <option value="NEEDS_ATTENTION">NEEDS_ATTENTION</option>
+                    </select>
+                  </label>
+                  <label className="db-field-label">
+                    DEL Status
+                    <select className="db-input" value={formState.delStatusPreset} onChange={(e) => void commitField({ delStatusPreset: e.target.value })}>
+                      {PU_DEL_PRESET_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
                     </select>
                   </label>
                 </div>
@@ -1368,6 +1407,8 @@ export function LoadDetailDrawer({
                   <KV label="Drop Lot" value={detail.section} />
                   <KV label="Driver Type" value={detail.operations.driverType} />
                   <KV label="POD" value={detail.operations.podStatus} />
+                  <KV label="PU Status" value={PU_DEL_PRESET_OPTIONS.find(o => o.value === detail.operations.puStatusPreset)?.label || detail.operations.puStatusPreset} />
+                  <KV label="DEL Status" value={PU_DEL_PRESET_OPTIONS.find(o => o.value === detail.operations.delStatusPreset)?.label || detail.operations.delStatusPreset} />
                   <KV label="MG Task" value={detail.operations.mgStatusTask} />
                   <KV label="TMW Task" value={detail.operations.tmwStatusTask} />
                   <KV label="Scale Before" value={detail.operations.scaleBeforeTask} />

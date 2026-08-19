@@ -182,11 +182,14 @@ describe("board shell — Phase 3 parity columns", () => {
     cleanup();
   });
 
-  test("with details + metrics shown, keeps every tracker column = 39 columns", () => {
+  test("with every category expanded, keeps every tracker column = 40 columns", () => {
     const { container } = render(<BoardShell board={boardFixture} />);
-    // Secondary + metric columns are hidden by default now; reveal both for the full parity check.
-    fireEvent.click(screen.getByRole("button", { name: "Details" }));
-    fireEvent.click(screen.getByRole("button", { name: "Metrics" }));
+    // Secondary + metric columns are hidden by default now; expand every per-category
+    // toggle (the old single Details/Metrics buttons were split into these) for full parity.
+    fireEvent.click(screen.getByRole("button", { name: "Load" }));
+    fireEvent.click(screen.getByRole("button", { name: "Drive & Equip" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pickup & Delivery" }));
+    fireEvent.click(screen.getByRole("button", { name: "Expand Financials & Performance" }));
 
     const headerCells = Array.from(container.querySelectorAll("tr.db-collabel-row th")).map(
       (cell) => cell.textContent?.trim() ?? ""
@@ -230,9 +233,11 @@ describe("board shell — Phase 3 parity columns", () => {
     expect(headerCells).toHaveLength(17);
   });
 
-  test("Details toggle reveals the secondary columns", () => {
+  test("category toggles reveal the secondary columns (financials stay hidden)", () => {
     const { container } = render(<BoardShell board={boardFixture} />);
-    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+    fireEvent.click(screen.getByRole("button", { name: "Load" }));
+    fireEvent.click(screen.getByRole("button", { name: "Drive & Equip" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pickup & Delivery" }));
     const headerCells = Array.from(container.querySelectorAll("tr.db-collabel-row th")).map(
       (cell) => cell.textContent?.trim() ?? ""
     );

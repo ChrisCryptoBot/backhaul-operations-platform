@@ -61,6 +61,8 @@ export interface LoadDetailResponse {
   attentionSeverity: string;
   driverType: string | null;
   podStatus: string | null;
+  puStatusPreset: string;
+  delStatusPreset: string;
   rateConfirmation: {
     id: string;
     sourceFileUrl: string;
@@ -152,6 +154,8 @@ export interface ViewLoadDetail {
     attentionSeverity: string;
     driverType: string;
     podStatus: string;
+    puStatusPreset: string;
+    delStatusPreset: string;
   };
   rateConfirmation: {
     id: string;
@@ -275,7 +279,9 @@ export function mapLoadDetailToView(input: LoadDetailResponse): ViewLoadDetail {
       attentionNote: dash(input.attentionNote),
       attentionSeverity: dash(input.attentionSeverity),
       driverType: dash(input.driverType),
-      podStatus: dash(input.podStatus)
+      podStatus: dash(input.podStatus),
+      puStatusPreset: input.puStatusPreset,
+      delStatusPreset: input.delStatusPreset
     },
     rateConfirmation: input.rateConfirmation
       ? {

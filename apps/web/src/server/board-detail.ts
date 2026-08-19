@@ -58,6 +58,8 @@ export interface LoadDetailPayload {
   attentionSeverity: string;
   driverType: string | null;
   podStatus: string | null;
+  puStatusPreset: string;
+  delStatusPreset: string;
   rateConfirmation: {
     id: string;
     sourceFileUrl: string;
@@ -140,6 +142,8 @@ interface LoadDetailDbRow {
   attentionSeverity: string;
   driverType: string | null;
   podStatus: string | null;
+  puStatusPreset: string;
+  delStatusPreset: string;
   dropLot: { name: string } | null;
   broker: { name: string } | null;
   rateConfirmation: {
@@ -245,6 +249,8 @@ export async function getLoadDetail(input: {
         attentionSeverity: true,
         driverType: true,
         podStatus: true,
+        puStatusPreset: true,
+        delStatusPreset: true,
         legs: {
           orderBy: { legIndex: "asc" },
           select: {
@@ -351,6 +357,8 @@ export async function getLoadDetail(input: {
       attentionSeverity: load.attentionSeverity,
       driverType: load.driverType,
       podStatus: load.podStatus,
+      puStatusPreset: load.puStatusPreset,
+      delStatusPreset: load.delStatusPreset,
       rateConfirmation: load.rateConfirmation
         ? {
             id: load.rateConfirmation.id,
