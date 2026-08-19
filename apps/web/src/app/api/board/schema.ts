@@ -10,7 +10,20 @@ const DECIMAL_4 = /^\d+(\.\d{1,4})?$/;
 const DECIMAL_2 = /^\d+(\.\d{1,2})?$/;
 
 const taskDoneSchema = z.enum(["NOT_DONE", "DONE"]);
-const puDelStatusSchema = z.enum(["ETA_TO_PU_DEL", "LOADED_SET_TO_DEL", "LATE", "DONE", "OTHER"]);
+const puDelStatusSchema = z.enum([
+  "ETA_TO_PU_DEL",
+  "LOADED_SET_TO_DEL",
+  "LATE",
+  "DONE",
+  "OTHER",
+  "NEED_DRVR",
+  "NEED_ETA_TO_PU",
+  "NEED_ETA_TO_DEL",
+  "NEED_DEL_DRVR",
+  "NEED_RELAY_DRVR",
+  "TRANSFER",
+  "LOADED"
+]);
 /** The shared 9-reason disruption taxonomy (must mirror the Prisma DisruptionReason enum). */
 const disruptionReasonSchema = z.enum([
   "CARRIER_NO_SHOW",

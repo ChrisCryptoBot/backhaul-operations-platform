@@ -23,7 +23,14 @@ const PU_DEL_PRESET_LABELS: Record<string, string> = {
   LOADED_SET_TO_DEL: "LOADED, SET TO DEL",
   LATE: "LATE",
   DONE: "DONE",
-  OTHER: ""
+  OTHER: "",
+  NEED_DRVR: "NEED DRVR",
+  NEED_ETA_TO_PU: "NEED ETA TO PU",
+  NEED_ETA_TO_DEL: "NEED ETA TO DEL",
+  NEED_DEL_DRVR: "NEED DEL DRVR",
+  NEED_RELAY_DRVR: "NEED RELAY DRVR",
+  TRANSFER: "TRANSFER",
+  LOADED: "LOADED"
 };
 
 function isoTime(iso: string | null): string | null {

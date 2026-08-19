@@ -1255,9 +1255,9 @@ export async function updateBoardLoadFields(input: {
     rateConReceived: "NOT_DONE" | "DONE";
     receiptReceived: "NOT_DONE" | "DONE";
     mgRateUpdated: "NOT_DONE" | "DONE";
-    puStatusPreset: "ETA_TO_PU_DEL" | "LOADED_SET_TO_DEL" | "LATE" | "DONE" | "OTHER";
+    puStatusPreset: PuDelStatusPreset;
     puStatusCustom: string | null;
-    delStatusPreset: "ETA_TO_PU_DEL" | "LOADED_SET_TO_DEL" | "LATE" | "DONE" | "OTHER";
+    delStatusPreset: PuDelStatusPreset;
     delStatusCustom: string | null;
     deliveryDate: string | null;
     pickupDriverAssigned: string | null;

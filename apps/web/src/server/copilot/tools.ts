@@ -524,7 +524,9 @@ export const COPILOT_TOOLS = [
       "Update one or more fields on a load. Pass only the fields to change in `fields`. Dates are YYYY-MM-DD; " +
       "money/mileage values are decimal strings. Changing rate/miles/fscApplies recomputes revenue automatically. " +
       "To assign a broker, resolve its id with find_brokers and pass `brokerId`. PU/DEL operational status can be " +
-      "a preset (puStatusPreset/delStatusPreset) or free text (puStatusCustom/delStatusCustom). Revenue, RPM and " +
+      "a preset (puStatusPreset/delStatusPreset — one of NEED_DRVR, NEED_ETA_TO_PU, NEED_ETA_TO_DEL, NEED_DEL_DRVR, " +
+      "NEED_RELAY_DRVR, TRANSFER, LOADED, ETA_TO_PU_DEL, LOADED_SET_TO_DEL, LATE, DONE, OTHER) or free text " +
+      "(puStatusCustom/delStatusCustom). Revenue, RPM and " +
       "total/negotiable miles are computed — set the inputs (lineHaulRate, loadedMiles, deadhead, fscApplies), not the totals.",
     input_schema: {
       type: "object" as const,

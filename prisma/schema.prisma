@@ -92,6 +92,14 @@ enum PuDelStatusPreset {
   LATE
   DONE
   OTHER
+  // Daily-Planner F-column work-queue states (the coordinator's action list).
+  NEED_DRVR
+  NEED_ETA_TO_PU
+  NEED_ETA_TO_DEL
+  NEED_DEL_DRVR
+  NEED_RELAY_DRVR
+  TRANSFER
+  LOADED
 }
 
 enum DriverType {
