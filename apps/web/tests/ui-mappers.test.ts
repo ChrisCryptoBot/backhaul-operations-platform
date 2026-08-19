@@ -56,6 +56,7 @@ describe("board mapper", () => {
           loads: [
             {
               id: "load-1",
+              priorityBand: "today",
               rateConfirmationId: null,
               threePlRefNumber: "RXO-1",
               status: "BOOKED",

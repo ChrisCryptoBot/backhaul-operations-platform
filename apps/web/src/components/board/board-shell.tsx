@@ -1042,7 +1042,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                               event.dataTransfer.setData("text/plain", load.id);
                               event.dataTransfer.effectAllowed = "move";
                             }}
-                            className={`db-row db-row-in ${loadIndex % 2 === 1 ? "odd" : ""} ${selectedLoadId === load.id || highlightLoadId === load.id ? "selected" : ""} ${rowAlertTintClass(alertRollupById.get(load.id))}`}
+                            className={`db-row db-row-in db-pb-${load.priorityBand} ${loadIndex % 2 === 1 ? "odd" : ""} ${selectedLoadId === load.id || highlightLoadId === load.id ? "selected" : ""} ${rowAlertTintClass(alertRollupById.get(load.id))}`}
                             onClick={() => setSelectedLoadId(load.id)}
                             onContextMenu={(event) => {
                               event.preventDefault();

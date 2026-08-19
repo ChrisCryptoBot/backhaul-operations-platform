@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { resolvePhase1RegionId } from "@/lib/scope";
 import { PolicyViolationError } from "@/lib/policy-error";
-import { getBoardResponse } from "@/server/board";
+import { getBoardResponse, getPlannerBoardResponse } from "@/server/board";
 import { isAuthBypassed } from "@/lib/auth-mode";
 import { isIsoDay, todayIsoInTimeZone } from "@/lib/board-date";
 import { mapBoardResponseToView } from "@/lib/ui/board-mappers";
@@ -72,7 +72,12 @@ export default async function HomePage({ searchParams }: HomePageProps) {
   const resolvedSearchParams = searchParams instanceof Promise ? await searchParams : searchParams;
   const queryDate = resolvedSearchParams?.date;
   const dateCandidate = Array.isArray(queryDate) ? queryDate[0] : queryDate;
-  const date = isIsoDay(dateCandidate) ? dateCandidate : todayIsoInTimeZone();
+  // Continuous planner is the default; an explicit ?date demotes to the single-day view.
+  const dayFilter = isIsoDay(dateCandidate) ? dateCandidate : null;
+  const date = dayFilter ?? todayIsoInTimeZone();
+  const queryGroup = resolvedSearchParams?.group;
+  const groupCandidate = Array.isArray(queryGroup) ? queryGroup[0] : queryGroup;
+  const groupByDropLot = groupCandidate === "1" || groupCandidate === "lot";
   const queryRegion = resolvedSearchParams?.regionId;
   const regionCandidate = Array.isArray(queryRegion) ? queryRegion[0] : queryRegion;
   const queryLoad = resolvedSearchParams?.loadId;
@@ -89,7 +94,9 @@ export default async function HomePage({ searchParams }: HomePageProps) {
     if (!bypassAuth && selectedRegionId !== regionId) {
       await policyAdapter.requireRegionAccess(actorUserId, selectedRegionId);
     }
-    boardResponse = await getBoardResponse({ regionId: selectedRegionId, date });
+    boardResponse = dayFilter
+      ? await getBoardResponse({ regionId: selectedRegionId, date: dayFilter })
+      : await getPlannerBoardResponse({ regionId: selectedRegionId, groupByDropLot });
     boardResponse.availableRegions = availableRegions;
     boardResponse.activeRegionId = selectedRegionId;
   } catch {

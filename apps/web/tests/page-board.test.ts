@@ -7,6 +7,7 @@ const requireRegionAccess = vi.fn();
 const assertPermission = vi.fn();
 const resolvePhase1RegionId = vi.fn();
 const getBoardResponse = vi.fn();
+const getPlannerBoardResponse = vi.fn();
 const listAccessibleRegions = vi.fn();
 const redirect = vi.fn();
 const isAuthBypassed = vi.fn();
@@ -30,7 +31,8 @@ vi.mock("@/lib/scope", () => ({
 }));
 
 vi.mock("@/server/board", () => ({
-  getBoardResponse
+  getBoardResponse,
+  getPlannerBoardResponse
 }));
 vi.mock("@/server/kpi-governance", () => ({
   listAccessibleRegions
@@ -245,10 +247,8 @@ describe("board page shell", () => {
     expect(markup).toContain("Unable to load board data right now.");
   });
 
-  test("uses ET calendar day when date query is invalid", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-04-29T02:00:00.000Z"));
-    getBoardResponse.mockResolvedValue({
+  test("falls back to the continuous planner view when no valid date is given", async () => {
+    getPlannerBoardResponse.mockResolvedValue({
       regionId: "region-1",
       date: "2026-04-28",
       dayTotals: {
@@ -262,11 +262,12 @@ describe("board page shell", () => {
 
     const HomePage = (await import("@/app/page")).default;
     await HomePage({ searchParams: { date: "invalid" } });
-    expect(getBoardResponse).toHaveBeenCalledWith({
+    // Invalid/absent date → continuous planner mode (not the per-day board).
+    expect(getPlannerBoardResponse).toHaveBeenCalledWith({
       regionId: "region-1",
-      date: "2026-04-28"
+      groupByDropLot: false
     });
-    vi.useRealTimers();
+    expect(getBoardResponse).not.toHaveBeenCalled();
   });
 
   test("supports promise-shaped searchParams", async () => {

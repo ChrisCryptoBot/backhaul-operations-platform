@@ -15,6 +15,7 @@ const CTX: LoadAlertContext = { emptyPctAmber: 15, emptyPctRed: 25 };
 function makeRow(overrides: Partial<ViewBoardLoadRow> = {}): ViewBoardLoadRow {
   return {
     id: "load-1",
+    priorityBand: "today",
     rateConfirmationId: "rc-1",
     ref: "3P-1",
     status: "PICKED_UP",

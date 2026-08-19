@@ -14,6 +14,16 @@ export function todayIsoInTimeZone(timeZone: string = PHASE1_BOARD_TIMEZONE): st
   return formatter.format(new Date());
 }
 
+/** YYYY-MM-DD for an arbitrary instant in the given timezone (board-day bucketing). */
+export function ymdInTimeZone(date: Date, timeZone: string = PHASE1_BOARD_TIMEZONE): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).format(date);
+}
+
 export function getTimeZoneOffsetMs(atUtc: Date, timeZone: string): number {
   const formatter = new Intl.DateTimeFormat("en-US", {
     timeZone,

@@ -3090,6 +3090,23 @@
   background: var(--db-neg-bg);
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+   Daily-Planner 4-color priority engine (continuous tracker). A left color bar
+   plus a subtle row tint; DONE reads dimmed. Selection/alert tints still win via
+   their own rules below. Mirrors the spreadsheet: red past-due → orange today →
+   yellow upcoming → green done (swept to the bottom by the query order).
+   ════════════════════════════════════════════════════════════════════════ */
+.db-row.db-pb-past_due { background: var(--db-neg-bg); box-shadow: inset 3px 0 0 #c0392b; }
+.db-row.db-pb-today    { background: var(--db-warn-bg); box-shadow: inset 3px 0 0 #d98324; }
+.db-row.db-pb-future   { background: #fdf7da; box-shadow: inset 3px 0 0 #caa61a; }
+.db-row.db-pb-done     { background: var(--db-pos-bg); box-shadow: inset 3px 0 0 #2f7a47; }
+.db-row.db-pb-done td  { color: var(--db-fg-mid); }
+/* Selected row still wins the background so the active row is unambiguous. */
+.db-row.db-pb-past_due.selected,
+.db-row.db-pb-today.selected,
+.db-row.db-pb-future.selected,
+.db-row.db-pb-done.selected { background: var(--db-row-sel-bg); }
+
 /* Daily board canonical contract overrides */
 .db-brand {
   display: flex;

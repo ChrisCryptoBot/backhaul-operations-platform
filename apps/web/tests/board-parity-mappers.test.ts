@@ -8,6 +8,7 @@ const CTX = { emptyPctAmber: 15, emptyPctRed: 25 };
 function makeBoardRow(overrides: Partial<BoardLoadRow> = {}): BoardLoadRow {
   return {
     id: "load-1",
+    priorityBand: "today",
     rateConfirmationId: "rc-1",
     threePlRefNumber: "RXO-1",
     status: "BOOKED",

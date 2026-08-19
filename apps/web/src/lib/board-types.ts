@@ -96,6 +96,9 @@ export interface BoardLoadLegRow {
 
 export interface BoardLoadRow {
   id: string;
+  /** Daily-Planner 4-color priority band, from PU Date vs today + done-ness:
+   *  past_due (🔴) → today (🟠) → future (🟡) → done (🟢, sweeps to bottom). */
+  priorityBand: "past_due" | "today" | "future" | "done";
   rateConfirmationId: string | null;
   threePlRefNumber: string | null;
   status: string;

@@ -43,6 +43,7 @@ const boardFixture: ViewBoardResponse = {
       loads: [
         {
           id: "load-1",
+          priorityBand: "today",
           rateConfirmationId: "rc-1",
           ref: "REF-1",
           status: "BOOKED",

@@ -4,6 +4,7 @@ import { toNumber } from "@/lib/ui/parse";
 
 export interface ViewBoardLoadRow {
   id: string;
+  priorityBand: BoardLoadRow["priorityBand"];
   rateConfirmationId: string | null;
   ref: string;
   status: string;
@@ -166,6 +167,7 @@ export function resolveDriverLabel(
 export function mapBoardRowToView(row: BoardLoadRow): ViewBoardLoadRow {
   return {
     id: row.id,
+    priorityBand: row.priorityBand,
     rateConfirmationId: row.rateConfirmationId,
     ref: row.threePlRefNumber ?? "—",
     status: row.status,

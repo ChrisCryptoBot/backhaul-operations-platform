@@ -1,8 +1,29 @@
-import { BookingPlanStatus, LoadStatus, Prisma, type DisruptionReason } from "@prisma/client";
+import { BookingPlanStatus, LoadStatus, Prisma, PuDelStatusPreset, type DisruptionReason } from "@prisma/client";
 import { runInRegionScope } from "@/lib/db";
 import type { BoardLoadRow, BoardResponse, BoardSection, DemandRow } from "@/lib/board-types";
 import { safeDivideDecimal } from "@/lib/decimal-utils";
-import { boardDayRange, PHASE1_BOARD_TIMEZONE, todayIsoInTimeZone } from "@/lib/board-date";
+import { boardDayRange, PHASE1_BOARD_TIMEZONE, todayIsoInTimeZone, ymdInTimeZone } from "@/lib/board-date";
+
+/**
+ * Daily-Planner 4-color priority band for a load. Mirrors the spreadsheet's engine:
+ * DONE sweeps green (status COMPLETED or the PU/DEL status set to DONE), otherwise the
+ * PU Date vs today decides past-due (🔴) / today (🟠) / future (🟡). A missing PU Date
+ * surfaces in the active "today" zone rather than hiding.
+ */
+export function plannerPriorityBand(
+  pickupDate: Date | null | undefined,
+  status: string,
+  puStatusPreset: string,
+  delStatusPreset: string,
+  todayIso: string
+): "past_due" | "today" | "future" | "done" {
+  if (status === "COMPLETED" || puStatusPreset === "DONE" || delStatusPreset === "DONE") return "done";
+  if (!pickupDate) return "today";
+  const puIso = ymdInTimeZone(pickupDate, PHASE1_BOARD_TIMEZONE);
+  if (puIso < todayIso) return "past_due";
+  if (puIso > todayIso) return "future";
+  return "today";
+}
 import { stateToTimeZone, zonedDateTimeToUtc } from "@/lib/timezone";
 import { stageExitObligations, type ChecklistLoadInput } from "@/lib/ui/load-checklist";
 import { withNonDeletedRegionScope, withRegionScope } from "@/lib/scoped-query";
@@ -255,8 +276,10 @@ function loadToBoardRow(load: {
     trailerHookConfirmed: string;
   }>;
 }): BoardLoadRow {
+  const todayIso = todayIsoInTimeZone(PHASE1_BOARD_TIMEZONE);
   return {
     id: load.id,
+    priorityBand: plannerPriorityBand(load.pickupDate, load.status, load.puStatusPreset, load.delStatusPreset, todayIso),
     rateConfirmationId: load.rateConfirmationId,
     threePlRefNumber: load.threePlRefNumber,
     status: load.status,
@@ -459,6 +482,247 @@ const boardLoadSelect = {
     }
   }
 } as const;
+
+/** Priority ordering for the continuous planner list: red → orange → yellow → green. */
+const PLANNER_BAND_ORDER: Record<string, number> = { past_due: 0, today: 1, future: 2, done: 3 };
+
+/**
+ * Continuous "Daily Planner" load set: every active (non-canceled, not-done) load —
+ * any date, so past-due backlog stays visible — plus DONE loads from a trailing
+ * window (default 7 days). Sorted by the 4-color priority band, then PU Date, with
+ * DONE swept to the bottom. This is the data behind the planner-mode tracker; the
+ * per-day `getBoardResponse` below is unchanged and still backs the day filter.
+ */
+export async function getPlannerLoads(regionId: string, doneWindowDays = 7): Promise<BoardLoadRow[]> {
+  const todayIso = todayIsoInTimeZone(PHASE1_BOARD_TIMEZONE);
+  const { dayStart: todayStart } = boardDayRange(todayIso, PHASE1_BOARD_TIMEZONE);
+  const doneCutoff = new Date(todayStart.getTime() - doneWindowDays * 86_400_000);
+
+  return runInRegionScope(regionId, async (tx) => {
+    const loads = (await tx.load.findMany({
+      where: withNonDeletedRegionScope(regionId, {
+        status: { notIn: [LoadStatus.CANCELED, LoadStatus.FAILED] },
+        OR: [
+          // Active (not done) — no date floor, so delinquent past-due loads never fall off.
+          {
+            AND: [
+              { status: { not: LoadStatus.COMPLETED } },
+              { puStatusPreset: { not: PuDelStatusPreset.DONE } },
+              { delStatusPreset: { not: PuDelStatusPreset.DONE } }
+            ]
+          },
+          // Finalized (done) within the trailing window — swept green at the bottom.
+          {
+            AND: [
+              {
+                OR: [
+                  { status: LoadStatus.COMPLETED },
+                  { puStatusPreset: PuDelStatusPreset.DONE },
+                  { delStatusPreset: PuDelStatusPreset.DONE }
+                ]
+              },
+              { updatedAt: { gte: doneCutoff } }
+            ]
+          }
+        ]
+      }),
+      orderBy: [{ pickupDate: "asc" }, { createdAt: "asc" }],
+      select: boardLoadSelect
+    })) as unknown as BoardLoadDbRow[];
+
+    const rows = loads.map(loadToBoardRow);
+    rows.sort((a, b) => {
+      const bandDiff = (PLANNER_BAND_ORDER[a.priorityBand] ?? 9) - (PLANNER_BAND_ORDER[b.priorityBand] ?? 9);
+      if (bandDiff !== 0) return bandDiff;
+      const ap = a.pickupDate ?? "";
+      const bp = b.pickupDate ?? "";
+      return ap < bp ? -1 : ap > bp ? 1 : 0;
+    });
+    return rows;
+  });
+}
+
+/**
+ * Continuous Daily-Planner board: the flat color-priority list (default) or the
+ * same loads grouped by drop lot (toggle), plus CANCELED/TONU (trailing window) and
+ * today's DELIVERIES-DUE reference sections. Not date-scoped — this is the tracker's
+ * default; `getBoardResponse` (per-day) still backs the optional day filter. Totals
+ * are over the active (non-done) loads.
+ */
+export async function getPlannerBoardResponse(input: {
+  regionId: string;
+  groupByDropLot?: boolean;
+  doneWindowDays?: number;
+}): Promise<BoardResponse> {
+  const doneWindowDays = input.doneWindowDays ?? 7;
+  const todayIso = todayIsoInTimeZone(PHASE1_BOARD_TIMEZONE);
+  const { dayStart: todayStart, dayEnd: todayEnd } = boardDayRange(todayIso, PHASE1_BOARD_TIMEZONE);
+  const doneCutoff = new Date(todayStart.getTime() - doneWindowDays * 86_400_000);
+
+  const activeNotDone = {
+    AND: [
+      { status: { not: LoadStatus.COMPLETED } },
+      { puStatusPreset: { not: PuDelStatusPreset.DONE } },
+      { delStatusPreset: { not: PuDelStatusPreset.DONE } }
+    ]
+  };
+  const doneRecent = {
+    AND: [
+      { OR: [{ status: LoadStatus.COMPLETED }, { puStatusPreset: PuDelStatusPreset.DONE }, { delStatusPreset: PuDelStatusPreset.DONE }] },
+      { updatedAt: { gte: doneCutoff } }
+    ]
+  };
+
+  const bandSort = (a: BoardLoadRow, b: BoardLoadRow): number => {
+    const bandDiff = (PLANNER_BAND_ORDER[a.priorityBand] ?? 9) - (PLANNER_BAND_ORDER[b.priorityBand] ?? 9);
+    if (bandDiff !== 0) return bandDiff;
+    const ap = a.pickupDate ?? "";
+    const bp = b.pickupDate ?? "";
+    return ap < bp ? -1 : ap > bp ? 1 : 0;
+  };
+
+  return runInRegionScope(input.regionId, async (tx) => {
+    const [dropLots, plannerLoads, canceledLoads, deliveryLoads] = await Promise.all([
+      tx.dropLot.findMany({ where: withNonDeletedRegionScope(input.regionId) }) as unknown as Promise<DropLotBoardRow[]>,
+      tx.load.findMany({
+        where: withNonDeletedRegionScope(input.regionId, {
+          status: { notIn: [LoadStatus.CANCELED, LoadStatus.FAILED] },
+          OR: [activeNotDone, doneRecent]
+        }),
+        orderBy: [{ pickupDate: "asc" }, { createdAt: "asc" }],
+        select: boardLoadSelect
+      }) as unknown as Promise<BoardLoadDbRow[]>,
+      tx.load.findMany({
+        where: withNonDeletedRegionScope(input.regionId, {
+          status: { in: [LoadStatus.CANCELED, LoadStatus.FAILED] },
+          updatedAt: { gte: doneCutoff }
+        }),
+        orderBy: [{ updatedAt: "desc" }],
+        select: boardLoadSelect
+      }) as unknown as Promise<BoardLoadDbRow[]>,
+      tx.load.findMany({
+        where: withNonDeletedRegionScope(input.regionId, {
+          deliveryDate: { gte: todayStart, lt: todayEnd },
+          status: { notIn: [LoadStatus.CANCELED, LoadStatus.FAILED] }
+        }),
+        orderBy: [{ deliveryDate: "asc" }, { createdAt: "asc" }],
+        select: boardLoadSelect
+      }) as unknown as Promise<BoardLoadDbRow[]>
+    ]);
+    dropLots.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+
+    const mainSections: BoardSection[] = [];
+    if (input.groupByDropLot) {
+      const byLot = new Map<string, BoardLoadDbRow[]>();
+      const adHoc: BoardLoadDbRow[] = [];
+      for (const load of plannerLoads) {
+        if (load.dropLotId) {
+          const list = byLot.get(load.dropLotId) ?? [];
+          list.push(load);
+          byLot.set(load.dropLotId, list);
+        } else {
+          adHoc.push(load);
+        }
+      }
+      const ltlDropLot = dropLots.find((d) => (d.code ?? "").toUpperCase() === "LTL" || d.name.toUpperCase() === "LTL");
+      if (ltlDropLot && adHoc.length > 0) {
+        byLot.set(ltlDropLot.id, [...(byLot.get(ltlDropLot.id) ?? []), ...adHoc]);
+      }
+      for (const dropLot of dropLots) {
+        const rows = (byLot.get(dropLot.id) ?? []).map(loadToBoardRow).sort(bandSort);
+        mainSections.push({
+          type: "drop_lot",
+          title: dropLot.name,
+          filledCount: rows.length,
+          dropLot: {
+            id: dropLot.id,
+            name: dropLot.name,
+            code: dropLot.code,
+            note: dropLot.note,
+            city: dropLot.city,
+            state: dropLot.state,
+            sortOrder: dropLot.sortOrder,
+            dailyCapacity: dropLot.dailyCapacity,
+            slipSeat: dropLot.slipSeat,
+            dropHookRequired: dropLot.dropHookRequired
+          },
+          loads: rows
+        });
+      }
+      if (!ltlDropLot && adHoc.length > 0) {
+        mainSections.push({
+          type: "adhoc",
+          title: "LTL",
+          code: "LTL",
+          filledCount: adHoc.length,
+          dropLot: null,
+          loads: adHoc.map(loadToBoardRow).sort(bandSort)
+        });
+      }
+    } else {
+      const rows = plannerLoads.map(loadToBoardRow).sort(bandSort);
+      mainSections.push({
+        type: "drop_lot",
+        title: "Daily Planner — active loads",
+        note: "All active loads by priority: past-due, today, upcoming, then completed (last 7 days).",
+        filledCount: rows.length,
+        dropLot: null,
+        loads: rows
+      });
+    }
+
+    const canceledSection: BoardSection = {
+      type: "canceled",
+      title: "CANCELED / TONU",
+      filledCount: canceledLoads.length,
+      dropLot: null,
+      loads: canceledLoads.map(loadToBoardRow)
+    };
+    const deliveriesSection: BoardSection = {
+      type: "deliveries",
+      title: `DELIVERIES DUE (${todayIso})`,
+      note: "Loads delivering today (booked on any day). Reference view — open a row to update its delivery status.",
+      filledCount: deliveryLoads.length,
+      dropLot: null,
+      loads: deliveryLoads.map(loadToBoardRow)
+    };
+
+    const activeLoads = plannerLoads.filter(
+      (load) => plannerPriorityBand(load.pickupDate, load.status, load.puStatusPreset, load.delStatusPreset, todayIso) !== "done"
+    );
+    const lineHaulTotal = activeLoads.reduce((acc, load) => acc.plus(load.lineHaulRate), new Prisma.Decimal(0));
+    const fscTotal = activeLoads.reduce((acc, load) => acc.plus(decimalOrZero(load.fscAmount)), new Prisma.Decimal(0));
+    const tonuTotal = canceledLoads.reduce((acc, load) => acc.plus(decimalOrZero(load.tonuAmount)), new Prisma.Decimal(0));
+    const allInTotal = activeLoads.reduce((acc, load) => acc.plus(decimalOrZero(load.allInRevenue)), new Prisma.Decimal(0));
+    const loadedMilesTotal = activeLoads.reduce((acc, load) => acc.plus(load.loadedMiles), new Prisma.Decimal(0));
+    const puDeadheadTotal = activeLoads.reduce((acc, load) => acc.plus(load.puDeadheadMiles), new Prisma.Decimal(0));
+    const delDeadheadTotal = activeLoads.reduce((acc, load) => acc.plus(load.delDeadheadMiles), new Prisma.Decimal(0));
+    const emptyMilesTotal = puDeadheadTotal.plus(delDeadheadTotal);
+    const totalTripMiles = loadedMilesTotal.plus(emptyMilesTotal);
+    const config = await getRegionConfig(input.regionId);
+
+    return {
+      regionId: input.regionId,
+      date: todayIso,
+      sections: [...mainSections, canceledSection, deliveriesSection],
+      dayTotals: {
+        loadCount: activeLoads.length,
+        lineHaulTotal: lineHaulTotal.toString(),
+        fscTotal: fscTotal.toString(),
+        tonuTotal: tonuTotal.toString(),
+        allInTotal: allInTotal.toString(),
+        loadedMilesTotal: loadedMilesTotal.toString(),
+        emptyMilePct: safeDivideDecimal(emptyMilesTotal, totalTripMiles)?.toString() ?? null,
+        nby: safeDivideDecimal(lineHaulTotal, totalTripMiles)?.toString() ?? null
+      },
+      config: {
+        emptyPctAmber: config.emptyPctAmber,
+        emptyPctRed: config.emptyPctRed,
+        emptyPctAlert: config.emptyPctAlert
+      }
+    };
+  });
+}
 
 export async function getBoardResponse(input: {
   regionId: string;
