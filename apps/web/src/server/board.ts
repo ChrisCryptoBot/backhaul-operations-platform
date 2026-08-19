@@ -703,6 +703,8 @@ export async function getPlannerBoardResponse(input: {
 
     return {
       regionId: input.regionId,
+      mode: "planner",
+      groupByDropLot: input.groupByDropLot ?? false,
       date: todayIso,
       sections: [...mainSections, canceledSection, deliveriesSection],
       dayTotals: {
@@ -895,6 +897,7 @@ export async function getBoardResponse(input: {
 
     return {
       regionId: input.regionId,
+      mode: "day",
       date: input.date,
       sections: [
         ...dropLotSections,

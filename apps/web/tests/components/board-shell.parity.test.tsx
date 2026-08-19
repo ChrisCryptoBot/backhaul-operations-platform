@@ -22,6 +22,8 @@ const boardFixture: ViewBoardResponse = {
   regionId: "region-1",
   regionCode: "CDC",
   regionLabel: "NORTHEAST",
+  mode: "planner",
+  groupByDropLot: false,
   date: "2026-07-03",
   totals: { loads: 1, lineHaul: 1000, fsc: 0, tonu: 0, allIn: 1000, loadedMiles: 200, emptyPctRatio: 0.1, nby: 1.5 },
   config: { emptyPctAmber: 15, emptyPctRed: 25, emptyPctAlert: 6.5 },

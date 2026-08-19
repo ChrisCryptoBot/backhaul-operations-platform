@@ -648,9 +648,36 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
     }
     const params = new URLSearchParams(window.location.search);
     params.set("regionId", nextRegionId);
-    params.set("date", boardState.date);
+    // Preserve the current mode across a region switch: keep the day filter only in
+    // day mode; in planner mode drop ?date so we stay on the continuous list.
+    if (boardState.mode === "day") {
+      params.set("date", boardState.date);
+    } else {
+      params.delete("date");
+    }
     window.location.assign(`/?${params.toString()}`);
-  }, [boardState.date]);
+  }, [boardState.date, boardState.mode]);
+
+  // Return to the continuous planner (clear the day filter).
+  const goToPlanner = React.useCallback(() => {
+    const params = new URLSearchParams(window.location.search);
+    params.delete("date");
+    params.set("regionId", boardState.regionId);
+    window.location.assign(`/?${params.toString()}`);
+  }, [boardState.regionId]);
+
+  // Toggle flat vs group-by-drop-lot (planner mode only; never leaves planner).
+  const setGroupByLot = React.useCallback((on: boolean) => {
+    const params = new URLSearchParams(window.location.search);
+    params.delete("date");
+    params.set("regionId", boardState.regionId);
+    if (on) {
+      params.set("group", "1");
+    } else {
+      params.delete("group");
+    }
+    window.location.assign(`/?${params.toString()}`);
+  }, [boardState.regionId]);
 
   const boardDateLabel = formatBoardDate(boardState.date);
   const regionLabel = boardState.regionLabel ?? "NORTHEAST";
@@ -732,8 +759,38 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
               ))}
             </select>
           ) : null}
+          {boardState.mode === "planner" ? (
+            <div style={{ display: "flex", gap: 4 }} role="group" aria-label="List grouping">
+              <button
+                type="button"
+                className={`db-btn db-btn-mini${!boardState.groupByDropLot ? " primary" : " db-btn-ghost"}`}
+                onClick={() => setGroupByLot(false)}
+                title="Flat continuous list, sorted by priority"
+              >
+                Flat
+              </button>
+              <button
+                type="button"
+                className={`db-btn db-btn-mini${boardState.groupByDropLot ? " primary" : " db-btn-ghost"}`}
+                onClick={() => setGroupByLot(true)}
+                title="Group the list by drop lot"
+              >
+                By lot
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="db-btn db-btn-mini db-btn-ghost"
+              onClick={goToPlanner}
+              title="Back to the continuous planner"
+            >
+              ← Planner
+            </button>
+          )}
           <label
             className="db-datepicker"
+            title={boardState.mode === "planner" ? "Jump to a single day (filters the planner)" : "Board day"}
             onClick={(event) => {
               event.preventDefault();
               openBoardDatePicker();

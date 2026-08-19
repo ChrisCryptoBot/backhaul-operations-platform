@@ -122,6 +122,8 @@ export interface ViewBoardResponse {
   regionId: string;
   regionCode: string | null;
   regionLabel: string | null;
+  mode: "planner" | "day";
+  groupByDropLot: boolean;
   date: string;
   sections: ViewBoardSection[];
   totals: {
@@ -275,6 +277,8 @@ export function mapBoardResponseToView(response: BoardResponse): ViewBoardRespon
     regionId: response.regionId,
     regionCode: response.regionCode ?? null,
     regionLabel: response.regionLabel ?? null,
+    mode: response.mode ?? "planner",
+    groupByDropLot: response.groupByDropLot ?? false,
     date: response.date,
     sections: response.sections.map((section, index) => ({
       id: sectionIdFrom(section, index),

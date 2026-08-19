@@ -9,6 +9,10 @@ export interface BoardResponse {
   regionLabel?: string | null;
   availableRegions?: Array<{ id: string; code: string; name: string }>;
   activeRegionId?: string | null;
+  /** "planner" = continuous color-priority list (default); "day" = single-day filter. */
+  mode?: "planner" | "day";
+  /** Planner mode only: whether the flat list is grouped by drop lot. */
+  groupByDropLot?: boolean;
   date: string;
   sections: BoardSection[];
   dayTotals: BoardDayTotals;

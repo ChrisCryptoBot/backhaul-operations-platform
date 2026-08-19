@@ -557,6 +557,8 @@ describe("collectBoardAlertRollups", () => {
       regionId: "r1",
       regionCode: "NE",
       regionLabel: "NE",
+      mode: "planner",
+      groupByDropLot: false,
       date: "2026-06-21",
       sections: [
         {
