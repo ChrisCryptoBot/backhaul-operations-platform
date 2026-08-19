@@ -31,7 +31,7 @@ interface BoardShellProps {
 }
 
 // 32 original columns + Phase 3: Driver 1–4, PU Appt, PU Status/ETA, DEL Appt, DEL Status/ETA.
-const BOARD_COLUMN_COUNT = 40;
+const BOARD_COLUMN_COUNT = 41;
 
 /** Master-planner preset labels for the PU/DEL Status/ETA cells (custom text wins). */
 const PU_DEL_PRESET_LABELS: Record<string, string> = {
@@ -53,6 +53,14 @@ const APPT_TYPE_LABELS: Record<string, string> = {
   OPEN_WINDOW: "OPEN",
   FCFS: "FCFS"
 };
+
+/** Short M/D from a date-only ISO value (UTC, null-safe) — the planner's PU Date cell. */
+function shortDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return `${date.getUTCMonth() + 1}/${date.getUTCDate()}`;
+}
 
 /** Local 24h HH:MM from a UTC ISO instant (null-safe). */
 function isoTime(iso: string | null | undefined): string | null {
@@ -345,7 +353,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
   const finExpanded = expandedCats.has("financials");
   const loadCols = 3 + (expLoad ? 3 : 0);
   const driveCols = 4 + (expDrive ? 7 : 0);
-  const pickDelCols = 7 + (expPickDel ? 3 : 0);
+  const pickDelCols = 8 + (expPickDel ? 3 : 0); // +1 for the always-visible PU Date column
   const finCols = finExpanded ? 11 : 1;
   const totalCols = loadCols + driveCols + pickDelCols + finCols + 1; // +1 = Actions
 
@@ -981,6 +989,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                       <th>Shipper</th>
                     </>
                   ) : null}
+                  <th>PU Date</th>
                   <th>PU City, ST</th>
                   {expPickDel ? <th>PU Window</th> : null}
                   <th>PU Appt</th>
@@ -1169,6 +1178,7 @@ export function BoardShell({ board, boardError = null, initialHighlightLoadId = 
                                 <td className="trunc" title={load.shipper}>{load.shipper}</td>
                               </>
                             ) : null}
+                            <td className="mono">{shortDate(load.pickupDate)}</td>
                             <td><span className="db-city">{splitCityState(load.pickupCityState).city}</span>{splitCityState(load.pickupCityState).state ? <span className="db-state mono">{splitCityState(load.pickupCityState).state}</span> : null}</td>
                             {expPickDel ? <td className="mono dim">{load.pickupWindow ?? "—"}</td> : null}
                             <td className="mono dim db-appt-cell">{apptCell(load.pickupApptType, load.pickupWindowStartIso, load.pickupWindowEndIso) ?? "—"}</td>

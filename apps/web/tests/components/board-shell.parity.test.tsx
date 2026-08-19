@@ -197,14 +197,14 @@ describe("board shell — Phase 3 parity columns", () => {
     for (const label of NEW_HEADERS) {
       expect(headerCells).toContain(label);
     }
-    expect(headerCells).toHaveLength(39);
+    expect(headerCells).toHaveLength(40);
 
     // Group-header colSpans must still cover every column.
     const groupSpan = Array.from(container.querySelectorAll("tr.db-colgroup-row th")).reduce(
       (sum, cell) => sum + Number(cell.getAttribute("colspan") ?? 1),
       0
     );
-    expect(groupSpan).toBe(39);
+    expect(groupSpan).toBe(40);
   });
 
   test("shows essentials only by default (financials, miles, and secondary columns hidden)", () => {
@@ -213,7 +213,7 @@ describe("board shell — Phase 3 parity columns", () => {
       (cell) => cell.textContent?.trim() ?? ""
     );
     // Essentials + the always-visible Del action remain.
-    for (const label of ["REF#", "STATUS", "PU#(s)", "Driver 1", "PU City, ST", "PU Appt", "DEL City, ST", "DEL Date/Win", "DEL Status/ETA", "Del"]) {
+    for (const label of ["REF#", "STATUS", "PU#(s)", "Driver 1", "PU Date", "PU City, ST", "PU Appt", "DEL City, ST", "DEL Date/Win", "DEL Status/ETA", "Del"]) {
       expect(headerCells).toContain(label);
     }
     // The redundant "PU Driver" column is gone (Driver 1 is the pickup driver).
@@ -226,7 +226,8 @@ describe("board shell — Phase 3 parity columns", () => {
     expect(headerCells).not.toContain("Broker (rep)");
     expect(headerCells).not.toContain("Commodity");
     expect(headerCells).not.toContain("POD");
-    expect(headerCells).toHaveLength(15);
+    expect(headerCells).toContain("PU Date");
+    expect(headerCells).toHaveLength(17);
   });
 
   test("Details toggle reveals the secondary columns", () => {
@@ -240,7 +241,7 @@ describe("board shell — Phase 3 parity columns", () => {
     }
     // Metrics stay hidden (independent toggle).
     expect(headerCells).not.toContain("Neg Mi");
-    expect(headerCells).toHaveLength(28);
+    expect(headerCells).toHaveLength(30);
   });
 
   test("rostered drivers render the roster code with a marker; free-text renders as-is", () => {
