@@ -157,21 +157,23 @@ export async function getLaneMarketRate(
 export interface VarianceInput {
   /** Our negotiated payout, total dollars. */
   negotiatedTotal: number;
-  /** Trip miles used to derive per-mile figures. */
-  miles: number;
-  /** Market all-in per mile (line-haul avg + fuel). */
-  marketPerMile: number;
+  /** The DAT market rate for the lane, total dollars. */
+  marketTotal: number;
+  /** Optional trip miles — only used to derive per-mile figures. NOT required. */
+  miles?: number;
 }
 
 export interface VarianceResult {
-  negotiatedPerMile: number;
-  marketPerMile: number;
+  negotiatedTotal: number;
   marketTotal: number;
-  variancePerMile: number;
   varianceTotal: number;
   /** Signed fraction: +0.12 = we're 12% above market. */
   variancePct: number;
   band: MarketPerformanceBand;
+  /** Per-mile figures — null when trip miles weren't supplied (total-only entry). */
+  negotiatedPerMile: number | null;
+  marketPerMile: number | null;
+  variancePerMile: number | null;
 }
 
 export function classifyBand(variancePct: number, threshold: number = BAND_THRESHOLD): MarketPerformanceBand {
@@ -181,24 +183,26 @@ export function classifyBand(variancePct: number, threshold: number = BAND_THRES
 }
 
 /**
- * Computes revenue-side variance: negotiated minus market, positive = we beat market.
- * `threshold` is the ± band fraction (e.g. 0.1 for ±10%) used to classify the band.
+ * Revenue-side variance straight from the two totals (the Excel model): Dollar Variance
+ * = negotiated − market, % = variance ÷ market, then the band. Trip miles are optional
+ * and only used to derive per-mile figures — they are NOT needed for the variance.
  */
 export function computeVariance(input: VarianceInput, threshold: number = BAND_THRESHOLD): VarianceResult {
-  const miles = input.miles > 0 ? input.miles : 0;
-  const negotiatedPerMile = miles > 0 ? input.negotiatedTotal / miles : 0;
-  const marketTotal = input.marketPerMile * miles;
-  const variancePerMile = negotiatedPerMile - input.marketPerMile;
-  const varianceTotal = input.negotiatedTotal - marketTotal;
-  const variancePct = marketTotal !== 0 ? varianceTotal / marketTotal : 0;
+  const varianceTotal = input.negotiatedTotal - input.marketTotal;
+  const variancePct = input.marketTotal !== 0 ? varianceTotal / input.marketTotal : 0;
+  const miles = input.miles && input.miles > 0 ? input.miles : null;
+  const negotiatedPerMile = miles ? input.negotiatedTotal / miles : null;
+  const marketPerMile = miles ? input.marketTotal / miles : null;
   return {
-    negotiatedPerMile: round4(negotiatedPerMile),
-    marketPerMile: round4(input.marketPerMile),
-    marketTotal: round4(marketTotal),
-    variancePerMile: round4(variancePerMile),
+    negotiatedTotal: round4(input.negotiatedTotal),
+    marketTotal: round4(input.marketTotal),
     varianceTotal: round4(varianceTotal),
     variancePct: round4(variancePct),
-    band: classifyBand(variancePct, threshold)
+    band: classifyBand(variancePct, threshold),
+    negotiatedPerMile: negotiatedPerMile === null ? null : round4(negotiatedPerMile),
+    marketPerMile: marketPerMile === null ? null : round4(marketPerMile),
+    variancePerMile:
+      negotiatedPerMile === null || marketPerMile === null ? null : round4(negotiatedPerMile - marketPerMile)
   };
 }
 

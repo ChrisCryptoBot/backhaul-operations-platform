@@ -1167,7 +1167,7 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
                           >
                             {lane.vsTarget === null
                               ? "—"
-                              : `${lane.vsTarget >= 0 ? "+" : "-"}$${Math.abs(lane.vsTarget).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                              : `${lane.vsTarget >= 0 ? "+" : "-"}$${Math.abs(lane.vsTarget).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
                           </td>
                           <td className="right mono num">
                             {isEditingMarket ? (
@@ -1218,7 +1218,7 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
                                 >
                                   {lane.vsMarket === null
                                     ? "—"
-                                    : `${lane.vsMarket >= 0 ? "+" : "-"}$${Math.abs(lane.vsMarket).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
+                                    : `${lane.vsMarket >= 0 ? "+" : "-"}$${Math.abs(lane.vsMarket).toLocaleString("en-US", { maximumFractionDigits: 0 })}`}
                                 </span>
                               </button>
                             )}

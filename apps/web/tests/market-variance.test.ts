@@ -17,10 +17,10 @@ describe("classifyBand", () => {
 
 describe("computeVariance", () => {
   test("negotiated above market → positive variance + ABOVE band", () => {
-    // 250 mi, market $2.76/mi all-in → market total $690. Negotiated $800 → $3.20/mi.
-    const v = computeVariance({ negotiatedTotal: 800, miles: 250, marketPerMile: 2.76 });
+    // Market total $690, negotiated $800, 250 mi → +$110, +15.9%, $3.20 vs $2.76/mi.
+    const v = computeVariance({ negotiatedTotal: 800, marketTotal: 690, miles: 250 });
     expect(v.negotiatedPerMile).toBeCloseTo(3.2, 4);
-    expect(v.marketTotal).toBeCloseTo(690, 4);
+    expect(v.marketPerMile).toBeCloseTo(2.76, 4);
     expect(v.varianceTotal).toBeCloseTo(110, 4);
     expect(v.variancePerMile).toBeCloseTo(0.44, 4);
     expect(v.variancePct).toBeCloseTo(0.1594, 3);
@@ -28,22 +28,25 @@ describe("computeVariance", () => {
   });
 
   test("negotiated at market → ~zero variance + AT band", () => {
-    const v = computeVariance({ negotiatedTotal: 690, miles: 250, marketPerMile: 2.76 });
+    const v = computeVariance({ negotiatedTotal: 690, marketTotal: 690, miles: 250 });
     expect(v.varianceTotal).toBeCloseTo(0, 4);
     expect(v.band).toBe("AT");
   });
 
   test("negotiated well below market → negative variance + BELOW band", () => {
-    // $2.00/mi vs $2.76 market ≈ −27.5%.
-    const v = computeVariance({ negotiatedTotal: 500, miles: 250, marketPerMile: 2.76 });
+    const v = computeVariance({ negotiatedTotal: 500, marketTotal: 690, miles: 250 });
     expect(v.varianceTotal).toBeLessThan(0);
     expect(v.band).toBe("BELOW");
   });
 
-  test("zero miles is safe (no divide-by-zero)", () => {
-    const v = computeVariance({ negotiatedTotal: 800, miles: 0, marketPerMile: 2.76 });
-    expect(v.negotiatedPerMile).toBe(0);
-    expect(v.marketTotal).toBe(0);
-    expect(Number.isFinite(v.variancePct)).toBe(true);
+  test("no miles → variance still computes (Excel model); per-mile figures are null", () => {
+    // The screenshot case: market $2500, negotiated $2250, no trip miles.
+    const v = computeVariance({ negotiatedTotal: 2250, marketTotal: 2500 });
+    expect(v.varianceTotal).toBeCloseTo(-250, 4);
+    expect(v.variancePct).toBeCloseTo(-0.1, 4);
+    expect(v.band).toBe("AT"); // exactly −10% is the boundary → AT
+    expect(v.negotiatedPerMile).toBeNull();
+    expect(v.marketPerMile).toBeNull();
+    expect(v.variancePerMile).toBeNull();
   });
 });

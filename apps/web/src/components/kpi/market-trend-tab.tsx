@@ -4,7 +4,7 @@ import Link from "next/link";
 import React from "react";
 import type { PeriodRollup, VarianceLogView } from "@/server/dat/variance-log";
 
-const money = (n: number) => `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const money = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 const signedPct = (n: number) => `${n >= 0 ? "+" : "−"}${(Math.abs(n) * 100).toFixed(1)}%`;
 
 /**

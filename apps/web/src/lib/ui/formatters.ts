@@ -14,13 +14,26 @@ function toFinite(value: number | null | undefined): number | null {
   return value;
 }
 
+// Force a fixed locale (en-US) + UTC so server and client render identically — a
+// bare toLocale*/undefined uses the runtime locale, which mismatches at hydration
+// (server US vs a UK/EU browser). Use these everywhere a date/number is rendered.
+const NUM_LOCALE = "en-US";
+
+/** Deterministic short date ("Aug 18, 2026") from an ISO string or Date. */
+export function formatDay(value: string | Date | null | undefined): string {
+  if (!value) return "—";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString(NUM_LOCALE, { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
+}
+
 export function money(value: number | null | undefined, options: MoneyOptions = {}): string {
   const safe = toFinite(value);
   if (safe === null) {
     return "—";
   }
   const decimals = options.decimals ?? 2;
-  return `$${safe.toLocaleString(undefined, {
+  return `$${safe.toLocaleString(NUM_LOCALE, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
   })}`;
@@ -41,7 +54,7 @@ export function miles(value: number | null | undefined, options: MoneyOptions = 
     return "—";
   }
   const decimals = options.decimals ?? 0;
-  return safe.toLocaleString(undefined, {
+  return safe.toLocaleString(NUM_LOCALE, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals
   });
@@ -52,7 +65,7 @@ export function int(value: number | null | undefined): string {
   if (safe === null) {
     return "—";
   }
-  return Math.round(safe).toLocaleString();
+  return Math.round(safe).toLocaleString(NUM_LOCALE);
 }
 
 export function pct(value: number | null | undefined, options: PctOptions = {}): string {

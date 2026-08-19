@@ -19,10 +19,11 @@ export interface LogVarianceInput {
   equipment: DatEquipment;
   rateType: DatRateType;
   negotiatedTotal: number;
-  miles: number;
-  milesSource: "dat" | "google" | "manual";
-  /** Market all-in per mile at the moment of logging (from the live/cached quote). */
-  marketPerMile: number;
+  /** The DAT market rate for the lane, total dollars. */
+  marketTotal: number;
+  /** Optional trip miles — only for per-mile derivation. */
+  miles?: number;
+  milesSource?: "dat" | "google" | "manual";
   loadId?: string | null;
   brokerId?: string | null;
   directCustomerId?: string | null;
@@ -104,7 +105,8 @@ export async function syncLoadVariance(regionId: string, maxNew = 150): Promise<
         equipment: "VAN",
         rateType: "SPOT"
       });
-      const v = computeVariance({ negotiatedTotal, miles, marketPerMile: quote.allInPerMile }, threshold);
+      const marketTotal = quote.allInPerMile * miles;
+      const v = computeVariance({ negotiatedTotal, marketTotal, miles }, threshold);
       await prisma.marketVarianceEntry.create({
         data: {
           regionId,
@@ -116,12 +118,12 @@ export async function syncLoadVariance(regionId: string, maxNew = 150): Promise<
           equipment: "VAN",
           rateType: "SPOT",
           negotiatedTotal,
-          negotiatedPerMile: v.negotiatedPerMile,
+          negotiatedPerMile: v.negotiatedPerMile ?? 0,
           miles,
           milesSource: "manual",
-          marketPerMile: v.marketPerMile,
+          marketPerMile: v.marketPerMile ?? 0,
           marketTotal: v.marketTotal,
-          variancePerMile: v.variancePerMile,
+          variancePerMile: v.variancePerMile ?? 0,
           varianceTotal: v.varianceTotal,
           variancePct: v.variancePct,
           band: v.band,
@@ -144,8 +146,8 @@ export async function logMarketVariance(input: LogVarianceInput): Promise<Varian
   const v = computeVariance(
     {
       negotiatedTotal: input.negotiatedTotal,
-      miles: input.miles,
-      marketPerMile: input.marketPerMile
+      marketTotal: input.marketTotal,
+      miles: input.miles
     },
     marketVarianceBandPct / 100
   );
@@ -161,12 +163,12 @@ export async function logMarketVariance(input: LogVarianceInput): Promise<Varian
       equipment: input.equipment,
       rateType: input.rateType,
       negotiatedTotal: input.negotiatedTotal,
-      negotiatedPerMile: v.negotiatedPerMile,
-      miles: input.miles,
-      milesSource: input.milesSource,
-      marketPerMile: v.marketPerMile,
+      negotiatedPerMile: v.negotiatedPerMile ?? 0,
+      miles: input.miles ?? 0,
+      milesSource: input.milesSource ?? "manual",
+      marketPerMile: v.marketPerMile ?? 0,
       marketTotal: v.marketTotal,
-      variancePerMile: v.variancePerMile,
+      variancePerMile: v.variancePerMile ?? 0,
       varianceTotal: v.varianceTotal,
       variancePct: v.variancePct,
       band: v.band,

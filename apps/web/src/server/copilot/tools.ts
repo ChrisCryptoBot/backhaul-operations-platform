@@ -1491,7 +1491,7 @@ export async function dispatchTool(
         negotiatedTotal,
         miles,
         milesSource: "manual",
-        marketPerMile: quote.allInPerMile,
+        marketTotal: quote.allInPerMile * miles,
         quoteId: quote.id,
         notes: typeof input.notes === "string" ? input.notes.trim() || null : null
       });
