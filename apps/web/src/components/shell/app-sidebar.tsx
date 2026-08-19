@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import React from "react";
 import { BoardIcon, BuildingIcon, ChevronDownIcon, GearIcon, LoopIcon } from "@/components/icons";
+import { NavigationProgress } from "@/components/shell/navigation-progress";
 
 export interface AppSidebarProps {
   viewerIsAdmin: boolean;
@@ -36,7 +37,34 @@ interface NavGroup {
  */
 export function AppSidebar({ viewerIsAdmin, viewerCanManageReference, regionCode, regionLabel }: AppSidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [isNavigating, startNavigation] = React.useTransition();
   const [isCollapsed, setIsCollapsed] = React.useState(false);
+
+  // Intercept only plain left-clicks so navigation runs inside a transition (keeping
+  // the current screen mounted + showing the top progress cue until the destination is
+  // ready). Modifier / middle clicks fall through to the real <Link href> so
+  // open-in-new-tab still works, and so does keyboard/SSR when JS is unavailable.
+  const handleNavClick = React.useCallback(
+    (event: React.MouseEvent<HTMLAnchorElement>, href: string) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return;
+      }
+      if (href === pathname) return;
+      event.preventDefault();
+      startNavigation(() => {
+        router.push(href);
+      });
+    },
+    [pathname, router]
+  );
   React.useEffect(() => {
     if (window.localStorage.getItem("db-sidebar-collapsed") === "true") setIsCollapsed(true);
   }, []);
@@ -115,6 +143,7 @@ export function AppSidebar({ viewerIsAdmin, viewerCanManageReference, regionCode
 
   return (
     <aside className="db-sidebar" data-collapsed={isCollapsed ? "true" : "false"} aria-label="Primary navigation">
+      <NavigationProgress active={isNavigating} />
       <button
         type="button"
         className="db-side-brand"
@@ -160,6 +189,7 @@ export function AppSidebar({ viewerIsAdmin, viewerCanManageReference, regionCode
                       className={`db-side-subitem${isItemActive(item) ? " active" : ""}`}
                       title={item.label}
                       tabIndex={open ? undefined : -1}
+                      onClick={(event) => handleNavClick(event, item.href)}
                     >
                       {item.label}
                     </Link>

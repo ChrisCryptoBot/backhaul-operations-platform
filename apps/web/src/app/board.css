@@ -3090,32 +3090,6 @@
   background: var(--db-neg-bg);
 }
 
-.db-loading-shell {
-  width: min(760px, 100%);
-  display: grid;
-  gap: 12px;
-}
-
-.db-loading-line {
-  border-radius: 4px;
-  min-height: 24px;
-}
-
-.db-loading-line-wide {
-  min-height: 36px;
-}
-
-.db-loading-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.db-loading-card {
-  min-height: 76px;
-  border-radius: 4px;
-}
-
 /* Daily board canonical contract overrides */
 .db-brand {
   display: flex;
@@ -3965,6 +3939,61 @@
   }
   to {
     background-position: -200% 0;
+  }
+}
+
+/* Page entrance — content eases in on each client navigation (keyed by pathname in
+   AppShell). Same shape as db-row-in; neutralized by the reduced-motion guard below. */
+@keyframes db-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.db-page-in {
+  animation: db-page-in var(--db-dur-base) var(--db-ease-out);
+}
+
+/* Slim top navigation progress cue — shown while a route transition is pending
+   (useTransition in the sidebar). An indeterminate accent bar sweeps across the
+   top of the content area. */
+.db-nav-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  overflow: hidden;
+  background: transparent;
+  z-index: 60;
+  pointer-events: none;
+}
+.db-nav-progress i {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: var(--db-r-pill);
+  background: var(--db-accent);
+  animation: db-navbar 1s var(--db-ease-out) infinite;
+}
+@keyframes db-navbar {
+  0% {
+    margin-left: -40%;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .db-nav-progress i {
+    animation: none;
+    width: 100%;
+    margin-left: 0;
+    opacity: 0.6;
   }
 }
 

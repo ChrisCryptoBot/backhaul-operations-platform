@@ -38,7 +38,15 @@ vi.mock("@/server/kpi-governance", () => ({
 
 vi.mock("next/navigation", () => ({
   redirect,
-  usePathname: () => "/"
+  usePathname: () => "/",
+  useRouter: () => ({
+    push: () => {},
+    replace: () => {},
+    prefetch: () => {},
+    back: () => {},
+    forward: () => {},
+    refresh: () => {}
+  })
 }));
 
 vi.mock("@/lib/auth-mode", () => ({

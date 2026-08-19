@@ -11,3 +11,21 @@ vi.mock("@clerk/nextjs", () => ({
   useAuth: () => ({ isSignedIn: true }),
   SignOutButton: ({ children }: { children: React.ReactNode }) => React.createElement(React.Fragment, null, children)
 }));
+
+// The shared sidebar navigates via useRouter() inside a transition; the real hook throws
+// without an app-router provider. Stub only useRouter (keep usePathname et al. real, so
+// active-item logic is unchanged). Files with their own next/navigation mock override this.
+vi.mock("next/navigation", async (importActual) => {
+  const actual = await importActual<typeof import("next/navigation")>();
+  return {
+    ...actual,
+    useRouter: () => ({
+      push: vi.fn(),
+      replace: vi.fn(),
+      prefetch: vi.fn(),
+      back: vi.fn(),
+      forward: vi.fn(),
+      refresh: vi.fn()
+    })
+  };
+});
