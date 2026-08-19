@@ -207,7 +207,10 @@ async function main() {
           negotiableMiles: miles(loaded),
           loadedRpm: money(l.rate / loaded),
           emptyMilePct: emptyPct.toFixed(4),
-          attentionSeverity: "INFO"
+          attentionSeverity: "INFO",
+          // Tender/EDI gates — most loads tendered to MG/TMW (drives Tender Accept %).
+          tmwStatusTask: idx % 9 === 0 ? "NOT_DONE" : "DONE",
+          mgStatusTask: idx % 11 === 0 ? "NOT_DONE" : "DONE"
         };
 
         await tx.load.create({ data: { id, ...data } });

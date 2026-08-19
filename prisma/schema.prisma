@@ -601,6 +601,11 @@ model DatProviderConfig {
   id           String   @id @default("default")
   apiKeyCipher String?
   apiKeyLast4  String?
+  // Service-account auth (DAT iQ / RateView 2-step OAuth) — an alternative to a
+  // pre-minted token. Encrypted at rest like the key; userEmail is a plain identifier.
+  usernameCipher String?
+  passwordCipher String?
+  userEmail      String?
   isActive     Boolean  @default(true)
   updatedById  String
   createdAt    DateTime @default(now())

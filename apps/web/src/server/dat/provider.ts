@@ -1,5 +1,5 @@
 import type { DatEquipment, DatRateType } from "@prisma/client";
-import { getDatApiKey } from "@/server/dat/settings";
+import { getDatCredentials } from "@/server/dat/settings";
 
 // ── DAT rate provider abstraction ────────────────────────────────────────────
 // One narrow interface with two implementations: a live DAT iQ / RateView client
@@ -44,6 +44,8 @@ export interface DatRateProvider {
 
 const DAT_TOKEN_URL =
   process.env.DAT_TOKEN_URL ?? "https://identity.api.dat.com/access/v1/token/organization";
+const DAT_USER_TOKEN_URL =
+  process.env.DAT_USER_TOKEN_URL ?? "https://identity.api.dat.com/access/v1/token/user";
 const DAT_RATEVIEW_URL =
   process.env.DAT_RATEVIEW_URL ?? "https://analytics.api.dat.com/linehaulrates/v1/lookups";
 
@@ -53,75 +55,112 @@ const EQUIPMENT_TO_DAT: Record<DatEquipment, string> = {
   FLATBED: "FLATBED"
 };
 
+export interface LiveDatCredentials {
+  token?: string | null;
+  username?: string | null;
+  password?: string | null;
+  userEmail?: string | null;
+}
+
 class LiveDatProvider implements DatRateProvider {
   readonly kind = "dat" as const;
-  constructor(private readonly apiKey: string) {}
+  constructor(private readonly creds: LiveDatCredentials) {}
 
+  /**
+   * Resolve a bearer token. A pre-minted token is used directly; otherwise DAT's
+   * documented service-account 2-step OAuth: org token → user token.
+   */
   private async getAccessToken(): Promise<string> {
-    const res = await fetch(DAT_TOKEN_URL, {
+    if (this.creds.token) return this.creds.token;
+    const { username, password } = this.creds;
+    if (!username || !password) throw new Error("DAT credentials missing");
+
+    const orgRes = await fetch(DAT_TOKEN_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.apiKey}` },
-      body: JSON.stringify({ scope: "rateview" })
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
     });
-    if (!res.ok) {
-      throw new Error(`DAT token request failed (${res.status})`);
-    }
-    const data = (await res.json()) as { accessToken?: string; token?: string };
-    const token = data.accessToken ?? data.token;
-    if (!token) {
-      throw new Error("DAT token response missing accessToken");
-    }
-    return token;
+    if (!orgRes.ok) throw new Error(`DAT org token failed (${orgRes.status})`);
+    const orgData = (await orgRes.json()) as { accessToken?: string; token?: string };
+    const orgToken = orgData.accessToken ?? orgData.token;
+    if (!orgToken) throw new Error("DAT org token response missing accessToken");
+
+    const userRes = await fetch(DAT_USER_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${orgToken}` },
+      body: JSON.stringify({ username: this.creds.userEmail ?? username })
+    });
+    if (!userRes.ok) throw new Error(`DAT user token failed (${userRes.status})`);
+    const userData = (await userRes.json()) as { accessToken?: string; token?: string };
+    const userToken = userData.accessToken ?? userData.token;
+    if (!userToken) throw new Error("DAT user token response missing accessToken");
+    return userToken;
   }
 
   async getLaneRate(req: LaneRateRequest): Promise<LaneRateResult> {
     const token = await this.getAccessToken();
+    // RateView /lookups takes an ARRAY of lookup requests.
     const res = await fetch(DAT_RATEVIEW_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        origin: { city: req.originCity, stateOrProvince: req.originState },
-        destination: { city: req.destCity, stateOrProvince: req.destState },
-        equipment: EQUIPMENT_TO_DAT[req.equipment],
-        rateType: req.rateType === "CONTRACT" ? "CONTRACT" : "SPOT",
-        includeMyRate: false
-      })
+      body: JSON.stringify([
+        {
+          origin: { city: req.originCity, stateOrProvince: req.originState },
+          destination: { city: req.destCity, stateOrProvince: req.destState },
+          rateType: req.rateType === "CONTRACT" ? "CONTRACT" : "SPOT",
+          equipment: EQUIPMENT_TO_DAT[req.equipment],
+          includeMyRate: false
+        }
+      ])
     });
-    if (!res.ok) {
-      throw new Error(`DAT RateView lookup failed (${res.status})`);
-    }
-    const data = (await res.json()) as DatRateViewResponse;
-    return mapDatResponse(data);
+    if (!res.ok) throw new Error(`DAT RateView lookup failed (${res.status})`);
+    return mapDatResponse((await res.json()) as unknown);
   }
 }
 
-interface DatRateViewResponse {
-  rate?: {
-    perMile?: { low?: number; average?: number; high?: number };
-    perTrip?: { average?: number };
-    fuelSurchargePerMile?: number;
-    averageFuelSurchargePerMileUsd?: number;
-    mileage?: number;
-    reports?: number;
-    timeframe?: string;
-    escalationType?: string;
-  };
+// Loose shapes to tolerate DAT response variants (array vs object; nested `response`).
+interface DatLooseRate {
+  perMile?: { low?: number; average?: number; avg?: number; high?: number };
+  rateUsdPerMile?: { low?: number; average?: number; avg?: number; high?: number };
+  averageUsdPerMile?: number;
+  averageFuelSurchargePerMileUsd?: number;
+  fuelSurchargePerMile?: number;
+  mileage?: number;
+  reports?: number;
+  companies?: number;
+  timeframe?: string;
+  escalationType?: string;
+}
+interface DatLooseNode {
+  response?: { rate?: DatLooseRate; mileage?: number };
+  rate?: DatLooseRate;
+  mileage?: number;
+}
+interface DatLooseRoot {
+  rateResponses?: DatLooseNode[];
+  rate?: DatLooseRate;
 }
 
-function mapDatResponse(data: DatRateViewResponse): LaneRateResult {
-  const r = data.rate ?? {};
-  const avg = r.perMile?.average;
-  if (typeof avg !== "number") {
-    throw new Error("DAT response missing per-mile average");
-  }
+function firstOf<T>(value: T[] | T | undefined): T | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+/** Defensively map DAT's rate response (array/object; nested `response.rate`). */
+function mapDatResponse(payload: unknown): LaneRateResult {
+  const root = (Array.isArray(payload) ? payload[0] : payload) as DatLooseRoot & DatLooseNode;
+  const node = firstOf(root?.rateResponses) ?? root;
+  const rate: DatLooseRate = node?.response?.rate ?? node?.rate ?? (root?.rate ?? {});
+  const perMile = rate.perMile ?? rate.rateUsdPerMile ?? {};
+  const avg = perMile.average ?? perMile.avg ?? rate.averageUsdPerMile;
+  if (typeof avg !== "number") throw new Error("DAT response missing per-mile average");
   return {
-    ratePerMileLow: r.perMile?.low ?? avg,
+    ratePerMileLow: perMile.low ?? avg,
     ratePerMileAvg: avg,
-    ratePerMileHigh: r.perMile?.high ?? avg,
-    fuelPerMile: r.fuelSurchargePerMile ?? r.averageFuelSurchargePerMileUsd ?? null,
-    mileage: r.mileage ?? null,
-    reportCount: r.reports ?? null,
-    timeframe: r.timeframe ?? null,
+    ratePerMileHigh: perMile.high ?? avg,
+    fuelPerMile: rate.averageFuelSurchargePerMileUsd ?? rate.fuelSurchargePerMile ?? null,
+    mileage: rate.mileage ?? node?.response?.mileage ?? node?.mileage ?? null,
+    reportCount: rate.reports ?? rate.companies ?? null,
+    timeframe: rate.timeframe ?? rate.escalationType ?? null,
     source: "dat"
   };
 }
@@ -174,9 +213,11 @@ export async function resolveDatProvider(): Promise<DatRateProvider> {
   if (process.env.DAT_FORCE_MOCK === "true") {
     return new MockDatProvider();
   }
-  const key = await getDatApiKey();
-  if (key) {
-    return new LiveDatProvider(key);
+  const creds = await getDatCredentials();
+  const hasToken = Boolean(creds.token);
+  const hasServiceAccount = Boolean(creds.username && creds.password);
+  if (hasToken || hasServiceAccount) {
+    return new LiveDatProvider(creds);
   }
   return new MockDatProvider();
 }

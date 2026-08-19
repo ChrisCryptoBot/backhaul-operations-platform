@@ -54,7 +54,7 @@ export default async function MarketVariancePage() {
 
   return (
     <AppShell title="Market Variance" viewerIsAdmin={viewerIsAdmin} viewerCanManageReference={canWrite} regionCode={getPhase1RegionCode()}>
-      <MarketVarianceManager initialLog={log} canWrite={canWrite} datLive={datStatus.hasKey && datStatus.isActive} />
+      <MarketVarianceManager initialLog={log} canWrite={canWrite} datLive={(datStatus.hasKey || datStatus.hasServiceAccount) && datStatus.isActive} />
     </AppShell>
   );
 }

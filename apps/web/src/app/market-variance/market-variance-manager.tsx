@@ -61,6 +61,11 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
   const [miles, setMiles] = React.useState("");
   const [negMode, setNegMode] = React.useState<"total" | "permile">("total");
   const [negValue, setNegValue] = React.useState("");
+  // Market rate is the value FROM DAT iQ — auto-filled by the API when connected,
+  // otherwise typed in manually. It drives the variance (never a hidden formula).
+  const [marketMode, setMarketMode] = React.useState<"total" | "permile">("permile");
+  const [marketInput, setMarketInput] = React.useState("");
+  const [marketSource, setMarketSource] = React.useState<"manual" | "dat" | "mock">("manual");
   const [notes, setNotes] = React.useState("");
   const [logBusy, setLogBusy] = React.useState(false);
   const [logError, setLogError] = React.useState<string | null>(null);
@@ -93,6 +98,11 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
         throw new Error(payload?.error ?? "Lookup failed.");
       }
       setQuote(payload.quote);
+      // Pre-fill the (editable) market-rate field from the lookup, in $/mi. The
+      // coordinator can override it with the exact number from their DAT iQ screen.
+      setMarketInput(payload.quote.allInPerMile.toFixed(2));
+      setMarketMode("permile");
+      setMarketSource(payload.quote.isMock ? "mock" : "dat");
       // Seed miles from the quote when the field is empty and DAT/road miles are known.
       if (payload.quote.mileage != null && miles.trim() === "") {
         setMiles(String(payload.quote.mileage));
@@ -108,9 +118,11 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
   const milesNum = Number(miles) || (quote?.mileage ?? 0);
   const negNum = Number(negValue) || 0;
   const negotiatedTotal = negMode === "total" ? negNum : negNum * milesNum;
+  // Market rate → per-mile, from whichever unit the user entered it in.
+  const marketNum = Number(marketInput) || 0;
+  const marketPerMile = marketMode === "permile" ? marketNum : milesNum > 0 ? marketNum / milesNum : 0;
   const variance = React.useMemo(() => {
-    if (!quote || milesNum <= 0 || negotiatedTotal <= 0) return null;
-    const marketPerMile = quote.allInPerMile;
+    if (milesNum <= 0 || negotiatedTotal <= 0 || marketPerMile <= 0) return null;
     const negotiatedPerMile = negotiatedTotal / milesNum;
     const marketTotal = marketPerMile * milesNum;
     const varTotal = negotiatedTotal - marketTotal;
@@ -124,10 +136,10 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
       variancePct: varPct,
       band: classifyBand(varPct, log.bandPct / 100)
     };
-  }, [quote, milesNum, negotiatedTotal, log.bandPct]);
+  }, [milesNum, negotiatedTotal, marketPerMile, log.bandPct]);
 
   async function logEntry() {
-    if (!quote || !variance) return;
+    if (!variance) return;
     setLogBusy(true);
     setLogError(null);
     try {
@@ -143,10 +155,10 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
           rateType,
           negotiatedTotal,
           miles: milesNum,
-          milesSource: quote.mileage != null ? "dat" : "manual",
-          marketPerMile: quote.allInPerMile,
-          quoteId: quote.id,
-          notes: notes.trim() || null
+          milesSource: quote?.mileage != null ? "dat" : "manual",
+          marketPerMile, // the DAT/manual market rate that drove the variance
+          quoteId: quote?.id ?? null,
+          notes: [notes.trim(), marketSource === "manual" ? "market: manual DAT entry" : null].filter(Boolean).join(" · ") || null
         })
       });
       const payload = (await res.json().catch(() => null)) as { entry?: VarianceEntryDto; error?: string } | null;
@@ -173,7 +185,7 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
           <div>
             <h2 className="db-ref-h">Market Variance</h2>
             <div className="db-ref-desc">
-              Live DAT lane rates during negotiation — see the disparity instantly, then log it. Above market is a win (we&apos;re the carrier).
+              Market rate comes from DAT iQ — auto-filled when the API is connected, or type it in from your DAT screen. See the disparity vs your negotiated rate instantly, then log it. Above market is a win (we&apos;re the carrier).
             </div>
           </div>
           <div className="db-ref-actions">
@@ -251,7 +263,7 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
           {quote ? (
             <div className="db-mv-quote" style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 20, alignItems: "flex-end" }}>
               <div>
-                <div className="db-set-eyebrow">Market · all-in</div>
+                <div className="db-set-eyebrow">DAT lookup · all-in → pre-filled below</div>
                 <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.1 }}>{perMile(quote.allInPerMile)}<span className="dim" style={{ fontSize: 13, fontWeight: 400 }}>/mi</span></div>
                 <div className="dim mono" style={{ fontSize: 12 }}>
                   line-haul {perMile(quote.ratePerMileAvg)} + fuel {quote.fuelPerMile != null ? perMile(quote.fuelPerMile) : "—"}
@@ -270,7 +282,7 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
         </div>
 
         {/* ── Live variance calculator ─────────────────────────────────────── */}
-        {quote ? (
+        {laneReady ? (
           <div className="db-fallback-card" style={{ marginBottom: 22 }}>
             <div className="db-form-grid">
               <label className="db-field-label">
@@ -278,11 +290,22 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
                 <input className="db-input mono" inputMode="decimal" value={miles} placeholder="e.g. 250" onChange={(e) => setMiles(e.target.value)} />
               </label>
               <label className="db-field-label">
-                Negotiated rate ({negMode === "total" ? "total $" : "$/mi"})
-                <input className="db-input mono" inputMode="decimal" value={negValue} placeholder={negMode === "total" ? "e.g. 588" : "e.g. 2.35"} onChange={(e) => setNegValue(e.target.value)} />
+                Market rate ({marketMode === "total" ? "total $" : "$/mi"}) · {marketSource === "manual" ? "manual" : marketSource === "mock" ? "mock" : "DAT"}
+                <input className="db-input mono" inputMode="decimal" value={marketInput} placeholder={marketMode === "total" ? "from DAT iQ, e.g. 4778" : "from DAT iQ, e.g. 3.20"} onChange={(e) => { setMarketInput(e.target.value); setMarketSource("manual"); }} />
               </label>
               <div className="db-field-label">
-                Enter as
+                Market as
+                <div style={{ display: "flex", gap: 6, paddingTop: 4 }}>
+                  <button type="button" className={`db-btn db-btn-mini${marketMode === "total" ? " primary" : " db-btn-ghost"}`} onClick={() => setMarketMode("total")}>Total $</button>
+                  <button type="button" className={`db-btn db-btn-mini${marketMode === "permile" ? " primary" : " db-btn-ghost"}`} onClick={() => setMarketMode("permile")}>$/mi</button>
+                </div>
+              </div>
+              <label className="db-field-label">
+                Negotiated rate ({negMode === "total" ? "total $" : "$/mi"})
+                <input className="db-input mono" inputMode="decimal" value={negValue} placeholder={negMode === "total" ? "e.g. 3200" : "e.g. 2.35"} onChange={(e) => setNegValue(e.target.value)} />
+              </label>
+              <div className="db-field-label">
+                Negotiated as
                 <div style={{ display: "flex", gap: 6, paddingTop: 4 }}>
                   <button type="button" className={`db-btn db-btn-mini${negMode === "total" ? " primary" : " db-btn-ghost"}`} onClick={() => setNegMode("total")}>Total $</button>
                   <button type="button" className={`db-btn db-btn-mini${negMode === "permile" ? " primary" : " db-btn-ghost"}`} onClick={() => setNegMode("permile")}>$/mi</button>
@@ -311,7 +334,7 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
                 )}
               </div>
             ) : (
-              <p className="dim" style={{ marginTop: 10, fontSize: 13 }}>Enter trip miles and a negotiated rate to see the variance.</p>
+              <p className="dim" style={{ marginTop: 10, fontSize: 13 }}>Enter trip miles, the DAT market rate, and your negotiated rate to see the variance.</p>
             )}
             {logError ? <p className="db-upload-error">{logError}</p> : null}
           </div>

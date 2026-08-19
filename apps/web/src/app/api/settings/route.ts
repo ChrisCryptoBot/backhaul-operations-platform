@@ -16,8 +16,12 @@ const settingsPayloadSchema = z.object({
   copilotModel: z.string().max(128).nullable().optional(),
   // Optional: omit/empty to keep the existing stored key.
   apiKey: z.string().max(512).optional(),
-  // DAT market-rate API key — optional, same keep-existing semantics.
+  // DAT market-rate API key/token — optional, same keep-existing semantics.
   datApiKey: z.string().max(512).optional(),
+  // DAT service-account (alternative to a token) — optional, keep-existing semantics.
+  datUsername: z.string().max(256).optional(),
+  datPassword: z.string().max(512).optional(),
+  datUserEmail: z.string().max(256).optional(),
   isActive: z.boolean().optional()
 });
 
@@ -87,11 +91,23 @@ export async function POST(request: Request) {
       isActive: payload.isActive
     });
 
-    // Only touch the DAT config when a key was actually submitted (write-only field).
-    const datStatus =
-      payload.datApiKey !== undefined && payload.datApiKey.trim().length > 0
-        ? await updateDatSettings({ actorId: access.userId, apiKey: payload.datApiKey })
-        : await getDatSettingsStatus();
+    // Only touch the DAT config when a credential field was actually submitted
+    // (write-only fields). Any of token / username / password / email triggers it.
+    const nonEmpty = (v: string | undefined) => v !== undefined && v.trim().length > 0;
+    const datTouched =
+      nonEmpty(payload.datApiKey) ||
+      nonEmpty(payload.datUsername) ||
+      nonEmpty(payload.datPassword) ||
+      nonEmpty(payload.datUserEmail);
+    const datStatus = datTouched
+      ? await updateDatSettings({
+          actorId: access.userId,
+          apiKey: payload.datApiKey,
+          username: payload.datUsername,
+          password: payload.datPassword,
+          userEmail: payload.datUserEmail
+        })
+      : await getDatSettingsStatus();
 
     return NextResponse.json({ ok: true, settings: status, datSettings: datStatus }, { status: 200 });
   } catch (error) {

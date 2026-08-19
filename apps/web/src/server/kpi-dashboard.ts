@@ -914,6 +914,30 @@ export async function getKpiDashboard(input: {
         }
       : null;
 
+    // Tender Accept %: no live EDI feed, so proxy with the share of the week's
+    // non-canceled loads successfully tendered to TMW (tmwStatusTask = DONE).
+    // Defensive: any query failure leaves the card as "—" rather than breaking the board.
+    const tenderPct = await (async (): Promise<number | null> => {
+      try {
+        const [tenderTotal, tenderAccepted] = await Promise.all([
+          tx.load.count({
+            where: { regionId: input.regionId, weekIso: input.weekIso, status: { notIn: ["CANCELED", "FAILED"] } }
+          }),
+          tx.load.count({
+            where: {
+              regionId: input.regionId,
+              weekIso: input.weekIso,
+              status: { notIn: ["CANCELED", "FAILED"] },
+              tmwStatusTask: "DONE"
+            }
+          })
+        ]);
+        return tenderTotal > 0 ? (tenderAccepted / tenderTotal) * 100 : null;
+      } catch {
+        return null;
+      }
+    })();
+
     const cards = [
       {
         key: "loads",
@@ -962,10 +986,10 @@ export async function getKpiDashboard(input: {
       {
         key: "tender",
         label: "Tender Accept %",
-        value: "—",
+        value: tenderPct !== null ? tenderPct.toFixed(0) : "—",
         delta: null,
-        deltaLabel: "no prior",
-        noPrior: true
+        deltaLabel: tenderPct !== null ? "TMW-tendered" : "no prior",
+        noPrior: tenderPct === null
       }
     ];
     // Ops-analytics block + the 3 headline cards. Additive and defensive: if it

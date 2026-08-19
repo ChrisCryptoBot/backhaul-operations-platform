@@ -59,6 +59,10 @@ export function SettingsForm({ initialStatus, initialDatStatus, supportedProvide
   const [datApiKey, setDatApiKey] = React.useState("");
   const [datHasKey, setDatHasKey] = React.useState(initialDatStatus.hasKey);
   const [datLast4, setDatLast4] = React.useState(initialDatStatus.apiKeyLast4);
+  const [datUsername, setDatUsername] = React.useState("");
+  const [datPassword, setDatPassword] = React.useState("");
+  const [datUserEmail, setDatUserEmail] = React.useState(initialDatStatus.userEmail ?? "");
+  const [datHasServiceAccount, setDatHasServiceAccount] = React.useState(initialDatStatus.hasServiceAccount);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -107,7 +111,10 @@ export function SettingsForm({ initialStatus, initialDatStatus, supportedProvide
           model,
           copilotModel: copilotModel || null,
           apiKey: apiKey.trim() ? apiKey.trim() : undefined,
-          datApiKey: datApiKey.trim() ? datApiKey.trim() : undefined
+          datApiKey: datApiKey.trim() ? datApiKey.trim() : undefined,
+          datUsername: datUsername.trim() ? datUsername.trim() : undefined,
+          datPassword: datPassword.trim() ? datPassword.trim() : undefined,
+          datUserEmail: datUserEmail.trim() ? datUserEmail.trim() : undefined
         })
       });
       const payload = (await response.json().catch(() => null)) as {
@@ -126,8 +133,12 @@ export function SettingsForm({ initialStatus, initialDatStatus, supportedProvide
       if (payload.datSettings) {
         setDatHasKey(payload.datSettings.hasKey);
         setDatLast4(payload.datSettings.apiKeyLast4);
+        setDatHasServiceAccount(payload.datSettings.hasServiceAccount);
+        setDatUserEmail(payload.datSettings.userEmail ?? "");
       }
       setDatApiKey("");
+      setDatUsername("");
+      setDatPassword("");
       show({ message: "Settings saved." });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Failed to save settings.");
@@ -245,6 +256,43 @@ export function SettingsForm({ initialStatus, initialDatStatus, supportedProvide
                   </div>
                   <span className="db-field-hint">
                     {datHasKey ? "Key configured" : "Not set"} · for automatic DAT market rates (manual entry works meanwhile)
+                  </span>
+                </label>
+                <div className="db-field-hint db-form-full" style={{ marginTop: "var(--db-2)" }}>
+                  — or — DAT iQ / RateView <strong>service account</strong> (used if no token above):
+                </div>
+                <label className="db-field-label">
+                  DAT username
+                  <input
+                    className="db-input"
+                    value={datUsername}
+                    onChange={(event) => setDatUsername(event.target.value)}
+                    placeholder={datHasServiceAccount ? "configured — leave blank to keep" : "service-account username"}
+                    autoComplete="off"
+                  />
+                </label>
+                <label className="db-field-label">
+                  DAT password
+                  <input
+                    type="password"
+                    className="db-input"
+                    value={datPassword}
+                    onChange={(event) => setDatPassword(event.target.value)}
+                    placeholder={datHasServiceAccount ? "configured — leave blank to keep" : "service-account password"}
+                    autoComplete="off"
+                  />
+                </label>
+                <label className="db-field-label">
+                  DAT user email
+                  <input
+                    className="db-input"
+                    value={datUserEmail}
+                    onChange={(event) => setDatUserEmail(event.target.value)}
+                    placeholder="analytics user email (for the user token)"
+                    autoComplete="off"
+                  />
+                  <span className="db-field-hint">
+                    {datHasServiceAccount ? "Service account configured" : "Optional — used when no token is set"}
                   </span>
                 </label>
 
