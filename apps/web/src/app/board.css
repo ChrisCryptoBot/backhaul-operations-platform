@@ -5397,3 +5397,33 @@ textarea.db-input { resize: vertical; min-height: 60px; line-height: 1.5; font-f
 .db-sort-btn:hover .db-sort-dir {
   opacity: 1;
 }
+
+/* ── City autocomplete (Market Variance lane inputs) ─────────────────────── */
+.db-city-ac { position: relative; }
+.db-city-suggest {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 240px;
+  overflow-y: auto;
+  background: var(--db-bg-elev-2);
+  border: 1px solid var(--db-border);
+  border-radius: var(--db-r-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.db-city-suggest-item {
+  padding: 6px 8px;
+  border-radius: var(--db-r-sm);
+  font-size: var(--db-text-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.db-city-suggest-item.active,
+.db-city-suggest-item:hover {
+  background: var(--db-accent-bg);
+}

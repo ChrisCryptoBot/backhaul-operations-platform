@@ -7,6 +7,7 @@ import type { PeriodRollup, VarianceEntryDto, VarianceLogView } from "@/server/d
 import { EmptyState } from "@/components/ui/empty-state";
 import { UndoToast, useToast } from "@/components/ui/toast";
 import { LockIcon, LoopIcon } from "@/components/icons";
+import { CityAutocomplete } from "./city-autocomplete";
 
 type Equipment = "VAN" | "REEFER" | "FLATBED";
 type RateType = "SPOT" | "CONTRACT";
@@ -188,7 +189,17 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
           <div className="db-form-grid">
             <label className="db-field-label">
               Origin city
-              <input className="db-input" value={originCity} placeholder="e.g. Syracuse" onChange={(e) => setOriginCity(e.target.value)} />
+              <CityAutocomplete
+                className="db-input"
+                ariaLabel="Origin city"
+                cityValue={originCity}
+                placeholder="Type a city, e.g. Syracuse"
+                onCityChange={setOriginCity}
+                onPick={(city, state) => {
+                  setOriginCity(city);
+                  setOriginState(state);
+                }}
+              />
             </label>
             <label className="db-field-label">
               Origin state
@@ -196,7 +207,17 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
             </label>
             <label className="db-field-label">
               Destination city
-              <input className="db-input" value={destCity} placeholder="e.g. Philadelphia" onChange={(e) => setDestCity(e.target.value)} />
+              <CityAutocomplete
+                className="db-input"
+                ariaLabel="Destination city"
+                cityValue={destCity}
+                placeholder="Type a city, e.g. Philadelphia"
+                onCityChange={setDestCity}
+                onPick={(city, state) => {
+                  setDestCity(city);
+                  setDestState(state);
+                }}
+              />
             </label>
             <label className="db-field-label">
               Destination state
