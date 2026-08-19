@@ -599,6 +599,93 @@ model DatProviderConfig {
   updatedAt    DateTime @updatedAt
 }
 
+// ── Market Variance: live DAT lane rates + negotiation tracker ───────────────
+// DAT iQ / RateView benchmark rates cached per lane, plus a persisted log of how
+// each negotiated backhaul rate compared to market at booking time. We are the
+// CARRIER, so the negotiated rate is REVENUE: above market is good (ABOVE = 🟢).
+// Reference ids are stored as plain scalars (no FK) so this cache + append-only
+// log never cascades from, or blocks deletion of, loads/brokers/customers.
+
+enum DatEquipment {
+  VAN
+  REEFER
+  FLATBED
+}
+
+enum DatRateType {
+  SPOT
+  CONTRACT
+}
+
+enum MarketPerformanceBand {
+  ABOVE // negotiated beats market by >10% (good for us)
+  AT    // within ±10% of market
+  BELOW // negotiated trails market by >10% (review / renegotiate)
+}
+
+// A cached DAT lane-rate lookup. Refreshed on demand; `fetchedAt` drives staleness
+// so the UI shows an "as-of" time + refresh affordance without re-billing DAT on
+// every keystroke. Rate figures are per-mile (DAT-native); `mileage` is DAT's
+// practical road miles when the API returns them.
+model MarketRateQuote {
+  id              String       @id @default(cuid())
+  regionId        String
+  originCity      String
+  originState     String
+  destCity        String
+  destState       String
+  equipment       DatEquipment
+  rateType        DatRateType
+  ratePerMileLow  Decimal      @db.Decimal(12, 4)
+  ratePerMileAvg  Decimal      @db.Decimal(12, 4)
+  ratePerMileHigh Decimal      @db.Decimal(12, 4)
+  fuelPerMile     Decimal?     @db.Decimal(12, 4)
+  mileage         Decimal?     @db.Decimal(12, 4)
+  reportCount     Int?
+  timeframe       String?
+  source          String // "dat" | "mock"
+  raw             Json?
+  fetchedAt       DateTime     @default(now())
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([regionId, originCity, originState, destCity, destState, equipment, rateType])
+  @@index([regionId, fetchedAt])
+}
+
+// One logged negotiation: the market snapshot at booking time + our negotiated rate,
+// with the variance frozen so history stays accurate as the market moves. Positive
+// variance = negotiated above market = revenue win.
+model MarketVarianceEntry {
+  id                String                @id @default(cuid())
+  regionId          String
+  createdById       String
+  originCity        String
+  originState       String
+  destCity          String
+  destState         String
+  equipment         DatEquipment
+  rateType          DatRateType
+  negotiatedTotal   Decimal               @db.Decimal(12, 4)
+  negotiatedPerMile Decimal               @db.Decimal(12, 4)
+  miles             Decimal               @db.Decimal(12, 4)
+  milesSource       String // "dat" | "google" | "manual"
+  marketPerMile     Decimal               @db.Decimal(12, 4)
+  marketTotal       Decimal               @db.Decimal(12, 4)
+  variancePerMile   Decimal               @db.Decimal(12, 4)
+  varianceTotal     Decimal               @db.Decimal(12, 4)
+  variancePct       Decimal               @db.Decimal(9, 4)
+  band              MarketPerformanceBand
+  loadId            String?
+  brokerId          String?
+  directCustomerId  String?
+  quoteId           String?
+  notes             String?
+  createdAt         DateTime              @default(now())
+
+  @@index([regionId, createdAt])
+}
+
 // Per-region board tunables (e.g. Empty% color thresholds). Editable on the Settings
 // page and via the copilot. Singleton per region (regionId unique).
 model RegionConfig {
@@ -608,6 +695,9 @@ model RegionConfig {
   emptyPctRed     Decimal  @default(25) @db.Decimal(5, 2)
   emptyPctAlert   Decimal  @default(6.5) @db.Decimal(5, 2)
   onTimeTargetPct Decimal  @default(95) @db.Decimal(5, 2)
+  // ± band (whole percent) around DAT market that counts as "at market" before a
+  // negotiation is flagged above/below. Drives the Market Variance module + tracker.
+  marketVarianceBandPct Decimal @default(10) @db.Decimal(5, 2)
   updatedById     String
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

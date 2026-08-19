@@ -66,6 +66,7 @@ export function SettingsForm({ initialStatus, initialDatStatus, supportedProvide
   const [red, setRed] = React.useState(String(initialThresholds.emptyPctRed));
   const [alert, setAlert] = React.useState(String(initialThresholds.emptyPctAlert));
   const [onTime, setOnTime] = React.useState(String(initialThresholds.onTimeTargetPct));
+  const [mvBand, setMvBand] = React.useState(String(initialThresholds.marketVarianceBandPct));
   const [thBusy, setThBusy] = React.useState(false);
   const [thError, setThError] = React.useState<string | null>(null);
 
@@ -143,7 +144,7 @@ export function SettingsForm({ initialStatus, initialDatStatus, supportedProvide
       const response = await fetch("/api/region-config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ emptyPctAmber: amber.trim(), emptyPctRed: red.trim(), emptyPctAlert: alert.trim(), onTimeTargetPct: onTime.trim() })
+        body: JSON.stringify({ emptyPctAmber: amber.trim(), emptyPctRed: red.trim(), emptyPctAlert: alert.trim(), onTimeTargetPct: onTime.trim(), marketVarianceBandPct: mvBand.trim() })
       });
       const payload = (await response.json().catch(() => null)) as { error?: string; ok?: boolean; config?: RegionThresholds } | null;
       if (!response.ok || !payload?.ok || !payload.config) {
@@ -153,6 +154,7 @@ export function SettingsForm({ initialStatus, initialDatStatus, supportedProvide
       setRed(String(payload.config.emptyPctRed));
       setAlert(String(payload.config.emptyPctAlert));
       setOnTime(String(payload.config.onTimeTargetPct));
+      setMvBand(String(payload.config.marketVarianceBandPct));
       show({ message: "Board thresholds saved." });
     } catch (submitError) {
       setThError(submitError instanceof Error ? submitError.message : "Failed to save thresholds.");
@@ -295,6 +297,11 @@ export function SettingsForm({ initialStatus, initialDatStatus, supportedProvide
                       On-time target %
                       <input className="db-input mono" type="number" min={1} max={100} value={onTime} onChange={(event) => setOnTime(event.target.value)} />
                       <span className="db-field-hint">reliability cards target line (OTD/OTP/firm-appt)</span>
+                    </label>
+                    <label className="db-field-label db-form-full">
+                      Market variance band ± %
+                      <input className="db-input mono" type="number" min={1} max={50} step={0.5} value={mvBand} onChange={(event) => setMvBand(event.target.value)} />
+                      <span className="db-field-hint">± band around DAT market before a negotiation flags above/below</span>
                     </label>
                     <div className="db-form-full" style={{ fontSize: "var(--db-text-2xs)", color: "var(--db-fg-dim)", display: "flex", gap: 6, alignItems: "center" }}>
                       <InfoIcon size={13} /> Must satisfy 0 &lt; amber &lt; red ≤ 100.

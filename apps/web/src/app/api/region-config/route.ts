@@ -14,6 +14,7 @@ const payloadSchema = z.object({
   emptyPctRed: z.string().regex(thresholdPattern).optional(),
   emptyPctAlert: z.string().regex(thresholdPattern).optional(),
   onTimeTargetPct: z.string().regex(thresholdPattern).optional(),
+  marketVarianceBandPct: z.string().regex(thresholdPattern).optional(),
   reason: z.string().max(280).optional()
 });
 
@@ -60,6 +61,7 @@ export async function POST(request: Request) {
       emptyPctRed: payload.emptyPctRed,
       emptyPctAlert: payload.emptyPctAlert,
       onTimeTargetPct: payload.onTimeTargetPct,
+      marketVarianceBandPct: payload.marketVarianceBandPct,
       reason: payload.reason ?? "Updated via settings"
     });
     return NextResponse.json({ ok: true, config }, { status: 200 });

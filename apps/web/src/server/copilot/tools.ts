@@ -5,7 +5,7 @@ import { policyAdapter } from "@/domain/policy/policy-adapter";
 import { getLoadDetail } from "@/server/board-detail";
 import { DISRUPTION_REASON_VALUES, DISRUPTION_REASON_OPTIONS } from "@/lib/disruptions";
 import { REFERENCE_NUMBER_KIND_VALUES, normalizeReferenceNumbers } from "@/lib/reference-numbers";
-import type { DisruptionReason } from "@prisma/client";
+import type { DatEquipment, DatRateType, DisruptionReason } from "@prisma/client";
 import {
   deleteBoardLoadLeg,
   rescheduleBoardLoadDelivery,
@@ -27,6 +27,8 @@ import { SUPPORTED_PROVIDERS } from "@/server/llm/registry";
 import { acknowledgeKpiAlert } from "@/server/kpi-alerts";
 import { getRateConfirmationActivity } from "@/server/rate-confirmation-activity";
 import { setLaneDatRate, setLaneNote, setLaneWeeklyTarget } from "@/server/lane-week-write";
+import { getLaneMarketRate } from "@/server/dat/market-rate";
+import { logMarketVariance } from "@/server/dat/variance-log";
 import { listOperationalRules, createOperationalRule } from "@/server/operational-rules";
 import { createManualLoad, approveRateConfirmationReview, rejectRateConfirmationReview } from "@/server/review";
 import { getRoadMiles } from "@/server/distance";
@@ -380,6 +382,43 @@ export const COPILOT_TOOLS = [
       type: "object" as const,
       properties: { lane: { type: "string" }, marketRate: { type: "string", description: "Positive decimal string, or empty to clear." } },
       required: ["lane", "marketRate"]
+    }
+  },
+  {
+    name: "get_lane_market_rate",
+    description:
+      "Pull the live DAT market rate for a lane (spot or contract), served from cache when fresh. Use this during a negotiation to see what a lane pays. Returns all-in $/mi (line-haul + fuel), the low–high range, and mileage when known. We are the carrier, so a rate ABOVE this market is a win.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        originCity: { type: "string" },
+        originState: { type: "string", description: "2-letter state code." },
+        destCity: { type: "string" },
+        destState: { type: "string", description: "2-letter state code." },
+        equipment: { type: "string", enum: ["VAN", "REEFER", "FLATBED"], description: "Defaults to VAN." },
+        rateType: { type: "string", enum: ["SPOT", "CONTRACT"], description: "Defaults to SPOT." }
+      },
+      required: ["originCity", "originState", "destCity", "destState"]
+    }
+  },
+  {
+    name: "log_market_variance",
+    description:
+      "Log a negotiated backhaul rate against live DAT market for the tracker. Snapshots the market rate now, computes the variance (negotiated minus market; positive = above market = good for us), and persists it. Requires the negotiated total and trip miles. Requires KPI write access.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        originCity: { type: "string" },
+        originState: { type: "string" },
+        destCity: { type: "string" },
+        destState: { type: "string" },
+        equipment: { type: "string", enum: ["VAN", "REEFER", "FLATBED"], description: "Defaults to VAN." },
+        rateType: { type: "string", enum: ["SPOT", "CONTRACT"], description: "Defaults to SPOT." },
+        negotiatedTotal: { type: "number", description: "Total payout in dollars." },
+        miles: { type: "number", description: "Trip miles used to derive per-mile figures." },
+        notes: { type: "string" }
+      },
+      required: ["originCity", "originState", "destCity", "destState", "negotiatedTotal", "miles"]
     }
   },
   {
@@ -1391,6 +1430,79 @@ export async function dispatchTool(
       const weekIso = weekIsoFromPickup(new Date(ctx.boardDate));
       await setLaneDatRate({ regionId: ctx.regionId, weekIso, lane, datRate: marketRate, actorId: ctx.userId });
       return { content: { status: "ok", lane, weekIso }, summary: marketRate ? `Set DAT market rate ${marketRate} on lane ${lane}` : `Cleared DAT market rate on lane ${lane}` };
+    }
+
+    case "get_lane_market_rate": {
+      const originCity = typeof input.originCity === "string" ? input.originCity.trim() : "";
+      const originState = typeof input.originState === "string" ? input.originState.trim() : "";
+      const destCity = typeof input.destCity === "string" ? input.destCity.trim() : "";
+      const destState = typeof input.destState === "string" ? input.destState.trim() : "";
+      if (!originCity || !originState || !destCity || !destState) {
+        return { content: { error: "originCity, originState, destCity and destState are all required." } };
+      }
+      const equipment: DatEquipment = input.equipment === "REEFER" || input.equipment === "FLATBED" ? input.equipment : "VAN";
+      const rateType: DatRateType = input.rateType === "CONTRACT" ? "CONTRACT" : "SPOT";
+      const quote = await getLaneMarketRate(ctx.regionId, { originCity, originState, destCity, destState, equipment, rateType });
+      return {
+        content: {
+          allInPerMile: quote.allInPerMile,
+          lineHaulAvg: quote.ratePerMileAvg,
+          fuelPerMile: quote.fuelPerMile,
+          low: quote.ratePerMileLow,
+          high: quote.ratePerMileHigh,
+          mileage: quote.mileage,
+          reportCount: quote.reportCount,
+          source: quote.source,
+          isMock: quote.isMock,
+          asOf: quote.fetchedAt
+        },
+        summary: `Market ${originCity}, ${originState} → ${destCity}, ${destState}: $${quote.allInPerMile.toFixed(2)}/mi all-in (${quote.isMock ? "mock" : "DAT"})`
+      };
+    }
+
+    case "log_market_variance": {
+      assertKpiWrite(ctx);
+      const originCity = typeof input.originCity === "string" ? input.originCity.trim() : "";
+      const originState = typeof input.originState === "string" ? input.originState.trim() : "";
+      const destCity = typeof input.destCity === "string" ? input.destCity.trim() : "";
+      const destState = typeof input.destState === "string" ? input.destState.trim() : "";
+      if (!originCity || !originState || !destCity || !destState) {
+        return { content: { error: "originCity, originState, destCity and destState are all required." } };
+      }
+      const negotiatedTotal = typeof input.negotiatedTotal === "number" ? input.negotiatedTotal : Number(input.negotiatedTotal);
+      const miles = typeof input.miles === "number" ? input.miles : Number(input.miles);
+      if (!Number.isFinite(negotiatedTotal) || negotiatedTotal <= 0 || !Number.isFinite(miles) || miles <= 0) {
+        return { content: { status: "need_info", message: "A positive negotiatedTotal and miles are both required." } };
+      }
+      const equipment: DatEquipment = input.equipment === "REEFER" || input.equipment === "FLATBED" ? input.equipment : "VAN";
+      const rateType: DatRateType = input.rateType === "CONTRACT" ? "CONTRACT" : "SPOT";
+      const quote = await getLaneMarketRate(ctx.regionId, { originCity, originState, destCity, destState, equipment, rateType });
+      const entry = await logMarketVariance({
+        regionId: ctx.regionId,
+        actorId: ctx.userId,
+        originCity,
+        originState,
+        destCity,
+        destState,
+        equipment,
+        rateType,
+        negotiatedTotal,
+        miles,
+        milesSource: "manual",
+        marketPerMile: quote.allInPerMile,
+        quoteId: quote.id,
+        notes: typeof input.notes === "string" ? input.notes.trim() || null : null
+      });
+      return {
+        content: {
+          band: entry.band,
+          variancePct: entry.variancePct,
+          varianceTotal: entry.varianceTotal,
+          negotiatedPerMile: entry.negotiatedPerMile,
+          marketPerMile: entry.marketPerMile
+        },
+        summary: `Logged ${entry.band} (${(entry.variancePct * 100).toFixed(1)}%) on ${originCity}, ${originState} → ${destCity}, ${destState}`
+      };
     }
 
     case "add_broker_rep": {

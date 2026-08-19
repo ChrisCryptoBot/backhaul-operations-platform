@@ -18,6 +18,7 @@ import { int, money } from "@/lib/ui/formatters";
 import type { TrendSeriesPoint } from "@/components/kpi/trend-chart";
 import { buildTrendSeries } from "@/components/kpi/trend-chart";
 import { OpsDriversTab, OpsReliabilityTab, RateVarianceHistogramChart, GrowthBars } from "@/components/kpi/ops-charts";
+import { MarketTrendTab } from "@/components/kpi/market-trend-tab";
 import { TopbarSignOutButton } from "@/components/auth/sign-out-button";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { useTheme } from "@/components/shell/theme";
@@ -30,7 +31,7 @@ import {
   DashIcon
 } from "@/components/icons";
 
-type TabId = "Lanes" | "Drivers" | "Reliability" | "Trend";
+type TabId = "Lanes" | "Drivers" | "Reliability" | "Trend" | "Market";
 
 interface KpiDashboardProps {
   initialData: unknown;
@@ -326,7 +327,7 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
   const [laneMarketSavingLane, setLaneMarketSavingLane] = React.useState<string | null>(null);
   const [laneMarketError, setLaneMarketError] = React.useState<string | null>(null);
 
-  const tabIds = React.useMemo<TabId[]>(() => ["Lanes", "Drivers", "Reliability", "Trend"], []);
+  const tabIds = React.useMemo<TabId[]>(() => ["Lanes", "Drivers", "Reliability", "Trend", "Market"], []);
   const tabButtonId = React.useCallback((id: TabId) => `kpi-tab-${id.toLowerCase().replace(/\s+/g, "-")}`, []);
   const tabPanelId = React.useCallback((id: TabId) => `kpi-tabpanel-${id.toLowerCase().replace(/\s+/g, "-")}`, []);
 
@@ -1589,6 +1590,16 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
                   </div>
                 ) : null}
               </div>
+            </div>
+
+            <div
+              id={tabPanelId("Market")}
+              role="tabpanel"
+              aria-labelledby={tabButtonId("Market")}
+              hidden={tab !== "Market"}
+              className={`db-tab-panel ${tab === "Market" ? "active" : ""}`}
+            >
+              <MarketTrendTab active={tab === "Market"} />
             </div>
           </div>
         </div>

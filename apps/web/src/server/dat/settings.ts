@@ -1,7 +1,7 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { createAuditLog } from "@/lib/audit";
-import { encryptSecret, lastFour } from "@/lib/crypto-config";
+import { decryptSecret, encryptSecret, lastFour } from "@/lib/crypto-config";
 
 // DAT market-rate API credentials. Mirrors server/llm/settings.ts (same AES-256-GCM
 // at-rest pattern) but key-only — there is no provider/model to choose. Not yet wired
@@ -31,6 +31,25 @@ export async function getDatSettingsStatus(
     apiKeyLast4: row.apiKeyLast4,
     updatedAt: row.updatedAt.toISOString()
   };
+}
+
+/**
+ * Server-only: returns the decrypted DAT API key, or null when unset/inactive or if
+ * decryption fails. Never expose the result to a client — it is for outbound DAT
+ * calls only. A decrypt failure returns null so callers fall back to the mock.
+ */
+export async function getDatApiKey(
+  db: PrismaClient | Prisma.TransactionClient = prisma
+): Promise<string | null> {
+  const row = await db.datProviderConfig.findUnique({ where: { id: CONFIG_ID } });
+  if (!row || !row.isActive || !row.apiKeyCipher) {
+    return null;
+  }
+  try {
+    return decryptSecret(row.apiKeyCipher);
+  } catch {
+    return null;
+  }
 }
 
 export interface UpdateDatSettingsInput {

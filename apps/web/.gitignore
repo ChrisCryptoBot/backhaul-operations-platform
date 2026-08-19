@@ -1,0 +1,3 @@
+
+# Runtime rate-con uploads (never commit — may contain real customer data)
+.uploads/

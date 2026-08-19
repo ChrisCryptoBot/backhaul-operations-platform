@@ -80,7 +80,8 @@ export function AppSidebar({ viewerIsAdmin, viewerCanManageReference, regionCode
       items: [
         { href: "/", label: "Daily Tracker", exact: true },
         { href: "/deliveries", label: "Deliveries" },
-        { href: "/dashboard", label: "KPI Dashboard" }
+        { href: "/dashboard", label: "KPI Dashboard" },
+        { href: "/market-variance", label: "Market Variance" }
       ]
     },
     ...(viewerCanManageReference

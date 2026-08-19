@@ -150,7 +150,7 @@ describe("KpiDashboard full parity surface", () => {
     expect(driversTab).toHaveAttribute("aria-selected", "true");
 
     await user.keyboard("{End}");
-    const lastTab = screen.getByRole("tab", { name: "Trend" });
+    const lastTab = screen.getByRole("tab", { name: "Market" });
     expect(lastTab).toHaveFocus();
     expect(lastTab).toHaveAttribute("aria-selected", "true");
 
