@@ -680,12 +680,14 @@ model MarketVarianceEntry {
   equipment         DatEquipment
   rateType          DatRateType
   negotiatedTotal   Decimal               @db.Decimal(12, 4)
-  negotiatedPerMile Decimal               @db.Decimal(12, 4)
-  miles             Decimal               @db.Decimal(12, 4)
-  milesSource       String // "dat" | "google" | "manual"
-  marketPerMile     Decimal               @db.Decimal(12, 4)
+  // Per-mile + miles are optional metadata: a totals-only (spreadsheet-style) entry
+  // stores null rather than a fabricated 0/mi. Derived only when trip miles are known.
+  negotiatedPerMile Decimal?              @db.Decimal(12, 4)
+  miles             Decimal?              @db.Decimal(12, 4)
+  milesSource       String? // "dat" | "google" | "manual", or null when miles unknown
+  marketPerMile     Decimal?              @db.Decimal(12, 4)
   marketTotal       Decimal               @db.Decimal(12, 4)
-  variancePerMile   Decimal               @db.Decimal(12, 4)
+  variancePerMile   Decimal?              @db.Decimal(12, 4)
   varianceTotal     Decimal               @db.Decimal(12, 4)
   variancePct       Decimal               @db.Decimal(9, 4)
   band              MarketPerformanceBand

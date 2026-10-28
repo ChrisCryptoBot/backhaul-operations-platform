@@ -1458,7 +1458,7 @@ export async function dispatchTool(
           isMock: quote.isMock,
           asOf: quote.fetchedAt
         },
-        summary: `Market ${originCity}, ${originState} → ${destCity}, ${destState}: $${quote.allInPerMile.toFixed(2)}/mi all-in (${quote.isMock ? "mock" : "DAT"})`
+        summary: `Market ${originCity}, ${originState} → ${destCity}, ${destState}: $${quote.allInPerMile.toFixed(2)}/mi all-in${quote.isMock ? "" : " (DAT)"}`
       };
     }
 

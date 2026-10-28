@@ -41,11 +41,12 @@ export interface VarianceEntryDto {
   equipment: DatEquipment;
   rateType: DatRateType;
   negotiatedTotal: number;
-  negotiatedPerMile: number;
-  miles: number;
-  marketPerMile: number;
+  /** Per-mile + miles are null on a totals-only entry (no trip miles supplied). */
+  negotiatedPerMile: number | null;
+  miles: number | null;
+  marketPerMile: number | null;
   marketTotal: number;
-  variancePerMile: number;
+  variancePerMile: number | null;
   varianceTotal: number;
   variancePct: number;
   band: MarketPerformanceBand;
@@ -118,12 +119,13 @@ export async function syncLoadVariance(regionId: string, maxNew = 150): Promise<
           equipment: "VAN",
           rateType: "SPOT",
           negotiatedTotal,
-          negotiatedPerMile: v.negotiatedPerMile ?? 0,
+          // Auto-logged loads are guarded on miles > 0, so per-mile figures are real here.
+          negotiatedPerMile: v.negotiatedPerMile,
           miles,
           milesSource: "manual",
-          marketPerMile: v.marketPerMile ?? 0,
+          marketPerMile: v.marketPerMile,
           marketTotal: v.marketTotal,
-          variancePerMile: v.variancePerMile ?? 0,
+          variancePerMile: v.variancePerMile,
           varianceTotal: v.varianceTotal,
           variancePct: v.variancePct,
           band: v.band,
@@ -163,12 +165,13 @@ export async function logMarketVariance(input: LogVarianceInput): Promise<Varian
       equipment: input.equipment,
       rateType: input.rateType,
       negotiatedTotal: input.negotiatedTotal,
-      negotiatedPerMile: v.negotiatedPerMile ?? 0,
-      miles: input.miles ?? 0,
-      milesSource: input.milesSource ?? "manual",
-      marketPerMile: v.marketPerMile ?? 0,
+      // Totals-only entry (no trip miles) stores null, not a fabricated 0 / $0.00/mi.
+      negotiatedPerMile: v.negotiatedPerMile,
+      miles: input.miles && input.miles > 0 ? input.miles : null,
+      milesSource: input.miles && input.miles > 0 ? input.milesSource ?? "manual" : null,
+      marketPerMile: v.marketPerMile,
       marketTotal: v.marketTotal,
-      variancePerMile: v.variancePerMile ?? 0,
+      variancePerMile: v.variancePerMile,
       varianceTotal: v.varianceTotal,
       variancePct: v.variancePct,
       band: v.band,
@@ -313,11 +316,11 @@ function toDto(row: {
     equipment: row.equipment,
     rateType: row.rateType,
     negotiatedTotal: Number(row.negotiatedTotal),
-    negotiatedPerMile: Number(row.negotiatedPerMile),
-    miles: Number(row.miles),
-    marketPerMile: Number(row.marketPerMile),
+    negotiatedPerMile: row.negotiatedPerMile == null ? null : Number(row.negotiatedPerMile),
+    miles: row.miles == null ? null : Number(row.miles),
+    marketPerMile: row.marketPerMile == null ? null : Number(row.marketPerMile),
     marketTotal: Number(row.marketTotal),
-    variancePerMile: Number(row.variancePerMile),
+    variancePerMile: row.variancePerMile == null ? null : Number(row.variancePerMile),
     varianceTotal: Number(row.varianceTotal),
     variancePct: Number(row.variancePct),
     band: row.band,

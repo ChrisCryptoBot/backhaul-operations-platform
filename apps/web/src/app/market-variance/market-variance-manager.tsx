@@ -20,7 +20,7 @@ const RATE_TYPES: RateType[] = ["SPOT", "CONTRACT"];
 const BAND_META: Record<Band, { variant: "ok" | "near" | "below"; label: string }> = {
   ABOVE: { variant: "ok", label: "Above market" },
   AT: { variant: "near", label: "At market" },
-  BELOW: { variant: "below", label: "Below market" }
+  BELOW: { variant: "below", label: "Under market" }
 };
 
 function classifyBand(pct: number, threshold: number): Band {
@@ -31,9 +31,9 @@ function classifyBand(pct: number, threshold: number): Band {
 
 const money = (n: number) => `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
 const perMile = (n: number) => `$${n.toFixed(2)}`;
-const signedPerMile = (n: number) => `${n >= 0 ? "+" : "−"}$${Math.abs(n).toFixed(2)}`;
 const signedMoney = (n: number) => `${n >= 0 ? "+" : "−"}${money(Math.abs(n))}`;
 const signedPct = (n: number) => `${n >= 0 ? "+" : "−"}${(Math.abs(n) * 100).toFixed(1)}%`;
+const signedPerMile = (n: number) => `${n >= 0 ? "+" : "−"}$${Math.abs(n).toFixed(2)}`;
 
 interface Props {
   initialLog: VarianceLogView;
@@ -58,15 +58,16 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
   const [quoteBusy, setQuoteBusy] = React.useState(false);
   const [quoteError, setQuoteError] = React.useState<string | null>(null);
 
-  // Negotiation calculator.
-  const [miles, setMiles] = React.useState("");
-  const [negMode, setNegMode] = React.useState<"total" | "permile">("total");
+  // Negotiation calculator — total dollars only, like the spreadsheet tab. Variance is
+  // driven entirely by the two totals; miles never gate it.
   const [negValue, setNegValue] = React.useState("");
-  // Market rate is the value FROM DAT iQ — auto-filled by the API when connected,
-  // otherwise typed in manually. It drives the variance (never a hidden formula).
-  const [marketMode, setMarketMode] = React.useState<"total" | "permile">("total");
+  // Market rate (total $): from DAT iQ when the API returns miles to total it, or typed
+  // straight from the DAT screen. It drives the variance (never a hidden formula).
   const [marketInput, setMarketInput] = React.useState("");
   const [marketSource, setMarketSource] = React.useState<"manual" | "dat" | "mock">("manual");
+  // Optional trip miles — NOT needed to negotiate; only enriches the logged row with
+  // $/mi. Auto-seeded from the DAT quote's mileage; the operator can also type it.
+  const [miles, setMiles] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [logBusy, setLogBusy] = React.useState(false);
   const [logError, setLogError] = React.useState<string | null>(null);
@@ -99,14 +100,14 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
         throw new Error(payload?.error ?? "Lookup failed.");
       }
       setQuote(payload.quote);
-      // Pre-fill the (editable) market-rate field from the lookup, in $/mi. The
-      // coordinator can override it with the exact number from their DAT iQ screen.
-      setMarketInput(payload.quote.allInPerMile.toFixed(2));
-      setMarketMode("permile");
-      setMarketSource(payload.quote.isMock ? "mock" : "dat");
-      // Seed miles from the quote when the field is empty and DAT/road miles are known.
-      if (payload.quote.mileage != null && miles.trim() === "") {
-        setMiles(String(payload.quote.mileage));
+      // Pre-fill the market-rate field as a TOTAL, but only when the quote carries miles
+      // to turn DAT's per-mile figure into a lane total. Otherwise leave it for the
+      // coordinator to type the total straight off their DAT iQ screen.
+      if (payload.quote.mileage != null) {
+        setMarketInput((payload.quote.allInPerMile * payload.quote.mileage).toFixed(0));
+        setMarketSource(payload.quote.isMock ? "mock" : "dat");
+        // Seed miles so the logged row carries $/mi — no manual entry needed.
+        if (miles.trim() === "") setMiles(String(payload.quote.mileage));
       }
     } catch (error) {
       setQuoteError(error instanceof Error ? error.message : "Lookup failed.");
@@ -115,14 +116,12 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
     }
   }
 
-  // Live variance (client mirror of the server math). Total-dollar based like the Excel:
-  // Dollar Variance = negotiated − market, % = variance ÷ market. Miles are OPTIONAL and
-  // only used to derive per-mile figures (and to convert a $/mi entry to a total).
+  // Live variance (client mirror of the server math), total-dollar based like the Excel:
+  // Dollar Variance = negotiated − market, % = variance ÷ market. Miles are OPTIONAL —
+  // they never affect the variance, only add $/mi to the output/logged row.
+  const negotiatedTotal = Number(negValue) || 0;
+  const marketTotal = Number(marketInput) || 0;
   const milesNum = Number(miles) || (quote?.mileage ?? 0);
-  const negNum = Number(negValue) || 0;
-  const marketNum = Number(marketInput) || 0;
-  const negotiatedTotal = negMode === "total" ? negNum : negNum * milesNum;
-  const marketTotal = marketMode === "total" ? marketNum : marketNum * milesNum;
   const variance = React.useMemo(() => {
     if (negotiatedTotal <= 0 || marketTotal <= 0) return null;
     const varTotal = negotiatedTotal - marketTotal;
@@ -159,8 +158,8 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
           rateType,
           negotiatedTotal,
           marketTotal, // the DAT/manual market rate (total) that drove the variance
-          miles: milesNum > 0 ? milesNum : undefined,
-          milesSource: quote?.mileage != null ? "dat" : "manual",
+          miles: milesNum > 0 ? milesNum : undefined, // optional — only to store $/mi on the row
+          milesSource: milesNum > 0 ? (quote?.mileage != null ? "dat" : "manual") : undefined,
           quoteId: quote?.id ?? null,
           notes: [notes.trim(), marketSource === "manual" ? "market: manual DAT entry" : null].filter(Boolean).join(" · ") || null
         })
@@ -189,13 +188,13 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
           <div>
             <h2 className="db-ref-h">Market Variance</h2>
             <div className="db-ref-desc">
-              Market rate comes from DAT iQ — auto-filled when the API is connected, or type it in from your DAT screen. See the disparity vs your negotiated rate instantly, then log it. Above market is a win (we&apos;re the carrier).
+              Market rate comes from DAT iQ — auto-filled when the API is connected, or type it in from your DAT screen. See the disparity vs your negotiated rate instantly, then log it. We&apos;re the carrier: above market is a premium; below market means you&apos;re underpaid vs the lane — the dollar gap tells you whether it&apos;s worth taking.
             </div>
           </div>
           <div className="db-ref-actions">
-            <span className={`db-flag ${datLive ? "muted" : "warn"}`} title={datLive ? "Live DAT API key configured" : "No DAT key — using mock rates"}>
-              {datLive ? "Live DAT" : "Mock data"}
-            </span>
+            {datLive ? (
+              <span className="db-flag muted" title="Live DAT API key configured">Live DAT</span>
+            ) : null}
             <Link href="/" className="db-btn db-btn-ghost">Back to board</Link>
           </div>
         </div>
@@ -267,7 +266,7 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
           {quote ? (
             <div className="db-mv-quote" style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 20, alignItems: "flex-end" }}>
               <div>
-                <div className="db-set-eyebrow">DAT lookup · all-in → pre-filled below</div>
+                <div className="db-set-eyebrow">DAT lookup · all-in{quote.mileage != null ? " → pre-filled as total below" : " (enter total $ below)"}</div>
                 <div style={{ fontSize: 28, fontWeight: 700, lineHeight: 1.1 }}>{perMile(quote.allInPerMile)}<span className="dim" style={{ fontSize: 13, fontWeight: 400 }}>/mi</span></div>
                 <div className="dim mono" style={{ fontSize: 12 }}>
                   line-haul {perMile(quote.ratePerMileAvg)} + fuel {quote.fuelPerMile != null ? perMile(quote.fuelPerMile) : "—"}
@@ -277,7 +276,7 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
                 <div>range {perMile(quote.ratePerMileLow)} – {perMile(quote.ratePerMileHigh)}</div>
                 <div>miles {quote.mileage != null ? quote.mileage : "—"} · reports {quote.reportCount ?? "—"}</div>
                 <div>
-                  <span className={`db-flag ${quote.isMock ? "warn" : "muted"}`} style={{ marginRight: 6 }}>{quote.isMock ? "MOCK" : "DAT"}</span>
+                  {quote.isMock ? null : <span className="db-flag muted" style={{ marginRight: 6 }}>DAT</span>}
                   as-of {new Date(quote.fetchedAt).toLocaleString()} {quote.isStale ? "· stale, refresh" : ""}
                 </div>
               </div>
@@ -290,31 +289,13 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
           <div className="db-fallback-card" style={{ marginBottom: 22 }}>
             <div className="db-form-grid">
               <label className="db-field-label">
-                Trip miles (optional)
-                <input className="db-input mono" inputMode="decimal" value={miles} placeholder="only for $/mi" onChange={(e) => setMiles(e.target.value)} />
+                Market rate (total $){marketSource === "manual" ? " · manual" : marketSource === "dat" ? " · DAT" : ""}
+                <input className="db-input mono" inputMode="decimal" value={marketInput} placeholder="from DAT iQ, e.g. 4778" onChange={(e) => { setMarketInput(e.target.value); setMarketSource("manual"); }} />
               </label>
               <label className="db-field-label">
-                Market rate ({marketMode === "total" ? "total $" : "$/mi"}) · {marketSource === "manual" ? "manual" : marketSource === "mock" ? "mock" : "DAT"}
-                <input className="db-input mono" inputMode="decimal" value={marketInput} placeholder={marketMode === "total" ? "from DAT iQ, e.g. 4778" : "from DAT iQ, e.g. 3.20"} onChange={(e) => { setMarketInput(e.target.value); setMarketSource("manual"); }} />
+                Negotiated rate (total $)
+                <input className="db-input mono" inputMode="decimal" value={negValue} placeholder="e.g. 3200" onChange={(e) => setNegValue(e.target.value)} />
               </label>
-              <div className="db-field-label">
-                Market as
-                <div style={{ display: "flex", gap: 6, paddingTop: 4 }}>
-                  <button type="button" className={`db-btn db-btn-mini${marketMode === "total" ? " primary" : " db-btn-ghost"}`} onClick={() => setMarketMode("total")}>Total $</button>
-                  <button type="button" className={`db-btn db-btn-mini${marketMode === "permile" ? " primary" : " db-btn-ghost"}`} onClick={() => setMarketMode("permile")}>$/mi</button>
-                </div>
-              </div>
-              <label className="db-field-label">
-                Negotiated rate ({negMode === "total" ? "total $" : "$/mi"})
-                <input className="db-input mono" inputMode="decimal" value={negValue} placeholder={negMode === "total" ? "e.g. 3200" : "e.g. 2.35"} onChange={(e) => setNegValue(e.target.value)} />
-              </label>
-              <div className="db-field-label">
-                Negotiated as
-                <div style={{ display: "flex", gap: 6, paddingTop: 4 }}>
-                  <button type="button" className={`db-btn db-btn-mini${negMode === "total" ? " primary" : " db-btn-ghost"}`} onClick={() => setNegMode("total")}>Total $</button>
-                  <button type="button" className={`db-btn db-btn-mini${negMode === "permile" ? " primary" : " db-btn-ghost"}`} onClick={() => setNegMode("permile")}>$/mi</button>
-                </div>
-              </div>
             </div>
 
             {variance ? (
@@ -323,6 +304,20 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
                   {BAND_META[variance.band].label} · {signedPct(variance.variancePct)}
                 </span>
                 <div className="mono" style={{ fontSize: 13, lineHeight: 1.7 }}>
+                  {/* Worth-it? headline: below-market = underpaid alert, above = premium, at = in-band. */}
+                  {variance.band === "BELOW" ? (
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "var(--db-neg)" }}>
+                      ⚠ Under market by {money(Math.abs(variance.varianceTotal))} ({signedPct(variance.variancePct)}) — below your {log.bandPct}% floor
+                    </div>
+                  ) : variance.band === "ABOVE" ? (
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "var(--db-pos)" }}>
+                      {signedMoney(variance.varianceTotal)} ({signedPct(variance.variancePct)}) over market — good margin
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "var(--db-warn)" }}>
+                      At market — within your {log.bandPct}% band ({signedPct(variance.variancePct)})
+                    </div>
+                  )}
                   <div>Dollar variance: you {money(negotiatedTotal)} vs market {money(variance.marketTotal)} → <strong>{signedMoney(variance.varianceTotal)}</strong> · <strong>{signedPct(variance.variancePct)}</strong></div>
                   {variance.negotiatedPerMile !== null && variance.marketPerMile !== null && variance.variancePerMile !== null ? (
                     <div className="dim">Per-mile: you {perMile(variance.negotiatedPerMile)} vs market {perMile(variance.marketPerMile)} → {signedPerMile(variance.variancePerMile)}/mi</div>
@@ -330,7 +325,8 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
                 </div>
                 {canWrite ? (
                   <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-                    <input className="db-input" style={{ width: 200 }} placeholder="Note (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
+                    <input className="db-input mono" style={{ width: 96 }} inputMode="decimal" placeholder="miles" title="Optional — adds $/mi to the logged row. Not needed to negotiate." value={miles} onChange={(e) => setMiles(e.target.value)} />
+                    <input className="db-input" style={{ width: 180 }} placeholder="Note (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
                     <button type="button" className="db-btn primary" disabled={logBusy} aria-busy={logBusy} onClick={() => void logEntry()}>
                       {logBusy ? "Logging…" : "Log to tracker"}
                     </button>
@@ -340,7 +336,7 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
                 )}
               </div>
             ) : (
-              <p className="dim" style={{ marginTop: 10, fontSize: 13 }}>Enter the DAT market rate and your negotiated rate to see the variance. Trip miles are optional (only for per-mile / $-per-mi entry).</p>
+              <p className="dim" style={{ marginTop: 10, fontSize: 13 }}>Enter the DAT market rate and your negotiated rate — both as total dollars — to see the variance.</p>
             )}
             {logError ? <p className="db-upload-error">{logError}</p> : null}
           </div>
@@ -386,9 +382,9 @@ export function MarketVarianceManager({ initialLog, canWrite, datLive }: Props) 
                   <tr key={e.id} className={`db-row${i % 2 ? " odd" : ""}`}>
                     <td className="strong">{e.originCity}, {e.originState} → {e.destCity}, {e.destState}</td>
                     <td className="dim mono">{e.equipment}</td>
-                    <td className="right mono num">{e.miles}</td>
-                    <td className="right mono num">{money(e.negotiatedTotal)}{e.negotiatedPerMile > 0 ? <div className="dim" style={{ fontSize: 11 }}>{perMile(e.negotiatedPerMile)}/mi</div> : null}</td>
-                    <td className="right mono num">{money(e.marketTotal)}{e.marketPerMile > 0 ? <div className="dim" style={{ fontSize: 11 }}>{perMile(e.marketPerMile)}/mi</div> : null}</td>
+                    <td className="right mono num">{e.miles == null ? "—" : e.miles}</td>
+                    <td className="right mono num">{money(e.negotiatedTotal)}{e.negotiatedPerMile != null && e.negotiatedPerMile > 0 ? <div className="dim" style={{ fontSize: 11 }}>{perMile(e.negotiatedPerMile)}/mi</div> : null}</td>
+                    <td className="right mono num">{money(e.marketTotal)}{e.marketPerMile != null && e.marketPerMile > 0 ? <div className="dim" style={{ fontSize: 11 }}>{perMile(e.marketPerMile)}/mi</div> : null}</td>
                     <td className="right mono num">{signedMoney(e.varianceTotal)}<div className="dim" style={{ fontSize: 11 }}>{signedPct(e.variancePct)}</div></td>
                     <td><span className={`db-lane-status ${BAND_META[e.band].variant} mono`}>{BAND_META[e.band].label}</span></td>
                     <td className="dim mono" style={{ fontSize: 12 }}>{formatDay(e.createdAt)}</td>
