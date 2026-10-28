@@ -235,7 +235,7 @@ describe("board page shell", () => {
     const HomePage = (await import("@/app/page")).default;
     const markup = renderToStaticMarkup(await HomePage({ searchParams: { date: "2026-04-29" } }));
     expect(markup).toContain("No loads booked for 2026-04-29");
-    expect(markup).toContain("Use the copilot to drop a rate con and start an intake.");
+    expect(markup).toContain("Add a load by hand, or review an uploaded rate confirmation.");
     expect(markup).toContain("LTL");
     expect(markup).toContain("CANCELED / TONU");
   });

@@ -4,8 +4,7 @@ import { createAuditLog } from "@/lib/audit";
 
 /**
  * Operational rules (region governance statements surfaced on the KPI dashboard).
- * Read + create extracted so both the /api/rules route and the copilot tools
- * share one path. RBAC (KPI_DASHBOARD:WRITE) is enforced by the caller.
+ * Read + create extracted so the /api/rules route has one path. RBAC (KPI_DASHBOARD:WRITE) is enforced by the caller.
  */
 
 export type RuleSeverity = "INFO" | "WARN" | "ACTION_REQUIRED";

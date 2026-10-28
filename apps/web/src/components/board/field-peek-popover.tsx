@@ -41,7 +41,7 @@ export function FieldPeekPopover({ anchorEl, loadRef, values, onSave, onClose }:
   const copyTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Position after first paint, flipping up / clamping so it stays on-screen and
-  // clear of the sticky columns and the right copilot panel.
+  // clear of the sticky columns.
   React.useLayoutEffect(() => {
     const anchor = anchorEl.getBoundingClientRect();
     const height = cardRef.current?.offsetHeight ?? 240;

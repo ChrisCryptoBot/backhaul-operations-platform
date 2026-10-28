@@ -4,7 +4,6 @@ import React from "react";
 import { usePathname } from "next/navigation";
 import { AppSidebar, type AppSidebarProps } from "@/components/shell/app-sidebar";
 import { TopbarSignOutButton } from "@/components/auth/sign-out-button";
-import { CopilotPanel } from "@/components/copilot/copilot-panel";
 
 export interface AppShellProps extends AppSidebarProps {
   /** Header title for this screen. */
@@ -40,7 +39,6 @@ export function AppShell({ title, children, ...sidebar }: AppShellProps) {
           </div>
         </div>
       </div>
-      <CopilotPanel />
     </div>
   );
 }

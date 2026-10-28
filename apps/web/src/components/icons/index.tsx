@@ -133,20 +133,6 @@ export function MoonIcon({ size = 16, className }: IconProps) {
   );
 }
 
-export function CopilotIcon({ size = 16, className }: IconProps) {
-  return (
-    <svg {...baseProps(size, className)}>
-      <path
-        d="M8 2.2 9.1 5.6 12.5 6.7 9.1 7.8 8 11.2 6.9 7.8 3.5 6.7 6.9 5.6 8 2.2Z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-      />
-      <path d="M12.4 10.8l.5 1.5 1.5.5-1.5.5-.5 1.5-.5-1.5-1.5-.5 1.5-.5.5-1.5Z" fill="currentColor" />
-    </svg>
-  );
-}
-
 /* Module / nav icons */
 export function BoardIcon({ size = 16, className }: IconProps) {
   return (

@@ -5,8 +5,8 @@ import { decodeLaneWeekMetadata, encodeLaneWeekMetadata } from "@/server/lane-we
 
 /**
  * Per-lane weekly notes and manual market/target rates, stored in
- * WeekSnapshot.laneIssueNotes. Extracted so both the KPI API routes and the
- * copilot tools share one write path. RBAC (KPI_DASHBOARD:WRITE) is enforced by
+ * WeekSnapshot.laneIssueNotes. Extracted so the KPI API routes use one write path.
+ * RBAC (KPI_DASHBOARD:WRITE) is enforced by
  * the caller before these run.
  */
 

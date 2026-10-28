@@ -1,8 +1,8 @@
 /**
  * Shared taxonomy for a load's structured reference numbers (the numbers listed on
  * a rate con — PU#, PO#, BOL#, seal#, pro#, unlabeled → OTHER). Single source of
- * truth for the peek popover, the update-fields path, and (later) the copilot
- * classification + drawer. Mirrors the [[backhaul-ops-analytics-build]] disruptions
+ * truth for the peek popover, the update-fields path, and the
+ * load-detail drawer. Mirrors the [[backhaul-ops-analytics-build]] disruptions
  * taxonomy pattern.
  */
 

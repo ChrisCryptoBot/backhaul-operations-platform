@@ -26,8 +26,6 @@ actual empty miles** — reconciling the relay plan against what actually ran.
 - **KPI engine** — live empty-mile %, loaded / negotiation-floor RPM, vs-target, fuel
   surcharge, week-over-week trend, and a lane scorecard, computed from the load store and
   rolled up by region.
-- **Copilot** — an in-app assistant for board changes, plus a deterministic, no-LLM
-  relay-load intake interview that works without any API credits.
 
 ## Stack
 
@@ -47,7 +45,7 @@ This repository is organized to show the requirements and modeling behind the bu
   (spec-clause ledger, semantic domain owners, PR parity evidence).
 - **[`docs/HANDOFF/`](docs/HANDOFF)** — project state, architecture overview, and runbooks.
 - **[`apps/web/`](apps/web)** — the Next.js application (board, KPI dashboard, intake,
-  copilot, and API routes).
+  and API routes).
 
 ## Running locally
 

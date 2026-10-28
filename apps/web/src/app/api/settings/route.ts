@@ -13,7 +13,6 @@ import { SUPPORTED_PROVIDERS } from "@/server/llm/registry";
 const settingsPayloadSchema = z.object({
   provider: z.string().min(1),
   model: z.string().min(1).max(128),
-  copilotModel: z.string().max(128).nullable().optional(),
   // Optional: omit/empty to keep the existing stored key.
   apiKey: z.string().max(512).optional(),
   // DAT market-rate API key/token — optional, same keep-existing semantics.
@@ -86,7 +85,6 @@ export async function POST(request: Request) {
       actorId: access.userId,
       provider: payload.provider,
       model: payload.model,
-      copilotModel: payload.copilotModel,
       apiKey: payload.apiKey,
       isActive: payload.isActive
     });

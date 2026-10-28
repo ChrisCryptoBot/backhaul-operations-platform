@@ -22,7 +22,6 @@ import { MarketTrendTab } from "@/components/kpi/market-trend-tab";
 import { TopbarSignOutButton } from "@/components/auth/sign-out-button";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { useTheme } from "@/components/shell/theme";
-import { CopilotPanel } from "@/components/copilot/copilot-panel";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -1606,7 +1605,6 @@ export function KpiDashboard({ initialData, viewerIsAdmin = false, viewerCanMana
       </main>
       </div>
       </div>
-      <CopilotPanel />
     </div>
   );
 }

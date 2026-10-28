@@ -10,9 +10,6 @@ export interface ActiveLlmConfig {
 
 const DEFAULT_PROVIDER = "anthropic";
 const DEFAULT_MODEL = "claude-haiku-4-5";
-// The copilot does multi-step tool reasoning, so it defaults to a stronger
-// model than the (cost-optimized) parser.
-const DEFAULT_COPILOT_MODEL = "claude-sonnet-4-6";
 
 /**
  * Resolves the active LLM configuration, preferring the runtime-managed row in
@@ -48,24 +45,4 @@ export async function getActiveLlmConfig(
   }
 
   return null;
-}
-
-/**
- * Resolves the active config for the copilot — same provider/key as
- * {@link getActiveLlmConfig} but using the copilot model (DB `copilotModel`,
- * else env COPILOT_MODEL, else the strong default). Returns null when no key.
- */
-export async function getActiveCopilotConfig(
-  db: PrismaClient | Prisma.TransactionClient = prisma
-): Promise<ActiveLlmConfig | null> {
-  const base = await getActiveLlmConfig(db);
-  if (!base) {
-    return null;
-  }
-  const row = await db.llmProviderConfig.findUnique({
-    where: { id: "default" },
-    select: { copilotModel: true }
-  });
-  const model = row?.copilotModel ?? process.env.COPILOT_MODEL ?? DEFAULT_COPILOT_MODEL;
-  return { ...base, model };
 }

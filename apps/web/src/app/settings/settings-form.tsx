@@ -50,7 +50,6 @@ function ThresholdPreview({ amber, red }: { amber: number; red: number }) {
 export function SettingsForm({ initialStatus, initialDatStatus, supportedProviders, initialThresholds }: SettingsFormProps) {
   const [provider, setProvider] = React.useState(initialStatus.provider);
   const [model, setModel] = React.useState(initialStatus.model);
-  const [copilotModel, setCopilotModel] = React.useState(initialStatus.copilotModel ?? "claude-sonnet-4-6");
   const [apiKey, setApiKey] = React.useState("");
   const [hasKey, setHasKey] = React.useState(initialStatus.hasKey);
   const [last4, setLast4] = React.useState(initialStatus.apiKeyLast4);
@@ -109,7 +108,6 @@ export function SettingsForm({ initialStatus, initialDatStatus, supportedProvide
         body: JSON.stringify({
           provider,
           model,
-          copilotModel: copilotModel || null,
           apiKey: apiKey.trim() ? apiKey.trim() : undefined,
           datApiKey: datApiKey.trim() ? datApiKey.trim() : undefined,
           datUsername: datUsername.trim() ? datUsername.trim() : undefined,
@@ -185,7 +183,7 @@ export function SettingsForm({ initialStatus, initialDatStatus, supportedProvide
                 <div className="db-set-eyebrow">Document AI</div>
                 <h2 className="db-set-h">LLM provider</h2>
                 <p className="db-set-desc">
-                  Provider and key used to parse rate-confirmation PDFs and run the copilot. The key is encrypted at rest and
+                  Provider and key used to parse rate-confirmation PDFs. The key is encrypted at rest and
                   never displayed. Until a key is set, the built-in text parser is used.
                 </p>
               </div>
@@ -216,15 +214,6 @@ export function SettingsForm({ initialStatus, initialDatStatus, supportedProvide
                       <option key={option.value} value={option.value}>{option.label}</option>
                     ))}
                   </select>
-                </label>
-                <label className="db-field-label">
-                  Copilot model
-                  <select className="db-input" value={copilotModel} onChange={(event) => setCopilotModel(event.target.value)}>
-                    {modelOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
-                  </select>
-                  <span className="db-field-hint">tool-use; stronger by default</span>
                 </label>
                 <label className="db-field-label">
                   API key
@@ -306,7 +295,6 @@ export function SettingsForm({ initialStatus, initialDatStatus, supportedProvide
                   <button type="submit" className="db-btn primary" disabled={busy} aria-busy={busy}>
                     {busy ? "Saving…" : "Save provider"}
                   </button>
-                  <span className="note">Staged actions are confirmable; the copilot can change these too.</span>
                 </div>
               </form>
             </div>

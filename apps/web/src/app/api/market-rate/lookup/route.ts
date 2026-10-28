@@ -8,7 +8,7 @@ import { POLICY_FORBIDDEN_MESSAGE, PolicyViolationError } from "@/lib/policy-err
 import { getLaneMarketRate } from "@/server/dat/market-rate";
 
 // Live DAT lane-rate lookup (served from cache when fresh). Powers the negotiation
-// widget + copilot. A lookup hits an external, billable API, so it requires the same
+// widget. A lookup hits an external, billable API, so it requires the same
 // KPI_DASHBOARD read grant as the rest of the analytics surface.
 const lookupSchema = z.object({
   regionId: z.string().min(1).optional(),

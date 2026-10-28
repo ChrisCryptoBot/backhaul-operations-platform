@@ -10,8 +10,7 @@ import { weekIsoFromPickup } from "@/lib/week";
  * Mirrors `server/board.ts` conventions: every mutation is region-scoped via
  * `runInRegionScope`, filters soft-deleted rows with `withNonDeletedRegionScope`, and
  * is audit-logged with the actor. Validation lives at the route, not here. RBAC
- * (REFERENCE_DATA:WRITE → REGIONAL_MANAGER+) is enforced by the caller (API route /
- * copilot dispatch) before these run.
+ * (REFERENCE_DATA:WRITE → REGIONAL_MANAGER+) is enforced by the caller (API route) before these run.
  */
 
 export interface BrokerRepSummary {

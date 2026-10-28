@@ -3,7 +3,7 @@ import type { DisruptionReason } from "@prisma/client";
 /**
  * The single source of truth for the shared 9-reason disruption taxonomy.
  * Used by the load-detail drawer, the ConfirmDialog cancel/reschedule callers,
- * the copilot tool schemas, and the Phase-3 reason breakdown so every surface
+ * and the Phase-3 reason breakdown so every surface
  * shows the same values and labels.
  *
  * Reasons cannot be backfilled — they are captured at write time.
@@ -25,7 +25,7 @@ export const DISRUPTION_REASON_OPTIONS: readonly DisruptionReasonOption[] = [
   { value: "OTHER", label: "Other (specify)" }
 ] as const;
 
-/** The ordered list of reason values, e.g. for the copilot enum schema. */
+/** The ordered list of reason values, e.g. for form selects and schema enums. */
 export const DISRUPTION_REASON_VALUES: readonly DisruptionReason[] =
   DISRUPTION_REASON_OPTIONS.map((o) => o.value);
 
