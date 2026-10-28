@@ -43,7 +43,7 @@ This repository is organized to show the requirements and modeling behind the bu
   choices.
 - **[`docs/traceability/`](docs/traceability)** — requirement → implementation traceability
   (spec-clause ledger, semantic domain owners, PR parity evidence).
-- **[`docs/HANDOFF/`](docs/HANDOFF)** — project state, architecture overview, and runbooks.
+- **[`docs/DEMO_REBUILD.md`](docs/DEMO_REBUILD.md)** — where the TrueLane-shaped rebuild stands and what is next.
 - **[`apps/web/`](apps/web)** — the Next.js application (board, KPI dashboard, intake,
   and API routes).
 
