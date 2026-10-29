@@ -9,6 +9,7 @@ import { validateLoadEdit, type EditStopValues, type LoadEditValues } from "@/li
 import { validateComplete, validateExpenses, validateStart, type CompleteValues, type ExpenseValues, type StartValues } from "@/lib/trip";
 import { toCentralLocal } from "@/lib/zoned";
 import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
+import { AddressInput } from "./address-input";
 import { Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
 
@@ -168,7 +169,7 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
                   </div>
                   <div className="rc-stop-grid">
                     <Fld label="Address" error={errors[`stop${i}.address`]}>
-                      <input value={s.address} disabled={scheduleLocked} onChange={(e) => setStop(i, { address: e.target.value })} autoComplete="off" aria-invalid={errors[`stop${i}.address`] ? true : undefined} />
+                      <AddressInput label={`Address for stop ${i + 1}`} value={s.address} disabled={scheduleLocked} onChange={(text) => setStop(i, { address: text })} invalid={!!errors[`stop${i}.address`]} />
                     </Fld>
                     <Fld label="Opens (Dallas time)" error={errors[`stop${i}.earliest`]}>
                       <input type="datetime-local" value={s.earliest} disabled={scheduleLocked} onChange={(e) => setStop(i, { earliest: e.target.value })} />

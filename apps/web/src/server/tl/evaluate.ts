@@ -1,3 +1,4 @@
+import { driveHoursForAllMiles } from "@/truelane/lib/domain/tripHours";
 import { percentText } from "@/lib/pay";
 import { computeCostProfileFloorBreakdown, DEFAULT_LABOR_BURDEN_PCT_NEW_PROFILE, type CostProfileMathInput } from "@/truelane/lib/domain/calculators";
 import { effectiveCarrierCutPct, fscCutAppliesFor, normalizeArchetype, type CostArchetype } from "@/truelane/lib/domain/costArchetype";
@@ -50,6 +51,13 @@ export type CostProfileRow = {
 /** Average road speed used for the drive-time estimate when the load has no measured hours (the phone uses a routed estimate). */
 export const ASSUMED_AVG_MPH = 50;
 
+/** Drive time for every mile of a load: the measured loaded-leg hours spread over all the miles at the same speed, else a flat 50 mph. */
+export function driveHoursFor(load: { estimatedLoadedHours?: Dec | null; loadedMiles: Dec }, totalMiles: number): number {
+  const measured = numOrNull((load.estimatedLoadedHours ?? null) as never);
+  const loaded = num(load.loadedMiles as never);
+  return measured != null && measured > 0 && loaded > 0 ? driveHoursForAllMiles(measured, loaded, totalMiles) : totalMiles / ASSUMED_AVG_MPH;
+}
+
 export type EvaluateLoadRow = LoadRow & {
   fuelSurcharge: Dec;
   fuelSurchargeUnit: string | null;
@@ -57,6 +65,8 @@ export type EvaluateLoadRow = LoadRow & {
   insuranceRiderFlat: Dec;
   dockWaitMinutes: number | null;
   stopsCount: number | null;
+  /** Drive hours for the loaded miles, measured on the road when it was quoted. Absent or blank: 50 mph over every mile. */
+  estimatedLoadedHours?: Dec | null;
   /** The driver's pay on this load, when one is assigned. It is the labour in the verdict (see resolveLabour). */
   assignment?: { payKind: string; payRate: Dec } | null;
 };
@@ -190,7 +200,7 @@ export function evaluateTlLoad(
     loadedMiles: loaded,
     returnDeadheadMiles: returnDh,
     isBackhaul: load.isBackhaul,
-    driveHours: totalMiles / ASSUMED_AVG_MPH,
+    driveHours: driveHoursFor(load, totalMiles),
     dockWaitMinutes: load.dockWaitMinutes ?? 0,
     isTowing: false,
     towingCpmAdjustment: 0,

@@ -676,3 +676,11 @@ a.al:hover { background: var(--db-bg-elev-1); }
   .qt-context { grid-template-columns: 1fr; }
   .qt-stop { grid-template-columns: 96px minmax(0, 1fr) 190px 34px; }
 }
+
+/* ───────────────────────────── address box with suggestions ───────────────────────────── */
+.ai { position: relative; display: block; }
+.ai > input { width: 100%; }
+.ai-list { position: fixed; z-index: 200; margin: 0; padding: var(--db-1); list-style: none; overflow: auto; background: var(--db-bg-card); border: 1px solid var(--db-border-strong); border-top-color: var(--db-border-lit); border-radius: var(--db-r-note); box-shadow: var(--db-shadow-pop); }
+.ai-opt { padding: var(--db-2) var(--db-3); border-radius: var(--db-r-field); color: var(--db-fg); font-size: var(--db-text-base); cursor: pointer; }
+.ai-opt[aria-selected="true"] { background: var(--db-bg-elev-3); }
+

@@ -65,9 +65,9 @@ async function main() {
   await prisma.workspace.create({ data: { id: WORKSPACE_ID, name: "Demo fleet" } });
 
   const trucks = [
-    { name: "Unit 101", type: "heavy_duty", mpg: 6.8, insurance: 1450, loan: 1900, miles: 6500 },
-    { name: "Unit 102", type: "heavy_duty", mpg: 6.5, insurance: 1380, loan: 0, miles: 7000 },
-    { name: "Unit 103", type: "box_truck", mpg: 9.2, insurance: 1100, loan: 1250, miles: 6000 }
+    { name: "Unit 101", type: "heavy_duty", mpg: 6.8, insurance: 1450, loan: 1900, miles: 6500, base: "Dallas, TX" },
+    { name: "Unit 102", type: "heavy_duty", mpg: 6.5, insurance: 1380, loan: 0, miles: 7000, base: "Houston, TX" },
+    { name: "Unit 103", type: "box_truck", mpg: 9.2, insurance: 1100, loan: 1250, miles: 6000, base: "Oklahoma City, OK" }
   ];
   const vehicles: Array<{ id: string; mpg: number; breakEven: number }> = [];
   for (const t of trucks) {
@@ -88,7 +88,7 @@ async function main() {
         type: t.type,
         mpg: t.mpg,
         fuelType: "diesel",
-        homeBaseAddress: "Dallas, TX",
+        homeBaseAddress: t.base,
         costProfile: {
           create: {
             monthlyInsurance: input.monthlyInsurance,

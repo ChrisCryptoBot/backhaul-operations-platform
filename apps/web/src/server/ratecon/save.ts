@@ -3,6 +3,7 @@ import type { RateConLoadDraft } from "./map";
 import { currentWorkspace } from "@/server/tl/workspace";
 import { recordAudit } from "@/server/tl/audit";
 import { freezeLoadSnapshot } from "@/server/tl/snapshot";
+import { saveStopCoordinates } from "@/server/geo/persist";
 
 /**
  * The review gate. A draft read from a rate confirmation becomes a load only when a person has looked at it and
@@ -25,7 +26,7 @@ export function assertSavable(d: ReviewedDraft): void {
 export async function saveReviewedDraft(d: ReviewedDraft) {
   assertSavable(d);
   const ws = await currentWorkspace();
-  return prisma.$transaction(async (tx) => {
+  const saved = await prisma.$transaction(async (tx) => {
     const load = await tx.load.create({
     data: {
       workspaceId: ws.id,
@@ -80,4 +81,7 @@ export async function saveReviewedDraft(d: ReviewedDraft) {
     );
     return load;
   });
+  // Coordinates come after the save has committed, and never fail it.
+  await saveStopCoordinates(saved.id);
+  return saved;
 }

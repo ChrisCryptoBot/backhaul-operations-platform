@@ -155,6 +155,8 @@ model Load {
   isBackhaul                    Boolean   @default(false) @map("is_backhaul")
   stopsCount                    Int?      @map("stops_count")
   dockWaitMinutes               Int?      @map("dock_wait_minutes")
+  /// Drive time for the loaded miles as measured on the road when the load was quoted. Blank means the desk assumes 50 mph over every mile.
+  estimatedLoadedHours          Decimal?  @map("estimated_loaded_hours") @db.Decimal(8, 2)
   factoringFeePct               Decimal?  @map("factoring_fee_pct") @db.Decimal(6, 4)
   insuranceRiderFlat            Decimal?  @map("insurance_rider_flat") @db.Decimal(12, 2)
   marketBenchmark               Decimal?  @map("market_benchmark") @db.Decimal(12, 4)

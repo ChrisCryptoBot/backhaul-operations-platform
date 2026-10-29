@@ -32,6 +32,10 @@ export type QuoteValues = {
   /** Blank uses the truck's own factoring fee. */
   factoringPct: string;
   emptyByTruck: Record<string, string>;
+  /** Empty miles home after the last delivery, for one truck (measured from its base). A typed `emptyHome` replaces all of them. */
+  emptyHomeByTruck: Record<string, string>;
+  /** Drive hours for the loaded miles as measured on the road. Blank: the verdict assumes 50 mph over every mile. Cleared when the loaded miles are typed by hand. */
+  loadedHours: string;
 };
 
 export const BLANK_QUOTE: QuoteValues = {
@@ -51,7 +55,9 @@ export const BLANK_QUOTE: QuoteValues = {
   loadBack: false,
   payTermsDays: "",
   factoringPct: "",
-  emptyByTruck: {}
+  emptyByTruck: {},
+  emptyHomeByTruck: {},
+  loadedHours: ""
 };
 
 export type QuoteInput = {
@@ -69,6 +75,8 @@ export type QuoteInput = {
   payTermsDays: number | null;
   factoringFraction: number | null;
   emptyByTruck: Record<string, number>;
+  emptyHomeByTruck: Record<string, number>;
+  loadedHours: number | null;
 };
 
 export type QuoteErrors = Record<string, string>;
@@ -101,6 +109,11 @@ export function readQuote(values: QuoteValues): QuoteInput | null {
     const n = num(str(v));
     if (n != null && n >= 0) byTruck[k] = n;
   }
+  const homeByTruck: Record<string, number> = {};
+  for (const [k, v] of Object.entries(values.emptyHomeByTruck ?? {})) {
+    const n = num(str(v));
+    if (n != null && n >= 0) homeByTruck[k] = n;
+  }
   const fsc = nonNeg(values.fsc);
   const market = positive(values.marketRate);
   const factoring = num(str(values.factoringPct));
@@ -118,7 +131,9 @@ export function readQuote(values: QuoteValues): QuoteInput | null {
     loadBack: values.loadBack === true,
     payTermsDays: num(str(values.payTermsDays)),
     factoringFraction: factoring != null && factoring >= 0 && factoring <= 100 ? factoring / 100 : null,
-    emptyByTruck: byTruck
+    emptyByTruck: byTruck,
+    emptyHomeByTruck: homeByTruck,
+    loadedHours: positive(values.loadedHours ?? "")
   };
 }
 
@@ -154,6 +169,18 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
       const n = num(r);
       if (n == null || n < 0 || n > 5000) errors[`empty:${truck}`] = "A number from 0 to 5,000.";
     }
+  }
+  for (const [truck, raw] of Object.entries(values.emptyHomeByTruck ?? {})) {
+    const r = str(raw);
+    if (r !== "") {
+      const n = num(r);
+      if (n == null || n < 0 || n > 5000) errors[`emptyHome:${truck}`] = "A number from 0 to 5,000.";
+    }
+  }
+  const hoursRaw = str(values.loadedHours ?? "");
+  if (hoursRaw !== "") {
+    const n = num(hoursRaw);
+    if (n == null || !(n > 0) || n > 200) errors.loadedHours = "Drive hours, above 0 and under 200.";
   }
   const fscRaw = str(values.fsc);
   if (fscRaw !== "") {

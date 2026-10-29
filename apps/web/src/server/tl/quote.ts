@@ -13,6 +13,7 @@ import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { assignDriver, DispatchError, findDriverClash } from "./dispatch";
 import type { PayKind } from "@/lib/pay";
+import { saveStopCoordinates } from "@/server/geo/persist";
 import { evaluateTlLoad, resolveLabour, type EvaluateLoadRow } from "./evaluate";
 import { freezeLoadSnapshot } from "./snapshot";
 import { DEMO_WORKSPACE_ID } from "./workspace";
@@ -76,8 +77,8 @@ export type FitResult = { rows: FitRow[]; skipped: Array<{ truck: string; why: s
 const D = 86_400_000;
 
 /** The quote as the load row the verdict reads: an unbooked draft, with its empty miles and the driver's pay when one is being tried. */
-export function quoteLoadRow(input: QuoteInput, emptyToPickup: number, pay: { kind: string; rate: number } | null): EvaluateLoadRow {
-  const allMiles = emptyToPickup + input.loadedMiles + input.emptyHome;
+export function quoteLoadRow(input: QuoteInput, emptyToPickup: number, pay: { kind: string; rate: number } | null, emptyHome: number = input.emptyHome): EvaluateLoadRow {
+  const allMiles = emptyToPickup + input.loadedMiles + emptyHome;
   return {
     status: "draft",
     updatedAt: new Date(),
@@ -94,7 +95,8 @@ export function quoteLoadRow(input: QuoteInput, emptyToPickup: number, pay: { ki
     expenseMisc: 0,
     pickupDeadheadMiles: emptyToPickup,
     loadedMiles: input.loadedMiles,
-    returnDeadheadMiles: input.emptyHome,
+    returnDeadheadMiles: emptyHome,
+    estimatedLoadedHours: input.loadedHours,
     quotedPickupDhMiles: null,
     quotedLoadedMiles: null,
     quotedReturnDhMiles: null,
@@ -130,7 +132,8 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
   if (!profile) return null;
   const emptyToPickup = input.emptyByTruck[truck.id] ?? input.emptyToPickup;
   const usual = driver?.defaultPayKind && driver.defaultPayRate != null ? { kind: driver.defaultPayKind, rate: num(driver.defaultPayRate) } : null;
-  const row = quoteLoadRow(input, emptyToPickup, usual);
+  const emptyHome = input.emptyHomeByTruck[truck.id] ?? input.emptyHome;
+  const row = quoteLoadRow(input, emptyToPickup, usual, emptyHome);
   const e = evaluateTlLoad(row, profile as never, { mpg: truck.mpg });
   const labour = resolveLabour(profile as never, row.assignment, e.totalMiles, num(row.quotedRevenue) + num(row.fuelSurcharge));
   const margin = e.result.verdictMarginPerMi;
@@ -268,8 +271,11 @@ function stopRows(input: QuoteInput) {
 }
 
 /** The load's own columns for a quote (everything the form holds that a load keeps). */
-function loadFields(input: QuoteInput) {
-  const allMiles = input.emptyToPickup + input.loadedMiles + input.emptyHome;
+function loadFields(input: QuoteInput, truckId: string | null) {
+  // The empty miles belong to the truck the load is on: its own measured or typed figures, else the form's.
+  const emptyToPickup = (truckId ? input.emptyByTruck[truckId] : undefined) ?? input.emptyToPickup;
+  const emptyHome = (truckId ? input.emptyHomeByTruck[truckId] : undefined) ?? input.emptyHome;
+  const allMiles = emptyToPickup + input.loadedMiles + emptyHome;
   return {
     brokerName: input.broker,
     originAddress: cityState(input.stops[0]!.address) ?? input.stops[0]!.address,
@@ -279,8 +285,9 @@ function loadFields(input: QuoteInput) {
     fuelSurcharge: surchargeDollars(input),
     fuelSurchargeUnit: input.fscUnit,
     loadedMiles: input.loadedMiles,
-    pickupDeadheadMiles: input.emptyToPickup,
-    returnDeadheadMiles: input.emptyHome,
+    pickupDeadheadMiles: emptyToPickup,
+    returnDeadheadMiles: emptyHome,
+    estimatedLoadedHours: input.loadedHours,
     isBackhaul: input.loadBack,
     marketBenchmark: input.marketTotal != null && allMiles > 0 ? new Prisma.Decimal(input.marketTotal).div(allMiles).toDecimalPlaces(4) : null,
     payTermsDays: input.payTermsDays,
@@ -300,7 +307,7 @@ export async function saveQuote(values: QuoteValues, quoteId: string | null, veh
   if (!check.ok) return { ok: false, errors: check.errors };
   const input = check.input;
   const truck = vehicleId ? await prisma.vehicle.findFirst({ where: { id: vehicleId, workspaceId, archivedAt: null } }) : null;
-  const data = { ...loadFields(input), vehicleId: truck?.id ?? null };
+  const data = { ...loadFields(input, truck?.id ?? null), vehicleId: truck?.id ?? null };
   if (quoteId) {
     const existing = await prisma.load.findFirst({ where: { id: quoteId, workspaceId, status: QUOTE_STATUS, deletedAt: null } });
     if (!existing) return { ok: false, error: "That quote is gone." };
@@ -355,7 +362,9 @@ export async function getQuote(id: string, workspaceId = DEMO_WORKSPACE_ID): Pro
       loadBack: l.isBackhaul,
       payTermsDays: l.payTermsDays == null ? "" : String(l.payTermsDays),
       factoringPct: factoring != null && factoring > 0 ? dec(factoring * 100) : "",
-      emptyByTruck: {}
+      emptyByTruck: {},
+      emptyHomeByTruck: {},
+      loadedHours: l.estimatedLoadedHours == null ? "" : dec(num(l.estimatedLoadedHours), 2)
     }
   };
 }
@@ -406,7 +415,7 @@ export async function bookQuote(
     if (!valid) return { ok: false, gate: fit.gate, error: reason === "Other" ? "Say what the reason is when you pick Other." : "This one needs a reason before it is booked." };
   }
 
-  const data = { ...loadFields(input), vehicleId: truck.id, status: "draft", channel: "dispatch" };
+  const data = { ...loadFields(input, truck.id), vehicleId: truck.id, status: "draft", channel: "dispatch" };
   const lane = `${cityState(input.stops[0]!.address)} to ${cityState(input.stops[last]!.address)}`;
   let saved: { loadId: string; loadNumber: string | null };
   try {
@@ -451,6 +460,9 @@ export async function bookQuote(
     if (e instanceof DispatchError) return { ok: false, error: e.message };
     throw e;
   }
+
+  // The stops' coordinates come after the booking has committed, and can fail without undoing it.
+  await saveStopCoordinates(saved.loadId);
 
   // The driver comes last and can fail on its own (a lapsed card, another load at that time) without undoing the booking.
   let assigned = false;

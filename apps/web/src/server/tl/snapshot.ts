@@ -2,7 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { buildDecisionSnapshotFromBreakdown, buildTripSnapshotFields } from "@/truelane/lib/costProfileSnapshot";
 import { computeCostProfileFloorBreakdown } from "@/truelane/lib/domain/calculators";
 import { num, numOrNull } from "./convert";
-import { ASSUMED_AVG_MPH, profileMathInput, resolveLabour } from "./evaluate";
+import { driveHoursFor, profileMathInput, resolveLabour } from "./evaluate";
 
 /**
  * Freeze what a load was booked with, so a later edit to the truck's cost profile never rewrites a load that is already agreed: the
@@ -34,7 +34,7 @@ export async function freezeLoadSnapshot(tx: Prisma.TransactionClient, loadId: s
       detentionHourlyRate: numOrNull(profile.detentionHourlyRate),
       freeGraceMinutes: profile.freeGraceMinutes
     },
-    miles / ASSUMED_AVG_MPH,
+    driveHoursFor(l, miles),
     miles
   );
 

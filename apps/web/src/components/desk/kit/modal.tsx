@@ -10,6 +10,10 @@ export function Modal({ open, onClose, eyebrow, title, children, footer, wide }:
   const panel = React.useRef<HTMLDivElement>(null);
   const opener = React.useRef<HTMLElement | null>(null);
   const id = React.useId();
+  // The close handler is usually a new arrow function on every render. Held in a ref so typing in a form inside the dialog does not re-run the
+  // effect below, which would hand focus back to the opener and then to the first field on every keystroke.
+  const close = React.useRef(onClose);
+  close.current = onClose;
 
   React.useEffect(() => {
     if (!open) return;
@@ -19,7 +23,7 @@ export function Modal({ open, onClose, eyebrow, title, children, footer, wide }:
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        onClose();
+        close.current();
         return;
       }
       if (e.key !== "Tab" || !panel.current) return;
@@ -40,7 +44,7 @@ export function Modal({ open, onClose, eyebrow, title, children, footer, wide }:
       document.removeEventListener("keydown", onKey);
       opener.current?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   // Portalled to the body so a table cell or a drawer around the trigger cannot style it (alignment, clipping, stacking).

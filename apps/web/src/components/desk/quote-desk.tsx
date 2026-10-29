@@ -5,9 +5,12 @@ import { useRouter } from "next/navigation";
 import React from "react";
 import { bookQuoteAction, discardQuoteAction, priceQuoteAction, saveQuoteAction, type PricedQuote } from "@/app/(desk)/actions";
 import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
+import { addressReady, roundMiles } from "@/lib/geo";
 import { BAND_LABEL, BLANK_QUOTE, gateTitle, missingTimes, OVERRIDE_REASONS, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
 import type { FitRow, QuoteListRow } from "@/server/tl/quote";
+import type { Measured } from "@/server/geo/measure";
 import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
+import { AddressInput } from "./address-input";
 import { Icon } from "./kit/icons";
 import { Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
@@ -37,6 +40,12 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
   const [busy, setBusy] = React.useState(false);
   const [done, setDone] = React.useState<{ loadId: string; loadNumber: string | null; note: string | null; assigned: boolean; truck: string } | null>(null);
   const seq = React.useRef(0);
+  // Miles the map filled in are suggestions: a field somebody typed in is theirs, and a later measure leaves it alone.
+  const manual = React.useRef(new Set<string>());
+  const measureSeq = React.useRef(0);
+  const routeKey = (stops: QuoteStop[]) => stops.map((s) => `${s.role}|${s.address.trim().toLowerCase()}`).join("~");
+  const lastRoute = React.useRef(initial ? routeKey(initial.values.stops) : "");
+  const [measure, setMeasure] = React.useState<{ state: "idle" | "busy" | "ok" | "error"; text: string }>({ state: "idle", text: "" });
 
   const check = validateQuote(values);
   const errors: Record<string, string> = { ...serverErrors, ...(tried && !check.ok ? check.errors : {}) };
@@ -62,6 +71,57 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
     return () => window.clearTimeout(timer);
   }, [values]);
 
+  // Measure on the road once every stop is something a map could find, a moment after the route stops changing.
+  const routeNow = routeKey(values.stops);
+  React.useEffect(() => {
+    if (done || routeNow === lastRoute.current || !values.stops.every((s) => addressReady(s.address))) return;
+    const mine = ++measureSeq.current;
+    const timer = window.setTimeout(async () => {
+      lastRoute.current = routeNow;
+      setMeasure({ state: "busy", text: "Measuring the route…" });
+      try {
+        const res = await fetch("/geo/measure", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stops: values.stops.map((s) => ({ address: s.address, role: s.role })) }) });
+        const out = (await res.json()) as Measured;
+        if (mine !== measureSeq.current) return;
+        if (!out.ok) {
+          setMeasure({ state: "error", text: out.error });
+          return;
+        }
+        setValues((v) => {
+          const next: QuoteValues = { ...v, emptyByTruck: { ...v.emptyByTruck }, emptyHomeByTruck: { ...v.emptyHomeByTruck } };
+          if (!manual.current.has("loadedMiles")) {
+            next.loadedMiles = String(out.loadedMiles);
+            next.loadedHours = String(out.loadedHours);
+          }
+          for (const id of Object.keys(out.perTruck)) {
+            const t = out.perTruck[id]!;
+            if (t.toPickup != null && !manual.current.has(`empty:${id}`)) next.emptyByTruck[id] = String(roundMiles(t.toPickup + out.emptyMidMiles));
+            if (t.home != null && !manual.current.has("emptyHome")) next.emptyHomeByTruck[id] = String(t.home);
+          }
+          // Empty driving inside the route is never dropped: a truck with no base carries it in the shared pickup figure.
+          if (out.emptyMidMiles > 0 && !manual.current.has("emptyToPickup")) next.emptyToPickup = String(out.emptyMidMiles);
+          return next;
+        });
+        const trucks = Object.keys(out.perTruck).length;
+        setMeasure({
+          state: "ok",
+          text: `On the road: ${out.loadedMiles.toLocaleString("en-US")} mi loaded, about ${out.loadedHours.toLocaleString("en-US")} h of driving${trucks > 0 ? `; empty miles measured from ${trucks === 1 ? "the truck's base" : `${trucks} trucks' bases`}` : ""}. Type over any figure to use your own.`
+        });
+      } catch {
+        if (mine === measureSeq.current) setMeasure({ state: "error", text: "Could not reach the map. Type the miles." });
+      }
+    }, 900);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeNow, done]);
+
+  /** A figure typed by hand is the dispatcher's from then on; blanking it hands it back to the map. */
+  const typedMiles = (field: "loadedMiles" | "emptyToPickup" | "emptyHome", v: string) => {
+    if (v.trim() === "") manual.current.delete(field);
+    else manual.current.add(field);
+    setValues((cur) => ({ ...cur, [field]: v, ...(field === "loadedMiles" ? { loadedHours: "" } : {}), ...(field === "emptyHome" && v.trim() !== "" ? { emptyHomeByTruck: {} } : {}) }));
+  };
+
   const rows: FitRow[] = priced?.ok ? priced.fit.rows : [];
   const row =
     rows.find((r) => r.key === selected) ??
@@ -83,6 +143,10 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
     setMessage(null);
     setDone(null);
     setPriced(null);
+    manual.current.clear();
+    lastRoute.current = "";
+    measureSeq.current += 1;
+    setMeasure({ state: "idle", text: "" });
   };
 
   async function book(override: { reason: string; notes: string } | null) {
@@ -189,7 +253,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                     )}
                     <label className="tl-field qt-addr">
                       <span className="db-sr-only">Stop {i + 1} address</span>
-                      <input value={s.address} placeholder={first ? "Dallas, TX" : last ? "Atlanta, GA" : "City, ST"} onChange={(e) => setStop(i, { address: e.target.value })} autoComplete="off" aria-invalid={err(`stop${i}`) ? true : undefined} />
+                      <AddressInput label={`Stop ${i + 1} address`} value={s.address} placeholder={first ? "Dallas, TX" : last ? "Atlanta, GA" : "City, ST"} onChange={(text) => setStop(i, { address: text })} invalid={!!err(`stop${i}`)} />
                       {err(`stop${i}`) ? <span className="th-err">{err(`stop${i}`)}</span> : null}
                     </label>
                     <label className="tl-field qt-when">
@@ -265,10 +329,15 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
 
           <section className="tl-card">
             <h2>Miles</h2>
+            {measure.text ? (
+              <p className={`tl-note${measure.state === "error" ? " warn" : ""}`} role="status" style={{ marginBottom: 10 }}>
+                {measure.text}
+              </p>
+            ) : null}
             <div className="qt-grid">
-              <Money label="Loaded miles" unit="miles" value={values.loadedMiles} error={err("loadedMiles")} onChange={(v) => set({ loadedMiles: v })} hint="Pickup to last delivery." />
-              <Money label="Empty to the pickup" unit="miles" value={values.emptyToPickup} error={err("emptyToPickup")} onChange={(v) => set({ emptyToPickup: v })} hint="From the truck. You can set it for each truck below." />
-              <Money label="Empty home after" unit="miles" value={values.emptyHome} error={err("emptyHome")} onChange={(v) => set({ emptyHome: v })} hint="From the last delivery back." />
+              <Money label="Loaded miles" unit="miles" value={values.loadedMiles} error={err("loadedMiles")} onChange={(v) => typedMiles("loadedMiles", v)} hint="Pickup to last delivery." />
+              <Money label="Empty to the pickup" unit="miles" value={values.emptyToPickup} error={err("emptyToPickup")} onChange={(v) => typedMiles("emptyToPickup", v)} hint="From the truck. Each truck with a base is measured below." />
+              <Money label="Empty home after" unit="miles" value={values.emptyHome} error={err("emptyHome")} onChange={(v) => typedMiles("emptyHome", v)} hint="From the last delivery back. Typing it replaces each truck's own." />
               <label className="dlg-check qt-check">
                 <input type="checkbox" checked={values.loadBack} onChange={(e) => set({ loadBack: e.target.checked })} />
                 I have a load back: the way home is covered
@@ -344,8 +413,13 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                           placeholder={values.emptyToPickup || "0"}
                           value={values.emptyByTruck[r.truckId] ?? ""}
                           onClick={(e) => e.stopPropagation()}
-                          onChange={(e) => set({ emptyByTruck: { ...values.emptyByTruck, [r.truckId]: e.target.value } })}
+                          onChange={(e) => {
+                            if (e.target.value.trim() === "") manual.current.delete(`empty:${r.truckId}`);
+                            else manual.current.add(`empty:${r.truckId}`);
+                            set({ emptyByTruck: { ...values.emptyByTruck, [r.truckId]: e.target.value } });
+                          }}
                         />
+                        {values.emptyHomeByTruck[r.truckId] ? <span className="sub">+ {values.emptyHomeByTruck[r.truckId]} home</span> : null}
                       </td>
                       <td>
                         <span className={`tl-chip ${band.tone}`}>{band.label}</span>

@@ -4,6 +4,7 @@ import type { AuditSnapshot } from "@/lib/audit-diff";
 import { dateTime } from "@/lib/desk-format";
 import { validateLoadEdit, type LoadEditValues } from "@/lib/load-edit";
 import { loadWindow } from "@/lib/schedule";
+import { saveStopCoordinates } from "@/server/geo/persist";
 import { cityState } from "@/server/ratecon/map";
 import { recordAudit } from "./audit";
 import { numOrNull } from "./convert";
@@ -118,7 +119,9 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
       }
     });
     for (const s of v.stops) {
-      await tx.stop.update({ where: { id: s.id }, data: { addressString: s.address, facilityName: s.facility, timeWindowEarliest: s.earliest, timeWindowLatest: s.latest, referenceNumbers: s.refs, contactName: s.contactName, contactPhone: s.contactPhone, stopNotes: s.notes } });
+      // A stop that moved has no coordinates until it is looked up again.
+      const moved = old.get(s.id)!.addressString !== s.address;
+      await tx.stop.update({ where: { id: s.id }, data: { addressString: s.address, ...(moved ? { lat: null, lng: null } : {}), facilityName: s.facility, timeWindowEarliest: s.earliest, timeWindowLatest: s.latest, referenceNumbers: s.refs, contactName: s.contactName, contactPhone: s.contactPhone, stopNotes: s.notes } });
     }
     if (reconfirm) {
       await tx.assignment.update({
@@ -143,5 +146,6 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
       tx
     );
   });
-  return { ok: true, changed: true, note: reconfirm ? `${a!.driver.name} has the load, so they have to confirm the new times.` : null };
+  await saveStopCoordinates(load.id);
+  return { ok: true, changed: true, note: reconfirm ?`${a!.driver.name} has the load, so they have to confirm the new times.` : null };
 }

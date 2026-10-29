@@ -8,6 +8,7 @@ import { needsStopCheck, rateConChecks } from "@/lib/rate-con-checks";
 import { parseCentralLocal, toCentralLocal } from "@/lib/zoned";
 import { cityState } from "@/server/ratecon/map";
 import { trailerLabel } from "@/truelane/constants/trailerData";
+import { AddressInput } from "./address-input";
 import { Icon } from "./kit/icons";
 
 const SAMPLES = [
@@ -323,7 +324,7 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                               </label>
                               <label className="tl-field">
                                 <span>Address<span className="db-sr-only"> for stop {i + 1}</span></span>
-                                <input value={s.addressString} onChange={(e) => setStop(i, { addressString: e.target.value })} autoComplete="off" aria-invalid={s.addressString.trim() === "" || undefined} />
+                                <AddressInput label={`Address for stop ${i + 1}`} value={s.addressString} onChange={(text) => setStop(i, { addressString: text })} invalid={s.addressString.trim() === ""} />
                               </label>
                               <label className="tl-field">
                                 <span>Appointment, Dallas time<span className="db-sr-only"> for stop {i + 1}</span></span>
