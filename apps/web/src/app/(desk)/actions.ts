@@ -1,6 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
+import { DENSITY_COOKIE, THEME_COOKIE, asDensity, asTheme } from "@/lib/appearance";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse } from "@/server/tl/dispatch";
@@ -111,4 +113,18 @@ export async function saveRateConAction(dto: DraftDto, confirmed: boolean): Prom
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not save." };
   }
+}
+
+// ── Appearance (Settings) ──────────────────────────────────────────────────────────────────────
+
+/** Saves the theme and/or density in cookies (read by the root layout) and returns to Settings with a note. */
+export async function setAppearanceAction(formData: FormData) {
+  const jar = cookies();
+  const theme = formData.get("theme");
+  const density = formData.get("density");
+  const year = 60 * 60 * 24 * 365;
+  if (typeof theme === "string") jar.set(THEME_COOKIE, asTheme(theme), { path: "/", maxAge: year, sameSite: "lax" });
+  if (typeof density === "string") jar.set(DENSITY_COOKIE, asDensity(density), { path: "/", maxAge: year, sameSite: "lax" });
+  revalidatePath("/", "layout");
+  redirect("/settings?note=" + encodeURIComponent("Appearance saved."));
 }

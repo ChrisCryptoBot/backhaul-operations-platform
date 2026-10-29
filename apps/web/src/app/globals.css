@@ -1,43 +1,187 @@
-/* Global tokens and base styles for the dispatcher desk. One dark scheme, TrueLane's amber accent.
-   Layout classes for the desk live in (desk)/desk.css. The --db-* names are kept so the desk styles read the same. */
-:root {
+/* The dispatcher desk's token layer.
+   Night is the TrueLane phone app's palette (constants/Colors.ts in the app repo). Day is the old system's warm "manila" paper.
+   Every token a stylesheet or component reads is defined here, once, for both themes. <html data-theme="night|day" data-density="comfortable|compact">
+   is written by the root layout from two cookies (see Settings), so there is no flash of the wrong theme.
+   Pairs that carry text (fg on bg, tone on tone-bg) are checked for contrast by tests/theme-contrast.test.ts. */
+
+:root,
+[data-theme="night"] {
   color-scheme: dark;
 
+  /* Surfaces: page, rail (sidebar, header, toolbars), card, inset (inner cells), input, and three steps up for hover / selected */
   --db-bg: #0e1117;
-  --db-bg-elev-1: #141923;
-  --db-bg-elev-2: #181e2a;
-  --db-bg-elev-3: #1f2634;
-  --db-bg-rail: #0b0e14;
-  --db-border: #263043;
-  --db-border-soft: #1c2433;
-  --db-border-strong: #33415a;
+  --db-bg-rail: #0a0c0f;
+  --db-bg-card: #161b24;
+  --db-bg-inset: #0f141b;
+  --db-bg-input: #0b0f17;
+  --db-bg-elev-1: #161b24;
+  --db-bg-elev-2: #1b222d;
+  --db-bg-elev-3: #232c3a;
 
+  --db-border: #262d38;
+  --db-border-soft: #1e2530;
+  --db-border-strong: #2e3644;
+  --db-border-lit: #323d4c;
+
+  /* Text. faint is decoration and disabled text only (not tested for body contrast). */
   --db-fg: #e8edf2;
-  --db-fg-mid: #aeb8c6;
-  --db-fg-dim: #7f8b9c;
-  --db-fg-faint: #566174;
+  --db-fg-mid: #9aa7b4;
+  --db-fg-dim: #7e8794;
+  --db-fg-faint: #566170;
+
+  /* Accent: TrueLane gold. accent-fg is gold used as text; accent-on is text placed on a gold fill. */
+  --db-accent: #e8a020;
+  --db-accent-hover: #f2b642;
+  --db-accent-press: #d4921c;
+  --db-accent-fg: #f2b642;
+  --db-accent-on: #0e1117;
+  --db-accent-bg: #2a2112;
+  --db-accent-ring: rgba(232, 160, 32, 0.4);
+  /* Gold as data ink (bars, lines, dots): the brand gold on night, a deeper gold on day so it holds 3:1 on a white card. */
+  --db-accent-ink: #e8a020;
+
+  /* Tones: each has a text/fill colour and a paired soft background. */
+  --db-pos: #4ade80;
+  --db-pos-bg: #0f2a1b;
+  --db-neg: #f87171;
+  --db-neg-bg: #2e1517;
+  --db-warn: #fb923c;
+  --db-warn-bg: #2d1c10;
+  --db-info: #7fa3c7;
+  --db-info-bg: #14202c;
+  --db-muted-fg: #9aa7b4;
+  --db-muted-bg: #1d2430;
+
+  /* Fills for bars and dots (not text) */
+  --db-pos-fill: #16a34a;
+  --db-neg-fill: #dc2626;
+  --db-warn-fill: #f97316;
+  --db-info-fill: #5980a6;
+
+  --db-shadow-pop: 0 10px 32px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--db-border-strong);
+  --db-shadow-drawer: -18px 0 48px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--db-border);
+  --db-shadow-sticky: 6px 0 10px -6px rgba(0, 0, 0, 0.65);
+  --db-scrim: rgba(4, 6, 9, 0.62);
+
+  --db-scrollbar-track: #0a0c0f;
+  --db-scrollbar-thumb: #2e3644;
+  --db-scrollbar-thumb-hover: #e8a020;
+}
+
+[data-theme="day"] {
+  color-scheme: light;
+
+  --db-bg: #f5f1ea;
+  --db-bg-rail: #fffdf9;
+  --db-bg-card: #fffdf9;
+  --db-bg-inset: #efe9e0;
+  --db-bg-input: #fffdf9;
+  --db-bg-elev-1: #efe9e0;
+  --db-bg-elev-2: #ece5db;
+  --db-bg-elev-3: #e3d9cc;
+
+  --db-border: #d6c8b6;
+  --db-border-soft: #e3d8c9;
+  --db-border-strong: #c5b39b;
+  --db-border-lit: #ffffff;
+
+  --db-fg: #2c2620;
+  --db-fg-mid: #5d534b;
+  --db-fg-dim: #6f6258;
+  --db-fg-faint: #9c8c7e;
 
   --db-accent: #e8a020;
-  --db-accent-hover: #f0b13f;
-  --db-accent-fg: #f4c15d;
-  --db-accent-bg: #3a2a0e;
+  --db-accent-hover: #d4921c;
+  --db-accent-press: #c98b18;
+  --db-accent-fg: #7a520b;
   --db-accent-on: #1a1205;
+  --db-accent-bg: #f9e7c2;
+  --db-accent-ring: rgba(201, 139, 24, 0.45);
+  --db-accent-ink: #b0740a;
 
-  --db-pos: #6ee7a8;
-  --db-pos-bg: #0f3024;
-  --db-neg: #ef6f7a;
-  --db-neg-bg: #3a1418;
-  --db-warn: #f5b964;
-  --db-warn-bg: #3a2a14;
-  --db-cool-fg: #7eb6ff;
-  --db-status-booked-bg: #15233f;
-  --db-muted-bg: #1f2430;
+  --db-pos: #1b6e40;
+  --db-pos-bg: #d8f0e2;
+  --db-neg: #b3303a;
+  --db-neg-bg: #f7dadd;
+  --db-warn: #8a5200;
+  --db-warn-bg: #fdeccb;
+  --db-info: #1f5bbf;
+  --db-info-bg: #e2ecfb;
+  --db-muted-fg: #58514a;
+  --db-muted-bg: #ebe5d9;
 
-  --db-scrollbar-track: #0b0e14;
-  --db-scrollbar-thumb: #33415a;
-  --db-scrollbar-thumb-hover: #e8a020;
+  --db-pos-fill: #1b6e40;
+  --db-neg-fill: #b3303a;
+  --db-warn-fill: #c46f00;
+  --db-info-fill: #2c5fa8;
 
-  --db-font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --db-shadow-pop: 0 8px 24px rgba(60, 45, 25, 0.18), 0 0 0 1px var(--db-border);
+  --db-shadow-drawer: -16px 0 40px rgba(60, 45, 25, 0.18), 0 0 0 1px var(--db-border);
+  --db-shadow-sticky: 6px 0 8px -6px rgba(60, 45, 25, 0.28);
+  --db-scrim: rgba(33, 30, 27, 0.4);
+
+  --db-scrollbar-track: #efe6da;
+  --db-scrollbar-thumb: #c4aa8b;
+  --db-scrollbar-thumb-hover: #c98b18;
+}
+
+/* Theme-agnostic scales */
+:root {
+  --db-font-sans: var(--font-barlow), system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --db-font-head: var(--font-barlow-cond), var(--font-barlow), system-ui, sans-serif;
+  --db-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Type scale: 11px is the floor, 14px the base */
+  --db-text-xs: 11px;
+  --db-text-sm: 12.5px;
+  --db-text-base: 14px;
+  --db-text-md: 15px;
+  --db-text-lg: 17px;
+  --db-text-xl: 20px;
+  --db-text-2xl: 26px;
+  --db-text-3xl: 34px;
+
+  /* 4px spacing scale */
+  --db-1: 4px;
+  --db-2: 8px;
+  --db-3: 12px;
+  --db-4: 16px;
+  --db-5: 20px;
+  --db-6: 24px;
+  --db-8: 32px;
+  --db-10: 40px;
+  --db-12: 48px;
+
+  --db-r-sm: 4px;
+  --db-r-md: 8px;
+  --db-r-lg: 12px;
+  --db-r-pill: 999px;
+
+  --db-sidebar-w: 224px;
+  --db-sidebar-w-collapsed: 60px;
+  --db-header-h: 52px;
+
+  --db-ease: cubic-bezier(0.2, 0.7, 0.3, 1);
+  --db-dur-fast: 100ms;
+  --db-dur-base: 160ms;
+  --db-dur-slow: 220ms;
+
+  /* Density: comfortable by default */
+  --db-row-h: 40px;
+  --db-cell-py: 9px;
+  --db-cell-px: 12px;
+}
+
+[data-density="compact"] {
+  --db-row-h: 32px;
+  --db-cell-py: 5px;
+  --db-cell-px: 10px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 html {
@@ -49,9 +193,46 @@ html {
 body {
   margin: 0;
   font-family: var(--db-font-sans);
+  font-size: var(--db-text-base);
+  line-height: 1.5;
   background: var(--db-bg);
   color: var(--db-fg);
   text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--db-font-head);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* One focus ring for every interactive element */
+:focus-visible {
+  outline: 2px solid var(--db-accent);
+  outline-offset: 2px;
+  border-radius: var(--db-r-sm);
+}
+
+::selection {
+  background: var(--db-accent-bg);
+  color: var(--db-fg);
 }
 
 * {
@@ -77,4 +258,34 @@ body {
 
 *::-webkit-scrollbar-thumb:hover {
   background: var(--db-scrollbar-thumb-hover);
+}
+
+.db-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Figures: tabular so columns of money and miles align to the digit */
+.tnum,
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

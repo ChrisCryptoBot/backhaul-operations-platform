@@ -1,6 +1,8 @@
 import React from "react";
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import { DeskShell } from "@/components/desk/desk-shell";
+import { getShellData } from "@/server/tl/shell";
 import "./desk.css";
 
 export const metadata: Metadata = {
@@ -11,6 +13,12 @@ export const metadata: Metadata = {
 // Everything here reads the database on each request: the board changes the moment a load is sent.
 export const dynamic = "force-dynamic";
 
-export default function DeskLayout({ children }: { children: React.ReactNode }) {
-  return <DeskShell>{children}</DeskShell>;
+export default async function DeskLayout({ children }: { children: React.ReactNode }) {
+  const data = await getShellData();
+  const collapsed = cookies().get("desk-sidebar")?.value === "1";
+  return (
+    <DeskShell data={data} initialCollapsed={collapsed}>
+      {children}
+    </DeskShell>
+  );
 }

@@ -1,7 +1,10 @@
 import Link from "next/link";
 import React from "react";
 import { listBoardRows } from "@/server/tl/queries";
-import { AssignmentChip, Empty, PageHead, StatusChip, Tabs, VerdictChip } from "@/components/desk/ui";
+import { AssignmentChip, PageHead, StatusChip, Tabs, VerdictChip } from "@/components/desk/ui";
+import { DataTable, type Column, type Row } from "@/components/desk/data-table";
+import { DataTableTools } from "@/components/desk/data-table-tools";
+import { EmptyState } from "@/components/desk/kit/states";
 import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
 
 const FILTERS = [
@@ -12,71 +15,77 @@ const FILTERS = [
   { key: "completed", label: "Delivered" }
 ] as const;
 
-export default async function LoadsPage({ searchParams }: { searchParams?: { status?: string } }) {
-  const rows = await listBoardRows();
+const COLUMNS: Column[] = [
+  { key: "load", label: "Load", group: "Load", sticky: true, width: 150 },
+  { key: "status", label: "Status", group: "Load", sticky: true, width: 150 },
+  { key: "lane", label: "Lane", group: "Route" },
+  { key: "pickup", label: "Pickup", group: "Route" },
+  { key: "truck", label: "Truck", group: "Route" },
+  { key: "miles", label: "Miles", group: "Route", align: "num" },
+  { key: "pay", label: "Pay", group: "Money", accentBand: true, align: "num" },
+  { key: "perMile", label: "$/mi", group: "Money", accentBand: true, align: "num" },
+  { key: "floor", label: "Floor", group: "Money", accentBand: true, align: "num" },
+  { key: "verdict", label: "Verdict", group: "Money", accentBand: true },
+  { key: "driver", label: "Driver", group: "Dispatch" },
+  { key: "assignment", label: "Answer", group: "Dispatch" }
+];
+
+export default async function LoadsPage({ searchParams }: { searchParams?: { status?: string; flag?: string } }) {
+  const all = await listBoardRows();
   const active = FILTERS.some((f) => f.key === searchParams?.status) ? (searchParams!.status as string) : "all";
-  const shown = active === "all" ? rows : rows.filter((r) => r.status === active);
-  const counts = (key: string) => (key === "all" ? rows.length : rows.filter((r) => r.status === key).length);
+  const below = searchParams?.flag === "below";
+  const isBelow = (r: (typeof all)[number]) => r.verdict === "reject" && r.status !== "completed";
+  const byStatus = active === "all" ? all : all.filter((r) => r.status === active);
+  const shown = below ? byStatus.filter(isBelow) : byStatus;
+  const counts = (key: string) => (key === "all" ? all.length : all.filter((r) => r.status === key).length);
+  const belowCount = all.filter(isBelow).length;
+  const href = (status: string, flag: boolean) => `/loads${status === "all" && !flag ? "" : `?${[status !== "all" ? `status=${status}` : "", flag ? "flag=below" : ""].filter(Boolean).join("&")}`}`;
+
+  const rows: Row[] = shown.map((r) => {
+    const tone = r.verdict === "reject" ? "tone-neg" : r.verdict === "caution" ? "tone-warn" : r.verdict === "accept" ? "tone-pos" : "";
+    return {
+      id: r.id,
+      href: `/loads/${r.id}`,
+      flag: isBelow(r) ? "bad" : undefined,
+      search: [r.loadNumber, r.brokerName, r.origin, r.destination, r.vehicleName, r.driverName].filter(Boolean).join(" "),
+      cells: {
+        load: (
+          <>
+            <Link href={`/loads/${r.id}`}>{r.loadNumber ?? "—"}</Link>
+            <span className="sub">{r.brokerName}</span>
+          </>
+        ),
+        status: <StatusChip status={r.status} />,
+        lane: <>{r.origin} → {r.destination}</>,
+        pickup: shortDate(r.scheduledDate),
+        truck: r.vehicleName ?? "—",
+        miles: miles(r.totalMiles),
+        pay: usd(r.quotedRevenue),
+        perMile: <span className={r.status === "completed" ? "" : tone}>{perMile(r.perMile)}</span>,
+        floor: <span className="dim">{perMile(r.floorPerMile)}</span>,
+        verdict: r.status === "completed" ? <span className="dim">—</span> : <VerdictChip verdict={r.verdict} />,
+        driver: r.driverName ?? <span className="dim">—</span>,
+        assignment: r.assignmentStatus && r.status !== "completed" ? <AssignmentChip status={r.assignmentStatus} /> : <span className="dim">—</span>
+      }
+    };
+  });
 
   return (
     <>
       <PageHead title="Loads" sub="Every load, with the verdict on the truck's own cost: the same figure TrueLane gives a driver on the Calculate screen." />
-      <Tabs active={active} hrefFor={(k) => (k === "all" ? "/loads" : `/loads?status=${k}`)} items={FILTERS.map((f) => ({ ...f, count: counts(f.key) }))} />
-      <div className="tl-card" style={{ padding: 0, overflowX: "auto" }}>
-        {shown.length === 0 ? (
-          <Empty>No loads here.</Empty>
-        ) : (
-          <table className="tl-table">
-            <thead>
-              <tr>
-                <th>Load</th>
-                <th>Lane</th>
-                <th>Pickup</th>
-                <th>Truck</th>
-                <th className="num">Miles</th>
-                <th className="num">Pay</th>
-                <th className="num">$/mi</th>
-                <th>Verdict</th>
-                <th>Status</th>
-                <th>Driver</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((r) => (
-                <tr key={r.id}>
-                  <td>
-                    <Link href={`/loads/${r.id}`}>{r.loadNumber ?? "—"}</Link>
-                    <div className="tl-sub">{r.brokerName}</div>
-                  </td>
-                  <td>
-                    {r.origin} → {r.destination}
-                  </td>
-                  <td>{shortDate(r.scheduledDate)}</td>
-                  <td>{r.vehicleName ?? "—"}</td>
-                  <td className="num">{miles(r.totalMiles)}</td>
-                  <td className="num">{usd(r.quotedRevenue)}</td>
-                  <td className="num">
-                    {perMile(r.perMile)}
-                    <div className="tl-sub">floor {perMile(r.floorPerMile)}</div>
-                  </td>
-                  <td>{r.status === "completed" ? <span className="tl-sub">—</span> : <VerdictChip verdict={r.verdict} />}</td>
-                  <td>
-                    <StatusChip status={r.status} />
-                  </td>
-                  <td>
-                    {r.driverName ?? <span className="tl-sub">—</span>}
-                    {r.assignmentStatus && r.status !== "completed" ? (
-                      <div>
-                        <AssignmentChip status={r.assignmentStatus} />
-                      </div>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+      <DataTableTools tableId="loads-table" total={shown.length} placeholder="Search load, broker, city, driver…">
+        <Tabs active={active} hrefFor={(k) => href(k, below)} items={FILTERS.map((f) => ({ ...f, count: counts(f.key) }))} />
+        <Link href={href(active, !below)} className="tl-tab" aria-current={below ? "true" : undefined}>
+          Below cost · {belowCount}
+        </Link>
+      </DataTableTools>
+      <DataTable
+        id="loads-table"
+        label="Loads"
+        columns={COLUMNS}
+        rows={rows}
+        empty={<EmptyState icon="loads" title="No loads match">Try another status, or clear the search.</EmptyState>}
+      />
     </>
   );
 }
