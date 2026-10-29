@@ -16,6 +16,7 @@ import { LiveFuelPrice } from "./live-fuel-price";
 import { Icon } from "./kit/icons";
 import { Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
+import { DateInput } from "./date-input";
 
 type Initial = { id: string | null; values: QuoteValues; vehicleId: string | null } | null;
 
@@ -307,7 +308,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                     </label>
                     <label className="tl-field qt-when">
                       <span className="db-sr-only">Stop {i + 1} time, Dallas time</span>
-                      <input type="datetime-local" value={s.appointment} onChange={(e) => setStop(i, { appointment: e.target.value })} aria-invalid={err(`stop${i}Time`) ? true : undefined} />
+                      <DateInput type="datetime-local" value={s.appointment} onChange={(e) => setStop(i, { appointment: e.target.value })} aria-invalid={err(`stop${i}Time`) ? true : undefined} />
                       {err(`stop${i}Time`) ? <span className="th-err">{err(`stop${i}Time`)}</span> : null}
                     </label>
                     {!first && !last ? (
@@ -468,7 +469,8 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
           </section>
         </div>
 
-        <aside className="qt-side" aria-label="The verdict" aria-live="polite">
+        <aside className="qt-side" aria-label="The verdict" aria-live="polite" data-tone={row ? BAND_LABEL[row.band].tone : "none"}>
+          <div className="qt-glass">
           <h2 className="rc-eyebrow">{row ? `Priced for ${row.truckName}${row.driverName ? ` · ${row.driverName}` : ""}` : "The verdict"}</h2>
           {row ? <Verdict row={row} values={values} /> : <p className="tl-note">{priced && !priced.ok ? "Type the offer and the loaded miles to price it." : pricing ? "Pricing…" : priced?.ok && priced.fit.skipped.length > 0 ? "No truck has a cost profile to price against." : "Type the offer and the loaded miles to price it."}</p>}
           {priced?.ok && priced.warnings.map((w) => <p key={w} className="tl-note warn">{w}</p>)}
@@ -497,6 +499,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
               {row.driverName ? ` with ${row.driverName}` : ""} cannot take it: {row.blocked} Pick another row.
             </p>
           ) : null}
+          </div>
         </aside>
       </div>
 

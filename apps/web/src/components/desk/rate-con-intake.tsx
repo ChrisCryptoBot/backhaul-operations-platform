@@ -14,6 +14,7 @@ import { addressReady } from "@/lib/geo";
 import { shouldMeasureMiles, sourceAfterTyping, type MilesSource } from "@/lib/rate-con-miles";
 import type { Measured } from "@/server/geo/measure";
 import { Icon } from "./kit/icons";
+import { DateInput } from "./date-input";
 
 const SAMPLES = [
   { file: "RC-AFB-482913_dallas-to-houston_cargo-van.pdf", title: "Sample 1", lane: "Dallas, TX to Houston, TX", detail: "One pickup, one delivery · cargo van" },
@@ -409,7 +410,7 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                               </label>
                               <label className="tl-field">
                                 <span>Appointment, Dallas time<span className="db-sr-only"> for stop {i + 1}</span></span>
-                                <input type="datetime-local" value={s.timeWindowEarliest ? toCentralLocal(new Date(s.timeWindowEarliest).getTime()) : ""} onChange={(e) => moveStop(i, e.target.value)} />
+                                <DateInput type="datetime-local" value={s.timeWindowEarliest ? toCentralLocal(new Date(s.timeWindowEarliest).getTime()) : ""} onChange={(e) => moveStop(i, e.target.value)} />
                               </label>
                             </div>
                             {s.zoneSource === "assumed" ? <p className="tl-note">{`The time zone at this stop could not be told from its address, so the time is read as Central. Check it against the document.`}</p> : null}

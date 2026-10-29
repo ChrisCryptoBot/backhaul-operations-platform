@@ -63,6 +63,29 @@
   --db-shadow-sticky: 1px 0 0 var(--db-border-strong);
   --db-scrim: rgba(4, 6, 9, 0.62);
 
+  /* Glass: a floating surface that frosts what is under it. Used for the sidebar, the header, the verdict, drawers, dialogs and menus (docs/DESIGN_BRIEF.md section 3a).
+     bg is the wash over the blur; the strong one carries a lot of text (drawers, dialogs) so what scrolls under it never reads. */
+  --db-glass-bg: rgba(24, 30, 41, 0.56);
+  --db-glass-bg-strong: rgba(17, 22, 31, 0.82);
+  --db-glass-bg-thin: rgba(24, 30, 41, 0.40);
+  --db-glass-sheen: linear-gradient(158deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.025) 42%, rgba(255, 255, 255, 0) 64%);
+  --db-glass-edge: rgba(255, 255, 255, 0.09);
+  --db-glass-rim: rgba(255, 255, 255, 0.30);
+  --db-glass-hi: rgba(255, 255, 255, 0.16);
+  --db-glass-lo: rgba(0, 0, 0, 0.30);
+  --db-glass-blur: 26px;
+  --db-glass-sat: 1.7;
+  /* The selection bubble (sidebar item, selected segment): a pale wash with a lit rim and a sheen from lit to clear, as on the phone's tab bar. */
+  --db-bubble-bg: rgba(255, 255, 255, 0.085);
+  --db-bubble-sheen: linear-gradient(rgba(255, 255, 255, 0.20), rgba(255, 255, 255, 0.04));
+  --db-bubble-edge: rgba(255, 255, 255, 0.11);
+  --db-bubble-rim: rgba(255, 255, 255, 0.38);
+  --db-bubble-fg: #f2b642;
+  /* Light behind the glass, so there is something to frost: a warm corner, a cool corner. */
+  --db-glow-1: rgba(232, 160, 32, 0.20);
+  --db-glow-2: rgba(89, 128, 166, 0.20);
+  --db-glow-3: rgba(74, 222, 128, 0.07);
+
   --db-scrollbar-track: #0a0c0f;
   --db-scrollbar-thumb: #2e3644;
   --db-scrollbar-thumb-hover: #e8a020;
@@ -119,6 +142,25 @@
   --db-shadow-drawer: 0 0 0 1px var(--db-border);
   --db-shadow-sticky: 1px 0 0 var(--db-border-strong);
   --db-scrim: rgba(33, 30, 27, 0.4);
+
+  --db-glass-bg: rgba(255, 253, 249, 0.56);
+  --db-glass-bg-strong: rgba(255, 253, 249, 0.86);
+  --db-glass-bg-thin: rgba(255, 253, 249, 0.38);
+  --db-glass-sheen: linear-gradient(158deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.16) 44%, rgba(255, 255, 255, 0) 64%);
+  --db-glass-edge: rgba(140, 108, 66, 0.20);
+  --db-glass-rim: rgba(255, 255, 255, 0.96);
+  --db-glass-hi: rgba(255, 255, 255, 0.95);
+  --db-glass-lo: rgba(120, 88, 44, 0.10);
+  --db-glass-blur: 26px;
+  --db-glass-sat: 1.8;
+  --db-bubble-bg: rgba(255, 255, 255, 0.72);
+  --db-bubble-sheen: linear-gradient(rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.25));
+  --db-bubble-edge: rgba(201, 139, 24, 0.34);
+  --db-bubble-rim: rgba(255, 255, 255, 1);
+  --db-bubble-fg: #7a520b;
+  --db-glow-1: rgba(232, 160, 32, 0.30);
+  --db-glow-2: rgba(120, 164, 224, 0.26);
+  --db-glow-3: rgba(240, 150, 120, 0.14);
 
   --db-scrollbar-track: #efe6da;
   --db-scrollbar-thumb: #c4aa8b;

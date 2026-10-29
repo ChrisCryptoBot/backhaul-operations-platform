@@ -8,6 +8,7 @@ import { shortDate, usd } from "@/lib/desk-format";
 import { computeStatement, MAX_ADJUSTMENTS, validatePeriod, type AdjustmentInput, type PeriodPreset, type SettlementLoad } from "@/lib/settlement";
 import { ConfirmDialog, Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
+import { DateInput } from "./date-input";
 
 function Fld({ label, error, hint, children }: { label: string; error?: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -113,10 +114,10 @@ export function StartStatement({ drivers, presets, initial, label = "Start a sta
           </div>
           <div className="dlg-two">
             <Fld label="First day" error={errors.start} hint="Dallas calendar, delivered on or after.">
-              <input type="date" value={start} onChange={(e) => setStart(e.target.value)} />
+              <DateInput type="date" value={start} onChange={(e) => setStart(e.target.value)} />
             </Fld>
             <Fld label="Last day" error={errors.end} hint="Delivered on or before.">
-              <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
+              <DateInput type="date" value={end} onChange={(e) => setEnd(e.target.value)} />
             </Fld>
           </div>
         </div>

@@ -4,6 +4,7 @@ import React from "react";
 import { cancelAction, rescheduleAction, tonuAction } from "@/app/(desk)/actions";
 import { CANCEL_REASONS, RESCHEDULE_REASONS } from "@/lib/disruptions";
 import { Modal } from "./kit/modal";
+import { DateInput } from "./date-input";
 
 type Kind = "reschedule" | "cancel" | "tonu";
 
@@ -93,7 +94,7 @@ export function DisruptionButtons({
           <p className="tl-note">Every stop moves by the same amount, so the time between them stays as it was. Times are Dallas time.</p>
           <label className="tl-field">
             New pickup
-            <input type="datetime-local" name="pickup" required defaultValue={pickupLocal ?? ""} />
+            <DateInput type="datetime-local" name="pickup" required defaultValue={pickupLocal ?? ""} />
           </label>
           {reasonField(RESCHEDULE_REASONS)}
           {noteField}

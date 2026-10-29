@@ -8,8 +8,8 @@ export const THEME_COOKIE = "desk-theme";
 export const DENSITY_COOKIE = "desk-density";
 
 export const THEME_LABEL: Record<Theme, { label: string; blurb: string }> = {
-  night: { label: "Night", blurb: "TrueLane charcoal and gold. The default." },
-  day: { label: "Day", blurb: "Warm manila paper, easy on a bright office." }
+  night: { label: "Night", blurb: "TrueLane charcoal, gold and dark glass. The default." },
+  day: { label: "Day", blurb: "Warm paper and frosted glass, easy on a bright office." }
 };
 export const DENSITY_LABEL: Record<Density, { label: string; blurb: string }> = {
   comfortable: { label: "Comfortable", blurb: "40px rows." },

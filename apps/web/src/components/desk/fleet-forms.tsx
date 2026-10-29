@@ -17,6 +17,7 @@ import { ConfirmDialog, Modal } from "./kit/modal";
 import { fuelKindOf } from "@/lib/eia";
 import { useToast } from "./kit/toast";
 import { LiveFuelPrice } from "./live-fuel-price";
+import { DateInput } from "./date-input";
 
 // ── Small pieces ───────────────────────────────────────────────────────────────────────────────
 
@@ -159,10 +160,10 @@ function DriverDialog({ open, onClose, trucks, driver }: { open: boolean; onClos
         </div>
         <div className="dlg-two">
           <Field label="CDL good through" error={errors.cdlExpiry} hint="A card that has lapsed blocks assignments.">
-            <input type="date" value={values.cdlExpiry} onChange={set("cdlExpiry")} />
+            <DateInput type="date" value={values.cdlExpiry} onChange={set("cdlExpiry")} />
           </Field>
           <Field label="Medical card good through" error={errors.medicalCardExpiry}>
-            <input type="date" value={values.medicalCardExpiry} onChange={set("medicalCardExpiry")} />
+            <DateInput type="date" value={values.medicalCardExpiry} onChange={set("medicalCardExpiry")} />
           </Field>
         </div>
         {message ? (

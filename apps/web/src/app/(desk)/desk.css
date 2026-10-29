@@ -784,3 +784,183 @@ a.al:hover { background: var(--db-bg-elev-1); }
 th[aria-sort="ascending"] .dt-sortbtn, th[aria-sort="descending"] .dt-sortbtn { color: var(--db-fg); }
 th[aria-sort="ascending"] .dt-sortbtn::after { content: "▲"; color: var(--db-accent-fg); }
 th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-accent-fg); }
+
+/* ───────────────────────────── glass ─────────────────────────────
+   One recipe, used where something floats over other content: the sidebar, the header, the verdict, the drawer, dialogs, menus and toasts.
+   A wash over a blur (what is under it frosts: colour and light come through, text does not), a lit rim along the top, a sheen from lit to clear,
+   and an inner hairline instead of a drop shadow. Tokens are --db-glass-* in globals.css, set for both themes. Where the browser cannot blur,
+   or the person asked for less transparency, the same surfaces are solid (the fallbacks at the end of this section). */
+
+/* Light behind the glass, so there is something to frost. Fixed, so it stays put while the page scrolls under the header. */
+.tl-app {
+  background:
+    radial-gradient(900px 620px at 0% -8%, var(--db-glow-1), transparent 62%),
+    radial-gradient(820px 560px at 104% 6%, var(--db-glow-2), transparent 60%),
+    radial-gradient(760px 520px at 38% 112%, var(--db-glow-3), transparent 60%),
+    var(--db-bg);
+  background-attachment: fixed;
+}
+
+.tl-side, .qt-glass {
+  background: var(--db-glass-sheen), var(--db-glass-bg);
+  -webkit-backdrop-filter: blur(var(--db-glass-blur)) saturate(var(--db-glass-sat));
+  backdrop-filter: blur(var(--db-glass-blur)) saturate(var(--db-glass-sat));
+  border: 1px solid var(--db-glass-edge);
+  border-top-color: var(--db-glass-rim);
+  box-shadow: inset 0 1px 0 var(--db-glass-hi), inset 0 -1px 0 var(--db-glass-lo);
+}
+.tl-header, .dr, .k-modal, .gs-pop, .menu-pop, .ai-list, .k-toast {
+  background: var(--db-glass-sheen), var(--db-glass-bg-strong);
+  -webkit-backdrop-filter: blur(var(--db-glass-blur)) saturate(var(--db-glass-sat));
+  backdrop-filter: blur(var(--db-glass-blur)) saturate(var(--db-glass-sat));
+  border: 1px solid var(--db-glass-edge);
+  border-top-color: var(--db-glass-rim);
+  box-shadow: inset 0 1px 0 var(--db-glass-hi), inset 0 -1px 0 var(--db-glass-lo);
+}
+.k-scrim, .dr-scrim { -webkit-backdrop-filter: blur(7px) saturate(1.2); backdrop-filter: blur(7px) saturate(1.2); }
+
+/* Sidebar: a floating glass panel, inset from the window's edge. */
+.tl-app { grid-template-columns: calc(var(--db-sidebar-w) + 24px) minmax(0, 1fr); }
+.tl-app[data-collapsed="true"] { grid-template-columns: calc(var(--db-sidebar-w-collapsed) + 24px) minmax(0, 1fr); }
+.tl-side { top: 12px; height: calc(100vh - 24px); margin: 12px; border-radius: var(--db-r-card); }
+.tl-brand { border-bottom-color: var(--db-glass-edge); }
+.tl-side-foot { border-top-color: var(--db-glass-edge); }
+
+/* The bubble: the current item sits in a small glass capsule that slides to the next one you open. */
+.tl-nav { position: relative; }
+.tl-nav a { z-index: 1; }
+.tl-nav a:hover { background: var(--db-bubble-bg); }
+.tl-nav a[aria-current="page"]::before { display: none; }
+.tl-nav a[aria-current="page"] .ico { color: var(--db-bubble-fg); }
+.tl-nav:not([data-bubble]) a[aria-current="page"] {
+  background: var(--db-bubble-sheen), var(--db-bubble-bg);
+  border: 1px solid var(--db-bubble-edge); border-top-color: var(--db-bubble-rim);
+}
+.tl-nav[data-bubble] a[aria-current="page"] { background: transparent; }
+.tl-bubble {
+  position: absolute; left: var(--db-2); right: var(--db-2); top: 0; z-index: 0; pointer-events: none;
+  height: var(--bh); transform: translateY(var(--by));
+  border-radius: var(--db-r-md);
+  background: var(--db-bubble-sheen), var(--db-bubble-bg);
+  border: 1px solid var(--db-bubble-edge); border-top-color: var(--db-bubble-rim);
+  box-shadow: inset 0 1px 0 var(--db-bubble-rim);
+}
+.tl-bubble[data-settled="true"] { transition: transform 460ms cubic-bezier(0.34, 1.42, 0.5, 1), height var(--db-dur-base) var(--db-ease); }
+@media (prefers-reduced-motion: reduce) { .tl-bubble[data-settled="true"] { transition: none; } }
+
+/* Header: a glass pill that floats the same 12 px from the top as the sidebar does from the left, as tall as the sidebar's brand row, so the two line up and a page scrolls under it. */
+.tl-header { top: 12px; margin: 12px 12px 0 0; border-radius: var(--db-r-card); min-height: calc(var(--db-header-h) + 1px); }
+
+/* Drawer: glass beside the page it opened over; its own head and foot are clear so the glass shows through. */
+.dr { border: 0; border-left: 1px solid var(--db-glass-rim); box-shadow: inset 1px 0 0 var(--db-glass-hi); }
+.dr-head, .dr-foot { background: transparent; border-color: var(--db-glass-edge); }
+
+/* Selected segment: the same bubble. */
+.tl-seg > [aria-pressed="true"], .tl-seg > [aria-current="true"],
+.cp-seg button[aria-pressed="true"] {
+  background: var(--db-bubble-sheen), var(--db-bubble-bg);
+  color: var(--db-fg);
+  box-shadow: inset 0 0 0 1px var(--db-bubble-edge), inset 0 1px 0 var(--db-bubble-rim);
+}
+.cp-seg button[aria-pressed="true"] { color: var(--db-accent-fg); }
+
+/* The verdict: a glass slab over a light the colour of the verdict (green clears, amber is thin, red is below cost, gold before it is priced).
+   The light sits behind the slab, so its edges glow around the card and the card frosts what is inside them. */
+.qt-side { --tone-glow: var(--db-accent); border: 0; background: transparent; padding: 0; border-radius: 0; isolation: isolate; }
+.qt-side[data-tone="ok"] { --tone-glow: var(--db-pos-fill); }
+.qt-side[data-tone="warn"] { --tone-glow: var(--db-warn-fill); }
+.qt-side[data-tone="bad"] { --tone-glow: var(--db-neg-fill); }
+.qt-side[data-tone="info"] { --tone-glow: var(--db-info-fill); }
+.qt-side::before, .qt-side::after {
+  content: ""; position: absolute; z-index: -1; pointer-events: none; border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, var(--tone-glow), transparent 68%);
+  transition: background var(--db-dur-slow) var(--db-ease);
+}
+.qt-side::before { width: 340px; height: 340px; top: -96px; right: -90px; opacity: 0.80; }
+.qt-side::after { width: 280px; height: 280px; bottom: -80px; left: -76px; opacity: 0.55; }
+.qt-glass { background: var(--db-glass-sheen), var(--db-glass-bg-thin); display: grid; gap: var(--db-3); padding: var(--db-4) var(--db-5); border-radius: var(--db-r-card); position: relative; overflow: hidden; }
+/* A bright streak across the top corner, like light catching the edge of a pane. */
+.qt-glass::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+  background: linear-gradient(112deg, rgba(255, 255, 255, 0.20) 0%, rgba(255, 255, 255, 0) 34%);
+  mix-blend-mode: soft-light;
+}
+.qt-glass > * { position: relative; z-index: 1; }
+.qt-side .qt-big { text-shadow: 0 0 28px color-mix(in srgb, var(--tone-glow) 55%, transparent); }
+
+/* No blur available, or less transparency asked for: the same surfaces, solid. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .tl-side, .qt-glass, .tl-header, .dr, .k-modal, .gs-pop, .menu-pop, .ai-list, .k-toast { background: var(--db-bg-card); }
+  .qt-glass::after { display: none; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .tl-side, .qt-glass, .tl-header, .dr, .k-modal, .gs-pop, .menu-pop, .ai-list, .k-toast { background: var(--db-bg-card); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .k-scrim, .dr-scrim { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .qt-glass::after { display: none; }
+}
+@media print { .tl-app { background: none; } }
+/* The verdict's light spills past the card; the page must not grow a scrollbar for it. (clip, not hidden: sticky children keep working.) */
+.tl-col { overflow-x: clip; }
+/* The strip above the floating header frosts whatever scrolls up past it, so a line of text is never cut off raw at the window's top edge. */
+.tl-col::before {
+  content: ""; position: sticky; top: 0; z-index: 19; flex: none; height: 12px; margin-bottom: -12px; pointer-events: none;
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  -webkit-mask-image: linear-gradient(#000, #000 55%, transparent); mask-image: linear-gradient(#000, #000 55%, transparent);
+}
+@media (prefers-reduced-transparency: reduce) { .tl-col::before { display: none; } }
+@media print { .tl-col::before { display: none; } }
+/* Below 1100 px the verdict stops being sticky; it must still be positioned so its light is clipped with the column. */
+@media (max-width: 1100px) { .qt-side { position: relative; } }
+
+/* ───────────────────────────── date and time field ─────────────────────────────
+   Replaces the browser's own date box, whose pop-up cannot be styled. A text box you can type in, a calendar button, and a glass calendar. */
+.dp-field { position: relative; display: inline-flex; align-items: stretch; width: 100%; }
+.dp-field .dp-text { flex: 1; min-width: 0; padding-right: 38px; }
+.dp-open { position: absolute; right: 2px; top: 2px; bottom: 2px; width: 32px; display: grid; place-items: center; border: 0; border-radius: var(--db-r-md); background: transparent; color: var(--db-fg-dim); cursor: pointer; }
+.dp-open:hover:not(:disabled) { color: var(--db-accent-fg); background: var(--db-bubble-bg); }
+.dp-open[aria-expanded="true"] { color: var(--db-accent-fg); }
+.dp-open:disabled { opacity: 0.5; cursor: default; }
+.dp-open svg { width: 16px; height: 16px; }
+.dp-text[aria-invalid="true"] { border-color: var(--db-neg-fill); }
+.audit-filters .dp-field { width: 168px; }
+
+.dp { position: fixed; z-index: 220; padding: var(--db-3); border-radius: var(--db-r-note); color: var(--db-fg);
+  background: var(--db-glass-sheen), var(--db-glass-bg-strong);
+  -webkit-backdrop-filter: blur(var(--db-glass-blur)) saturate(var(--db-glass-sat)); backdrop-filter: blur(var(--db-glass-blur)) saturate(var(--db-glass-sat));
+  border: 1px solid var(--db-glass-edge); border-top-color: var(--db-glass-rim);
+  box-shadow: inset 0 1px 0 var(--db-glass-hi), inset 0 -1px 0 var(--db-glass-lo), 0 0 0 1px var(--db-shadow-ring, transparent); }
+.dp-head { display: flex; align-items: center; gap: var(--db-1); margin-bottom: var(--db-2); }
+.dp-month { flex: 1; font-family: var(--db-font-head); font-size: var(--db-text-lg); font-weight: 600; letter-spacing: 0.01em; padding-left: var(--db-1); }
+.dp-nav { width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: var(--db-r-md); background: transparent; color: var(--db-fg-mid); cursor: pointer; }
+.dp-nav:hover { background: var(--db-bubble-bg); color: var(--db-fg); }
+.dp-nav svg { width: 16px; height: 16px; }
+.dp-nav.prev svg { transform: rotate(180deg); }
+.dp-week, .dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.dp-week span { text-align: center; padding: 4px 0; font-family: var(--db-font-head); font-size: var(--db-text-sm); letter-spacing: 0.1em; text-transform: uppercase; color: var(--db-fg-dim); font-weight: 600; }
+.dp-grid { gap: 2px; }
+.dp-day { height: 34px; display: grid; place-items: center; border: 1px solid transparent; border-radius: var(--db-r-md); background: transparent; color: var(--db-fg); font-size: var(--db-text-base); font-variant-numeric: tabular-nums; cursor: pointer; }
+.dp-day.out { color: var(--db-fg-dim); }
+.dp-day:hover:not(:disabled) { background: var(--db-bubble-bg); }
+.dp-day.today { border-color: var(--db-accent); }
+.dp-day.sel, .dp-day.sel:hover { background: var(--db-bubble-sheen), var(--db-bubble-bg); border-color: var(--db-bubble-edge); border-top-color: var(--db-bubble-rim); color: var(--db-bubble-fg); font-weight: 700; box-shadow: inset 0 1px 0 var(--db-bubble-rim); }
+.dp-day:disabled { opacity: 0.35; cursor: default; }
+.dp-day:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--db-accent); }
+.dp-time { display: flex; align-items: center; gap: var(--db-2); margin-top: var(--db-3); padding-top: var(--db-3); border-top: 1px solid var(--db-glass-edge); }
+.dp-num { width: 46px; min-height: 34px; text-align: center; padding: 0 var(--db-1); background: var(--db-bg-input); color: var(--db-fg); border: 1px solid var(--db-border-strong); border-radius: var(--db-r-md); font-size: var(--db-text-md); font-variant-numeric: tabular-nums; }
+.dp-num:focus-visible { outline: none; border-color: var(--db-accent); box-shadow: 0 0 0 3px var(--db-accent-ring); }
+.dp-time .cp-seg { margin-left: auto; }
+.dp-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--db-3); margin-top: var(--db-3); padding-top: var(--db-2); border-top: 1px solid var(--db-glass-edge); }
+.dp-link { border: 0; background: none; padding: var(--db-1) var(--db-2); border-radius: var(--db-r-sm); color: var(--db-accent-fg); font-weight: 700; font-size: var(--db-text-base); cursor: pointer; }
+.dp-link:hover { background: var(--db-bubble-bg); }
+.dp-foot .tl-btn { margin-left: auto; }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) { .dp { background: var(--db-bg-card); } }
+@media (prefers-reduced-transparency: reduce) { .dp { background: var(--db-bg-card); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+
+/* A stat in a strip sits level with its neighbours: the gap that separates stacked cards (.tl-card + .tl-card) must not push the second, third and fourth stat down. */
+.tl-grid > .tl-card.tl-stat { margin-top: 0; }
+@media (max-width: 1100px) {
+  /* Stats that wrap into rows: the first of each row has no divider or inset, and the rows have air between them. */
+  .tl-grid:has(> .tl-stat) { row-gap: var(--db-4); }
+  .tl-grid.cols-4 > .tl-card.tl-stat:nth-child(odd) { padding-left: 0; border-left: 0; }
+  .tl-grid.cols-3 > .tl-card.tl-stat, .tl-grid.cols-2 > .tl-card.tl-stat { padding-left: 0; border-left: 0; }
+}

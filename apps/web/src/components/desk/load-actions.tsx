@@ -14,6 +14,7 @@ import { PAID_METHODS } from "@/lib/pay-method";
 import { AuthorityStatus, useAuthorityLookup } from "./customer-authority";
 import { Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
+import { DateInput } from "./date-input";
 
 type Errors = Record<string, string>;
 
@@ -219,10 +220,10 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
                       <AddressInput label={`Address for stop ${i + 1}`} value={s.address} disabled={scheduleLocked} onChange={(text) => setStop(i, { address: text })} invalid={!!errors[`stop${i}.address`]} />
                     </Fld>
                     <Fld label="Opens (Dallas time)" error={errors[`stop${i}.earliest`]}>
-                      <input type="datetime-local" value={s.earliest} disabled={scheduleLocked} onChange={(e) => setStop(i, { earliest: e.target.value })} />
+                      <DateInput type="datetime-local" value={s.earliest} disabled={scheduleLocked} onChange={(e) => setStop(i, { earliest: e.target.value })} />
                     </Fld>
                     <Fld label="Closes" error={errors[`stop${i}.latest`]}>
-                      <input type="datetime-local" value={s.latest} disabled={scheduleLocked} onChange={(e) => setStop(i, { latest: e.target.value })} />
+                      <DateInput type="datetime-local" value={s.latest} disabled={scheduleLocked} onChange={(e) => setStop(i, { latest: e.target.value })} />
                     </Fld>
                     <Fld label="Facility" error={errors[`stop${i}.facility`]}>
                       <input value={s.facility} onChange={(e) => setStop(i, { facility: e.target.value })} autoComplete="off" />
@@ -407,7 +408,7 @@ export function TripEntry({
         <div className="dlg-form">
           <p className="tl-note">The load goes on the road. Times are Dallas time, and are what has already happened.</p>
           <Fld label="Arrived at the pickup" error={errors.arrivedAt}>
-            <input type="datetime-local" value={start.arrivedAt} onChange={(e) => setStart({ ...start, arrivedAt: e.target.value })} />
+            <DateInput type="datetime-local" value={start.arrivedAt} onChange={(e) => setStart({ ...start, arrivedAt: e.target.value })} />
           </Fld>
           <div className="dlg-two">
             <Fld label="Waited (minutes)" error={errors.waitMinutes}>
@@ -449,7 +450,7 @@ export function TripEntry({
           {later.map((s, i) => (
             <div key={s.id} className="dlg-two">
               <Fld label={`Arrived at stop ${s.sequence} (${s.role})`} error={errors[`stop${i}.arrivedAt`]}>
-                <input type="datetime-local" value={done.stops[i]?.arrivedAt ?? ""} onChange={(e) => setDone({ ...done, stops: done.stops.map((x, k) => (k === i ? { ...x, arrivedAt: e.target.value } : x)) })} />
+                <DateInput type="datetime-local" value={done.stops[i]?.arrivedAt ?? ""} onChange={(e) => setDone({ ...done, stops: done.stops.map((x, k) => (k === i ? { ...x, arrivedAt: e.target.value } : x)) })} />
               </Fld>
               <Fld label="Waited (minutes)" error={errors[`stop${i}.waitMinutes`]}>
                 <input inputMode="numeric" value={done.stops[i]?.waitMinutes ?? ""} onChange={(e) => setDone({ ...done, stops: done.stops.map((x, k) => (k === i ? { ...x, waitMinutes: e.target.value } : x)) })} />
@@ -457,7 +458,7 @@ export function TripEntry({
             </div>
           ))}
           <Fld label="Delivered at" error={errors.deliveredAt}>
-            <input type="datetime-local" value={done.deliveredAt} onChange={(e) => setDone({ ...done, deliveredAt: e.target.value })} />
+            <DateInput type="datetime-local" value={done.deliveredAt} onChange={(e) => setDone({ ...done, deliveredAt: e.target.value })} />
           </Fld>
           <div role="radiogroup" aria-label="Proof of delivery" className="le-checks">
             <label className="dlg-check">
@@ -718,7 +719,7 @@ export function PaidDialog({ loadId, invoiceNumber, billed, size = "primary" }: 
           </Fld>
           <div className="dlg-two">
             <Fld label="Paid on" hint="Dallas date. Change it to enter an earlier payment.">
-              <input type="date" value={paidOn} max={nowLocal().slice(0, 10)} onChange={(e) => setPaidOn(e.target.value)} />
+              <DateInput type="date" value={paidOn} max={nowLocal().slice(0, 10)} onChange={(e) => setPaidOn(e.target.value)} />
             </Fld>
             <Fld label="How" hint="Optional.">
               <select value={method} onChange={(e) => setMethod(e.target.value)}>

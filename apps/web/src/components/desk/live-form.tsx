@@ -11,6 +11,7 @@ import React from "react";
 export function LiveForm({ path, children, className, label, delayMs = 300 }: { path: string; children: React.ReactNode; className?: string; label: string; delayMs?: number }) {
   const router = useRouter();
   const timer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const form = React.useRef<HTMLFormElement>(null);
   React.useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
 
   const apply = (form: HTMLFormElement) => {
@@ -22,8 +23,22 @@ export function LiveForm({ path, children, className, label, delayMs = 300 }: { 
     router.replace(qs ? `${path}?${qs}` : path, { scroll: false });
   };
 
+  // A <DateInput> keeps its value in a hidden input and says "desk-change" when it moves, which a native change listener would not hear.
+  React.useEffect(() => {
+    const el = form.current;
+    if (!el) return;
+    const onDesk = () => {
+      if (timer.current) clearTimeout(timer.current);
+      apply(el);
+    };
+    el.addEventListener("desk-change", onDesk);
+    return () => el.removeEventListener("desk-change", onDesk);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path]);
+
   return (
     <form
+      ref={form}
       className={className}
       aria-label={label}
       onSubmit={(e) => {

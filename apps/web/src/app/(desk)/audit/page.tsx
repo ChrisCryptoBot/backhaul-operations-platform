@@ -8,6 +8,7 @@ import { DiffButton } from "@/components/desk/audit-diff-button";
 import { LiveForm } from "@/components/desk/live-form";
 import { EmptyState } from "@/components/desk/kit/states";
 import { dateTime } from "@/lib/desk-format";
+import { DateInput } from "@/components/desk/date-input";
 
 const COLUMNS: Column[] = [
   { key: "when", label: "When", sticky: true, width: 170 },
@@ -73,11 +74,11 @@ export default async function AuditPage({ searchParams }: { searchParams?: { q?:
           {group ? <input type="hidden" name="group" value={group} /> : null}
           <label className="audit-day">
             <span>From</span>
-            <input type="date" name="from" defaultValue={from} aria-label="From day" />
+            <DateInput type="date" name="from" defaultValue={from} aria-label="From day" />
           </label>
           <label className="audit-day">
             <span>To</span>
-            <input type="date" name="to" defaultValue={to} aria-label="To day" />
+            <DateInput type="date" name="to" defaultValue={to} aria-label="To day" />
           </label>
           {filtered ? <Link href="/audit" className="tl-btn ghost sm" replace>Clear</Link> : null}
         </LiveForm>

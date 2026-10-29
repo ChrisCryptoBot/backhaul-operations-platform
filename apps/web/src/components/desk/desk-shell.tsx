@@ -71,6 +71,27 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
   };
   const t = data.totals;
 
+  // The glass bubble behind the current item slides to it (the phone's tab bar does the same). Until it has measured, the item draws its own bubble (CSS), so the first paint is never bare.
+  const navRef = React.useRef<HTMLElement>(null);
+  const [bubble, setBubble] = React.useState<{ y: number; h: number } | null>(null);
+  const [settled, setSettled] = React.useState(false);
+  const measure = React.useCallback(() => {
+    const el = navRef.current?.querySelector<HTMLElement>('a[aria-current="page"]');
+    setBubble(el ? { y: el.offsetTop, h: el.offsetHeight } : null);
+  }, []);
+  React.useLayoutEffect(measure, [measure, pathname, collapsed]);
+  React.useEffect(() => {
+    const id = requestAnimationFrame(() => setSettled(true));
+    const nav = navRef.current;
+    const ro = typeof ResizeObserver === "undefined" || !nav ? null : new ResizeObserver(measure);
+    if (nav) ro?.observe(nav);
+    void document.fonts?.ready.then(measure);
+    return () => {
+      cancelAnimationFrame(id);
+      ro?.disconnect();
+    };
+  }, [measure]);
+
   return (
     <ToastProvider>
       <div className="tl-app" data-collapsed={collapsed ? "true" : "false"}>
@@ -82,7 +103,8 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
               <div className="tl-brand-sub">Dispatch desk</div>
             </div>
           </div>
-          <nav className="tl-nav" aria-label="Sections">
+          <nav className="tl-nav" aria-label="Sections" ref={navRef} data-bubble={bubble ? "on" : undefined}>
+            {bubble ? <span className="tl-bubble" aria-hidden="true" data-settled={settled ? "true" : undefined} style={{ "--by": `${bubble.y}px`, "--bh": `${bubble.h}px` } as React.CSSProperties} /> : null}
             {NAV.map((group) => (
               <React.Fragment key={group.label}>
                 <div className="tl-nav-label">{group.label}</div>

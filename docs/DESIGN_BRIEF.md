@@ -9,14 +9,14 @@ The history of what was built, wave by wave, with what was and was not verified,
 A dispatcher looking at a load, a driver or a bill and deciding something. Every screen answers one question and leads with the one figure that answers it. Nothing is there to fill space.
 
 - **Desktop only.** Check at 1440 and 1024 wide. No phone-width work on the desk.
-- **Night and day** are both first-class. Anything new is looked at in both.
+- **Night is the default and the primary look; day is the second.** Both are first-class: anything new is looked at in both. (Night is what a person gets with no cookie; Settings switches.)
 - Sample data is invented; the footer says so. Never print a key or token.
 
 ## 2. The rules
 
 1. **Status is a dot and a word, never a pill.** Small coloured dot, then the state in uppercase Barlow Condensed (`.tl-chip` renders exactly this; the name is old, the look is not). No fill, no border, no radius. Tones: green = fine or done, orange/gold = needs you, red = wrong or late, blue = information, grey = quiet. A healthy, unremarkable state renders nothing (no "Clear", no "Covers your cost" on every row). One primary state and at most one quiet secondary per row.
 2. **One hero per screen.** The single figure the screen exists for is set in Barlow Condensed 600, tabular, 34 to 46 px (`--db-text-3xl` to `--db-text-hero`): the quote verdict, the all-in on a load, a truck's break-even floor, an invoice or statement total, the KPI gross. Gold is for that figure and for the one primary action. Semantic colour (green, orange, red) only on verdicts and deltas.
-3. **Rule, don't box.** Sections are a gold Condensed kicker over a hairline with the content open beneath. Lists are ruled rows. Boxes are for decisions: the hero, a form control, a blocking alert, a modal. The deliberate exceptions are in section 8.
+3. **Rule, don't box.** Sections are a gold Condensed kicker over a hairline with the content open beneath. Lists are ruled rows. Boxes are for decisions: the hero, a form control, a blocking alert, a modal. Surfaces that float over the page are glass (section 3a). The deliberate exceptions are in section 8.
 4. **One action per row.** A row in a list has one button at most (Mark paid, Assign, Start statement). The row's name is a link to the page; clicking elsewhere on the row opens it too, but the link is the one tab stop.
 5. **Say it once.** A short sentence under the page title, not a paragraph. A hint appears once: a field's default is its placeholder, not also a hint, not also a footer. Working-out text (formulas, "how this is calculated") is folded behind a "How this is worked out" disclosure, never a paragraph under every card.
 6. **Don't duplicate another page.** If Customers has the customer scorecard, the KPI page links to it. A dashboard shows what only it can show.
@@ -42,6 +42,19 @@ All colours, sizes and spacing are CSS variables in `src/app/globals.css` (`--db
 - **Motion:** 110 ms (press), 200 ms, 220 ms, 320 ms (settle), one easing curve. Press scale 0.98. Nothing animates for its own sake.
 - **Density:** `--db-row-h` and cell padding switch between Comfortable (40 px rows) and Compact (32 px) from a cookie, set in Settings or on any table toolbar.
 
+### 3a. Glass
+
+Glass is for what floats over other content, not for decoration. One recipe, set by `--db-glass-*` tokens for both themes and applied in the "glass" section at the end of `desk.css`:
+
+- **A wash over a blur** (`backdrop-filter: blur(26px) saturate(1.7)`): what is under it frosts, colour and light come through, text does not. The wash is `--db-glass-bg` for panels that sit beside the page (sidebar, verdict), `--db-glass-bg-strong` where text scrolls under or a lot of text sits on it (header, drawer, dialogs, menus, address suggestions, toasts), `--db-glass-bg-thin` for the verdict, which lets its light show.
+- **A lit rim** along the top (`--db-glass-rim`), a hairline all round (`--db-glass-edge`), and a sheen from lit to clear (`--db-glass-sheen`). Inner highlights, not drop shadows: the no-shadow rule stands.
+- **Light behind it.** Glass over a flat colour looks like a grey box, so the app has a fixed ambient background (a warm corner, a cool corner, `--db-glow-*`) and the verdict carries a light the colour of its verdict behind the slab (green clears, amber thin, red below cost, gold before it is priced).
+- **The bubble.** The current sidebar item and the selected segment sit in a small glass capsule (`--db-bubble-*`), the same device as the phone's tab bar. In the sidebar it is one element that slides to the next item with a small overshoot (measured in `DeskShell`; until it has measured, the item draws its own capsule so the first paint is never bare). No side stripe.
+- **Layout.** The sidebar is a floating panel 12 px in from the window's left, top and bottom. The header is a floating pill 12 px from the top and 12 px from the sidebar, as tall as the sidebar's brand row, so their tops and the brand row's bottom line up. A frosted 12 px strip above the header blurs whatever scrolls up behind it.
+- **Where it stops.** Not on tables, cards, forms, charts or sheets: those are ruled and opaque. Do not stack glass on glass (a modal's inner panels are open, not glass), do not put a blur under a table.
+- **Falls back to solid** where the browser cannot blur (`@supports`) and when the person asks for less transparency (`prefers-reduced-transparency`). Bubble motion stops under reduced motion.
+- Text on glass still has to pass contrast: the strong wash exists for that. Do not thin a text-heavy surface to make it glassier.
+
 ## 4. Components to reuse
 
 Do not write a new one of these.
@@ -56,6 +69,7 @@ Do not write a new one of these.
 | Two to four exclusive choices | the segmented control (`.tl-seg`, or `.cp-seg` in forms) |
 | A table | `DataTable` + `DataTableTools` (search, density, row clicks, sortable headers) |
 | A live filter bar | `LiveForm` |
+| A date or a date and time | `DateInput` (a box you can type in, and a glass calendar). Never a native `<input type="date">` or `datetime-local`: their pop-up is the browser's grey one and cannot be styled |
 | A printed document | `DocHead` inside `<article className="rp">` |
 | An address | `AddressInput` (Mapbox suggestions, temporary; stored points come from the permanent endpoint) |
 | A dialog | `kit/modal.tsx` (focus is held inside; Escape closes) and `kit/confirm-form.tsx` |
