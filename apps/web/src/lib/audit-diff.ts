@@ -2,6 +2,8 @@
  * The audit trail's vocabulary and its before/after diff. Pure, so the server (which writes events) and the pages
  * (which show them) agree on the words.
  */
+import { percentText } from "./pay";
+
 export type AuditSnapshot = Record<string, string | number | null>;
 export type DiffRow = { field: string; from: string; to: string; changed: boolean };
 
@@ -19,6 +21,7 @@ export function diffSnapshots(before: AuditSnapshot | null | undefined, after: A
 
 export function describePay(kind: string, rate: number): string {
   const r = rate.toFixed(2);
+  if (kind === "percent") return percentText(rate);
   return kind === "flat" ? `Flat $${r}` : kind === "cpm" ? `$${r}/mi` : `$${r}/hr`;
 }
 
@@ -41,6 +44,10 @@ export type AuditAction =
   | "delivered"
   | "expenses_changed"
   | "payment_undone"
+  | "statement_started"
+  | "statement_finalized"
+  | "statement_voided"
+  | "statement_discarded"
   | "thresholds_changed"
   | "driver_added"
   | "driver_changed"
@@ -71,6 +78,10 @@ export const ACTION_LABEL: Record<string, string> = {
   delivered: "Delivered",
   expenses_changed: "Expenses changed",
   payment_undone: "Payment undone",
+  statement_started: "Statement started",
+  statement_finalized: "Statement finalized",
+  statement_voided: "Statement voided",
+  statement_discarded: "Statement discarded",
   thresholds_changed: "Thresholds changed",
   driver_added: "Driver added",
   driver_changed: "Driver changed",
@@ -102,6 +113,10 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   delivered: "ok",
   expenses_changed: "muted",
   payment_undone: "warn",
+  statement_started: "info",
+  statement_finalized: "ok",
+  statement_voided: "bad",
+  statement_discarded: "muted",
   thresholds_changed: "muted",
   driver_added: "info",
   driver_changed: "muted",
@@ -117,7 +132,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
 /** The filter chips on the audit page: which actions belong to which group. */
 export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[] }> = [
   { key: "dispatch", label: "Dispatch", actions: ["booked", "load_edited", "trip_started", "delivered", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "tonu", "rescheduled"] },
-  { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "paid", "payment_undone"] },
+  { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "paid", "payment_undone", "statement_started", "statement_finalized", "statement_voided", "statement_discarded"] },
   { key: "intake", label: "Intake", actions: ["rate_con_saved"] },
   { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_deactivated", "driver_reactivated", "truck_added", "truck_changed", "truck_archived", "truck_restored", "cost_profile_changed"] },
   { key: "settings", label: "Settings", actions: ["thresholds_changed"] }

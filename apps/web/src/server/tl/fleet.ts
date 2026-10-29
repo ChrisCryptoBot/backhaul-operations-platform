@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { percentText } from "@/lib/pay";
 import { prisma } from "@/lib/db";
 import { PAY_KINDS, PROFILE_FIELDS, profileFieldApplies, profileFloors, validateDriver, validateProfile, validateTruck, ymdOf, type DriverValues, type ProfileChoices, type ProfileErrorKey, type ProfileKey, type ProfileNumbers, type TruckValues } from "@/lib/fleet-forms";
 import { COST_ARCHETYPES, normalizeArchetype, normalizeFscCutAnswer } from "@/truelane/lib/domain/costArchetype";
@@ -31,6 +32,7 @@ const dollars = (n: number) => `$${n.toFixed(2)}/mi`;
 function payText(kind: string, rate: string): string | null {
   const k = PAY_KINDS.find((x) => x.key === kind);
   if (!k || rate === "") return null;
+  if (k.key === "percent") return percentText(num(rate));
   return `$${rate} ${k.key === "cpm" ? "a mile" : k.key === "hourly" ? "an hour" : "a load"}`;
 }
 

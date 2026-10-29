@@ -52,10 +52,11 @@ describe("the old app and its employer are gone", () => {
     }
   });
 
-  it("keeps the schema to the TrueLane-shaped models plus the desk's own audit trail", () => {
+  it("keeps the schema to the TrueLane-shaped models plus the desk's own audit trail and driver statements", () => {
     const schema = fs.readFileSync(path.join(repo, "prisma", "schema.prisma"), "utf8");
     const models = [...schema.matchAll(/^model (\w+) \{/gm)].map((m) => m[1]).sort();
-    // AuditEvent is the one model that is not TrueLane's: the desk's own record of what it did and why (added in Wave 2).
-    expect(models).toEqual(["Assignment", "AuditEvent", "CostProfile", "Driver", "Load", "LoadDecision", "Stop", "TripSegment", "Vehicle", "Workspace"]);
+    // The models that are not TrueLane's are the desk's own: AuditEvent, its record of what it did and why (Wave 2), and Settlement and
+    // SettlementLoad, the driver pay statements and the one-row-per-load tie that stops a load being paid twice (Wave 7b).
+    expect(models).toEqual(["Assignment", "AuditEvent", "CostProfile", "Driver", "Load", "LoadDecision", "Settlement", "SettlementLoad", "Stop", "TripSegment", "Vehicle", "Workspace"]);
   });
 });

@@ -42,7 +42,7 @@ describe("driver form", () => {
     const noKind = validateDriver({ name: "Jo", payKind: "", payRate: "0.65" });
     expect(!noKind.ok && noKind.errors.payKind).toBe("Pick how they are paid.");
     const badKind = validateDriver({ name: "Jo", payKind: "tips", payRate: "1" });
-    expect(!badKind.ok && badKind.errors.payKind).toBe("Per mile, hourly or flat.");
+    expect(!badKind.ok && badKind.errors.payKind).toBe("Per mile, hourly, a set amount or a percent of the rate.");
   });
 
   test("a stored expiry reads back as the same date on the Dallas calendar, and a card is good through its last day", () => {

@@ -22,6 +22,7 @@ import type { CompleteValues, ExpenseValues, StartValues } from "@/lib/trip";
 import { saveLoadDetails, type EditResult } from "@/server/tl/edit";
 import { completeTrip, saveExpenses, startTrip, type TripResult } from "@/server/tl/execution";
 import { undoPaid, type InvoiceOut, type PaidOut } from "@/server/tl/invoicing";
+import { discardSettlement, finalizeSettlement, saveDraft, startSettlement, voidSettlement, type Draft, type SettleResult } from "@/server/tl/settlement";
 import { readRateCon } from "@/server/ratecon/reader";
 import { saveReviewedDraft, type ReviewedDraft } from "@/server/ratecon/save";
 import type { RateConLoadDraft } from "@/server/ratecon/map";
@@ -336,4 +337,42 @@ export async function undoPaidAction(formData: FormData) {
     if (!out.ok) throw new DispatchError("not_allowed", out.error ?? "That payment cannot be taken back.");
     return "Payment taken back. The invoice is out again.";
   });
+}
+
+// ── Driver statements ──────────────────────────────────────────────────────────────────────────
+
+function refreshSettlements(id?: string) {
+  for (const path of ["/settlements", "/audit", "/loads", "/drivers"]) revalidatePath(path);
+  if (id) revalidatePath(`/settlements/${id}`);
+  revalidatePath("/", "layout");
+}
+
+export async function startSettlementAction(input: { driverId: string; start: string; end: string }): Promise<SettleResult> {
+  const out = await startSettlement(input);
+  if (out.ok) refreshSettlements();
+  return out;
+}
+
+export async function saveSettlementAction(id: string, draft: Draft): Promise<SettleResult> {
+  const out = await saveDraft(id, draft);
+  if (out.ok) refreshSettlements(id);
+  return out;
+}
+
+export async function finalizeSettlementAction(id: string, draft: Draft): Promise<SettleResult> {
+  const out = await finalizeSettlement(id, draft);
+  if (out.ok) refreshSettlements(id);
+  return out;
+}
+
+export async function voidSettlementAction(id: string, reason: string): Promise<SettleResult> {
+  const out = await voidSettlement(id, reason);
+  if (out.ok) refreshSettlements(id);
+  return out;
+}
+
+export async function discardSettlementAction(id: string): Promise<SettleResult> {
+  const out = await discardSettlement(id);
+  if (out.ok) refreshSettlements();
+  return out;
 }

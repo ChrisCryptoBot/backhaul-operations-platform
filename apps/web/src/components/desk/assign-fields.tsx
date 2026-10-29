@@ -1,15 +1,19 @@
 "use client";
 
 import React from "react";
-import { payLabel } from "@/lib/desk-format";
+import { payLabel, usd } from "@/lib/desk-format";
+import { PERCENT_MAX, RATE_CON_BASIS, percentOf } from "@/lib/pay";
 
 type Option = { id: string; name: string; blocker: string | null; busy: string | null; payKind: string | null; payRate: number | null };
+
+const UNIT: Record<string, string> = { cpm: "$ a mile", flat: "$ for the load", hourly: "$ an hour", percent: "% of the rate" };
 
 /**
  * The driver, pay and rate of an assignment. Picking a driver starts the pay from their usual pay (set on the Drivers page); the
  * dispatcher can still change it for this load, and what is saved is what the form shows. Without a usual pay the pay stays as it was.
+ * A set amount is a dollar figure for this load; a percent is a share of the rate confirmation's total, shown in dollars as it is typed.
  */
-export function AssignFields({ drivers, initial }: { drivers: Option[]; initial: { driverId: string | null; payKind: string | null; rate: number | null } }) {
+export function AssignFields({ drivers, initial, rateConTotal }: { drivers: Option[]; initial: { driverId: string | null; payKind: string | null; rate: number | null }; rateConTotal?: number | null }) {
   const firstFree = drivers.find((d) => !d.blocker)?.id ?? "";
   const [driverId, setDriverId] = React.useState(initial.driverId ?? firstFree);
   const startsAt = (id: string) => {
@@ -21,6 +25,8 @@ export function AssignFields({ drivers, initial }: { drivers: Option[]; initial:
   const [rate, setRate] = React.useState(String(first.rate));
   const usual = drivers.find((d) => d.id === driverId);
   const usualText = usual?.payKind ? payLabel(usual.payKind, usual.payRate) : null;
+  const typed = Number(rate);
+  const shareOf = kind === "percent" && rateConTotal != null && rateConTotal > 0 && Number.isFinite(typed) && typed > 0 && typed <= PERCENT_MAX ? percentOf(typed, rateConTotal) : null;
 
   return (
     <>
@@ -50,14 +56,20 @@ export function AssignFields({ drivers, initial }: { drivers: Option[]; initial:
         Pay
         <select name="payKind" value={kind} onChange={(e) => setKind(e.target.value)}>
           <option value="cpm">Per mile</option>
-          <option value="flat">Flat</option>
+          <option value="flat">Set amount</option>
+          <option value="percent">Percent of the rate</option>
           <option value="hourly">Hourly</option>
         </select>
       </label>
       <label className="tl-field">
-        Rate
-        <input name="rate" type="number" step="0.01" min="0.01" value={rate} onChange={(e) => setRate(e.target.value)} required style={{ width: 90 }} />
+        Rate ({UNIT[kind] ?? "$"})
+        <input name="rate" type="number" step="0.01" min="0.01" max={kind === "percent" ? PERCENT_MAX : undefined} value={rate} onChange={(e) => setRate(e.target.value)} required style={{ width: 110 }} />
       </label>
+      {kind === "percent" ? (
+        <span className="tl-sub" style={{ flexBasis: "100%" }}>
+          {shareOf != null ? `${usd(shareOf, 2)} on this load's ${usd(rateConTotal ?? 0, 2)}. ` : ""}A percent is taken of {RATE_CON_BASIS}.
+        </span>
+      ) : null}
       {usualText ? <span className="tl-sub" style={{ flexBasis: "100%" }}>{usual?.name}&apos;s usual pay is {usualText}.</span> : null}
     </>
   );

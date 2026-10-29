@@ -1,4 +1,6 @@
 /** Display helpers for the dispatcher desk. Pure. */
+import { percentText } from "./pay";
+
 export const usd = (n: number | null | undefined, digits = 0): string =>
   n == null || !Number.isFinite(n)
     ? "—"
@@ -55,11 +57,12 @@ export const ASSIGNMENT_STATUS: Record<string, { label: string; tone: "ok" | "wa
   completed: { label: "Delivered", tone: "ok" }
 };
 
-export const PAY_KIND_LABEL: Record<string, string> = { flat: "Flat", cpm: "Per mile", hourly: "Hourly" };
+export const PAY_KIND_LABEL: Record<string, string> = { flat: "Set amount", cpm: "Per mile", hourly: "Hourly", percent: "Percent of the rate" };
 
-/** "$0.65 a mile", "$22 an hour", "$450 a load"; a dash when no pay is set. */
+/** "$0.65 a mile", "$22 an hour", "$450 a load", "25% of the rate"; a dash when no pay is set. */
 export function payLabel(kind: string | null | undefined, rate: number | null | undefined): string {
   if (!kind || rate == null) return "—";
+  if (kind === "percent") return percentText(rate);
   const money = kind === "cpm" ? rate.toFixed(2) : Number.isInteger(rate) ? String(rate) : rate.toFixed(2);
   return `$${money} ${kind === "cpm" ? "a mile" : kind === "hourly" ? "an hour" : "a load"}`;
 }

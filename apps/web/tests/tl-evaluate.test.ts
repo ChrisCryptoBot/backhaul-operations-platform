@@ -115,7 +115,7 @@ describe("the labour in a load's verdict", () => {
   it("counts nothing for a truck its owner drives, until a driver is assigned", () => {
     const e = evaluateTlLoad(load, profile, { mpg: 6.5 });
     expect(e.tripLaborCpm).toBe(0);
-    expect(resolveLabour(profile, null, miles).note).toMatch(/owner drives/);
+    expect(resolveLabour(profile, null, miles, 1000).note).toMatch(/owner drives/);
   });
 
   it("judges an assigned load on that driver's pay per mile, with the payroll burden the phone starts at (18%)", () => {
@@ -123,7 +123,7 @@ describe("the labour in a load's verdict", () => {
     const e = evaluateTlLoad(assigned("cpm", 0.65), profile, { mpg: 6.5 });
     expect(e.tripLaborCpm).toBeCloseTo(0.65 * 1.18, 4);
     expect(e.allInTripFloorRpm!).toBeGreaterThan(solo.allInTripFloorRpm!);
-    expect(resolveLabour(profile, { payKind: "cpm", payRate: 0.65 }, miles)).toMatchObject({ source: "assignment", archetype: "hired_driver", payKind: "cpm" });
+    expect(resolveLabour(profile, { payKind: "cpm", payRate: 0.65 }, miles, 1000)).toMatchObject({ source: "assignment", archetype: "hired_driver", payKind: "cpm" });
   });
 
   it("judges hourly pay on every hour of the trip, and a flat pay as a rate over every mile", () => {
@@ -140,8 +140,8 @@ describe("the labour in a load's verdict", () => {
     const fleet: CostProfileRow = { ...profile, archetype: "hired_driver", hiredDriverPayKind: "cpm", hiredDriverRatePerMile: 0.5, laborBurdenPct: 0.1 };
     expect(evaluateTlLoad(load, fleet, { mpg: 6.5 }).tripLaborCpm).toBeCloseTo(0.5 * 1.1, 4);
     expect(evaluateTlLoad(assigned("cpm", 0.7), fleet, { mpg: 6.5 }).tripLaborCpm).toBeCloseTo(0.7 * 1.1, 4);
-    expect(resolveLabour(fleet, null, miles)).toMatchObject({ source: "truck", archetype: "hired_driver" });
-    expect(resolveLabour(fleet, null, miles).note).toMatch(/truck's cost profile: \$0\.50 a mile, plus 10% payroll burden/);
+    expect(resolveLabour(fleet, null, miles, 1000)).toMatchObject({ source: "truck", archetype: "hired_driver" });
+    expect(resolveLabour(fleet, null, miles, 1000).note).toMatch(/truck's cost profile: \$0\.50 a mile, plus 10% payroll burden/);
   });
 
   it("leaves a leased-on truck on the carrier's cut, whatever pay is assigned", () => {
@@ -149,11 +149,27 @@ describe("the labour in a load's verdict", () => {
     const e = evaluateTlLoad(assigned("cpm", 0.9), leased, { mpg: 6.5 });
     expect(e.tripLaborCpm).toBe(0);
     expect(e.carrierCutPct).toBe(0.2);
-    expect(resolveLabour(leased, { payKind: "cpm", payRate: 0.9 }, miles).source).toBe("truck");
+    expect(resolveLabour(leased, { payKind: "cpm", payRate: 0.9 }, miles, 1000).source).toBe("truck");
   });
 
   it("describes where the pay came from, in words", () => {
-    expect(resolveLabour(profile, { payKind: "hourly", payRate: 24 }, miles).note).toBe("Driver pay from this assignment: $24.00 an hour, plus 18% payroll burden.");
-    expect(resolveLabour(profile, { payKind: "flat", payRate: 450 }, miles).note).toMatch(/\$450\.00 flat, which is \$0\.83 a mile over every mile of the trip/);
+    expect(resolveLabour(profile, { payKind: "hourly", payRate: 24 }, miles, 1000).note).toBe("Driver pay from this assignment: $24.00 an hour, plus 18% payroll burden.");
+    expect(resolveLabour(profile, { payKind: "flat", payRate: 450 }, miles, 1000).note).toMatch(/\$450\.00 flat, which is \$0\.83 a mile over every mile of the trip/);
+  });
+
+  it("judges a percent of the rate as the set amount it comes to on the rate confirmation's total", () => {
+    const total = Number(load.quotedRevenue) + Number(load.fuelSurcharge);
+    const share = evaluateTlLoad(assigned("percent", 40), profile, { mpg: 6.5 });
+    const same = evaluateTlLoad(assigned("flat", total * 0.4), profile, { mpg: 6.5 });
+    expect(share.tripLaborCpm).toBeCloseTo(same.tripLaborCpm, 6);
+    expect(share.tripLaborCpm).toBeCloseTo(((total * 0.4) / miles) * 1.18, 4);
+    // A bigger rate means a bigger share, so the same percent costs more on a richer load.
+    const richer = evaluateTlLoad({ ...assigned("percent", 40), quotedRevenue: Number(load.quotedRevenue) * 2 }, profile, { mpg: 6.5 });
+    expect(richer.tripLaborCpm).toBeGreaterThan(share.tripLaborCpm);
+  });
+
+  it("says a percent in words, with the dollars and what that is per mile", () => {
+    const note = resolveLabour(profile, { payKind: "percent", payRate: 25 }, miles, 1000).note;
+    expect(note).toMatch(/^Driver pay from this assignment: 25% of the rate \(\$250\.00\), which is \$0\.46 a mile over every mile of the trip, plus 18% payroll burden\.$/);
   });
 });

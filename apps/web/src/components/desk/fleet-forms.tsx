@@ -6,6 +6,7 @@ import React from "react";
 import { saveCostProfileAction, saveDriverAction, saveTruckAction, setDriverActiveAction, setTruckArchivedAction } from "@/app/(desk)/actions";
 import { CDL_CLASSES, DEFAULT_BURDEN_PERCENT, DEFAULT_CARRIER_CUT_PERCENT, FUEL_TYPES, PAY_KINDS, PROFILE_FIELDS, TRUCK_TYPES, canonicalTruckType, industryValues, previewOf, profileField, profileSummary, profileWarnings, readChoices, truckMpg, typicalBands, validateDriver, validateProfile, validateTruck, type DriverValues, type ProfileChoices, type ProfileErrorKey, type ProfileKey, type ProfileNumbers, type ProfileValues, type TruckValues } from "@/lib/fleet-forms";
 import { pickMake, pickModel, specFill, truckMakes, truckModels, truckYears, withCurrent } from "@/lib/truck-specs";
+import { RATE_CON_BASIS } from "@/lib/pay";
 import { COST_ARCHETYPES } from "@/truelane/lib/domain/costArchetype";
 import type { CostProfileMathInput } from "@/truelane/lib/domain/calculators";
 import { deltaOf } from "@/lib/kpi-view";
@@ -149,7 +150,7 @@ function DriverDialog({ open, onClose, trucks, driver }: { open: boolean; onClos
               ))}
             </select>
           </Field>
-          <Field label={`Rate${values.payKind ? ` (${PAY_KINDS.find((k) => k.key === values.payKind)?.unit})` : ""}`} error={errors.payRate}>
+          <Field label={`Rate${values.payKind ? ` (${PAY_KINDS.find((k) => k.key === values.payKind)?.unit})` : ""}`} error={errors.payRate} hint={values.payKind === "percent" ? `A share of ${RATE_CON_BASIS}.` : undefined}>
             <input value={values.payRate} onChange={set("payRate")} inputMode="decimal" autoComplete="off" disabled={!values.payKind} />
           </Field>
         </div>

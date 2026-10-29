@@ -7,6 +7,7 @@ import { listLoadAudit } from "@/server/tl/audit";
 import { num } from "@/server/tl/convert";
 import { detentionOfLoad } from "@/server/tl/detention";
 import { getThresholds } from "@/server/tl/thresholds";
+import { settlementOfLoad } from "@/server/tl/settlement";
 import { AssignFields } from "./assign-fields";
 import { assignAction, respondAction, sendAction, unassignAction, undoPaidAction } from "@/app/(desk)/actions";
 import { InvoiceDialog, LoadEditDialog, PaidDialog, TripEntry } from "./load-actions";
@@ -22,7 +23,8 @@ import { DrawerFrame } from "./drawer-frame";
 import { ConfirmForm } from "./kit/confirm-form";
 import { DisruptionButtons } from "./disruption-dialogs";
 import { Icon } from "./kit/icons";
-import { dateTime, miles, PAY_KIND_LABEL, perMile, signedPct, usd } from "@/lib/desk-format";
+import { dateTime, miles, PAY_KIND_LABEL, payLabel, perMile, signedPct, usd } from "@/lib/desk-format";
+import { rateConTotal } from "@/lib/pay";
 
 const TONE: Record<string, "ok" | "warn" | "bad"> = { accept: "ok", caution: "warn", reject: "bad" };
 
@@ -33,7 +35,7 @@ const TONE: Record<string, "ok" | "warn" | "bad"> = { accept: "ok", caution: "wa
 export async function LoadView({ id, variant }: { id: string; variant: "drawer" | "page" }) {
   const detail = await getLoadDetail(id);
   if (!detail) notFound();
-  const [{ byLoad }, feed] = await Promise.all([getAlerts(), listLoadAudit(id)]);
+  const [{ byLoad }, feed, settled] = await Promise.all([getAlerts(), listLoadAudit(id), settlementOfLoad(id)]);
   const { load, evaluation, flipped, driverView, drivers } = detail;
   const a = load.assignment;
   const alerts = byLoad.get(id) ?? [];
@@ -198,11 +200,19 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
               <dt>Driver</dt>
               <dd>{a.driver.name}</dd>
               <dt>Pay</dt>
-              <dd>{PAY_KIND_LABEL[a.payKind] ?? a.payKind} · {a.payKind === "flat" ? usd(num(a.payRate)) : a.payKind === "cpm" ? `$${num(a.payRate).toFixed(2)}/mi` : `$${num(a.payRate).toFixed(2)}/hr`}</dd>
+              <dd>{PAY_KIND_LABEL[a.payKind] ?? a.payKind} · {payLabel(a.payKind, num(a.payRate))}</dd>
               <dt>Estimate (display only)</dt>
               <dd>{usd(a.payEstimate == null ? null : num(a.payEstimate), 2)}</dd>
               <dt>Status</dt>
               <dd><AssignmentChip status={a.status} /></dd>
+              {settled ? (
+                <>
+                  <dt>Paid to the driver</dt>
+                  <dd>
+                    On statement <Link href={`/settlements/${settled.id}`}>{settled.number}</Link>
+                  </dd>
+                </>
+              ) : null}
             </dl>
           ) : (
             <p className="tl-note" style={{ marginBottom: 12 }}>No driver yet.</p>
@@ -211,7 +221,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           {canAssign ? (
             <form action={assignAction} className="tl-form-row" style={{ marginBottom: canUnassign ? 10 : 0 }}>
               <input type="hidden" name="loadId" value={load.id} />
-              <AssignFields drivers={drivers} initial={{ driverId: a?.driverId ?? null, payKind: a?.payKind ?? null, rate: a ? num(a.payRate) : null }} />
+              <AssignFields drivers={drivers} initial={{ driverId: a?.driverId ?? null, payKind: a?.payKind ?? null, rate: a ? num(a.payRate) : null }} rateConTotal={rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge))} />
               {drivers.some((d) => d.busy) ? (
                 <label className="tl-field" style={{ flexBasis: "100%" }}>
                   Reason, only for a driver who is already on another load at the same time

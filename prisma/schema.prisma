@@ -39,6 +39,7 @@ model Workspace {
   loads       Load[]
   drivers     Driver[]
   auditEvents AuditEvent[]
+  settlements Settlement[]
 
   @@map("workspaces")
 }
@@ -74,47 +75,47 @@ model Vehicle {
 
 /// One per vehicle. Inputs to TrueLane's break-even floor (src/truelane/lib/domain/calculators.ts computeCostProfileFloorBreakdown).
 model CostProfile {
-  id                               String   @id @default(cuid())
-  vehicleId                        String   @unique @map("vehicle_id")
-  monthlyInsurance                 Decimal  @default(0) @map("monthly_insurance") @db.Decimal(12, 2)
-  monthlyAuthority                 Decimal  @default(0) @map("monthly_authority") @db.Decimal(12, 2)
-  monthlyPhoneSubscriptions        Decimal  @default(0) @map("monthly_phone_subscriptions") @db.Decimal(12, 2)
-  monthlyLoanPayment               Decimal  @default(0) @map("monthly_loan_payment") @db.Decimal(12, 2)
-  estimatedMonthlyMiles            Decimal  @map("estimated_monthly_miles") @db.Decimal(12, 2)
-  maintenanceReservePerMile        Decimal  @default(0) @map("maintenance_reserve_per_mile") @db.Decimal(8, 4)
-  tireReservePerMile               Decimal  @default(0) @map("tire_reserve_per_mile") @db.Decimal(8, 4)
-  driverHourlyTarget               Decimal  @default(0) @map("driver_hourly_target") @db.Decimal(8, 2)
-  lastFuelPricePerGallon           Decimal? @map("last_fuel_price_per_gallon") @db.Decimal(6, 3)
-  breakEvenRpm                     Decimal  @map("break_even_rpm") @db.Decimal(8, 4)
-  survivalFloorRpm                 Decimal? @map("survival_floor_rpm") @db.Decimal(8, 4)
+  id                               String    @id @default(cuid())
+  vehicleId                        String    @unique @map("vehicle_id")
+  monthlyInsurance                 Decimal   @default(0) @map("monthly_insurance") @db.Decimal(12, 2)
+  monthlyAuthority                 Decimal   @default(0) @map("monthly_authority") @db.Decimal(12, 2)
+  monthlyPhoneSubscriptions        Decimal   @default(0) @map("monthly_phone_subscriptions") @db.Decimal(12, 2)
+  monthlyLoanPayment               Decimal   @default(0) @map("monthly_loan_payment") @db.Decimal(12, 2)
+  estimatedMonthlyMiles            Decimal   @map("estimated_monthly_miles") @db.Decimal(12, 2)
+  maintenanceReservePerMile        Decimal   @default(0) @map("maintenance_reserve_per_mile") @db.Decimal(8, 4)
+  tireReservePerMile               Decimal   @default(0) @map("tire_reserve_per_mile") @db.Decimal(8, 4)
+  driverHourlyTarget               Decimal   @default(0) @map("driver_hourly_target") @db.Decimal(8, 2)
+  lastFuelPricePerGallon           Decimal?  @map("last_fuel_price_per_gallon") @db.Decimal(6, 3)
+  breakEvenRpm                     Decimal   @map("break_even_rpm") @db.Decimal(8, 4)
+  survivalFloorRpm                 Decimal?  @map("survival_floor_rpm") @db.Decimal(8, 4)
   archetype                        String?
-  insuranceLiabilityMonthly        Decimal? @map("insurance_liability_monthly") @db.Decimal(12, 2)
-  insurancePhysicalDamageMonthly   Decimal? @map("insurance_physical_damage_monthly") @db.Decimal(12, 2)
-  insuranceCargoMonthly            Decimal? @map("insurance_cargo_monthly") @db.Decimal(12, 2)
-  insuranceGeneralLiabilityMonthly Decimal? @map("insurance_general_liability_monthly") @db.Decimal(12, 2)
-  insuranceOtherMonthly            Decimal? @map("insurance_other_monthly") @db.Decimal(12, 2)
-  otherFixedMonthly                Decimal? @map("other_fixed_monthly") @db.Decimal(12, 2)
-  truckReplacementMonthly          Decimal? @map("truck_replacement_monthly") @db.Decimal(12, 2)
-  annualFixedCosts                 Decimal? @map("annual_fixed_costs") @db.Decimal(12, 2)
-  hiredDriverHourlyRate            Decimal? @map("hired_driver_hourly_rate") @db.Decimal(8, 2)
-  hiredDriverPayKind               String?  @map("hired_driver_pay_kind")
-  hiredDriverRatePerMile           Decimal? @map("hired_driver_rate_per_mile") @db.Decimal(8, 4)
-  laborBurdenPct                   Decimal? @map("labor_burden_pct") @db.Decimal(6, 4)
-  carrierCutPct                    Decimal? @map("carrier_cut_pct") @db.Decimal(6, 4)
-  selfEmploymentTaxPct             Decimal? @map("self_employment_tax_pct") @db.Decimal(6, 4)
-  fscCutApplies                    String?  @map("fsc_cut_applies")
-  factoringFeePct                  Decimal? @map("factoring_fee_pct") @db.Decimal(6, 4)
-  detentionHourlyRate              Decimal? @map("detention_hourly_rate") @db.Decimal(8, 2)
-  freeGraceMinutes                 Int?     @map("free_grace_minutes")
-  dailyRevenueTarget               Decimal? @map("daily_revenue_target") @db.Decimal(12, 2)
-  routeBaseMinimum                 Decimal? @map("route_base_minimum") @db.Decimal(12, 2)
-  routeIncludedMiles               Decimal? @map("route_included_miles") @db.Decimal(12, 2)
-  routeIncludedStops               Int?     @map("route_included_stops")
-  routeOveragePerMile              Decimal? @map("route_overage_per_mile") @db.Decimal(8, 4)
-  routeOveragePerStop              Decimal? @map("route_overage_per_stop") @db.Decimal(8, 2)
+  insuranceLiabilityMonthly        Decimal?  @map("insurance_liability_monthly") @db.Decimal(12, 2)
+  insurancePhysicalDamageMonthly   Decimal?  @map("insurance_physical_damage_monthly") @db.Decimal(12, 2)
+  insuranceCargoMonthly            Decimal?  @map("insurance_cargo_monthly") @db.Decimal(12, 2)
+  insuranceGeneralLiabilityMonthly Decimal?  @map("insurance_general_liability_monthly") @db.Decimal(12, 2)
+  insuranceOtherMonthly            Decimal?  @map("insurance_other_monthly") @db.Decimal(12, 2)
+  otherFixedMonthly                Decimal?  @map("other_fixed_monthly") @db.Decimal(12, 2)
+  truckReplacementMonthly          Decimal?  @map("truck_replacement_monthly") @db.Decimal(12, 2)
+  annualFixedCosts                 Decimal?  @map("annual_fixed_costs") @db.Decimal(12, 2)
+  hiredDriverHourlyRate            Decimal?  @map("hired_driver_hourly_rate") @db.Decimal(8, 2)
+  hiredDriverPayKind               String?   @map("hired_driver_pay_kind")
+  hiredDriverRatePerMile           Decimal?  @map("hired_driver_rate_per_mile") @db.Decimal(8, 4)
+  laborBurdenPct                   Decimal?  @map("labor_burden_pct") @db.Decimal(6, 4)
+  carrierCutPct                    Decimal?  @map("carrier_cut_pct") @db.Decimal(6, 4)
+  selfEmploymentTaxPct             Decimal?  @map("self_employment_tax_pct") @db.Decimal(6, 4)
+  fscCutApplies                    String?   @map("fsc_cut_applies")
+  factoringFeePct                  Decimal?  @map("factoring_fee_pct") @db.Decimal(6, 4)
+  detentionHourlyRate              Decimal?  @map("detention_hourly_rate") @db.Decimal(8, 2)
+  freeGraceMinutes                 Int?      @map("free_grace_minutes")
+  dailyRevenueTarget               Decimal?  @map("daily_revenue_target") @db.Decimal(12, 2)
+  routeBaseMinimum                 Decimal?  @map("route_base_minimum") @db.Decimal(12, 2)
+  routeIncludedMiles               Decimal?  @map("route_included_miles") @db.Decimal(12, 2)
+  routeIncludedStops               Int?      @map("route_included_stops")
+  routeOveragePerMile              Decimal?  @map("route_overage_per_mile") @db.Decimal(8, 4)
+  routeOveragePerStop              Decimal?  @map("route_overage_per_stop") @db.Decimal(8, 2)
   hourlyTargetConfirmedAt          DateTime? @map("hourly_target_confirmed_at")
-  createdAt                        DateTime @default(now()) @map("created_at")
-  updatedAt                        DateTime @updatedAt @map("updated_at")
+  createdAt                        DateTime  @default(now()) @map("created_at")
+  updatedAt                        DateTime  @updatedAt @map("updated_at")
 
   vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
 
@@ -202,12 +203,13 @@ model Load {
   updatedAt                     DateTime  @updatedAt @map("updated_at")
   deletedAt                     DateTime? @map("deleted_at")
 
-  workspace  Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  vehicle    Vehicle?       @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  workspace  Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  vehicle    Vehicle?        @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
   stops      Stop[]
   segments   TripSegment[]
   decisions  LoadDecision[]
   assignment Assignment?
+  settlement SettlementLoad?
 
   @@index([workspaceId, status])
   @@index([vehicleId])
@@ -302,6 +304,7 @@ model Driver {
   workspace       Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   assignedVehicle Vehicle?     @relation(fields: [assignedVehicleId], references: [id], onDelete: SetNull)
   assignments     Assignment[]
+  settlements     Settlement[]
 
   @@index([workspaceId])
   @@map("drivers")
@@ -354,4 +357,53 @@ model AuditEvent {
   @@index([workspaceId, createdAt])
   @@index([loadId, createdAt])
   @@map("audit_events")
+}
+
+/// A driver's pay statement for a period. A draft lists the driver's delivered loads in the period (worked out from the loads each time it is
+/// shown) with typed hours for hourly pay and typed adjustments; finalizing freezes the load lines, the adjustments and the total, and ties each
+/// load to the statement so it cannot be paid twice. Voiding a final statement releases its loads and keeps the statement as it was.
+/// status: draft | final | void. The period is two Dallas calendar dates.
+model Settlement {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  driverId    String    @map("driver_id")
+  number      String
+  status      String    @default("draft")
+  periodStart DateTime  @map("period_start") @db.Date
+  periodEnd   DateTime  @map("period_end") @db.Date
+  /// Draft only: the hours typed for hourly loads, by load id.
+  hours       Json?
+  /// Typed lines other than loads, [{ label, amount }] with the amount signed (a deduction is negative).
+  adjustments Json?
+  /// Final or void: the load lines as they were when it was finalized.
+  lines       Json?
+  total       Decimal?  @db.Decimal(12, 2)
+  finalizedAt DateTime? @map("finalized_at")
+  voidedAt    DateTime? @map("voided_at")
+  voidReason  String?   @map("void_reason")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  driver    Driver           @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  loads     SettlementLoad[]
+
+  @@unique([workspaceId, number])
+  @@index([workspaceId, status])
+  @@index([driverId])
+  @@map("settlements")
+}
+
+/// A load paid on a final statement. One row per load at most, which is what stops a load being paid twice; voiding the statement deletes its rows.
+model SettlementLoad {
+  id           String  @id @default(cuid())
+  settlementId String  @map("settlement_id")
+  loadId       String  @unique @map("load_id")
+  amount       Decimal @db.Decimal(12, 2)
+
+  settlement Settlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  load       Load       @relation(fields: [loadId], references: [id], onDelete: Restrict)
+
+  @@index([settlementId])
+  @@map("settlement_loads")
 }

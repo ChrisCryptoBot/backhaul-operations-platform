@@ -77,7 +77,8 @@ export async function agingFor(now = Date.now(), workspaceId = DEMO_WORKSPACE_ID
 // ── Load detail, drivers, trucks, invoices ─────────────────────────────────────────────────────
 
 import { driverBlocker, driverClashNote } from "./dispatch";
-import { projectLoadToSummary, type LoadSummary, type PayKind } from "./projector";
+import { rateConTotal } from "@/lib/pay";
+import { driverFacingPay, projectLoadToSummary, type LoadSummary, type PayKind } from "./projector";
 
 export async function getLoadDetail(id: string, workspaceId = DEMO_WORKSPACE_ID) {
   const l = await prisma.load.findFirst({ where: { id, workspaceId, deletedAt: null, ...notQuote }, include: loadInclude });
@@ -109,7 +110,7 @@ export async function getLoadDetail(id: string, workspaceId = DEMO_WORKSPACE_ID)
           stopNotes: s.stopNotes
         }))
       },
-      { kind: l.assignment.payKind as PayKind, rate: num(l.assignment.payRate) }
+      driverFacingPay({ kind: l.assignment.payKind as PayKind, rate: num(l.assignment.payRate) }, rateConTotal(num(l.quotedRevenue), num(l.fuelSurcharge)))
     );
   }
   return {
@@ -117,7 +118,7 @@ export async function getLoadDetail(id: string, workspaceId = DEMO_WORKSPACE_ID)
     evaluation,
     flipped,
     /** Where the driver pay in the verdict came from (this assignment, or the truck's profile), in a sentence. */
-    labourNote: profile && evaluation ? resolveLabour(profile, l.assignment, evaluation.totalMiles).note : null,
+    labourNote: profile && evaluation ? resolveLabour(profile, l.assignment, evaluation.totalMiles, rateConTotal(num(l.quotedRevenue), num(l.fuelSurcharge))).note : null,
     driverView,
     // Who can take this load: a lapsed card blocks outright; being on another load at the same time is a note the dispatcher can override with a reason.
     drivers: await Promise.all(drivers.map(async (d) => ({ id: d.id, name: d.name, blocker: driverBlocker(d), busy: await driverClashNote(d.id, l.id, l.stops), payKind: d.defaultPayKind, payRate: numOrNull(d.defaultPayRate) })))

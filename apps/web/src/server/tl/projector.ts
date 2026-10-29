@@ -7,9 +7,12 @@
  * Contract: TRUELANE/docs/parked/EXTERNAL_DISPATCH_CONTRACT.md section 5; plan: docs/CONVERGENCE_BUILD_PLAN.md.
  */
 import { Prisma } from "@prisma/client";
+import type { PayKind } from "@/lib/pay";
 
-export type PayKind = "flat" | "cpm" | "hourly";
+export type { PayKind } from "@/lib/pay";
 export type AssignmentPay = { kind: PayKind; rate: number };
+/** What the driver app can be told: it knows three ways of being paid, and a percent of the rate is sent as the set amount it comes to. */
+export type DriverPayKind = Exclude<PayKind, "percent">;
 
 export type ProjectableStop = {
   stopSequence: number;
@@ -53,15 +56,30 @@ export type LoadSummary = {
     dock_notes?: string;
   }>;
   equipment: { trailer_type: string | null };
-  driver_pay: { kind: PayKind; rate: number; estimate: number };
+  driver_pay: { kind: DriverPayKind; rate: number; estimate: number };
   reference: { broker_name?: string; load_number?: string };
   miles?: { loaded: number };
 };
 
-/** Display-only estimate, as the contract defines it: flat = rate, cpm = rate x loaded miles, hourly = rate x est. hours. */
-export function payEstimate(pay: AssignmentPay, loadedMiles: number, estimatedHours: number | null | undefined): number {
-  const raw = pay.kind === "flat" ? pay.rate : pay.kind === "cpm" ? pay.rate * loadedMiles : pay.rate * (estimatedHours ?? 0);
-  return new Prisma.Decimal(raw).toDecimalPlaces(2).toNumber();
+/**
+ * Display-only estimate, as the contract defines it: flat = rate, cpm = rate x loaded miles, hourly = rate x est. hours. A percent is that
+ * share of what the rate confirmation pays (`rateConTotal`), so it needs it: asking for one without it is a mistake, not a zero.
+ */
+export function payEstimate(pay: AssignmentPay, loadedMiles: number, estimatedHours: number | null | undefined, rateConTotal?: number | null): number {
+  if (pay.kind === "percent") {
+    if (rateConTotal == null) throw new Error("A percent pay needs the rate confirmation's total.");
+    return new Prisma.Decimal(pay.rate).times(rateConTotal).div(100).toDecimalPlaces(2).toNumber();
+  }
+  // Multiplied as decimals, not floats: 0.051 a mile over 185 miles is exactly $9.435, which rounds up to $9.44.
+  const rate = new Prisma.Decimal(pay.rate);
+  const raw = pay.kind === "flat" ? rate : pay.kind === "cpm" ? rate.times(loadedMiles) : rate.times(estimatedHours ?? 0);
+  return raw.toDecimalPlaces(2).toNumber();
+}
+
+/** The pay as the driver is told it: a percent of the rate becomes the set amount it comes to, so the driver is never sent the rate itself. */
+export function driverFacingPay(pay: AssignmentPay, rateConTotal: number): { kind: DriverPayKind; rate: number } {
+  if (pay.kind === "percent") return { kind: "flat", rate: payEstimate(pay, 0, null, rateConTotal) };
+  return { kind: pay.kind, rate: pay.rate };
 }
 
 const iso = (d?: Date | null) => (d ? d.toISOString() : undefined);
@@ -73,7 +91,7 @@ function firstRef(refs: unknown): string | undefined {
   return undefined;
 }
 
-export function projectLoadToSummary(load: ProjectableLoad, pay: AssignmentPay): LoadSummary {
+export function projectLoadToSummary(load: ProjectableLoad, pay: { kind: DriverPayKind; rate: number }): LoadSummary {
   const ordered = [...load.stops].sort((a, b) => a.stopSequence - b.stopSequence);
   const first = ordered[0];
   const last = ordered[ordered.length - 1];

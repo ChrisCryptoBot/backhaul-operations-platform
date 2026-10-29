@@ -4,7 +4,8 @@ import { describePay } from "@/lib/audit-diff";
 import { driverBlocker } from "@/lib/clearance";
 import { dateTime } from "@/lib/desk-format";
 import { loadWindow, windowsOverlap, type StopWindow, type Window } from "@/lib/schedule";
-import { assertDriverSafe, payEstimate, projectLoadToSummary, type AssignmentPay, type LoadSummary, type PayKind } from "./projector";
+import { PAY_KIND_KEYS, PERCENT_MAX, rateConTotal } from "@/lib/pay";
+import { assertDriverSafe, driverFacingPay, payEstimate, projectLoadToSummary, type AssignmentPay, type LoadSummary, type PayKind } from "./projector";
 import { num, numOrNull } from "./convert";
 import { recordAudit } from "./audit";
 import { freezeLoadSnapshot } from "./snapshot";
@@ -18,7 +19,7 @@ export { driverBlocker };
  */
 export type DispatchStatus = "draft" | "dispatched" | "accepted" | "declined" | "in_progress" | "completed";
 
-const PAY_KINDS: readonly PayKind[] = ["flat", "cpm", "hourly"];
+const PAY_KINDS: readonly PayKind[] = PAY_KIND_KEYS;
 const SENDABLE_LOAD_STATUSES = ["draft", "accepted"];
 const OPEN_ASSIGNMENT = ["draft", "dispatched", "accepted", "in_progress"];
 const OPEN_LOAD = ["draft", "accepted", "in_progress"];
@@ -49,7 +50,10 @@ export class DispatchError extends Error {
 
 export function assertPay(pay: AssignmentPay): void {
   if (!PAY_KINDS.includes(pay.kind) || !Number.isFinite(pay.rate) || pay.rate <= 0) {
-    throw new DispatchError("bad_pay", "Pay needs a kind (flat, cpm or hourly) and a rate above zero.");
+    throw new DispatchError("bad_pay", "Pay needs a kind (per mile, hourly, a set amount or a percent of the rate) and a rate above zero.");
+  }
+  if (pay.kind === "percent" && pay.rate > PERCENT_MAX) {
+    throw new DispatchError("bad_pay", `A percent of the rate has to be above 0 and under 100.`);
   }
 }
 
@@ -101,7 +105,7 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
     override = reason;
   }
 
-  const estimate = payEstimate(input.pay, num(load.loadedMiles), input.estimatedHours ?? null);
+  const estimate = payEstimate(input.pay, num(load.loadedMiles), input.estimatedHours ?? null, rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge)));
   const data = {
     driverId: driver.id,
     payKind: input.pay.kind,
@@ -184,7 +188,7 @@ export async function driverSummaryFor(loadId: string): Promise<LoadSummary> {
   const load = await prisma.load.findUnique({ where: { id: loadId }, include: { stops: true, assignment: true } });
   if (!load || load.deletedAt) throw new DispatchError("load_not_found", "That load does not exist.");
   if (!load.assignment) throw new DispatchError("not_assigned", "Assign a driver first.");
-  const pay: AssignmentPay = { kind: load.assignment.payKind as PayKind, rate: num(load.assignment.payRate) };
+  const pay = driverFacingPay({ kind: load.assignment.payKind as PayKind, rate: num(load.assignment.payRate) }, rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge)));
   const summary = projectLoadToSummary(
     {
       loadNumber: load.loadNumber,

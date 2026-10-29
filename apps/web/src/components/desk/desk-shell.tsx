@@ -43,6 +43,7 @@ const NAV: Array<{ label: string; items: Item[] }> = [
     label: "Money",
     items: [
       { href: "/invoices", label: "Invoices", icon: "invoices", pill: (c) => (c.overdue > 0 ? { n: c.overdue, tone: "alert" } : c.readyToInvoice > 0 ? { n: c.readyToInvoice } : null) },
+      { href: "/settlements", label: "Settlements", icon: "wallet" },
       { href: "/kpi", label: "KPI dashboard", icon: "chart" }
     ]
   },
@@ -68,6 +69,7 @@ const TITLES: Array<[string, string]> = [
   ["/drivers", "Drivers"],
   ["/fleet", "Trucks"],
   ["/invoices", "Invoices"],
+  ["/settlements", "Settlements"],
   ["/kpi", "KPI dashboard"],
   ["/settings", "Settings"]
 ];

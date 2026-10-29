@@ -1,3 +1,4 @@
+import { percentText } from "@/lib/pay";
 import { computeCostProfileFloorBreakdown, DEFAULT_LABOR_BURDEN_PCT_NEW_PROFILE, type CostProfileMathInput } from "@/truelane/lib/domain/calculators";
 import { effectiveCarrierCutPct, fscCutAppliesFor, normalizeArchetype, type CostArchetype } from "@/truelane/lib/domain/costArchetype";
 import { evaluateLoad, type EvaluateLoadInput, type LoadEvaluation } from "@/truelane/lib/domain/evaluateLoad";
@@ -105,13 +106,15 @@ const perMileText = (n: number) => `$${n.toFixed(2)} a mile`;
 /**
  * The labour in a load's verdict. A load with a driver assigned is judged on that driver's pay, whatever the truck's own profile says, so
  * a dispatcher sees what the load clears after the person actually driving it is paid: per mile and hourly pay are the phone's two driver
- * models as they are, and a flat pay becomes a per-mile rate over every mile of the trip (the way home counts unless a load covers it).
+ * models as they are, and a flat pay becomes a per-mile rate over every mile of the trip (the way home counts unless a load covers it). A
+ * percent of the rate is a flat pay once it is worked out on the rate confirmation's total, so it reads the same way.
  * Payroll burden is the truck's, or the phone's 18% start when the truck has none. A leased-on truck keeps its own model: the carrier's cut,
  * not a wage. With nobody assigned the truck's profile decides, as before.
  */
-export function resolveLabour(profile: CostProfileRow, assignment: EvaluateLoadRow["assignment"], tripMiles: number): Labour {
+export function resolveLabour(profile: CostProfileRow, assignment: EvaluateLoadRow["assignment"], tripMiles: number, rateConTotal: number): Labour {
   const truck = normalizeArchetype(profile.archetype);
   const pay = assignment && n(assignment.payRate) > 0 ? { kind: assignment.payKind, rate: n(assignment.payRate) } : null;
+  const percentAmount = pay?.kind === "percent" ? (pay.rate / 100) * rateConTotal : 0;
   if (!pay || truck === "leased_on") {
     const payKind = profile.hiredDriverPayKind === "cpm" ? "cpm" : "hourly";
     const burden = clampFraction(numOrNull(profile.laborBurdenPct as never));
@@ -126,8 +129,14 @@ export function resolveLabour(profile: CostProfileRow, assignment: EvaluateLoadR
   const burden = profile.laborBurdenPct != null ? clampFraction(numOrNull(profile.laborBurdenPct as never)) : DEFAULT_LABOR_BURDEN_PCT_NEW_PROFILE;
   const burdenText = `${(burden * 100).toFixed(0)}% payroll burden`;
   if (pay.kind === "hourly") return { source: "assignment", archetype: "hired_driver", payKind: "hourly", hourlyRate: pay.rate, ratePerMile: 0, burden, note: `Driver pay from this assignment: ${perHour(pay.rate)}, plus ${burdenText}.` };
-  const ratePerMile = pay.kind === "cpm" ? pay.rate : tripMiles > 0 ? pay.rate / tripMiles : 0;
-  const text = pay.kind === "cpm" ? perMileText(pay.rate) : `$${pay.rate.toFixed(2)} flat, which is ${perMileText(ratePerMile)} over every mile of the trip`;
+  const setAmount = pay.kind === "percent" ? percentAmount : pay.rate;
+  const ratePerMile = pay.kind === "cpm" ? pay.rate : tripMiles > 0 ? setAmount / tripMiles : 0;
+  const text =
+    pay.kind === "cpm"
+      ? perMileText(pay.rate)
+      : pay.kind === "percent"
+        ? `${percentText(pay.rate)} ($${percentAmount.toFixed(2)}), which is ${perMileText(ratePerMile)} over every mile of the trip`
+        : `$${pay.rate.toFixed(2)} flat, which is ${perMileText(ratePerMile)} over every mile of the trip`;
   return { source: "assignment", archetype: "hired_driver", payKind: "cpm", hourlyRate: 0, ratePerMile, burden, note: `Driver pay from this assignment: ${text}, plus ${burdenText}.` };
 }
 
@@ -141,7 +150,7 @@ export function evaluateTlLoad(
   const loaded = n(load.loadedMiles);
   const returnDh = n(load.returnDeadheadMiles);
   const totalMiles = pickupDh + loaded + (load.isBackhaul ? 0 : returnDh);
-  const labour = resolveLabour(profile, load.assignment, totalMiles);
+  const labour = resolveLabour(profile, load.assignment, totalMiles, n(load.quotedRevenue) + n(load.fuelSurcharge));
   const archetype = labour.archetype;
   // The market rate is stored per mile; evaluateLoad wants the total for the load.
   const benchmark = numOrNull(load.marketBenchmark as never);

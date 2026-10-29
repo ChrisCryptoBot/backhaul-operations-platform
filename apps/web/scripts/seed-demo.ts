@@ -58,6 +58,9 @@ const profileBase = {
 
 async function main() {
   // Clean slate for the demo workspace (children cascade).
+  // Statements first: their loads and drivers are held (RESTRICT) until they are gone.
+  await prisma.settlementLoad.deleteMany({ where: { settlement: { workspaceId: WORKSPACE_ID } } });
+  await prisma.settlement.deleteMany({ where: { workspaceId: WORKSPACE_ID } });
   await prisma.workspace.deleteMany({ where: { id: WORKSPACE_ID } });
   await prisma.workspace.create({ data: { id: WORKSPACE_ID, name: "Demo fleet" } });
 

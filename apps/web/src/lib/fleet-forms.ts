@@ -1,4 +1,5 @@
 import { computeCostProfileFloorBreakdown, DEFAULT_LABOR_BURDEN_PCT_NEW_PROFILE, type CostProfileFloorBreakdown, type CostProfileMathInput } from "@/truelane/lib/domain/calculators";
+import { PERCENT_MAX } from "./pay";
 import { COST_ARCHETYPES, normalizeFscCutAnswer, type CostArchetype, type FscCutAnswer } from "@/truelane/lib/domain/costArchetype";
 import { isUnusualValue, needsPercentConfirm, UNUSUAL_VALUE_LIMITS } from "@/truelane/lib/formatNumbers";
 import { resolveWizardInsurance } from "@/truelane/lib/insuranceFields";
@@ -26,7 +27,7 @@ export type DriverValues = {
   cdlExpiry: string;
   medicalCardExpiry: string;
   assignedVehicleId: string;
-  /** How they are usually paid: "cpm", "hourly" or "flat", or blank. A load's assignment starts from it. */
+  /** How they are usually paid: "cpm", "hourly", "flat" (a set amount) or "percent" (of the rate), or blank. A load's assignment starts from it. */
   payKind: string;
   payRate: string;
 };
@@ -34,7 +35,8 @@ export type DriverValues = {
 export const PAY_KINDS = [
   { key: "cpm", label: "Per mile", unit: "$ a mile", max: 5 },
   { key: "hourly", label: "Hourly", unit: "$ an hour", max: 200 },
-  { key: "flat", label: "Flat per load", unit: "$ a load", max: 20000 }
+  { key: "flat", label: "Set amount per load", unit: "$ a load", max: 20000 },
+  { key: "percent", label: "Percent of the rate", unit: "% of the rate", max: PERCENT_MAX }
 ];
 
 export const CDL_CLASSES = ["A", "B", "C"];
@@ -86,7 +88,7 @@ export function validateDriver(input: Raw): DriverCheck {
   if (v.medicalCardExpiry && !med) errors.medicalCardExpiry = "A real date.";
   const kind = PAY_KINDS.find((k) => k.key === v.payKind);
   let payRate: number | null = null;
-  if (v.payKind && !kind) errors.payKind = "Per mile, hourly or flat.";
+  if (v.payKind && !kind) errors.payKind = "Per mile, hourly, a set amount or a percent of the rate.";
   else if (kind) {
     const n = Number(v.payRate);
     if (v.payRate === "") errors.payRate = "Type the rate.";

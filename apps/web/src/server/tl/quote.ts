@@ -12,6 +12,7 @@ import { cityState } from "@/server/ratecon/map";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { assignDriver, DispatchError, findDriverClash } from "./dispatch";
+import type { PayKind } from "@/lib/pay";
 import { evaluateTlLoad, resolveLabour, type EvaluateLoadRow } from "./evaluate";
 import { freezeLoadSnapshot } from "./snapshot";
 import { DEMO_WORKSPACE_ID } from "./workspace";
@@ -131,7 +132,7 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
   const usual = driver?.defaultPayKind && driver.defaultPayRate != null ? { kind: driver.defaultPayKind, rate: num(driver.defaultPayRate) } : null;
   const row = quoteLoadRow(input, emptyToPickup, usual);
   const e = evaluateTlLoad(row, profile as never, { mpg: truck.mpg });
-  const labour = resolveLabour(profile as never, row.assignment, e.totalMiles);
+  const labour = resolveLabour(profile as never, row.assignment, e.totalMiles, num(row.quotedRevenue) + num(row.fuelSurcharge));
   const margin = e.result.verdictMarginPerMi;
   return {
     key: `${truck.id}:${driver?.id ?? "none"}`,
@@ -457,7 +458,7 @@ export async function bookQuote(
   if (driver) {
     if (driver.defaultPayKind && driver.defaultPayRate != null) {
       try {
-        await assignDriver({ loadId: saved.loadId, driverId: driver.id, pay: { kind: driver.defaultPayKind as "cpm" | "hourly" | "flat", rate: num(driver.defaultPayRate) } }, now);
+        await assignDriver({ loadId: saved.loadId, driverId: driver.id, pay: { kind: driver.defaultPayKind as PayKind, rate: num(driver.defaultPayRate) } }, now);
         assigned = true;
       } catch (e) {
         note = e instanceof DispatchError ? `Booked, but ${driver.name} could not be assigned: ${e.message}` : `Booked, but ${driver.name} could not be assigned.`;

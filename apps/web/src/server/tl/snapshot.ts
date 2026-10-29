@@ -21,7 +21,7 @@ export async function freezeLoadSnapshot(tx: Prisma.TransactionClient, loadId: s
   const breakdown = computeCostProfileFloorBreakdown(profileMathInput(profile as never));
   const miles = num(l.pickupDeadheadMiles) + num(l.loadedMiles) + (l.isBackhaul ? 0 : num(l.returnDeadheadMiles));
   const decision = buildDecisionSnapshotFromBreakdown(breakdown, num(profile.estimatedMonthlyMiles));
-  const labour = resolveLabour(profile as never, l.assignment, miles);
+  const labour = resolveLabour(profile as never, l.assignment, miles, num(l.quotedRevenue) + num(l.fuelSurcharge));
   const trip = buildTripSnapshotFields(
     {
       archetype: labour.archetype,

@@ -28,7 +28,7 @@ deleted `tools.ts`; recover it from commit `3b422f3` if it is ever wanted.
   dispatcher's load), `projector` (driver-safe `load_summary` + confidentiality gate), `queries` (board rows, analytics,
   aging), `dispatch` (assign, send, record the driver's answer, CDL/medical-card block).
 - `src/server/ratecon/`: canned readings of the two fictional sample rate cons, mapper to a load draft (never a verdict),
-  a reader (demo path works with no key; the live Anthropic path mirrors TrueLane's function and is **unverified**), and a
+  a reader (demo path works with no key; the live Anthropic path mirrors TrueLane's function and was checked live on 2026-10-29, see Wave 7b), and a
   review gate (`saveReviewedDraft` refuses an unconfirmed draft).
 - Demo data: `scripts/seed-demo.ts` (3 trucks, 4 drivers, 42 loads; the deadhead-trap load reads $1.19/mi, floor $1.34,
   reject, and flips with a load back). Run it against a throwaway Postgres only:
@@ -201,7 +201,7 @@ The page was one card with two buttons and nothing under it. It is now a working
   rate cleared and retyped (Save blocked, then allowed), an appointment moved, a truck chosen, saved, the new load at the top of the
   list, its page showing $800 all-in against the truck's floor; at 1440 wide in Night, at 1024 wide (the review stacks into one column,
   no page overflow) in Night and Day.
-- Not done: reading a real file (it needs a key, so the live path is still unverified from this app); dragging a file onto the zone or
+- Not done at the time: reading a real file (it needed a key; checked live later, see Wave 7b); dragging a file onto the zone or
   choosing one with the file picker (both are written, but only the two samples were run); a keyboard-only walk; a production build.
 
 ## Desk rework, Wave 5 (done): the phone's cost profile and driver pay
@@ -325,3 +325,47 @@ decision on what a finalized statement locks); add and remove stops, a proof-of-
 - Not done: driver settlement (Wave 7b); the phone's profit-per-mile and dollars-per-hour sorts (the desk has no per-load net or drive hours; dollars per mile on
   every mile stands in); the CSV export does not follow the History filters (it takes the search only); the proof-of-delivery file itself; sending an invoice or a
   reminder; the dispatcher margin and the flat-pay reading, which still need Chris's sign-off; a production build and a keyboard-only walk (Wave 8).
+
+## Desk rework, Wave 7b (done): driver pay (a percent of the rate or a set amount) and statements
+Plan: `~/.claude/plans/radiant-stargazing-spark.md`. Chris asked that a dispatcher can pay a driver a set amount or a percentage of the rate
+confirmation. A set amount already existed (the flat pay kind); a percent did not, so it is a fourth pay kind, and the statements built on top of
+pay follow each load's own assignment.
+- **Percent of the rate** (`lib/pay.ts`). A driver's usual pay and a load's assignment can be per mile, hourly, a set amount for the load, or a percent.
+  The percent is taken of what the rate confirmation pays: the agreed rate plus its fuel surcharge, not detention, lumper or other extras (share those as a
+  line on the statement). It is above 0 and at most 99.99. It is worked out wherever pay is: the estimate stored on an assignment, the labour in the verdict
+  (a percent is a set amount once worked out, so it reads like a flat pay: over every mile of the trip, with the 18% burden, same reading as flat and still
+  awaiting Chris's sign-off), Quote's driver rows (a percent of the offer plus surcharge) and the statement. The assign form shows the dollars as the percent
+  is typed ("$162.50 on this load's $650.00"). The driver is never sent the rate: the driver-facing payload carries a percent as the set amount it comes to.
+  The audit and the load page say "25% of the rate". `payEstimate` and `resolveLabour` now need the rate confirmation's total, so a caller cannot forget it.
+- **A cent bug fixed on the way.** The estimate multiplied rate by miles in floating point before rounding, so 0.051 a mile over 185 miles ($9.435) came out
+  $9.43 where the database rounds $9.44. It now multiplies as decimals; the statement maths uses the same rule, checked against it over thousands of cases.
+- **Statements** (`/settlements`; `lib/settlement.ts`, `server/tl/settlement.ts`, `components/desk/settlement-forms.tsx`; migration
+  `20261101000000_driver_settlements`, applied to the demo database only). A statement is one driver and a period of two Dallas dates (Last week, Last two
+  weeks, This month so far and Last month are one click; at most 92 days). It lists the driver's loads delivered in the period that are not already paid on a
+  final statement, worked out from the loads each time it is shown. Each load pays under the pay it was assigned with: per loaded mile times loaded miles, the
+  set amount, hourly times hours (the hours the assignment was sent with, or typed; an hourly load with neither blocks finalizing), or the percent. Typed
+  adjustments cover everything else (an advance, a fuel card charge, a reimbursement, a bonus, a share of detention; a deduction is negative). The editor totals as
+  you type with the same function the server freezes. The broker's payment status is shown on each load and cautions, but does not hold a statement.
+- **What finalizing locks.** The load lines, adjustments and total are frozen (a load edited afterwards does not rewrite what was paid), and each load is tied to
+  the statement by a row that is unique per load in the database, so a load cannot be paid on two statements even if two are finalized at once. A final statement
+  cannot be edited. **Void** (with a reason) keeps it as it was, marks it void and releases its loads for another statement; a draft is **discarded**. Start,
+  finalize, void and discard are audited (Money group). The load page says which statement a load was paid on. Finalized and voided statements print as a sheet.
+- **Not payroll.** It is gross pay. Taxes, payroll burden and withholding are not worked out, and the sheet says so.
+- **The keys, and what is wired.** Checked 2026-10-29 (names and status only; values never printed). The desk reads one key, `ANTHROPIC_API_KEY`, for live rate
+  confirmation reading; it was not in the desk's env. The phone project's `.env` holds Anthropic, Mapbox (public and secret), EIA and FMCSA keys; the four the desk
+  can use were copied into the desk's own gitignored `apps/web/.env.local` as `ANTHROPIC_API_KEY`, `MAPBOX_ACCESS_TOKEN`, `EIA_API_KEY` and `FMCSA_WEBKEY` (the Mapbox
+  secret was not copied), and `.env.example` lists the names. Each was tried once and accepted: Anthropic, Mapbox geocoding and directions (Dallas to Houston came
+  back 239.6 mi, 3.7 h), EIA (US on-highway diesel $6.352 for the week of 26 Oct) and FMCSA. Live rate confirmation reading is now on: a made-up one-page rate
+  confirmation was read through the desk's own reader (`scripts/live-read-check.ts`) in 12.6 s with every field right (broker, load and PO number, $1,300 all in, 452
+  miles, Net 30, both stops with correct Dallas times and reference numbers). **Mapbox, EIA and FMCSA have keys but no desk code yet**: address autocomplete, routed
+  miles and drive hours, the fuel price, and a broker authority lookup are still the typed-miles stand-ins. No real broker document was sent anywhere. The key
+  copied from the phone project may be the dev key that `CONVERGENCE_BUILD_PLAN.md` says to rotate; if it is, rotate it.
+- Verified: `tsc` and eslint clean; vitest 31 files / 373 tests pass with the database tests (35 new: pay, statements, and 8 against the database covering a percent
+  assignment and what the driver is told, the period edges at Dallas midnight, hours, adjustments, finalize and freeze, the unique rule, void, discard and the
+  unsettled summary). In the browser at 1440 and 1024: Settlements (what is owed per driver), the start dialog with its presets, a draft with a per mile and a set
+  amount load, an advance and live totals, finalize through its confirmation, the printed sheet, void with a reason and its banner, the audit entries, the load page
+  marker, a percent on the assign form (live dollars, then the load, estimate and verdict note), the Drivers form offering all four kinds, and a draft with a
+  percent line (30% of $952.00 = $285.60) and an hourly load (9 hours = $216.00) with Finalize waiting on the hours. The demo database was reseeded afterwards.
+- Not done: a CSV of statements, emailing a statement, a per-driver burden, a per-statement note, rules to pay a driver only after the broker pays, a percent of a
+  different base (say the line haul alone), a share of detention as an automatic line; the dispatcher margin and the flat/percent per-mile reading still need
+  Chris's sign-off; wiring Mapbox, EIA and FMCSA; a production build and a keyboard-only walk (Wave 8).
