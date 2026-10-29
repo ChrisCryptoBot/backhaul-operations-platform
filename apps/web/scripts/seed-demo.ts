@@ -62,8 +62,8 @@ async function main() {
   await prisma.workspace.create({ data: { id: WORKSPACE_ID, name: "Demo fleet" } });
 
   const trucks = [
-    { name: "Unit 101", type: "tractor", mpg: 6.8, insurance: 1450, loan: 1900, miles: 6500 },
-    { name: "Unit 102", type: "tractor", mpg: 6.5, insurance: 1380, loan: 0, miles: 7000 },
+    { name: "Unit 101", type: "heavy_duty", mpg: 6.8, insurance: 1450, loan: 1900, miles: 6500 },
+    { name: "Unit 102", type: "heavy_duty", mpg: 6.5, insurance: 1380, loan: 0, miles: 7000 },
     { name: "Unit 103", type: "box_truck", mpg: 9.2, insurance: 1100, loan: 1250, miles: 6000 }
   ];
   const vehicles: Array<{ id: string; mpg: number; breakEven: number }> = [];
@@ -111,6 +111,13 @@ async function main() {
     vehicles.push({ id: v.id, mpg: t.mpg, breakEven });
   }
 
+  // Mostly per mile, one hourly: the two pay models the phone's verdict knows.
+  const USUAL_PAY = [
+    { kind: "cpm", rate: 0.5 },
+    { kind: "cpm", rate: 0.52 },
+    { kind: "hourly", rate: 18 },
+    { kind: "cpm", rate: 0.55 }
+  ];
   const drivers = [];
   for (const [i, name] of DRIVERS.entries()) {
     drivers.push(
@@ -124,7 +131,10 @@ async function main() {
           cdlExpiry: new Date(Date.now() + (200 + i * 90) * DAY),
           // The last driver's medical card lapses in 20 days, so the "lapses soon" alert has something to show.
           medicalCardExpiry: new Date(Date.now() + (i === DRIVERS.length - 1 ? 20 : 150 + i * 60) * DAY),
-          assignedVehicleId: vehicles[i % vehicles.length].id
+          assignedVehicleId: vehicles[i % vehicles.length].id,
+          // What each is usually paid, so an assignment starts from it (the Drivers page and the assign form show it).
+          defaultPayKind: USUAL_PAY[i % USUAL_PAY.length]!.kind,
+          defaultPayRate: USUAL_PAY[i % USUAL_PAY.length]!.rate
         }
       })
     );
@@ -352,7 +362,7 @@ async function main() {
     if (p.status !== "draft" && p.status !== "cancelled") {
       const driver = drivers[drvCursor++ % drivers.length];
       const kind = drvCursor % 3 === 0 ? "flat" : "cpm";
-      const rate = kind === "flat" ? round(p.offer * 0.7, 0) : 0.68;
+      const rate = kind === "flat" ? round(p.offer * 0.45, 0) : 0.5;
       const est = kind === "flat" ? rate : round(rate * loaded, 2);
       const dispatchedAt = p.sentHoursAgo != null ? new Date(now - p.sentHoursAgo * 3_600_000) : new Date(when.getTime() - DAY);
       const respondedAt = p.status === "accepted" ? null : new Date(when.getTime() - DAY / 2);

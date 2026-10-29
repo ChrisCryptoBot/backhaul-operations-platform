@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import type { RateConLoadDraft } from "./map";
 import { currentWorkspace } from "@/server/tl/workspace";
 import { recordAudit } from "@/server/tl/audit";
+import { freezeLoadSnapshot } from "@/server/tl/snapshot";
 
 /**
  * The review gate. A draft read from a rate confirmation becomes a load only when a person has looked at it and
@@ -63,6 +64,8 @@ export async function saveReviewedDraft(d: ReviewedDraft) {
     },
     include: { stops: true }
     });
+    // A truck was chosen, so what it costs is known: freeze the floor and the rest now, as the phone does when a rate confirmation is booked.
+    if (d.vehicleId) await freezeLoadSnapshot(tx, load.id, { labour: false });
     await recordAudit(
       {
         entity: "intake",

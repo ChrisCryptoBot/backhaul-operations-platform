@@ -1,4 +1,4 @@
-// VENDORED from TrueLane supabase/functions/rate-con-extract/core.ts @ e7c88066. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane supabase/functions/rate-con-extract/core.ts @ a3a9c0f4. Do not edit; run scripts/vendor-truelane.mjs.
 // ============================================================================================
 //  rate-con-extract — pure core (no Deno APIs, no imports) so jest + tsc can check it from the app
 //  side (lib/rateCon/extractCore.test.ts). index.ts wires HTTP, Clerk, Storage and the SDK around it.

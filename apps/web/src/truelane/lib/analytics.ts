@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/analytics.ts @ e7c88066. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/analytics.ts @ a3a9c0f4. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Dashboard analytics (#19): aggregates a driver's completed loads into the
  * higher-level views the History scorecard doesn't cover — period totals (this

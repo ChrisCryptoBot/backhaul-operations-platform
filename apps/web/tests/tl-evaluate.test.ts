@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateTlLoad, profileMathInput, type CostProfileRow, type EvaluateLoadRow } from "@/server/tl/evaluate";
+import { evaluateTlLoad, profileMathInput, resolveLabour, type CostProfileRow, type EvaluateLoadRow } from "@/server/tl/evaluate";
 import { computeCostProfileFloorBreakdown } from "@/truelane/lib/domain/calculators";
 
 const profile: CostProfileRow = {
@@ -88,8 +88,72 @@ describe("evaluating a dispatcher's load with TrueLane's math", () => {
     expect(rank[empty.finalDecision]).toBeGreaterThanOrEqual(rank[covered.finalDecision]);
   });
 
+  // A load keeps its surcharge in dollars. The verdict must add those dollars once, whatever unit the amount was entered in; it once read the
+  // dollars as a per-mile rate and multiplied them by the loaded miles.
+  it("adds a stored fuel surcharge once, in dollars, for every unit", () => {
+    const plain = evaluateTlLoad(load, profile, { mpg: 6.5 });
+    expect(plain.fuelSurchargeDollars).toBe(0);
+    for (const unit of ["percent", "per_mile", null]) {
+      const e = evaluateTlLoad({ ...load, fuelSurcharge: 60, fuelSurchargeUnit: unit }, profile, { mpg: 6.5 });
+      expect(e.fuelSurchargeDollars).toBeCloseTo(60, 1);
+      expect(e.effectiveGross).toBeCloseTo(710, 1);
+    }
+  });
+
   it("turns a per-mile market rate into a total over every planned mile", () => {
     const e = evaluateTlLoad(load, profile, { mpg: 6.5 });
     expect(e.marketVariancePct).not.toBeNull();
+  });
+});
+
+describe("the labour in a load's verdict", () => {
+  // The load runs 51 + 257.2 + 237 = 545.2 miles, with the way home empty.
+  const miles = 545.2;
+  const hours = miles / 50;
+  const assigned = (kind: string, rate: number): EvaluateLoadRow => ({ ...load, assignment: { payKind: kind, payRate: rate } });
+
+  it("counts nothing for a truck its owner drives, until a driver is assigned", () => {
+    const e = evaluateTlLoad(load, profile, { mpg: 6.5 });
+    expect(e.tripLaborCpm).toBe(0);
+    expect(resolveLabour(profile, null, miles).note).toMatch(/owner drives/);
+  });
+
+  it("judges an assigned load on that driver's pay per mile, with the payroll burden the phone starts at (18%)", () => {
+    const solo = evaluateTlLoad(load, profile, { mpg: 6.5 });
+    const e = evaluateTlLoad(assigned("cpm", 0.65), profile, { mpg: 6.5 });
+    expect(e.tripLaborCpm).toBeCloseTo(0.65 * 1.18, 4);
+    expect(e.allInTripFloorRpm!).toBeGreaterThan(solo.allInTripFloorRpm!);
+    expect(resolveLabour(profile, { payKind: "cpm", payRate: 0.65 }, miles)).toMatchObject({ source: "assignment", archetype: "hired_driver", payKind: "cpm" });
+  });
+
+  it("judges hourly pay on every hour of the trip, and a flat pay as a rate over every mile", () => {
+    const hourly = evaluateTlLoad(assigned("hourly", 24), profile, { mpg: 6.5 });
+    expect(hourly.tripLaborCpm).toBeCloseTo((24 * hours * 1.18) / miles, 3);
+    const flat = evaluateTlLoad(assigned("flat", 450), profile, { mpg: 6.5 });
+    expect(flat.tripLaborCpm).toBeCloseTo((450 / miles) * 1.18, 4);
+    // A load covering the way home spreads the same flat pay over fewer miles.
+    const covered = evaluateTlLoad({ ...assigned("flat", 450), isBackhaul: true }, profile, { mpg: 6.5 });
+    expect(covered.tripLaborCpm).toBeGreaterThan(flat.tripLaborCpm);
+  });
+
+  it("uses the truck's own burden when it has one, and the truck's own driver pay when nobody is assigned", () => {
+    const fleet: CostProfileRow = { ...profile, archetype: "hired_driver", hiredDriverPayKind: "cpm", hiredDriverRatePerMile: 0.5, laborBurdenPct: 0.1 };
+    expect(evaluateTlLoad(load, fleet, { mpg: 6.5 }).tripLaborCpm).toBeCloseTo(0.5 * 1.1, 4);
+    expect(evaluateTlLoad(assigned("cpm", 0.7), fleet, { mpg: 6.5 }).tripLaborCpm).toBeCloseTo(0.7 * 1.1, 4);
+    expect(resolveLabour(fleet, null, miles)).toMatchObject({ source: "truck", archetype: "hired_driver" });
+    expect(resolveLabour(fleet, null, miles).note).toMatch(/truck's cost profile: \$0\.50 a mile, plus 10% payroll burden/);
+  });
+
+  it("leaves a leased-on truck on the carrier's cut, whatever pay is assigned", () => {
+    const leased: CostProfileRow = { ...profile, archetype: "leased_on", carrierCutPct: 0.2, fscCutApplies: "yes" };
+    const e = evaluateTlLoad(assigned("cpm", 0.9), leased, { mpg: 6.5 });
+    expect(e.tripLaborCpm).toBe(0);
+    expect(e.carrierCutPct).toBe(0.2);
+    expect(resolveLabour(leased, { payKind: "cpm", payRate: 0.9 }, miles).source).toBe("truck");
+  });
+
+  it("describes where the pay came from, in words", () => {
+    expect(resolveLabour(profile, { payKind: "hourly", payRate: 24 }, miles).note).toBe("Driver pay from this assignment: $24.00 an hour, plus 18% payroll burden.");
+    expect(resolveLabour(profile, { payKind: "flat", payRate: 450 }, miles).note).toMatch(/\$450\.00 flat, which is \$0\.83 a mile over every mile of the trip/);
   });
 });

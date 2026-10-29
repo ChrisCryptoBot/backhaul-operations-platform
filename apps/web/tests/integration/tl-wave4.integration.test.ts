@@ -54,12 +54,22 @@ describe.skipIf(!run)("disruptions, detention, fleet editing, planner and broker
     return l;
   }
 
+  /** A stored truck as the form posts it back: every number as text, and the answers as the form keeps them. */
+  const formOf = (d: NonNullable<Awaited<ReturnType<typeof getTruckDetail>>>) => ({
+    ...Object.fromEntries(Object.entries(d.numbers).map(([k, v]) => [k, v == null ? "" : String(v)])),
+    archetype: d.choices.archetype,
+    payKind: d.choices.payKind,
+    fscCut: d.choices.fscCut ?? "",
+    insuranceItemised: d.choices.insuranceItemised ? "1" : "",
+    routeMinimumOn: d.choices.routeMinimumOn ? "1" : ""
+  });
+
   beforeAll(async () => {
-    const t = await saveTruck({ name: "W4 Truck", type: "tractor", mpg: "6.5", fuelType: "diesel" }, null);
+    const t = await saveTruck({ name: "W4 Truck", type: "heavy_duty", mpg: "6.5", fuelType: "diesel" }, null);
     if (!t.ok) throw new Error("truck");
     truckId = t.id;
-    const p = await saveCostProfile(truckId, { monthlyInsurance: "1000", monthlyAuthority: "100", monthlyPhoneSubscriptions: "50", monthlyLoanPayment: "0", estimatedMonthlyMiles: "6000", maintenanceReservePerMile: "0.15", tireReservePerMile: "0.04", detentionHourlyRate: "60", freeGraceMinutes: "120", lastFuelPricePerGallon: "3.9" });
-    if (!p.ok) throw new Error("profile");
+    const p = await saveCostProfile(truckId, { monthlyInsurance: "1000", monthlyAuthority: "100", monthlyPhoneSubscriptions: "50", monthlyLoanPayment: "0", estimatedMonthlyMiles: "6000", maintenanceReservePerMile: "0.15", tireReservePerMile: "0.04", detentionHourlyRate: "60", freeGraceMinutes: "120", lastFuelPricePerGallon: "3.9", driverHourlyTarget: "30", archetype: "solo_owner" });
+    if (!p.ok) throw new Error(`profile ${JSON.stringify(p)}`);
     const d = await saveDriver({ name: "W4 Driver", cdlClass: "A", cdlExpiry: "2031-01-31", medicalCardExpiry: "2031-01-31" }, null);
     if (!d.ok) throw new Error("driver");
     driverId = d.id;
@@ -228,7 +238,7 @@ describe.skipIf(!run)("disruptions, detention, fleet editing, planner and broker
     expect(detail.stored!.breakEven).toBeCloseTo(expected.breakEvenRpm, 4);
     expect(detail.stored!.breakEven).toBeCloseTo(fixed / 6000 + 0.19, 4);
 
-    const out = await saveCostProfile(truckId, { ...Object.fromEntries(Object.entries(detail.numbers).map(([k, v]) => [k, v == null ? "" : String(v)])), monthlyInsurance: "1600" });
+    const out = await saveCostProfile(truckId, { ...formOf(detail), monthlyInsurance: "1600" });
     expect(out).toMatchObject({ ok: true, changed: true });
     if (!out.ok) return;
     const bumped = computeCostProfileFloorBreakdown({ monthlyInsurance: 1600, monthlyAuthority: 100, monthlyPhoneSubscriptions: 50, monthlyLoanPayment: 0, estimatedMonthlyMiles: 6000, maintenanceReservePerMile: 0.15, tireReservePerMile: 0.04 });
@@ -239,14 +249,16 @@ describe.skipIf(!run)("disruptions, detention, fleet editing, planner and broker
     expect(ev.after).toMatchObject({ "Insurance ($ a month)": 1600 });
     expect(String(ev.before!["Break-even floor"])).toMatch(/^\$\d\.\d\d\/mi$/);
 
-    expect(await saveCostProfile(truckId, { ...Object.fromEntries(Object.entries(detail.numbers).map(([k, v]) => [k, v == null ? "" : String(v)])), monthlyInsurance: "1600" })).toMatchObject({ ok: true, changed: false });
+    expect(await saveCostProfile(truckId, { ...formOf(detail), monthlyInsurance: "1600" })).toMatchObject({ ok: true, changed: false });
     expect(await saveCostProfile(truckId, { monthlyInsurance: "x", estimatedMonthlyMiles: "" })).toMatchObject({ ok: false, errors: { monthlyInsurance: expect.any(String), estimatedMonthlyMiles: "Required." } });
   });
 
   test("the planner puts an open load in its driver's row, flags an overlap, and chases a stop whose window closed with nobody there", async () => {
     const t0 = Date.now();
     const a = await makeLoad("P1", t0 - 10 * H - base, t0 + 20 * H - base, { status: "in_progress" }); // picked up 10 h ago
-    await prisma.stop.updateMany({ where: { loadId: a.id, stopSequence: 1 }, data: { arrivedAt: new Date(t0 - 9 * H) } });
+    // It arrived nine hours ago, or at the start of today's Dallas day if that was yesterday: the due list only shows what was reached today.
+    const today = (await getPlannerData(t0, t0, 1)).days[0]!.start;
+    await prisma.stop.updateMany({ where: { loadId: a.id, stopSequence: 1 }, data: { arrivedAt: new Date(Math.min(t0 - 1000, Math.max(t0 - 9 * H, today))) } });
     await prisma.stop.updateMany({ where: { loadId: a.id, stopSequence: 2 }, data: { timeWindowEarliest: new Date(t0 - 4 * H), timeWindowLatest: new Date(t0 - 2 * H) } }); // the delivery window closed 2 h ago, nobody there
     await prisma.assignment.create({ data: { loadId: a.id, driverId, payKind: "flat", payRate: 300, status: "in_progress" } });
 

@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/calculate/afterDelivery.ts @ e7c88066. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/calculate/afterDelivery.ts @ a3a9c0f4. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * "After delivery" wording: one source for the Calculator's mileage-basis line, the trip screen's row and the wrap-up line.
  *

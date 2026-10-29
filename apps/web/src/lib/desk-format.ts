@@ -56,3 +56,10 @@ export const ASSIGNMENT_STATUS: Record<string, { label: string; tone: "ok" | "wa
 };
 
 export const PAY_KIND_LABEL: Record<string, string> = { flat: "Flat", cpm: "Per mile", hourly: "Hourly" };
+
+/** "$0.65 a mile", "$22 an hour", "$450 a load"; a dash when no pay is set. */
+export function payLabel(kind: string | null | undefined, rate: number | null | undefined): string {
+  if (!kind || rate == null) return "—";
+  const money = kind === "cpm" ? rate.toFixed(2) : Number.isInteger(rate) ? String(rate) : rate.toFixed(2);
+  return `$${money} ${kind === "cpm" ? "a mile" : kind === "hourly" ? "an hour" : "a load"}`;
+}

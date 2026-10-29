@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/detention.ts @ e7c88066. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/detention.ts @ a3a9c0f4. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Billable detention (10l) — pure. Brokers typically allow a free grace window (2 hours is the
  * standard) at a dock; time beyond that is billable detention at an hourly rate. This computes what

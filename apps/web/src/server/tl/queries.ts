@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { computeAnalytics, type AnalyticsPeriod } from "@/truelane/lib/analytics";
 import { computeAgingSummary } from "@/truelane/lib/invoice";
-import { evaluateTlLoad } from "./evaluate";
+import { evaluateTlLoad, resolveLabour } from "./evaluate";
 import { toAgingView, toAnalyticsInput, num, numOrNull } from "./convert";
 import { DEMO_WORKSPACE_ID } from "./workspace";
 
@@ -100,9 +100,11 @@ export async function getLoadDetail(id: string, workspaceId = DEMO_WORKSPACE_ID)
     load: l,
     evaluation,
     flipped,
+    /** Where the driver pay in the verdict came from (this assignment, or the truck's profile), in a sentence. */
+    labourNote: profile && evaluation ? resolveLabour(profile, l.assignment, evaluation.totalMiles).note : null,
     driverView,
     // Who can take this load: a lapsed card blocks outright; being on another load at the same time is a note the dispatcher can override with a reason.
-    drivers: await Promise.all(drivers.map(async (d) => ({ id: d.id, name: d.name, blocker: driverBlocker(d), busy: await driverClashNote(d.id, l.id, l.stops) })))
+    drivers: await Promise.all(drivers.map(async (d) => ({ id: d.id, name: d.name, blocker: driverBlocker(d), busy: await driverClashNote(d.id, l.id, l.stops), payKind: d.defaultPayKind, payRate: numOrNull(d.defaultPayRate) })))
   };
 }
 
@@ -126,6 +128,8 @@ export async function listDrivers(workspaceId = DEMO_WORKSPACE_ID) {
     current: d.assignments.filter((a) => ["dispatched", "accepted", "in_progress"].includes(a.status)).map((a) => ({ loadId: a.loadId, loadNumber: a.load.loadNumber, status: a.status })),
     delivered: d.assignments.filter((a) => a.status === "completed").length,
     truckId: d.assignedVehicleId,
+    payKind: d.defaultPayKind,
+    payRate: numOrNull(d.defaultPayRate),
     /** Open loads this driver holds (assigned, sent, accepted or on the road): what stops them being taken out of service. */
     openLoadNumbers: d.assignments.filter((a) => ["draft", "dispatched", "accepted", "in_progress"].includes(a.status) && ["draft", "accepted", "in_progress"].includes(a.load.status)).map((a) => a.load.loadNumber ?? "a load")
   }));

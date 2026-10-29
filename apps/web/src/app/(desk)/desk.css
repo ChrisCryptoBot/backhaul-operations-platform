@@ -614,3 +614,20 @@ a.al:hover { border-color: var(--db-accent); }
   .rc-side { position: static; }
   .rc-grid, .rc-stop-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ───────────────────────────── cost profile: answers, total, build-up ───────────────────────────── */
+.th-label { font-size: var(--db-text-sm); color: var(--db-fg); font-weight: 600; }
+.cp-top { display: flex; align-items: center; justify-content: space-between; gap: var(--db-4); flex-wrap: wrap; margin-bottom: var(--db-4); }
+.cp-top .tl-note { margin: 0; max-width: 56ch; }
+.cp-seg { display: inline-flex; align-self: flex-start; border: 1px solid var(--db-border-strong); border-radius: var(--db-r-md); overflow: hidden; }
+.cp-seg button { min-height: 34px; padding: 0 var(--db-4); border: 0; border-right: 1px solid var(--db-border); background: var(--db-bg-elev-2); color: var(--db-fg-mid); font-size: var(--db-text-sm); font-weight: 600; cursor: pointer; }
+.cp-seg button:last-child { border-right: 0; }
+.cp-seg button:hover { color: var(--db-fg); }
+.cp-seg button[aria-pressed="true"] { background: var(--db-accent-bg); color: var(--db-accent-fg); }
+.cp-seg button:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--db-accent); }
+.cp-total { min-height: 36px; display: flex; align-items: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+.cp-build { margin-top: var(--db-3); font-size: var(--db-text-sm); }
+.cp-build summary { cursor: pointer; color: var(--db-fg-mid); font-weight: 600; }
+.cp-build summary .tl-sub { display: block; font-weight: 400; }
+.cp-build dl { margin-top: var(--db-2); }
+.cp-warn { margin: 0 0 var(--db-3); padding-left: 18px; color: var(--db-warn); font-size: var(--db-text-base); }

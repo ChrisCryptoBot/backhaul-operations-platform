@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/quotedMiles.ts @ e7c88066. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/quotedMiles.ts @ a3a9c0f4. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Quote-vs-actual: before the working mileage columns are overwritten with what was actually driven,
  * keep the planned (decision-time) miles once. Idempotent — never clobbers an existing snapshot.

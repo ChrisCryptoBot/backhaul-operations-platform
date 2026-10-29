@@ -32,7 +32,7 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
         <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
           What it costs to keep this truck running. The break-even floor is what every load on it is measured against; change a number and the floor on the right moves before you save.
         </p>
-        <CostProfileForm vehicleId={t.id} numbers={d.numbers} base={d.base} insuranceItemised={d.insuranceItemised} stored={d.stored ? { breakEven: d.stored.breakEven, survival: d.stored.survival } : null} openLoads={open} />
+        <CostProfileForm vehicleId={t.id} vehicleType={t.type} mpg={t.mpg == null ? null : num(t.mpg)} numbers={d.numbers} choices={d.choices} base={d.base} stored={d.stored ? { breakEven: d.stored.breakEven, survival: d.stored.survival } : null} openLoads={open} />
       </Card>
 
       <div className="tl-grid cols-2" style={{ marginTop: 14 }}>

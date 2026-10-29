@@ -32,5 +32,5 @@ export async function getPlannerData(from: number, now: number = Date.now(), cou
     }))
   }));
   const days = planDays(from, count, now);
-  return { days, ...buildPlanner(planner, drivers.map((d) => ({ id: d.id, name: d.name })), days), watchlist: buildWatchlist(planner, now) };
+  return { days, ...buildPlanner(planner, drivers.map((d) => ({ id: d.id, name: d.name })), days, now), watchlist: buildWatchlist(planner, now) };
 }

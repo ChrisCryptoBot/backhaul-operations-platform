@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/rateCon/equipment.ts @ e7c88066. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/rateCon/equipment.ts @ a3a9c0f4. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * What trailer a rate confirmation asks for. Pure; shared by both ways a rate con becomes a load (the Loads bucket and Load details'
  * Import rate con), so a van, a reefer, a flatbed or a power-only load is read the same way in both.

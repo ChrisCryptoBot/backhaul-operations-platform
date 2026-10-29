@@ -1,6 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { PROFILE_FIELDS, profileFloors, validateDriver, validateProfile, validateTruck, ymdOf, type DriverValues, type ProfileKey, type TruckValues } from "@/lib/fleet-forms";
+import { PAY_KINDS, PROFILE_FIELDS, profileFieldApplies, profileFloors, validateDriver, validateProfile, validateTruck, ymdOf, type DriverValues, type ProfileChoices, type ProfileErrorKey, type ProfileKey, type ProfileNumbers, type TruckValues } from "@/lib/fleet-forms";
+import { COST_ARCHETYPES, normalizeArchetype, normalizeFscCutAnswer } from "@/truelane/lib/domain/costArchetype";
+import { categoriesCarrySplit, resolveWizardInsurance } from "@/truelane/lib/insuranceFields";
 import type { AuditSnapshot } from "@/lib/audit-diff";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
@@ -25,8 +27,15 @@ const dollars = (n: number) => `$${n.toFixed(2)}/mi`;
 
 // ── Drivers ────────────────────────────────────────────────────────────────────────────────────
 
+/** "$0.65 a mile", "$22 an hour", "$450 a load", or null when no usual pay is set. */
+function payText(kind: string, rate: string): string | null {
+  const k = PAY_KINDS.find((x) => x.key === kind);
+  if (!k || rate === "") return null;
+  return `$${rate} ${k.key === "cpm" ? "a mile" : k.key === "hourly" ? "an hour" : "a load"}`;
+}
+
 function driverSnapshot(v: DriverValues, truckName: string | null): AuditSnapshot {
-  return { Name: v.name, Phone: v.phone || null, Email: v.email || null, "CDL class": v.cdlClass || null, "CDL good through": v.cdlExpiry || null, "Medical card good through": v.medicalCardExpiry || null, Truck: truckName };
+  return { Name: v.name, Phone: v.phone || null, Email: v.email || null, "CDL class": v.cdlClass || null, "CDL good through": v.cdlExpiry || null, "Medical card good through": v.medicalCardExpiry || null, Truck: truckName, "Usual pay": payText(v.payKind, v.payRate) };
 }
 
 export async function saveDriver(raw: Record<string, unknown>, id: string | null, now = new Date()): Promise<SaveResult<keyof DriverValues>> {
@@ -36,7 +45,7 @@ export async function saveDriver(raw: Record<string, unknown>, id: string | null
   const v = check.value;
   const truck = v.assignedVehicleId ? await prisma.vehicle.findFirst({ where: { id: v.assignedVehicleId, workspaceId: ws.id, archivedAt: null } }) : null;
   if (v.assignedVehicleId && !truck) return { ok: false, errors: { assignedVehicleId: "That truck is not available." } };
-  const data = { name: v.name, phone: v.phone || null, email: v.email || null, cdlClass: v.cdlClass || null, cdlExpiry: check.cdlExpiry, medicalCardExpiry: check.medicalCardExpiry, assignedVehicleId: truck?.id ?? null };
+  const data = { name: v.name, phone: v.phone || null, email: v.email || null, cdlClass: v.cdlClass || null, cdlExpiry: check.cdlExpiry, medicalCardExpiry: check.medicalCardExpiry, assignedVehicleId: truck?.id ?? null, defaultPayKind: v.payKind || null, defaultPayRate: check.payRate };
   const after = driverSnapshot(v, truck?.name ?? null);
 
   if (id == null) {
@@ -51,7 +60,7 @@ export async function saveDriver(raw: Record<string, unknown>, id: string | null
   const prev = await prisma.driver.findFirst({ where: { id, workspaceId: ws.id }, include: { assignedVehicle: true } });
   if (!prev) return { ok: false, error: "That driver does not exist." };
   const before = driverSnapshot(
-    { name: prev.name, phone: prev.phone ?? "", email: prev.email ?? "", cdlClass: prev.cdlClass ?? "", cdlExpiry: ymdOf(prev.cdlExpiry), medicalCardExpiry: ymdOf(prev.medicalCardExpiry), assignedVehicleId: prev.assignedVehicleId ?? "" },
+    { name: prev.name, phone: prev.phone ?? "", email: prev.email ?? "", cdlClass: prev.cdlClass ?? "", cdlExpiry: ymdOf(prev.cdlExpiry), medicalCardExpiry: ymdOf(prev.medicalCardExpiry), assignedVehicleId: prev.assignedVehicleId ?? "", payKind: prev.defaultPayKind ?? "", payRate: prev.defaultPayRate == null ? "" : String(num(prev.defaultPayRate)) },
     prev.assignedVehicle?.name ?? null
   );
   const moved = Object.keys(after).filter((k) => (before[k] ?? null) !== (after[k] ?? null));
@@ -144,21 +153,102 @@ export async function setTruckArchived(id: string, archived: boolean, now = new 
 
 // ── Cost profile ───────────────────────────────────────────────────────────────────────────────
 
+/** Fields saved as null when left blank; the rest save 0 (or their own default, see profileRecord). */
 const NULLABLE: ProfileKey[] = ["truckReplacementMonthly", "annualFixedCosts", "otherFixedMonthly", "lastFuelPricePerGallon", "detentionHourlyRate", "freeGraceMinutes"];
+/** The daily revenue target a blank field means: the phone's own default. */
+const DEFAULT_DAILY_TARGET = 350;
+const PERCENT_KEYS = PROFILE_FIELDS.filter((f) => f.percent).map((f) => f.key);
+const BUCKET_KEYS: ProfileKey[] = ["insuranceLiabilityMonthly", "insurancePhysicalDamageMonthly", "insuranceCargoMonthly", "insuranceGeneralLiabilityMonthly", "insuranceOtherMonthly"];
+const ROUTE_KEYS: ProfileKey[] = ["routeBaseMinimum", "routeIncludedMiles", "routeIncludedStops", "routeOveragePerMile", "routeOveragePerStop"];
+/** Written one by one in profileRecord, not by the general rule. */
+const SPECIAL: ProfileKey[] = [...BUCKET_KEYS, ...ROUTE_KEYS, ...PERCENT_KEYS, "monthlyInsurance", "dailyRevenueTarget", "hiredDriverHourlyRate", "hiredDriverRatePerMile"];
 
-export type ProfileNumbers = Record<ProfileKey, number | null>;
+const fraction = (percent: number | null): Prisma.Decimal | null => (percent == null ? null : new Prisma.Decimal(percent).div(100).toDecimalPlaces(4));
 
-/** A stored cost profile as the form's numbers. */
+/** A stored cost profile as the form's numbers (percents as typed, 18 for 0.18). */
 export function profileNumbersOf(p: Record<string, unknown> | null): ProfileNumbers {
   const out = {} as ProfileNumbers;
   for (const f of PROFILE_FIELDS) {
     const raw = p?.[f.key];
-    out[f.key] = raw == null ? null : numOrNull(raw as never);
+    out[f.key] = raw == null ? null : f.percent ? new Prisma.Decimal(raw as never).mul(100).toDecimalPlaces(4).toNumber() : numOrNull(raw as never);
   }
   return out;
 }
 
-export async function saveCostProfile(vehicleId: string, raw: Record<string, unknown>, now = new Date()): Promise<SaveResult<ProfileKey> & { floors?: { breakEven: number; survival: number } }> {
+/** The answers that are not numbers, read back from a stored profile. A truck with no profile yet starts as Owner + driver: the drivers work for the fleet. */
+export function profileChoicesOf(p: Record<string, unknown> | null): ProfileChoices {
+  if (!p) return { archetype: "hired_driver", payKind: "hourly", fscCut: null, insuranceItemised: false, routeMinimumOn: false };
+  const buckets = {
+    liability: num(p.insuranceLiabilityMonthly as never),
+    physicalDamage: num(p.insurancePhysicalDamageMonthly as never),
+    cargo: num(p.insuranceCargoMonthly as never),
+    generalLiability: num(p.insuranceGeneralLiabilityMonthly as never),
+    other: num(p.insuranceOtherMonthly as never)
+  };
+  return {
+    archetype: normalizeArchetype(p.archetype as string | null),
+    payKind: p.hiredDriverPayKind === "cpm" ? "cpm" : "hourly",
+    fscCut: normalizeFscCutAnswer(p.fscCutApplies as string | null),
+    insuranceItemised: categoriesCarrySplit(buckets),
+    routeMinimumOn: num(p.routeBaseMinimum as never) > 0
+  };
+}
+
+/**
+ * What is written for a checked form. Fields the answers do not use are left as they were, as the phone does, so switching a truck
+ * from Owner + driver to Leased-on and back finds the driver's pay where it was.
+ */
+export function profileRecord(numbers: ProfileNumbers, choices: ProfileChoices, now: Date): Record<string, unknown> {
+  const n = (k: ProfileKey) => numbers[k];
+  const rec: Record<string, unknown> = {};
+  for (const f of PROFILE_FIELDS) if (!SPECIAL.includes(f.key)) rec[f.key] = n(f.key) ?? (NULLABLE.includes(f.key) ? null : 0);
+
+  const ins = resolveWizardInsurance(
+    n("monthlyInsurance") ?? 0,
+    { liability: n("insuranceLiabilityMonthly") ?? 0, physicalDamage: n("insurancePhysicalDamageMonthly") ?? 0, cargo: n("insuranceCargoMonthly") ?? 0, generalLiability: n("insuranceGeneralLiabilityMonthly") ?? 0, other: n("insuranceOtherMonthly") ?? 0 },
+    choices.insuranceItemised
+  );
+  rec.monthlyInsurance = ins.monthlyInsurance;
+  rec.insuranceLiabilityMonthly = ins.categories.liability;
+  rec.insurancePhysicalDamageMonthly = ins.categories.physicalDamage;
+  rec.insuranceCargoMonthly = ins.categories.cargo;
+  rec.insuranceGeneralLiabilityMonthly = ins.categories.generalLiability;
+  rec.insuranceOtherMonthly = ins.categories.other;
+
+  rec.dailyRevenueTarget = n("dailyRevenueTarget") ?? DEFAULT_DAILY_TARGET;
+  rec.factoringFeePct = fraction(n("factoringFeePct")) ?? 0;
+  rec.archetype = choices.archetype;
+  rec.hiredDriverPayKind = choices.payKind;
+
+  if (choices.archetype === "hired_driver") {
+    if (choices.payKind === "cpm") rec.hiredDriverRatePerMile = n("hiredDriverRatePerMile");
+    else rec.hiredDriverHourlyRate = n("hiredDriverHourlyRate");
+    rec.laborBurdenPct = fraction(n("laborBurdenPct"));
+    rec.hourlyTargetConfirmedAt = now;
+  }
+  if (choices.archetype === "leased_on") {
+    rec.carrierCutPct = fraction(n("carrierCutPct"));
+    rec.fscCutApplies = choices.fscCut;
+  }
+  for (const k of ROUTE_KEYS) rec[k] = choices.routeMinimumOn ? (n(k) ?? null) : null;
+  return rec;
+}
+
+const CHOICE_LABEL = { archetype: "Who drives", payKind: "Driver pay basis", fscCut: "Cut taken from fuel surcharge", insuranceItemised: "Insurance itemised", routeMinimum: "Route minimum" };
+
+/** The applicable numbers and the answers as label/value pairs, for the audit diff and the "nothing changed" check. */
+function profileFlat(numbers: ProfileNumbers, choices: ProfileChoices): Record<string, string | number | null> {
+  const out: Record<string, string | number | null> = {};
+  for (const f of PROFILE_FIELDS) if (profileFieldApplies(f.key, choices)) out[`${f.label} (${f.unit})`] = numbers[f.key] ?? (NULLABLE.includes(f.key) ? null : 0);
+  out[CHOICE_LABEL.archetype] = COST_ARCHETYPES.find((a) => a.value === choices.archetype)?.label ?? choices.archetype;
+  if (choices.archetype === "hired_driver") out[CHOICE_LABEL.payKind] = choices.payKind === "cpm" ? "Per mile" : "Hourly";
+  if (choices.archetype === "leased_on") out[CHOICE_LABEL.fscCut] = choices.fscCut === "yes" ? "Yes" : choices.fscCut === "no" ? "No" : choices.fscCut === "not_sure" ? "Not sure" : null;
+  out[CHOICE_LABEL.insuranceItemised] = choices.insuranceItemised ? "Yes" : "No";
+  out[CHOICE_LABEL.routeMinimum] = choices.routeMinimumOn ? "On" : "Off";
+  return out;
+}
+
+export async function saveCostProfile(vehicleId: string, raw: Record<string, unknown>, now = new Date()): Promise<SaveResult<ProfileErrorKey> & { floors?: { breakEven: number; survival: number } }> {
   const check = validateProfile(raw);
   if (!check.ok) return { ok: false, errors: check.errors };
   const vehicle = await prisma.vehicle.findFirst({ where: { id: vehicleId, workspaceId: DEMO_WORKSPACE_ID }, include: { costProfile: true } });
@@ -166,39 +256,37 @@ export async function saveCostProfile(vehicleId: string, raw: Record<string, unk
 
   const prev = vehicle.costProfile;
   const base = prev ? profileMathInput(prev as never) : {};
-  const floors = profileFloors(check.numbers, base);
+  const floors = profileFloors(check.numbers, check.choices, base);
   const breakEven = new Prisma.Decimal(floors.breakEvenRpm).toDecimalPlaces(4);
   const survival = new Prisma.Decimal(floors.survivalFloorRpm).toDecimalPlaces(4);
+  const result = { floors: { breakEven: breakEven.toNumber(), survival: survival.toNumber() } };
 
-  const values: Record<string, number | null> = {};
-  for (const f of PROFILE_FIELDS) values[f.key] = check.numbers[f.key] ?? (NULLABLE.includes(f.key) ? null : 0);
-
-  const beforeNums = profileNumbersOf(prev as never);
-  const moved = PROFILE_FIELDS.filter((f) => (beforeNums[f.key] ?? (NULLABLE.includes(f.key) ? null : 0)) !== values[f.key]);
+  const before = prev ? profileFlat(profileNumbersOf(prev as never), profileChoicesOf(prev as never)) : {};
+  const after = profileFlat(check.numbers, check.choices);
+  const moved = Object.keys(after).filter((k) => (prev ? before[k] : undefined) !== after[k] && !(prev && before[k] === undefined && after[k] === null));
   const floorMoved = prev != null && (num(prev.breakEvenRpm) !== breakEven.toNumber() || numOrNull(prev.survivalFloorRpm) !== survival.toNumber());
-  if (prev && moved.length === 0 && !floorMoved) return { ok: true, id: vehicleId, changed: false, floors: { breakEven: breakEven.toNumber(), survival: survival.toNumber() } };
+  if (prev && moved.length === 0 && !floorMoved) return { ok: true, id: vehicleId, changed: false, ...result };
 
-  const label = (f: (typeof PROFILE_FIELDS)[number]) => `${f.label} (${f.unit})`;
   await prisma.$transaction(async (tx) => {
-    const common = { ...values, breakEvenRpm: breakEven, survivalFloorRpm: survival };
+    const common = { ...profileRecord(check.numbers, check.choices, now), breakEvenRpm: breakEven, survivalFloorRpm: survival };
     if (prev) await tx.costProfile.update({ where: { vehicleId }, data: common as Prisma.CostProfileUncheckedUpdateInput });
-    else await tx.costProfile.create({ data: { ...(common as Omit<Prisma.CostProfileUncheckedCreateInput, "vehicleId" | "archetype">), vehicleId, archetype: "solo_owner" } });
+    else await tx.costProfile.create({ data: { ...(common as Omit<Prisma.CostProfileUncheckedCreateInput, "vehicleId">), vehicleId } });
     await recordAudit(
       {
         entity: "fleet",
         action: "cost_profile_changed",
-        summary: `${vehicle.name}: break-even floor ${prev ? `${dollars(num(prev.breakEvenRpm))} to ` : ""}${dollars(breakEven.toNumber())}`,
-        before: { "Break-even floor": prev ? dollars(num(prev.breakEvenRpm)) : null, "Survival floor": prev ? dollars(num(prev.survivalFloorRpm)) : null, ...Object.fromEntries(moved.map((f) => [label(f), beforeNums[f.key]])) },
-        after: { "Break-even floor": dollars(breakEven.toNumber()), "Survival floor": dollars(survival.toNumber()), ...Object.fromEntries(moved.map((f) => [label(f), values[f.key]])) },
+        summary: prev && !floorMoved ? `${vehicle.name}: cost profile changed, the break-even floor stays ${dollars(breakEven.toNumber())}` : `${vehicle.name}: break-even floor ${prev ? `${dollars(num(prev.breakEvenRpm))} to ` : ""}${dollars(breakEven.toNumber())}`,
+        before: { "Break-even floor": prev ? dollars(num(prev.breakEvenRpm)) : null, "Survival floor": prev ? dollars(num(prev.survivalFloorRpm)) : null, ...Object.fromEntries(moved.map((k) => [k, before[k] ?? null])) },
+        after: { "Break-even floor": dollars(breakEven.toNumber()), "Survival floor": dollars(survival.toNumber()), ...Object.fromEntries(moved.map((k) => [k, after[k] ?? null])) },
         at: now
       },
       tx
     );
   });
-  return { ok: true, id: vehicleId, changed: true, floors: { breakEven: breakEven.toNumber(), survival: survival.toNumber() } };
+  return { ok: true, id: vehicleId, changed: true, ...result };
 }
 
-/** One truck with its cost profile as form numbers, the part of the profile the form does not edit, and what is on it now. */
+/** One truck with its cost profile as form numbers and answers, the part of the profile the form does not edit, and what is on it now. */
 export async function getTruckDetail(id: string, workspaceId = DEMO_WORKSPACE_ID) {
   const t = await prisma.vehicle.findFirst({
     where: { id, workspaceId },
@@ -206,14 +294,12 @@ export async function getTruckDetail(id: string, workspaceId = DEMO_WORKSPACE_ID
   });
   if (!t) return null;
   const p = t.costProfile;
-  const math = p ? profileMathInput(p as never) : null;
-  const itemised = math != null && ((math.insuranceLiabilityMonthly ?? 0) + (math.insurancePhysicalDamageMonthly ?? 0) + (math.insuranceCargoMonthly ?? 0) + (math.insuranceGeneralLiabilityMonthly ?? 0) + (math.insuranceOtherMonthly ?? 0) > 0);
   return {
     vehicle: t,
     numbers: profileNumbersOf(p as never),
-    /** What the form does not edit (itemised insurance, archetype, hired-driver terms), so the preview uses the same inputs the stored floor did. */
-    base: math ?? {},
-    insuranceItemised: itemised,
+    choices: profileChoicesOf(p as never),
+    /** What the form does not edit (the self-employment reserve), so the preview uses the same inputs the stored floor did. */
+    base: p ? profileMathInput(p as never) : {},
     stored: p ? { breakEven: num(p.breakEvenRpm), survival: numOrNull(p.survivalFloorRpm) } : null
   };
 }

@@ -7,6 +7,7 @@ import { loadWindow, windowsOverlap, type StopWindow, type Window } from "@/lib/
 import { assertDriverSafe, payEstimate, projectLoadToSummary, type AssignmentPay, type LoadSummary, type PayKind } from "./projector";
 import { num, numOrNull } from "./convert";
 import { recordAudit } from "./audit";
+import { freezeLoadSnapshot } from "./snapshot";
 
 export { driverBlocker };
 
@@ -117,6 +118,8 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
           data: { ...data, status: "draft", driverResponse: Prisma.JsonNull, assignmentVersion: { increment: 1 }, dispatchedAt: null, respondedAt: null }
         })
       : await tx.assignment.create({ data: { loadId: load.id, status: "draft", ...data } });
+    // Who is driving, and at what pay, is now known: freeze it with the rest of what the load was booked with.
+    await freezeLoadSnapshot(tx, load.id, { labour: true });
     await recordAudit(
       {
         entity: "assignment",

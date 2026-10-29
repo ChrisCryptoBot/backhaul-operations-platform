@@ -65,6 +65,18 @@ describe("the planner grid", () => {
     expect(rows.find((r) => r.driverId === "d2")!.cells.every((c) => c.length === 0)).toBe(true);
   });
 
+  test("a load still on the road stays in its driver's row after its delivery window closed on an earlier day", () => {
+    const late = load("11", { status: "in_progress", assignmentStatus: "in_progress" }, [stop(1, "pickup", -30, -27), stop(2, "delivery", -26, -24)]); // the window closed yesterday noon
+    const without = buildPlanner([late], drivers, days).rows[0]!;
+    expect(without.cells.flat()).toHaveLength(0); // by its windows alone it ended before the first day
+    const withNow = buildPlanner([late], drivers, days, NOW).rows[0]!;
+    expect(withNow.cells[0]!.map((i) => i.loadId)).toEqual(["11"]); // but it has not been delivered, so it is still there today
+    expect(withNow.cells[1]!).toHaveLength(0); // and no further than now
+    // A load that is not on the road is not stretched: a missed pickup is the alerts' job.
+    const missed = load("12", { status: "accepted" }, [stop(1, "pickup", -30, -27), stop(2, "delivery", -26, -24)]);
+    expect(buildPlanner([missed], drivers, days, NOW).rows[0]!.cells.flat()).toHaveLength(0);
+  });
+
   test("a load with no driver, or whose driver declined, waits in the tray, and a cancelled one is not shown", () => {
     const { rows, tray } = buildPlanner([load("2", { driverId: null, driverName: null, assignmentStatus: null, status: "draft" }), load("3", { assignmentStatus: "declined", status: "draft" }), load("4", { status: "cancelled" })], drivers, days);
     expect(tray[0]!.map((i) => i.loadId).sort()).toEqual(["2", "3"]);

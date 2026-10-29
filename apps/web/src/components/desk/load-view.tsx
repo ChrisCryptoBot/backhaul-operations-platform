@@ -7,6 +7,7 @@ import { listLoadAudit } from "@/server/tl/audit";
 import { num } from "@/server/tl/convert";
 import { detentionOfLoad } from "@/server/tl/detention";
 import { getThresholds } from "@/server/tl/thresholds";
+import { AssignFields } from "./assign-fields";
 import { assignAction, invoiceAction, markPaidAction, respondAction, sendAction, unassignAction } from "@/app/(desk)/actions";
 import { deriveTimeline } from "@/lib/desk-timeline";
 import { CAN_CANCEL, CAN_RESCHEDULE, CAN_TONU, reasonLabel } from "@/lib/disruptions";
@@ -111,6 +112,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
             <div className="s">{load.vehicle ? `${load.vehicle.name}, ${load.vehicle.type?.replace("_", " ")}` : "No truck"}</div>
           </div>
         </div>
+        {detail.labourNote ? <p className="tl-note" style={{ marginTop: 10 }}>{detail.labourNote}</p> : null}
       </section>
 
       {fellThrough ? null : (
@@ -181,29 +183,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           {canAssign ? (
             <form action={assignAction} className="tl-form-row" style={{ marginBottom: canUnassign ? 10 : 0 }}>
               <input type="hidden" name="loadId" value={load.id} />
-              <label className="tl-field">
-                Driver
-                <select name="driverId" defaultValue={a?.driverId} required>
-                  {drivers.map((d) => (
-                    <option key={d.id} value={d.id} disabled={!!d.blocker}>
-                      {d.name}
-                      {d.blocker ? ` — ${d.blocker}` : d.busy ? ` — ${d.busy}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="tl-field">
-                Pay
-                <select name="payKind" defaultValue={a?.payKind ?? "cpm"}>
-                  <option value="cpm">Per mile</option>
-                  <option value="flat">Flat</option>
-                  <option value="hourly">Hourly</option>
-                </select>
-              </label>
-              <label className="tl-field">
-                Rate
-                <input name="rate" type="number" step="0.01" min="0.01" defaultValue={a ? num(a.payRate) : 0.65} required style={{ width: 90 }} />
-              </label>
+              <AssignFields drivers={drivers} initial={{ driverId: a?.driverId ?? null, payKind: a?.payKind ?? null, rate: a ? num(a.payRate) : null }} />
               {drivers.some((d) => d.busy) ? (
                 <label className="tl-field" style={{ flexBasis: "100%" }}>
                   Reason, only for a driver who is already on another load at the same time

@@ -178,7 +178,7 @@ driver is sent), `/dispatch` (needs a driver, sent and waiting, moving), `/drive
 - Not done: recording a TONU and reactivating a driver were exercised by the database tests, not in the browser; a TONU fee cannot be
   invoiced yet; detention is not added to the KPI gross; a production build, a keyboard-only walk and the print dialog (Wave 5).
 
-## Desk rework, Wave 5 (started): the Rate confirmations page
+## Desk rework, between waves (done): the Rate confirmations page
 The page was one card with two buttons and nothing under it. It is now a working intake, in the desk's own patterns.
 - **Read.** A drop zone (drag a file on it, or choose one: PDF, photo or screenshot, up to 10 MB) and the two invented samples. The file goes
   to the server as an upload (`readUploadedRateConAction`; `serverActions.bodySizeLimit` is 10 MB in `next.config.mjs`). A sample's file
@@ -203,3 +203,40 @@ The page was one card with two buttons and nothing under it. It is now a working
   no page overflow) in Night and Day.
 - Not done: reading a real file (it needs a key, so the live path is still unverified from this app); dragging a file onto the zone or
   choosing one with the file picker (both are written, but only the two samples were run); a keyboard-only walk; a production build.
+
+## Desk rework, Wave 5 (done): the phone's cost profile and driver pay
+Plan: `~/.claude/plans/radiant-stargazing-spark.md` (bring the phone's Calculate, cost profile and Loads to the desk for a fleet dispatcher whose
+drivers work for them). This wave is the foundation Quote and Loads read from. The phone's own code stays as it is.
+- **More of the phone vendored** (`scripts/vendor-truelane.mjs`, six files): `costProfileHero`, `costProfileSnapshot`, `fuelPriceForRates`,
+  `insuranceFields`, `vehicleData` (the industry numbers by vehicle type) and `fieldRelevance`. The refresh changed only the header line of the
+  files the desk already had.
+- **Cost profile, in the phone's steps on one page** (`/fleet/[id]`; `lib/fleet-forms.ts`, `components/desk/fleet-forms.tsx`, `server/tl/fleet.ts`).
+  Insurance as one total or five buckets; the other fixed bills; miles and upkeep; fuel; who drives (By its owner, Leased on to a carrier, By a paid
+  driver: the phone's Solo, Leased-on and Owner + driver) with the fields each needs; factoring; daily target; an optional route minimum; detention.
+  A truck with no profile starts from the industry numbers for its type, and "Fill with typical numbers" puts them back. The live preview uses the
+  phone's hero and build-up functions and stays live while a required labour number is still blank. Required answers follow the phone: miles and a pay
+  target always; a paid driver's pay by the basis chosen (burden starts at 18%); a leased-on truck's cut (0 allowed, 20% offered) and its fuel-surcharge
+  answer; a route minimum's base. A percent of 50 or more, and a fuel price or reserve outside the phone's usual range, are confirmed before saving.
+  Fields the answers do not use are not checked and are left as they were, so switching a truck back finds the driver's pay where it was.
+- **Truck types and fuel** now use the phone's categories (cargo van, passenger van, pickup, sprinter, box truck, heavy duty); an old "tractor" reads as
+  heavy duty and "gas" as gasoline.
+- **Driver pay.** A driver has a usual pay (per mile, hourly or flat) on the Drivers page; choosing a driver on a load starts the pay from it. A load with
+  a driver assigned is judged on that driver's pay (`resolveLabour` in `server/tl/evaluate.ts`): per mile and hourly are the phone's two models as they
+  are; a flat pay becomes a per-mile rate over every mile of the trip (a covered way home does not count); burden is the truck's, or the phone's 18%
+  start. A leased-on truck keeps the carrier's cut. With nobody assigned the truck's profile decides, as before. The load page says which it used.
+- **Frozen at booking** (`server/tl/snapshot.ts`, migration `20261030000000`). The floor, insurance, miles, truck type, mpg, whether the cut came off fuel
+  surcharge and the detention terms are written once, when a rate confirmation is saved with a truck or a driver is first assigned; the driver pay and
+  cut are refreshed at each assignment until the load is on the road. KPI "cleared the floor" and detention now read the frozen values.
+- **Route minimum** columns exist and the verdict now reads them (it passed nothing before).
+- **Two bugs fixed.** A stored fuel surcharge was read as a per-mile rate (a $60 surcharge on 257 miles counted as about $15,400); it now converts back to
+  the unit it was entered in, as the phone does. And a load still on the road whose delivery window closed on an earlier day dropped out of its driver's
+  planner row; it now stays until delivered.
+- **Seed.** Truck types follow the phone's; drivers have usual pays; seeded assignment pay is lower and more usual (per mile 0.50, a flat 45% of the offer).
+  With driver pay counted, 8 of the 12 open seeded loads read below cost (4 before): the seed's offers were set for owner-driven trucks.
+- Verified: `tsc` and eslint clean; vitest 19 files / 252 tests pass with the database tests. In the browser: the editor at 1440 and 1024 (sections,
+  typical hints, live floor matching the stored $0.77, paid-driver fields and the required-pay message, itemising keeps the floor, leased-on prefill, the
+  confirm dialog for a 60% cut, save and its audit entry), the Drivers page usual pay, and the assign form starting from it and the load page naming the
+  assignment's pay.
+- Not done: the dispatcher's margin (revenue minus driver pay minus truck cost), which needs its definition agreed first; the confirm dialog's "Save as typed"
+  and "Fill with typical numbers" were not clicked; a flat pay as a per-mile rate is my reading and is flagged for sign-off; burden is per truck, not per driver;
+  no CDL number on drivers; a production build, a keyboard-only walk and the print dialog (Wave 8).

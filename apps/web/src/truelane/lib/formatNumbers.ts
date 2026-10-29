@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/formatNumbers.ts @ e7c88066. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/formatNumbers.ts @ a3a9c0f4. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Shared numeric parsing and display rounding.
  * Use rounding for revenue/miles in UI to avoid floating-point display issues

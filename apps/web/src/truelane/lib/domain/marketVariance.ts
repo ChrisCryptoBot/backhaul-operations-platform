@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/marketVariance.ts @ e7c88066. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/marketVariance.ts @ a3a9c0f4. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Market variance — ONE basis for every screen (math audit H4). Calculate compared the offer without
  * the fuel surcharge; Analytics compared offer + FSC + layover per DRIVEN mile; the broker scorecard

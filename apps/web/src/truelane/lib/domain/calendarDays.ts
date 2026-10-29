@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/calendarDays.ts @ e7c88066. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/calendarDays.ts @ a3a9c0f4. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Shared local-calendar day arithmetic (M-22).
  *

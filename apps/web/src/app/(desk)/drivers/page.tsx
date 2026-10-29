@@ -7,11 +7,12 @@ import { DataTableTools } from "@/components/desk/data-table-tools";
 import { AddDriver, DriverRowActions, type DriverRow } from "@/components/desk/fleet-forms";
 import { EmptyState } from "@/components/desk/kit/states";
 import { ymdOf } from "@/lib/fleet-forms";
-import { shortDate } from "@/lib/desk-format";
+import { payLabel, shortDate } from "@/lib/desk-format";
 
 const COLUMNS: Column[] = [
   { key: "driver", label: "Driver", group: "Driver", sticky: true, width: 220 },
   { key: "truck", label: "Truck", group: "Driver" },
+  { key: "pay", label: "Usual pay", group: "Driver" },
   { key: "cdl", label: "CDL", group: "Compliance" },
   { key: "medical", label: "Medical card", group: "Compliance" },
   { key: "clearance", label: "Clearance", group: "Compliance" },
@@ -34,6 +35,8 @@ export default async function DriversPage() {
       cdlExpiry: ymdOf(d.cdlExpiry),
       medicalCardExpiry: ymdOf(d.medicalCardExpiry),
       truckId: d.truckId,
+      payKind: d.payKind ?? "",
+      payRate: d.payRate == null ? "" : String(d.payRate),
       active: d.active,
       onLoads: d.openLoadNumbers.length,
       onLoadNumbers: d.openLoadNumbers
@@ -50,6 +53,7 @@ export default async function DriversPage() {
           </>
         ),
         truck: d.truck ?? "—",
+        pay: payLabel(d.payKind, d.payRate),
         cdl: <>Class {d.cdlClass ?? "?"} · to {shortDate(d.cdlExpiry)}</>,
         medical: <>to {shortDate(d.medicalCardExpiry)}</>,
         clearance: !d.active ? <span className="dim">—</span> : d.blocker ? <span className="tl-chip bad">{d.blocker}</span> : <span className="tl-chip ok">Clear</span>,

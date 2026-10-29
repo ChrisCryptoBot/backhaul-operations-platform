@@ -77,14 +77,18 @@ export type PlannerItem = {
 
 export type PlannerRow = { driverId: string; name: string; cells: PlannerItem[][] };
 
-/** One row per driver and a tray of loads that have no driver (or whose driver declined), each as a list of loads per day. */
-export function buildPlanner(loads: PlannerLoad[], drivers: Array<{ id: string; name: string }>, days: DayCol[]): { rows: PlannerRow[]; tray: PlannerItem[][] } {
+/**
+ * One row per driver and a tray of loads that have no driver (or whose driver declined), each as a list of loads per day.
+ * A load that is on the road keeps its driver's row until it is delivered, so with `now` its span runs at least to now: a truck that is late
+ * on a delivery whose window closed yesterday is still in its row today, not only in the due list.
+ */
+export function buildPlanner(loads: PlannerLoad[], drivers: Array<{ id: string; name: string }>, days: DayCol[], now?: number): { rows: PlannerRow[]; tray: PlannerItem[][] } {
   type Raw = { l: PlannerLoad; start: number; end: number };
   const raws: Raw[] = [];
   for (const l of loads) {
     if (l.status !== "completed" && !OPEN.includes(l.status)) continue;
     const w = loadWindow(l.stops.map((s) => ({ timeWindowEarliest: s.earliest, timeWindowLatest: s.latest })));
-    if (w) raws.push({ l, start: w.start.getTime(), end: w.end.getTime() });
+    if (w) raws.push({ l, start: w.start.getTime(), end: l.status === "in_progress" && now != null ? Math.max(w.end.getTime(), now) : w.end.getTime() });
   }
 
   const driverOf = (r: Raw) => (r.l.driverId && r.l.assignmentStatus !== "declined" ? r.l.driverId : null);

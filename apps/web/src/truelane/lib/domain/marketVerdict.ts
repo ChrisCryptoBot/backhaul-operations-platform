@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/marketVerdict.ts @ e7c88066. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/marketVerdict.ts @ a3a9c0f4. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Market Variance verdict — layers market position on top of the break-even / route-minimum floor.
  *

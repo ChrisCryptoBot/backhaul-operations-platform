@@ -21,6 +21,9 @@ type LoadForDetention = {
   fuelSurcharge: unknown;
   invoicedAmount: unknown;
   paymentStatus: string | null;
+  /** Terms frozen on the load when it was booked; they win over the truck's profile as it is today. */
+  snapshotDetentionRate?: unknown;
+  snapshotFreeGraceMinutes?: number | null;
   vehicle: { costProfile: { detentionHourlyRate: unknown; freeGraceMinutes: number | null } | null } | null;
 };
 
@@ -30,8 +33,8 @@ export function detentionOfLoad(l: LoadForDetention, workspaceGraceMinutes: numb
   return summarizeDetention({
     stops: l.stops.map((s) => ({ stopSequence: s.stopSequence, stopType: s.stopType, waitMinutes: s.waitMinutes })),
     dockWaitMinutes: l.dockWaitMinutes,
-    rate: numOrNull(profile?.detentionHourlyRate as never),
-    graceMinutes: profile?.freeGraceMinutes ?? null,
+    rate: numOrNull(l.snapshotDetentionRate as never) ?? numOrNull(profile?.detentionHourlyRate as never),
+    graceMinutes: l.snapshotFreeGraceMinutes ?? profile?.freeGraceMinutes ?? null,
     workspaceGraceMinutes,
     invoice: { invoiced: l.paymentStatus === "invoiced" || l.paymentStatus === "paid", invoicedAmount: numOrNull(l.invoicedAmount as never), quotedRevenue: num(l.quotedRevenue as never), fuelSurcharge: numOrNull(l.fuelSurcharge as never) }
   });
