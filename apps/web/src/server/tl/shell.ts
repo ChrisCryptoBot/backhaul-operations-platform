@@ -4,6 +4,7 @@ import { computeAgingSummary } from "@/truelane/lib/invoice";
 import { deadheadMilesOf, deadheadPct, drivenMiles } from "@/truelane/lib/domain/loadEconomics";
 import { isRevenueLoad } from "@/truelane/lib/analytics";
 import { num, numOrNull, toAgingView, toAnalyticsInput, type LoadRow } from "./convert";
+import { getAlerts } from "./alerts";
 import { DEMO_WORKSPACE_ID } from "./workspace";
 
 /**
@@ -13,11 +14,11 @@ import { DEMO_WORKSPACE_ID } from "./workspace";
 export type ShellRow = LoadRow & { assignment: { status: string } | null };
 
 export type ShellData = {
-  counts: { needsDriver: number; sentWaiting: number; onTheRoad: number; readyToInvoice: number; overdue: number };
+  counts: { needsDriver: number; sentWaiting: number; onTheRoad: number; readyToInvoice: number; overdue: number; alertsBlock: number; alertsWarn: number };
   totals: { open: number; needsDriver: number; gross: number; avgRpm: number | null; emptyShare: number | null };
 };
 
-export function buildShellData(rows: ShellRow[], now: number = Date.now()): ShellData {
+export function buildShellData(rows: ShellRow[], now: number = Date.now(), alertCounts: { block: number; warn: number } = { block: 0, warn: 0 }): ShellData {
   const open = rows.filter((l) => l.status === "draft" || l.status === "accepted" || l.status === "in_progress");
   const needsDriver = rows.filter((l) => l.status === "draft" && (!l.assignment || l.assignment.status === "draft" || l.assignment.status === "declined")).length;
   const sentWaiting = rows.filter((l) => l.assignment?.status === "dispatched").length;
@@ -41,12 +42,15 @@ export function buildShellData(rows: ShellRow[], now: number = Date.now()): Shel
   const dh = deadheadPct(finished.map((l) => ({ drivenMiles: drivenMiles(milesIn(l)), deadheadMiles: deadheadMilesOf(milesIn(l)) })));
 
   return {
-    counts: { needsDriver, sentWaiting, onTheRoad, readyToInvoice, overdue },
+    counts: { needsDriver, sentWaiting, onTheRoad, readyToInvoice, overdue, alertsBlock: alertCounts.block, alertsWarn: alertCounts.warn },
     totals: { open: open.length, needsDriver, gross: analytics.summary.grossRevenue, avgRpm: analytics.summary.avgRpm, emptyShare: dh == null ? null : dh / 100 }
   };
 }
 
 export async function getShellData(workspaceId = DEMO_WORKSPACE_ID): Promise<ShellData> {
-  const loads = await prisma.load.findMany({ where: { workspaceId, deletedAt: null }, include: { assignment: { select: { status: true } } } });
-  return buildShellData(loads);
+  const [loads, alerts] = await Promise.all([
+    prisma.load.findMany({ where: { workspaceId, deletedAt: null }, include: { assignment: { select: { status: true } } } }),
+    getAlerts(new Date(), workspaceId)
+  ]);
+  return buildShellData(loads, Date.now(), alerts.counts);
 }

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import type { RateConLoadDraft } from "./map";
 import { currentWorkspace } from "@/server/tl/workspace";
+import { recordAudit } from "@/server/tl/audit";
 
 /**
  * The review gate. A draft read from a rate confirmation becomes a load only when a person has looked at it and
@@ -23,7 +24,8 @@ export function assertSavable(d: ReviewedDraft): void {
 export async function saveReviewedDraft(d: ReviewedDraft) {
   assertSavable(d);
   const ws = await currentWorkspace();
-  return prisma.load.create({
+  return prisma.$transaction(async (tx) => {
+    const load = await tx.load.create({
     data: {
       workspaceId: ws.id,
       vehicleId: d.vehicleId ?? null,
@@ -61,5 +63,19 @@ export async function saveReviewedDraft(d: ReviewedDraft) {
       }
     },
     include: { stops: true }
+    });
+    await recordAudit(
+      {
+        entity: "intake",
+        action: "rate_con_saved",
+        loadId: load.id,
+        loadNumber: load.loadNumber,
+        workspaceId: ws.id,
+        summary: `Read from a rate confirmation${d.load.brokerName ? ` from ${d.load.brokerName}` : ""} and reviewed`,
+        after: { Load: load.loadNumber, Broker: d.load.brokerName, Stops: load.stops.length }
+      },
+      tx
+    );
+    return load;
   });
 }

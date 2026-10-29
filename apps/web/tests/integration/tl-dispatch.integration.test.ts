@@ -16,6 +16,7 @@ const run = process.env.RUN_DB_INTEGRATION === "true";
 describe.skipIf(!run)("dispatcher flow on the TrueLane-shaped tables", () => {
   let draftLoadId = "";
   let driverId = "";
+  const startedAt = new Date();
 
   beforeAll(async () => {
     const load = await prisma.load.findFirstOrThrow({ where: { loadNumber: "DM-40001" } });
@@ -29,6 +30,7 @@ describe.skipIf(!run)("dispatcher flow on the TrueLane-shaped tables", () => {
   afterAll(async () => {
     await prisma.assignment.deleteMany({ where: { loadId: draftLoadId } });
     await prisma.load.update({ where: { id: draftLoadId }, data: { status: "draft" } });
+    await prisma.auditEvent.deleteMany({ where: { loadId: draftLoadId, createdAt: { gte: startedAt } } });
   });
 
   test("the board shows the deadhead-trap load rejected at its real miles", async () => {
@@ -77,6 +79,8 @@ describe.skipIf(!run)("dispatcher flow on the TrueLane-shaped tables", () => {
     const saved = await saveReviewedDraft({ ...out.draft, confirmed: true });
     expect(saved.stops).toHaveLength(2);
     expect(saved.status).toBe("draft");
+    expect((await prisma.auditEvent.findMany({ where: { loadId: saved.id } })).map((e) => e.action)).toEqual(["rate_con_saved"]);
+    await prisma.auditEvent.deleteMany({ where: { loadId: saved.id } });
     await prisma.load.delete({ where: { id: saved.id } });
   });
 });

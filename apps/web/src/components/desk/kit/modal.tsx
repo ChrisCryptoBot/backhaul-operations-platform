@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { createPortal } from "react-dom";
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -42,7 +43,8 @@ export function Modal({ open, onClose, eyebrow, title, children, footer }: { ope
   }, [open, onClose]);
 
   if (!open) return null;
-  return (
+  // Portalled to the body so a table cell or a drawer around the trigger cannot style it (alignment, clipping, stacking).
+  return createPortal(
     <div className="k-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="k-modal" ref={panel} role="dialog" aria-modal="true" aria-labelledby={id}>
         <header>
@@ -52,7 +54,8 @@ export function Modal({ open, onClose, eyebrow, title, children, footer }: { ope
         <div className="body">{children}</div>
         {footer ? <footer>{footer}</footer> : null}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

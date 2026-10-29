@@ -26,9 +26,10 @@ model Workspace {
   name      String
   createdAt DateTime @default(now()) @map("created_at")
 
-  vehicles Vehicle[]
-  loads    Load[]
-  drivers  Driver[]
+  vehicles    Vehicle[]
+  loads       Load[]
+  drivers     Driver[]
+  auditEvents AuditEvent[]
 
   @@map("workspaces")
 }
@@ -292,4 +293,28 @@ model Assignment {
 
   @@index([driverId, status])
   @@map("assignments")
+}
+
+/// What the desk did and why: assignments, sends, driver answers, unassignments, invoices, payments and rate-confirmation
+/// saves. `loadId` is a plain column (no foreign key) and `loadNumber` is copied in, so the trail outlives a deleted load.
+/// `before` / `after` are small label-to-value objects shown as a diff; `reason` is the dispatcher's own words.
+model AuditEvent {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  loadId      String?  @map("load_id")
+  loadNumber  String?  @map("load_number")
+  entity      String
+  action      String
+  summary     String
+  reason      String?
+  before      Json?
+  after       Json?
+  actor       String   @default("Dispatcher")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([loadId, createdAt])
+  @@map("audit_events")
 }

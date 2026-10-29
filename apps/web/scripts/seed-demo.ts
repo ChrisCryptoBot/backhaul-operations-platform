@@ -116,7 +116,8 @@ async function main() {
           email: `driver${i + 1}@example.test`,
           cdlClass: "A",
           cdlExpiry: new Date(Date.now() + (200 + i * 90) * DAY),
-          medicalCardExpiry: new Date(Date.now() + (150 + i * 60) * DAY),
+          // The last driver's medical card lapses in 20 days, so the "lapses soon" alert has something to show.
+          medicalCardExpiry: new Date(Date.now() + (i === DRIVERS.length - 1 ? 20 : 150 + i * 60) * DAY),
           assignedVehicleId: vehicles[i % vehicles.length].id
         }
       })
@@ -147,17 +148,32 @@ async function main() {
     brokerIdx: number;
     paid?: boolean;
     invoiced?: boolean;
+    /** For a load that was sent and is waiting: how long ago, so the "no answer yet" alert has a real wait to measure. */
+    sentHoursAgo?: number;
   };
   const plans: Plan[] = [demoLoad as Plan];
-  // 4 more unassigned drafts.
+  // 4 more unassigned drafts. The first picks up in about 20 hours, so the "pickup is close and no driver" alert has one to show.
   for (let i = 0; i < 4; i++) {
     const lane = pick(LANES);
-    plans.push({ status: "draft", lane, offer: round(lane.miles * lane.rpm * between(0.85, 1.1), 0), pickupDh: round(between(20, 90), 0), returnDh: round(between(60, 260), 0), daysAgo: -1 - i, brokerIdx: i % BROKERS.length });
+    plans.push({ status: "draft", lane, offer: round(lane.miles * lane.rpm * between(0.85, 1.1), 0), pickupDh: round(between(20, 90), 0), returnDh: round(between(60, 260), 0), daysAgo: i === 0 ? -0.5 : -1 - i, brokerIdx: i % BROKERS.length });
   }
-  // 3 dispatched, 4 in progress.
+  // 3 sent and waiting, 4 on the road. Drivers go round the four in order, and the windows are spread so that no driver is on
+  // two loads at once, except one on purpose: the third sent load overlaps the load that driver is already running, which
+  // is what the "double-booked" alert and the assignment guard are shown against.
+  const SENT_DAYS = [-4, -5, -0.5];
+  const SENT_HOURS_AGO = [2, 5, 9];
   for (let i = 0; i < 7; i++) {
     const lane = pick(LANES);
-    plans.push({ status: i < 3 ? "accepted" : "in_progress", lane, offer: round(lane.miles * lane.rpm * between(0.9, 1.15), 0), pickupDh: round(between(15, 80), 0), returnDh: round(between(40, 220), 0), daysAgo: i < 3 ? -1 : 0, brokerIdx: i % BROKERS.length });
+    plans.push({
+      status: i < 3 ? "accepted" : "in_progress",
+      lane,
+      offer: round(lane.miles * lane.rpm * between(0.9, 1.15), 0),
+      pickupDh: round(between(15, 80), 0),
+      returnDh: round(between(40, 220), 0),
+      daysAgo: i < 3 ? SENT_DAYS[i] : 0,
+      brokerIdx: i % BROKERS.length,
+      sentHoursAgo: i < 3 ? SENT_HOURS_AGO[i] : undefined
+    });
   }
   // 30 finished over 12 weeks; the newest are invoiced and unpaid, the rest paid.
   for (let i = 0; i < 30; i++) {
@@ -177,6 +193,7 @@ async function main() {
   }
 
   let drvCursor = 0;
+  const audits: Prisma.AuditEventCreateManyInput[] = [];
   for (const p of plans) {
     seq += 1;
     // The deadhead-trap load always runs on Unit 101 so its floor is the one the site clips describe.
@@ -190,7 +207,9 @@ async function main() {
     const tolls = p.status === "completed" ? round(between(0, 60)) : 0;
     const bench = round((p.offer / (p.pickupDh + loaded + p.returnDh)) * between(0.9, 1.25), 2);
     const invoicedAt = p.invoiced ? new Date(when.getTime() + 1 * DAY) : null;
-    const paidAt = p.paid && invoicedAt ? new Date(invoicedAt.getTime() + Math.floor(between(18, 34)) * DAY) : null;
+    // A payment cannot be dated after today: a recent invoice that would only be paid weeks from now stays invoiced and unpaid.
+    const dueToPay = p.paid && invoicedAt ? new Date(invoicedAt.getTime() + Math.floor(between(18, 34)) * DAY) : null;
+    const paidAt = dueToPay && dueToPay.getTime() <= now ? dueToPay : null;
     const load = await prisma.load.create({
       data: {
         workspaceId: WORKSPACE_ID,
@@ -252,6 +271,8 @@ async function main() {
       const kind = drvCursor % 3 === 0 ? "flat" : "cpm";
       const rate = kind === "flat" ? round(p.offer * 0.7, 0) : 0.68;
       const est = kind === "flat" ? rate : round(rate * loaded, 2);
+      const dispatchedAt = p.sentHoursAgo != null ? new Date(now - p.sentHoursAgo * 3_600_000) : new Date(when.getTime() - DAY);
+      const respondedAt = p.status === "accepted" ? null : new Date(when.getTime() - DAY / 2);
       await prisma.assignment.create({
         data: {
           loadId: load.id,
@@ -260,19 +281,30 @@ async function main() {
           payRate: new Prisma.Decimal(rate),
           payEstimate: est,
           status: p.status === "accepted" ? "dispatched" : p.status === "in_progress" ? "in_progress" : "completed",
-          dispatchedAt: new Date(when.getTime() - DAY),
-          respondedAt: p.status === "accepted" ? null : new Date(when.getTime() - DAY / 2)
+          dispatchedAt,
+          respondedAt
         }
       });
+
+      // The history that would exist by now: assigned, sent, answered, and for finished loads invoiced and paid.
+      const payText = kind === "flat" ? `Flat $${rate.toFixed(2)}` : `$${rate.toFixed(2)}/mi`;
+      const base = { workspaceId: WORKSPACE_ID, loadId: load.id, loadNumber: load.loadNumber, actor: "Dispatcher" };
+      audits.push({ ...base, entity: "assignment", action: "assigned", summary: `${driver.name} assigned at ${payText}`, before: Prisma.JsonNull, after: { Driver: driver.name, Pay: payText, Estimate: `$${est.toFixed(2)}` }, createdAt: new Date(dispatchedAt.getTime() - 3_600_000) });
+      audits.push({ ...base, entity: "assignment", action: "sent", summary: `Sent to ${driver.name}`, before: { Status: "Assigned, not sent" }, after: { Status: "Sent, waiting" }, createdAt: dispatchedAt });
+      if (respondedAt) audits.push({ ...base, entity: "assignment", action: "accepted", summary: `${driver.name} accepted`, before: { Status: "Sent, waiting" }, after: { Status: "Driver accepted" }, createdAt: respondedAt });
+      if (invoicedAt) audits.push({ ...base, entity: "invoice", action: "invoiced", summary: `INV-${seq} created for $${p.offer.toFixed(2)}`, before: { Invoice: null, Amount: null }, after: { Invoice: `INV-${seq}`, Amount: `$${p.offer.toFixed(2)}`, Terms: "Net 30" }, createdAt: invoicedAt });
+      if (paidAt) audits.push({ ...base, entity: "invoice", action: "paid", summary: `INV-${seq} paid, $${p.offer.toFixed(2)}`, before: { Status: "Invoiced" }, after: { Status: "Paid", Amount: `$${p.offer.toFixed(2)}` }, createdAt: paidAt });
     }
   }
+  await prisma.auditEvent.createMany({ data: audits });
 
   const counts = {
     vehicles: await prisma.vehicle.count(),
     drivers: await prisma.driver.count(),
     loads: await prisma.load.count(),
     stops: await prisma.stop.count(),
-    assignments: await prisma.assignment.count()
+    assignments: await prisma.assignment.count(),
+    auditEvents: await prisma.auditEvent.count()
   };
   console.log("seeded", counts);
 }

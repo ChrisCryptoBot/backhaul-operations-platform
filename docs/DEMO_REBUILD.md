@@ -73,3 +73,37 @@ driver is sent), `/dispatch` (needs a driver, sent and waiting, moving), `/drive
   vocabulary); they are not scanned by the guard test and are superseded by the retire migration.
 - Unverified and left for you: the live rate-confirmation read (needs a key), a production deploy (this is a demo), and rotating
   the old dev API key noted in `docs/CONVERGENCE_BUILD_PLAN.md`.
+
+## Desk rework, Wave 1 (done): look, shell, tables
+- Two themes on the TrueLane palette: Night (the phone app's colours, the default) and Day (warm manila). Chosen in Settings, kept in
+  cookies (`desk-theme`, `desk-density`, `desk-sidebar`) and read by the root layout, so nothing flashes. `tests/theme-contrast.test.ts`
+  holds both palettes to WCAG AA.
+- Shell: collapsible grouped sidebar with live count pills, header with day totals. `DataTable` (banded groups, pinned first
+  columns, row flags, search, row density) on Loads, Drivers, Trucks and Invoices. Shared kit in `components/desk/kit/`.
+
+## Desk rework, Wave 2 (done): load drawer, audit trail, alerts, search
+- **Load drawer.** A load opens in a side panel over whichever page you were on (an intercepting route: `app/(desk)/@drawer/(.)loads/[id]`),
+  and as a full page on a direct link or reload (`/loads/[id]`). Both are one component, `components/desk/load-view.tsx`: alerts, what it
+  pays (per loaded mile, per mile on every mile, the floor), an eight-step timeline read from existing timestamps
+  (`lib/desk-timeline.ts`), the count-every-mile comparison as two bars against the floor, driver and pay, stops, the driver-safe
+  payload, and the load's activity. Closing returns to the page underneath (`components/desk/underlay.tsx`); a catch-all in the slot
+  (`@drawer/[...rest]`) is what makes the drawer let go on any other URL.
+- **Audit trail.** New table `audit_events` (migration `20261029000000_audit_events`, additive). Every assignment, change of driver or pay,
+  send, driver answer, unassignment, invoice, payment and rate-confirmation save writes an event in the same transaction as the change
+  (`server/tl/audit.ts`). Page: `/audit` (filter by group, search, before/after diff in a dialog). The seed backfills the history.
+- **Alerts.** Derived on each request, nothing stored (`lib/alerts.ts`, loaded by `server/tl/alerts.ts`): driver's CDL or medical card
+  lapsed (block), driver double-booked (block), pickup within 24 h with no driver sent (block), sent and no answer for 4 h (warn),
+  card lapsing within 30 days (warn), below the truck's cost with no driver sent (warn), invoice past terms (warn), a stop with no
+  reference number (info), delivered and not invoiced (info). Pages: `/alerts`, the rules at `/settings/rules`, a dot on each load row,
+  a pill in the sidebar, and a "Needs attention" panel on the dispatch queue. The timings are fixed for now.
+- **Double-booking guard.** `assignDriver` refuses a driver who is already on another open load at the same time (first stop's earliest
+  to last stop's latest) unless a reason is given; the reason goes in the audit event. `unassignLoad` takes a driver off a load, and
+  needs a reason once the load was sent or accepted.
+- **Header search.** `/` focuses it; loads, drivers, brokers and cities, from `GET /search?q=` (a route inside the desk group, because
+  the guard test forbids a top-level `src/app/api`). A driver, broker or city opens Loads filtered to it (`/loads?q=`).
+- **Seed changes.** The open loads are spread so no driver is on two at once, except one overlap on purpose; one draft picks up in
+  about 20 hours; one driver's medical card lapses in 20 days; sent loads have real waits; no payment is dated in the future.
+- Verified: `tsc` and eslint clean; vitest 9 files / 112 tests pass, and the 12 database tests with `RUN_DB_INTEGRATION=true`. In the
+  browser: open, act inside and close the drawer (Esc, the close button, the dim area), assign, send, decline, re-assign, remove with a
+  reason, assign over a double-booking with and without a reason, the audit details dialog, header search, Night and Day.
+- Not done: a production build of this wave, and a keyboard-only walk (both come in Wave 5).

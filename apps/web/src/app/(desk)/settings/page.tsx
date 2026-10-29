@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import Link from "next/link";
 import React from "react";
 import { setAppearanceAction } from "../actions";
 import { Card, PageHead } from "@/components/desk/ui";
@@ -12,7 +13,7 @@ export default function SettingsPage() {
 
   return (
     <>
-      <PageHead title="Settings" sub="How the desk looks. Saved in this browser and applied before the page paints." />
+      <PageHead title="Settings" sub="How the desk looks (saved in this browser, applied before the page paints) and how alerts are decided." />
 
       <Card title="Theme">
         <form action={setAppearanceAction} className="st-choices">
@@ -42,6 +43,11 @@ export default function SettingsPage() {
             </button>
           ))}
         </form>
+      </Card>
+
+      <Card title="Alert rules" className="tl-card">
+        <p className="tl-note" style={{ marginBottom: 10 }}>What raises a block, warn or info alert on a load, and the timings each one uses.</p>
+        <Link href="/settings/rules" className="tl-btn">See the rules</Link>
       </Card>
     </>
   );

@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import React from "react";
 import { Icon, type IconName } from "./kit/icons";
 import { ToastProvider } from "./kit/toast";
+import { GlobalSearch } from "./global-search";
+import { useUnderlay } from "./underlay";
 import { perMile, pct, usd } from "@/lib/desk-format";
 import type { ShellData } from "@/server/tl/shell";
 
@@ -17,6 +19,7 @@ const NAV: Array<{ label: string; items: Item[] }> = [
     items: [
       { href: "/loads", label: "Loads", icon: "loads" },
       { href: "/dispatch", label: "Dispatch queue", icon: "dispatch", pill: (c) => (c.needsDriver > 0 ? { n: c.needsDriver, tone: "warn" } : null) },
+      { href: "/alerts", label: "Alerts", icon: "bell", pill: (c) => (c.alertsBlock > 0 ? { n: c.alertsBlock + c.alertsWarn, tone: "alert" } : c.alertsWarn > 0 ? { n: c.alertsWarn, tone: "warn" } : null) },
       { href: "/rate-cons", label: "Rate confirmations", icon: "document" }
     ]
   },
@@ -34,12 +37,20 @@ const NAV: Array<{ label: string; items: Item[] }> = [
       { href: "/kpi", label: "KPI dashboard", icon: "chart" }
     ]
   },
-  { label: "System", items: [{ href: "/settings", label: "Settings", icon: "settings" }] }
+  {
+    label: "System",
+    items: [
+      { href: "/audit", label: "Audit log", icon: "history" },
+      { href: "/settings", label: "Settings", icon: "settings" }
+    ]
+  }
 ];
 
 const TITLES: Array<[string, string]> = [
   ["/loads", "Loads"],
   ["/dispatch", "Dispatch queue"],
+  ["/alerts", "Alerts"],
+  ["/audit", "Audit log"],
   ["/rate-cons", "Rate confirmations"],
   ["/drivers", "Drivers"],
   ["/fleet", "Trucks"],
@@ -50,8 +61,11 @@ const TITLES: Array<[string, string]> = [
 
 const SIDEBAR_COOKIE = "desk-sidebar";
 
-export function DeskShell({ children, data, initialCollapsed }: { children: React.ReactNode; data: ShellData; initialCollapsed: boolean }) {
-  const pathname = usePathname() ?? "";
+export function DeskShell({ children, drawer, data, initialCollapsed }: { children: React.ReactNode; drawer?: React.ReactNode; data: ShellData; initialCollapsed: boolean }) {
+  const underlay = useUnderlay();
+  // With a load open in the drawer the URL is the load's, but the page you are on (and the sidebar item to light) is the one underneath.
+  const here = usePathname() ?? "";
+  const pathname = /^\/loads\/[^/]+$/.test(here) ? (underlay.current.split("?")[0] ?? "/loads") : here;
   const [collapsed, setCollapsed] = React.useState(initialCollapsed);
   const toggle = () => {
     const next = !collapsed;
@@ -103,6 +117,7 @@ export function DeskShell({ children, data, initialCollapsed }: { children: Reac
             <div className="tl-crumb">
               {title} <span>/ TrueLane</span>
             </div>
+            <GlobalSearch />
             <div className="tl-totals" aria-label="Fleet totals">
               <div className="tl-total"><b>{t.open}</b><span>Open loads</span></div>
               <div className={`tl-total${t.needsDriver > 0 ? " alert" : ""}`}><b>{t.needsDriver}</b><span>Need a driver</span></div>
@@ -116,6 +131,7 @@ export function DeskShell({ children, data, initialCollapsed }: { children: Reac
           </main>
         </div>
       </div>
+      {drawer}
     </ToastProvider>
   );
 }

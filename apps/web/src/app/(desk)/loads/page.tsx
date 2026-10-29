@@ -1,7 +1,9 @@
 import Link from "next/link";
 import React from "react";
 import { listBoardRows } from "@/server/tl/queries";
+import { getAlerts } from "@/server/tl/alerts";
 import { AssignmentChip, PageHead, StatusChip, Tabs, VerdictChip } from "@/components/desk/ui";
+import { AlertDot } from "@/components/desk/alert-bits";
 import { DataTable, type Column, type Row } from "@/components/desk/data-table";
 import { DataTableTools } from "@/components/desk/data-table-tools";
 import { EmptyState } from "@/components/desk/kit/states";
@@ -30,8 +32,14 @@ const COLUMNS: Column[] = [
   { key: "assignment", label: "Answer", group: "Dispatch" }
 ];
 
-export default async function LoadsPage({ searchParams }: { searchParams?: { status?: string; flag?: string } }) {
-  const all = await listBoardRows();
+export default async function LoadsPage({ searchParams }: { searchParams?: { status?: string; flag?: string; q?: string } }) {
+  const [everything, { byLoad }] = await Promise.all([listBoardRows(), getAlerts()]);
+  const q = searchParams?.q?.trim() ?? "";
+  const needle = q.toLowerCase();
+  // `q` comes from the header search (a driver, broker or city) and narrows everything below, counts included.
+  const all = needle
+    ? everything.filter((r) => [r.loadNumber, r.brokerName, r.origin, r.destination, r.vehicleName, r.driverName].filter(Boolean).join(" ").toLowerCase().includes(needle))
+    : everything;
   const active = FILTERS.some((f) => f.key === searchParams?.status) ? (searchParams!.status as string) : "all";
   const below = searchParams?.flag === "below";
   const isBelow = (r: (typeof all)[number]) => r.verdict === "reject" && r.status !== "completed";
@@ -39,7 +47,14 @@ export default async function LoadsPage({ searchParams }: { searchParams?: { sta
   const shown = below ? byStatus.filter(isBelow) : byStatus;
   const counts = (key: string) => (key === "all" ? all.length : all.filter((r) => r.status === key).length);
   const belowCount = all.filter(isBelow).length;
-  const href = (status: string, flag: boolean) => `/loads${status === "all" && !flag ? "" : `?${[status !== "all" ? `status=${status}` : "", flag ? "flag=below" : ""].filter(Boolean).join("&")}`}`;
+  const href = (status: string, flag: boolean, text = q) => {
+    const p = new URLSearchParams();
+    if (status !== "all") p.set("status", status);
+    if (flag) p.set("flag", "below");
+    if (text) p.set("q", text);
+    const s = p.toString();
+    return s ? `/loads?${s}` : "/loads";
+  };
 
   const rows: Row[] = shown.map((r) => {
     const tone = r.verdict === "reject" ? "tone-neg" : r.verdict === "caution" ? "tone-warn" : r.verdict === "accept" ? "tone-pos" : "";
@@ -52,6 +67,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: { sta
         load: (
           <>
             <Link href={`/loads/${r.id}`}>{r.loadNumber ?? "—"}</Link>
+            <AlertDot alerts={byLoad.get(r.id)} />
             <span className="sub">{r.brokerName}</span>
           </>
         ),
@@ -78,6 +94,11 @@ export default async function LoadsPage({ searchParams }: { searchParams?: { sta
         <Link href={href(active, !below)} className="tl-tab" aria-current={below ? "true" : undefined}>
           Below cost · {belowCount}
         </Link>
+        {q ? (
+          <Link href={href(active, below, "")} className="tl-tab" aria-current="true" title="Clear this filter">
+            Matching “{q}” ×
+          </Link>
+        ) : null}
       </DataTableTools>
       <DataTable
         id="loads-table"

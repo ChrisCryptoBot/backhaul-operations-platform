@@ -9,7 +9,7 @@ import { DEMO_WORKSPACE_ID } from "./workspace";
  * Read model for the dispatcher screens, all computed from the TrueLane-shaped tables with TrueLane's own math.
  * The page layer (stage 3) calls these; nothing here renders anything.
  */
-const loadInclude = {
+export const loadInclude = {
   vehicle: { include: { costProfile: true } },
   stops: { orderBy: { stopSequence: "asc" as const } },
   assignment: { include: { driver: true } }
@@ -60,7 +60,7 @@ export async function agingFor(now = Date.now(), workspaceId = DEMO_WORKSPACE_ID
 
 // ── Load detail, drivers, trucks, invoices ─────────────────────────────────────────────────────
 
-import { driverBlocker } from "./dispatch";
+import { driverBlocker, driverClashNote } from "./dispatch";
 import { projectLoadToSummary, type LoadSummary, type PayKind } from "./projector";
 
 export async function getLoadDetail(id: string, workspaceId = DEMO_WORKSPACE_ID) {
@@ -101,7 +101,8 @@ export async function getLoadDetail(id: string, workspaceId = DEMO_WORKSPACE_ID)
     evaluation,
     flipped,
     driverView,
-    drivers: drivers.map((d) => ({ id: d.id, name: d.name, blocker: driverBlocker(d) }))
+    // Who can take this load: a lapsed card blocks outright; being on another load at the same time is a note the dispatcher can override with a reason.
+    drivers: await Promise.all(drivers.map(async (d) => ({ id: d.id, name: d.name, blocker: driverBlocker(d), busy: await driverClashNote(d.id, l.id, l.stops) })))
   };
 }
 

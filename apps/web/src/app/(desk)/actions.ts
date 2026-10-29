@@ -3,9 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { DENSITY_COOKIE, THEME_COOKIE, asDensity, asTheme } from "@/lib/appearance";
-import { redirect } from "next/navigation";
+import { redirect, RedirectType } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse } from "@/server/tl/dispatch";
+import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
+import { invoiceLoad, markLoadPaid } from "@/server/tl/invoicing";
 import type { PayKind } from "@/server/tl/projector";
 import { readRateCon } from "@/server/ratecon/reader";
 import { saveReviewedDraft, type ReviewedDraft } from "@/server/ratecon/save";
@@ -16,7 +17,8 @@ import type { RateConLoadDraft } from "@/server/ratecon/map";
  * short note (?note=...) or an error (?error=...) so the result is visible without client state.
  */
 function back(loadId: string, key: "note" | "error", text: string): never {
-  redirect(`/loads/${loadId}?${key}=${encodeURIComponent(text)}`);
+  // Replace, not push: the load may be open in the drawer, and closing it must land on the page beneath, not on the same load again.
+  redirect(`/loads/${loadId}?${key}=${encodeURIComponent(text)}`, RedirectType.replace);
 }
 
 async function attempt(loadId: string, fn: () => Promise<string>): Promise<never> {
@@ -29,6 +31,8 @@ async function attempt(loadId: string, fn: () => Promise<string>): Promise<never
   }
   revalidatePath("/loads");
   revalidatePath("/dispatch");
+  revalidatePath("/alerts");
+  revalidatePath("/audit");
   revalidatePath("/kpi");
   return back(loadId, "note", note);
 }
@@ -37,8 +41,21 @@ export async function assignAction(formData: FormData) {
   const loadId = String(formData.get("loadId"));
   await attempt(loadId, async () => {
     const rate = Number(formData.get("rate"));
-    await assignDriver({ loadId, driverId: String(formData.get("driverId")), pay: { kind: String(formData.get("payKind")) as PayKind, rate } });
+    await assignDriver({
+      loadId,
+      driverId: String(formData.get("driverId")),
+      pay: { kind: String(formData.get("payKind")) as PayKind, rate },
+      overrideReason: String(formData.get("overrideReason") ?? "")
+    });
     return "Driver assigned. Send it when you are ready.";
+  });
+}
+
+export async function unassignAction(formData: FormData) {
+  const loadId = String(formData.get("loadId"));
+  await attempt(loadId, async () => {
+    await unassignLoad(loadId, String(formData.get("reason") ?? ""));
+    return "Driver removed. The load is back on the board.";
   });
 }
 
@@ -60,25 +77,19 @@ export async function respondAction(formData: FormData) {
 }
 
 export async function invoiceAction(formData: FormData) {
-  const id = String(formData.get("loadId"));
-  const load = await prisma.load.findUniqueOrThrow({ where: { id } });
-  if (load.status !== "completed" || load.paymentStatus) redirect("/invoices");
-  const amount = load.actualRevenue ?? load.quotedRevenue;
-  await prisma.load.update({
-    where: { id },
-    data: { paymentStatus: "invoiced", invoicedAt: new Date(), invoicedAmount: amount, invoiceNumber: `INV-${load.loadNumber ?? id.slice(-6)}`, payTermsDays: load.payTermsDays ?? 30 }
-  });
+  await invoiceLoad(String(formData.get("loadId")));
   revalidatePath("/invoices");
+  revalidatePath("/audit");
+  revalidatePath("/alerts");
   revalidatePath("/kpi");
   redirect("/invoices");
 }
 
 export async function markPaidAction(formData: FormData) {
-  const id = String(formData.get("loadId"));
-  const load = await prisma.load.findUniqueOrThrow({ where: { id } });
-  if (load.paymentStatus !== "invoiced") redirect("/invoices");
-  await prisma.load.update({ where: { id }, data: { paymentStatus: "paid", paidAt: new Date(), paidAmount: load.invoicedAmount ?? load.quotedRevenue } });
+  await markLoadPaid(String(formData.get("loadId")));
   revalidatePath("/invoices");
+  revalidatePath("/audit");
+  revalidatePath("/alerts");
   revalidatePath("/kpi");
   redirect("/invoices");
 }

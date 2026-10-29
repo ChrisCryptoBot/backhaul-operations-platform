@@ -19,7 +19,9 @@ const PATHS = {
   inbox: "M3 13h5l1 3h6l1-3h5M5 13 7 5h10l2 8v6H5v-6Z",
   sun: "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0-13v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4",
   moon: "M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z",
-  chevron: "M9 6l6 6-6 6"
+  chevron: "M9 6l6 6-6 6",
+  bell: "M6 16v-5a6 6 0 1 1 12 0v5l2 2H4l2-2Zm4 4a2 2 0 0 0 4 0",
+  history: "M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 8v5l3 2"
 } as const;
 
 export type IconName = keyof typeof PATHS;
