@@ -14,15 +14,15 @@ import { perMile, signedPct, usd } from "@/lib/desk-format";
 export const dynamic = "force-dynamic";
 
 const COLUMNS: Column[] = [
-  { key: "broker", label: "Customer", sticky: true, width: 230 },
-  { key: "kind", label: "Kind" },
-  { key: "loads", label: "Loads", align: "num" },
-  { key: "gross", label: "Gross", align: "num" },
-  { key: "rpm", label: "Per mile", align: "num" },
-  { key: "market", label: "Against market", align: "num" },
-  { key: "pay", label: "Days to pay", align: "num" },
-  { key: "wait", label: "Wait at a stop", align: "num" },
-  { key: "lost", label: "Fell through", align: "num" }
+  { key: "broker", sortable: true, label: "Customer", sticky: true, width: 230 },
+  { key: "kind", sortable: true, label: "Kind" },
+  { key: "loads", sortable: true, label: "Loads", align: "num" },
+  { key: "gross", sortable: true, label: "Gross", align: "num" },
+  { key: "rpm", sortable: true, label: "Per mile", align: "num" },
+  { key: "market", sortable: true, label: "Against market", align: "num" },
+  { key: "pay", sortable: true, label: "Days to pay", align: "num" },
+  { key: "wait", sortable: true, label: "Wait at a stop", align: "num" },
+  { key: "lost", sortable: true, label: "Fell through", align: "num" }
 ];
 
 const empty = (name: string): BrokerKpi => ({ name, loads: 0, gross: 0, rpm: null, marketVariancePct: null, benchmarked: 0, paidLoads: 0, avgDaysToPay: null, avgWaitMinutes: null, waitStops: 0, lost: 0 });

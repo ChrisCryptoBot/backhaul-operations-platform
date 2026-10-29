@@ -42,7 +42,7 @@ export default async function LanePage({ searchParams }: { searchParams?: { lane
 
       {k.brokers.length > 0 ? (
         <Card title="Who pays on it" className="tl-card">
-          <table className="tl-table">
+          <table className="tl-table" aria-label="Who pays on this lane">
             <thead>
               <tr>
                 <th>Customer</th>
@@ -67,7 +67,7 @@ export default async function LanePage({ searchParams }: { searchParams?: { lane
 
       {k.drivers.length > 0 ? (
         <Card title="Who has driven it" className="tl-card">
-          <table className="tl-table">
+          <table className="tl-table" aria-label="Who has driven this lane">
             <thead>
               <tr>
                 <th>Driver</th>
@@ -94,7 +94,7 @@ export default async function LanePage({ searchParams }: { searchParams?: { lane
         {loads.length === 0 ? (
           <p className="tl-note">None on the board.</p>
         ) : (
-          <table className="tl-table">
+          <table className="tl-table" aria-label="Loads on this lane">
             <thead>
               <tr>
                 <th>Load</th>

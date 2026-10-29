@@ -197,7 +197,7 @@ export function SettlementEditor({ id, number, driverName, loads, initialHours, 
         {loads.length === 0 ? (
           <p className="tl-note">No delivered loads in this period are left to pay. Anything delivered later goes on the next statement.</p>
         ) : (
-          <table className="tl-table">
+          <table className="tl-table" aria-label="Statement lines">
             <thead>
               <tr>
                 <th>Load</th>

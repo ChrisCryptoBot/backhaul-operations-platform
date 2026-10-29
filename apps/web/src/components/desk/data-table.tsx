@@ -18,6 +18,8 @@ export type Column = {
   group?: string;
   /** Marks a band in the accent colour (for example the money band). */
   accentBand?: boolean;
+  /** The header becomes a button that sorts the rows (ascending, descending, then back to the page's own order). A "num" column sorts by the number in its text. */
+  sortable?: boolean;
 };
 
 export type Row = {
@@ -29,6 +31,8 @@ export type Row = {
   selected?: boolean;
   /** Text matched by the search box. */
   search?: string;
+  /** What a sortable column sorts by when its text is not the right key (a date shown as "Oct 24", a figure shown with words). Null sorts last. */
+  sort?: Record<string, string | number | null>;
   cells: Record<string, React.ReactNode>;
 };
 
@@ -80,8 +84,14 @@ export function DataTable({ id, columns, rows, empty, label }: { id: string; col
           ) : null}
           <tr className="dt-cols">
             {columns.map((c) => (
-              <th key={c.key} className={cls(c)} style={{ ...style(c), ...(hasBands ? {} : { top: 0 }) }} scope="col">
-                {c.label}
+              <th key={c.key} className={cls(c)} style={{ ...style(c), ...(hasBands ? {} : { top: 0 }) }} scope="col" aria-sort={c.sortable ? "none" : undefined}>
+                {c.sortable ? (
+                  <button type="button" className="dt-sortbtn" data-sort-col={c.key} data-sort-kind={c.align === "num" ? "num" : "text"}>
+                    {c.label}
+                  </button>
+                ) : (
+                  c.label
+                )}
               </th>
             ))}
           </tr>
@@ -92,10 +102,10 @@ export function DataTable({ id, columns, rows, empty, label }: { id: string; col
               <td colSpan={columns.length}>{empty ?? "Nothing here."}</td>
             </tr>
           ) : (
-            rows.map((r) => (
-              <tr key={r.id} data-href={r.href} data-flag={r.flag} data-search={(r.search ?? "").toLowerCase()} aria-selected={r.selected ? "true" : undefined}>
+            rows.map((r, i) => (
+              <tr key={r.id} data-i={i} data-href={r.href} data-flag={r.flag} data-search={(r.search ?? "").toLowerCase()} aria-selected={r.selected ? "true" : undefined}>
                 {columns.map((c) => (
-                  <td key={c.key} className={cls(c)} style={style(c)}>
+                  <td key={c.key} className={cls(c)} style={style(c)} data-v={c.sortable && r.sort?.[c.key] != null ? String(r.sort[c.key]) : undefined}>
                     {r.cells[c.key]}
                   </td>
                 ))}

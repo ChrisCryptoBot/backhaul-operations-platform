@@ -58,7 +58,7 @@ export default async function KpiReportPage({ searchParams }: { searchParams?: R
         {c.loads === 0 ? (
           <p>No loads finished in this period.</p>
         ) : (
-          <table>
+          <table aria-label="Summary">
             <thead>
               <tr>
                 <th>Measure</th>
@@ -84,7 +84,7 @@ export default async function KpiReportPage({ searchParams }: { searchParams?: R
         {k.drivers.length === 0 ? (
           <p>No finished loads with a driver in this period.</p>
         ) : (
-          <table>
+          <table aria-label="Drivers">
             <thead>
               <tr><th>Driver</th><th className="num">Loads</th><th className="num">Gross</th><th className="num">Per mile</th><th className="num">Empty miles</th><th className="num">Pay owed (estimate)</th></tr>
             </thead>
@@ -107,7 +107,7 @@ export default async function KpiReportPage({ searchParams }: { searchParams?: R
         {k.lanes.length === 0 ? (
           <p>No finished loads in this period.</p>
         ) : (
-          <table>
+          <table aria-label="Lanes">
             <thead>
               <tr><th>Lane</th><th className="num">Loads</th><th className="num">Gross</th><th className="num">Per mile</th><th className="num">Empty miles</th><th className="num">Against market</th></tr>
             </thead>
@@ -135,7 +135,7 @@ export default async function KpiReportPage({ searchParams }: { searchParams?: R
               {usd(k.aging.totalOutstanding)} outstanding on {k.aging.count} {k.aging.count === 1 ? "invoice" : "invoices"}; {k.aging.overdueCount} overdue
               {k.aging.oldestDaysOverdue != null ? `, the oldest by ${k.aging.oldestDaysOverdue} days` : ""}.
             </p>
-            <table>
+            <table aria-label="Outstanding invoices">
               <thead>
                 <tr><th>Load</th><th>Customer</th><th className="num">Billed</th><th>Due</th><th className="num">Days past due</th></tr>
               </thead>

@@ -49,7 +49,7 @@ export default async function InvoicePage({ params }: { params: { id: string } }
         </p>
         {inv.billTo.email || inv.billTo.phone ? <p className="rp-meta">{[inv.billTo.email, inv.billTo.phone].filter(Boolean).join(" · ")}</p> : null}
 
-        <table style={{ marginTop: 14 }}>
+        <table style={{ marginTop: 14 }} aria-label="Invoice details">
           <tbody>
             <tr>
               <th>Invoice date</th>
@@ -73,7 +73,7 @@ export default async function InvoicePage({ params }: { params: { id: string } }
         </table>
 
         <h2>Charges</h2>
-        <table>
+        <table aria-label="Charges">
           <thead>
             <tr>
               <th>Description</th>
@@ -103,7 +103,7 @@ export default async function InvoicePage({ params }: { params: { id: string } }
           {inv.load.origin ?? "?"} to {inv.load.destination ?? "?"}
           {inv.load.miles > 0 ? ` · ${miles(inv.load.miles)} loaded` : ""}
         </p>
-        <table style={{ marginTop: 8 }}>
+        <table style={{ marginTop: 8 }} aria-label="Loads on this invoice">
           <thead>
             <tr>
               <th>Stop</th>

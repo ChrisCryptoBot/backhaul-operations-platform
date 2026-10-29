@@ -312,7 +312,7 @@ a.al:hover { background: var(--db-bg-elev-1); }
 
 .kc { background: var(--db-bg-card); border: 1px solid var(--db-border); border-radius: var(--db-r-lg); padding: var(--db-4) var(--db-5); min-width: 0; display: flex; flex-direction: column; gap: var(--db-3); }
 .kc > header { display: flex; align-items: baseline; gap: var(--db-3); flex-wrap: wrap; }
-.kc > header h3 { margin: 0; font-size: var(--db-text-md); }
+.kc > header h2 { margin: 0; font-size: var(--db-text-md); }
 .kc-unit { font-size: var(--db-text-sm); color: var(--db-fg-dim); }
 .kc-body { display: grid; gap: var(--db-3); min-width: 0; }
 .kc-cap { margin: 0; font-size: var(--db-text-base); color: var(--db-fg); line-height: 1.5; }
@@ -776,3 +776,11 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .audit-q { width: 300px; max-width: 100%; }
 .audit-day { display: inline-flex; align-items: center; gap: var(--db-2); font-family: var(--db-font-head); font-size: var(--db-text-sm); letter-spacing: 0.1em; text-transform: uppercase; color: var(--db-fg-dim); font-weight: 600; }
 .audit-day input { font-family: inherit; letter-spacing: 0; text-transform: none; font-weight: 400; }
+
+/* ───────────────────────────── sortable headers ───────────────────────────── */
+.dt-sortbtn { display: inline-flex; align-items: center; gap: 6px; padding: 0; margin: 0; border: 0; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; cursor: pointer; }
+.dt-sortbtn:hover { color: var(--db-fg); }
+.dt-sortbtn::after { content: "↕"; font-size: 10px; color: var(--db-fg-faint); }
+th[aria-sort="ascending"] .dt-sortbtn, th[aria-sort="descending"] .dt-sortbtn { color: var(--db-fg); }
+th[aria-sort="ascending"] .dt-sortbtn::after { content: "▲"; color: var(--db-accent-fg); }
+th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-accent-fg); }

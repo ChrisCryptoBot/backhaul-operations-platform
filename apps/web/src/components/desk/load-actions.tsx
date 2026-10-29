@@ -321,7 +321,7 @@ export function TripEntry({
   return (
     <>
       {has || delivered || spentTotal > 0 || pod.note ? (
-        <table className="tl-table" style={{ marginBottom: 12 }}>
+        <table className="tl-table" style={{ marginBottom: 12 }} aria-label="Stops">
           <thead>
             <tr>
               <th>Stop</th>

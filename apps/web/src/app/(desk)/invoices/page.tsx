@@ -29,11 +29,11 @@ const READY: Column[] = [
   { key: "act", label: "", align: "num" }
 ];
 const OUT: Column[] = [
-  { key: "invoice", label: "Invoice", sticky: true, width: 150 },
-  { key: "broker", label: "Customer" },
-  { key: "sent", label: "Sent" },
-  { key: "due", label: "Due" },
-  { key: "amount", label: "Amount", align: "num" },
+  { key: "invoice", sortable: true, label: "Invoice", sticky: true, width: 150 },
+  { key: "broker", sortable: true, label: "Customer" },
+  { key: "sent", sortable: true, label: "Sent" },
+  { key: "due", sortable: true, label: "Due" },
+  { key: "amount", sortable: true, label: "Amount", align: "num" },
   { key: "act", label: "", align: "num" }
 ];
 const PAID: Column[] = [
@@ -87,6 +87,7 @@ export default async function InvoicesPage() {
       id: r.id,
       href: `/loads/${r.id}`,
       flag: late ? "bad" : undefined,
+      sort: { sent: r.invoicedAt?.getTime() ?? null, due: due?.getTime() ?? null },
       search: [r.invoiceNumber, r.broker, r.loadNumber, r.poNumber].filter(Boolean).join(" "),
       cells: {
         invoice: (

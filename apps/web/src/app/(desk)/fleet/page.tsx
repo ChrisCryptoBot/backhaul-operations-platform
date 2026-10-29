@@ -9,16 +9,16 @@ import { EmptyState } from "@/components/desk/kit/states";
 import { miles, perMile } from "@/lib/desk-format";
 
 const COLUMNS: Column[] = [
-  { key: "truck", label: "Truck", group: "Truck", sticky: true, width: 200 },
-  { key: "type", label: "Type", group: "Truck" },
-  { key: "mpg", label: "MPG", group: "Truck", align: "num" },
-  { key: "fuel", label: "Fuel price", group: "Truck", align: "num" },
-  { key: "planned", label: "Planned miles / month", group: "Cost floor", accentBand: true, align: "num" },
-  { key: "breakEven", label: "Break-even floor", group: "Cost floor", accentBand: true, align: "num" },
-  { key: "survival", label: "Survival floor", group: "Cost floor", accentBand: true, align: "num" },
-  { key: "detention", label: "Detention rate", group: "Dock", align: "num" },
-  { key: "loads", label: "Loads", group: "Work", align: "num" },
-  { key: "open", label: "Open", group: "Work", align: "num" },
+  { key: "truck", sortable: true, label: "Truck", group: "Truck", sticky: true, width: 200 },
+  { key: "type", sortable: true, label: "Type", group: "Truck" },
+  { key: "mpg", sortable: true, label: "MPG", group: "Truck", align: "num" },
+  { key: "fuel", sortable: true, label: "Fuel price", group: "Truck", align: "num" },
+  { key: "planned", sortable: true, label: "Planned miles / month", group: "Cost floor", accentBand: true, align: "num" },
+  { key: "breakEven", sortable: true, label: "Break-even floor", group: "Cost floor", accentBand: true, align: "num" },
+  { key: "survival", sortable: true, label: "Survival floor", group: "Cost floor", accentBand: true, align: "num" },
+  { key: "detention", sortable: true, label: "Detention rate", group: "Dock", align: "num" },
+  { key: "loads", sortable: true, label: "Loads", group: "Work", align: "num" },
+  { key: "open", sortable: true, label: "Open", group: "Work", align: "num" },
   { key: "act", label: "", group: "" }
 ];
 

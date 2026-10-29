@@ -100,7 +100,7 @@ export default async function DriverPage({ params }: { params: { id: string } })
         {d.recent.length === 0 ? (
           <p className="tl-note">Nothing delivered yet.</p>
         ) : (
-          <table className="tl-table">
+          <table className="tl-table" aria-label="Recent loads">
             <thead>
               <tr>
                 <th>Load</th>

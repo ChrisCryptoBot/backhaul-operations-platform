@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import React from "react";
+import { compareKeys, nextSort, sortKey, type SortDir, type SortKind } from "@/lib/table-sort";
 import { Icon } from "./kit/icons";
 
 type Density = "comfortable" | "compact";
@@ -18,6 +19,7 @@ export function DataTableTools({ tableId, placeholder = "Search…", children, t
   const [q, setQ] = React.useState("");
   const [density, setDensity] = React.useState<Density>("comfortable");
   const [shown, setShown] = React.useState(total);
+  const [sortNote, setSortNote] = React.useState("");
 
   React.useEffect(() => {
     setDensity(document.documentElement.dataset.density === "compact" ? "compact" : "comfortable");
@@ -55,6 +57,38 @@ export function DataTableTools({ tableId, placeholder = "Search…", children, t
     };
   }, [tableId, router]);
 
+  // Sorting: a header button reorders that table's rows in the page and says so in aria-sort on its header cell. Only one column is sorted at a time.
+  React.useEffect(() => {
+    const tables = tablesOf(tableId);
+    if (tables.length === 0) return;
+    const onClick = (e: MouseEvent) => {
+      const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("button.dt-sortbtn");
+      const table = btn?.closest("table");
+      const th = btn?.closest("th");
+      if (!btn || !table || !th) return;
+      const col = btn.dataset.sortCol ?? "";
+      const kind = (btn.dataset.sortKind === "num" ? "num" : "text") as SortKind;
+      const dir = nextSort((th.getAttribute("aria-sort") as SortDir | null) ?? "none");
+      table.querySelectorAll("th[aria-sort]").forEach((h) => h.setAttribute("aria-sort", "none"));
+      th.setAttribute("aria-sort", dir);
+      const colIndex = Array.from(th.parentElement!.children).indexOf(th);
+      const body = table.tBodies[0]!;
+      const rows = Array.from(body.querySelectorAll<HTMLTableRowElement>("tr[data-i]"));
+      const key = (tr: HTMLTableRowElement) => {
+        const td = tr.cells[colIndex];
+        return sortKey(kind, td?.textContent ?? "", td?.dataset.v);
+      };
+      const order = dir === "none" ? [...rows].sort((a, b) => Number(a.dataset.i) - Number(b.dataset.i)) : [...rows].sort((a, b) => compareKeys(key(a), key(b), dir) || Number(a.dataset.i) - Number(b.dataset.i));
+      for (const tr of order) body.appendChild(tr);
+      const name = (btn.textContent ?? col).trim();
+      setSortNote(dir === "none" ? "Back to the original order." : `Sorted by ${name}, ${dir}.`);
+    };
+    for (const table of tables) table.addEventListener("click", onClick);
+    return () => {
+      for (const table of tables) table.removeEventListener("click", onClick);
+    };
+  }, [tableId]);
+
   const pick = (d: Density) => {
     setDensity(d);
     document.documentElement.dataset.density = d;
@@ -71,6 +105,7 @@ export function DataTableTools({ tableId, placeholder = "Search…", children, t
       {children}
       <span className="dt-spacer" />
       <span className="dt-count" aria-live="polite">{q.trim() === "" ? `${total} rows` : `${shown} of ${total}`}</span>
+      <span className="db-sr-only" role="status">{sortNote}</span>
       <div className="tl-seg" role="group" aria-label="Row density">
         <button type="button" aria-pressed={density === "comfortable"} onClick={() => pick("comfortable")}>Comfortable</button>
         <button type="button" aria-pressed={density === "compact"} onClick={() => pick("compact")}>Compact</button>

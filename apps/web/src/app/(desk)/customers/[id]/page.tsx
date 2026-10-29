@@ -58,7 +58,7 @@ export default async function CustomerPage({ params, searchParams }: { params: {
 
       {d && d.recent.length > 0 ? (
         <Card title={`Latest loads${d.loadCount > d.recent.length ? ` · ${d.recent.length} of ${d.loadCount}` : ""}`} className="tl-card">
-          <table className="tl-table">
+          <table className="tl-table" aria-label="Latest loads">
             <thead>
               <tr>
                 <th>Load</th>

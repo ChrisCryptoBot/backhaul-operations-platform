@@ -10,14 +10,14 @@ import { ymdOf } from "@/lib/fleet-forms";
 import { payLabel, shortDate } from "@/lib/desk-format";
 
 const COLUMNS: Column[] = [
-  { key: "driver", label: "Driver", group: "Driver", sticky: true, width: 220 },
-  { key: "truck", label: "Truck", group: "Driver" },
+  { key: "driver", sortable: true, label: "Driver", group: "Driver", sticky: true, width: 220 },
+  { key: "truck", sortable: true, label: "Truck", group: "Driver" },
   { key: "pay", label: "Usual pay", group: "Driver" },
   { key: "cdl", label: "CDL", group: "Compliance" },
   { key: "medical", label: "Medical card", group: "Compliance" },
   { key: "clearance", label: "Clearance", group: "Compliance" },
   { key: "now", label: "On now", group: "Work" },
-  { key: "delivered", label: "Delivered", group: "Work", align: "num" },
+  { key: "delivered", sortable: true, label: "Delivered", group: "Work", align: "num" },
   { key: "act", label: "", group: "" }
 ];
 

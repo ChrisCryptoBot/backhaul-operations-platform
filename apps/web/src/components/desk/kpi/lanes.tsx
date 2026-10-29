@@ -13,14 +13,14 @@ const STATUS: Record<LaneStatus, { label: string; tone: "ok" | "bad" | "muted" }
 };
 
 const COLUMNS: Column[] = [
-  { key: "lane", label: "Lane", sticky: true, width: 230 },
-  { key: "loads", label: "Loads", align: "num" },
-  { key: "gross", label: "Gross", align: "num" },
-  { key: "rpm", label: "Per mile", align: "num" },
-  { key: "empty", label: "Empty miles", align: "num" },
-  { key: "before", label: "Before pickup", align: "num" },
-  { key: "after", label: "After delivery", align: "num" },
-  { key: "market", label: "Against market", align: "num" },
+  { key: "lane", sortable: true, label: "Lane", sticky: true, width: 230 },
+  { key: "loads", sortable: true, label: "Loads", align: "num" },
+  { key: "gross", sortable: true, label: "Gross", align: "num" },
+  { key: "rpm", sortable: true, label: "Per mile", align: "num" },
+  { key: "empty", sortable: true, label: "Empty miles", align: "num" },
+  { key: "before", sortable: true, label: "Before pickup", align: "num" },
+  { key: "after", sortable: true, label: "After delivery", align: "num" },
+  { key: "market", sortable: true, label: "Against market", align: "num" },
   { key: "status", label: "Status" }
 ];
 

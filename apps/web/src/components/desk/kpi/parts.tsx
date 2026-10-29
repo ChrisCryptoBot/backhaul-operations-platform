@@ -9,7 +9,7 @@ export function ChartFrame({ title, unit, caption, formula, empty, children, cla
   return (
     <section className={`kc${className ? ` ${className}` : ""}`}>
       <header>
-        <h3>{title}</h3>
+        <h2>{title}</h2>
         {unit ? <span className="kc-unit">{unit}</span> : null}
       </header>
       {empty ? <div className="kc-empty">{empty}</div> : <div className="kc-body">{children}</div>}

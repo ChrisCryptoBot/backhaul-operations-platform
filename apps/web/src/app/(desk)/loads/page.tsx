@@ -17,17 +17,17 @@ import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
 const OPEN_FILTERS = BOARD_STATUSES.filter((s) => s.key !== "completed");
 
 const COLUMNS: Column[] = [
-  { key: "load", label: "Load", group: "Load", sticky: true, width: 150 },
+  { key: "load", sortable: true, label: "Load", group: "Load", sticky: true, width: 150 },
   { key: "status", label: "Status", group: "Load", sticky: true, width: 150 },
-  { key: "lane", label: "Lane", group: "Route" },
-  { key: "pickup", label: "Pickup", group: "Route" },
+  { key: "lane", sortable: true, label: "Lane", group: "Route" },
+  { key: "pickup", sortable: true, label: "Pickup", group: "Route" },
   { key: "truck", label: "Truck", group: "Route" },
-  { key: "miles", label: "Miles", group: "Route", align: "num" },
-  { key: "pay", label: "Pay", group: "Money", accentBand: true, align: "num" },
-  { key: "perMile", label: "$/mi", group: "Money", accentBand: true, align: "num" },
-  { key: "floor", label: "Floor", group: "Money", accentBand: true, align: "num" },
+  { key: "miles", sortable: true, label: "Miles", group: "Route", align: "num" },
+  { key: "pay", sortable: true, label: "Pay", group: "Money", accentBand: true, align: "num" },
+  { key: "perMile", sortable: true, label: "$/mi", group: "Money", accentBand: true, align: "num" },
+  { key: "floor", sortable: true, label: "Floor", group: "Money", accentBand: true, align: "num" },
   { key: "verdict", label: "Verdict", group: "Money", accentBand: true },
-  { key: "driver", label: "Driver", group: "Dispatch" },
+  { key: "driver", sortable: true, label: "Driver", group: "Dispatch" },
   { key: "assignment", label: "Answer", group: "Dispatch" }
 ];
 
@@ -233,6 +233,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
     return {
       id: r.id,
       href: `/loads/${r.id}`,
+      sort: { pickup: r.scheduledDate?.getTime() ?? null },
       search: [r.loadNumber, r.poNumber, r.brokerName, r.brokerMc, r.origin, r.destination, r.vehicleName, r.driverName].filter(Boolean).join(" "),
       cells: {
         load: (

@@ -509,7 +509,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
           <p className="tl-note">Every truck and driver is priced here once there is an offer and loaded miles.</p>
         ) : (
           <div className="dt-wrap qt-scroll">
-            <table className="tl-table qt-table">
+            <table className="tl-table qt-table" aria-label="Trucks and drivers">
               <thead>
                 <tr>
                   <th aria-label="Choose" />
@@ -581,7 +581,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                 {priced.context.lane.count} finished {priced.context.lane.count === 1 ? "load" : "loads"}
                 {priced.context.lane.averagePerMile != null ? `, averaging ${perMile(priced.context.lane.averagePerMile)} on the loaded miles` : ""}.
               </p>
-              <table className="tl-table">
+              <table className="tl-table" aria-label="Saved quotes">
                 <tbody>
                   {priced.context.lane.recent.map((l) => (
                     <tr key={l.id}>
@@ -627,7 +627,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
           <p className="tl-note">Nothing saved. A quote you save waits off the board until you book it.</p>
         ) : (
           <div className="dt-wrap qt-scroll">
-            <table className="tl-table">
+            <table className="tl-table" aria-label="Lane history">
               <thead>
                 <tr>
                   <th>Lane</th>

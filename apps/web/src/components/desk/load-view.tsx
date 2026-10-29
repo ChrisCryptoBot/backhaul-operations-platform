@@ -306,7 +306,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
             <LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load)} scheduleLocked={scheduleLocked} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} trucks={trucks} dealLocked={load.paymentStatus ? "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." : settled ? "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." : null} />
           </div>
         )}
-        <table className="tl-table">
+        <table className="tl-table" aria-label="Stops">
           <tbody>
             {load.stops.map((s) => {
               const closes = s.timeWindowLatest && s.timeWindowEarliest && s.timeWindowLatest.getTime() !== s.timeWindowEarliest.getTime() ? s.timeWindowLatest : null;
@@ -382,7 +382,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
                 : "Out and waiting"}
             </dd>
           </dl>
-          <table className="tl-table">
+          <table className="tl-table" aria-label="Invoice lines">
             <tbody>
               {(invoiceLines ?? [{ label: "Line haul and fuel surcharge", amount: billed }]).map((l) => (
                 <tr key={l.label}>
@@ -406,7 +406,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         <h3>Waiting at the docks</h3>
         <div className="sec-box">
           {dt.stops.length > 0 ? (
-            <table className="tl-table">
+            <table className="tl-table" aria-label="Waiting at the docks">
               <thead>
                 <tr>
                   <th>Stop</th>
@@ -633,6 +633,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
       </PageHead>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>{chips}</div>
       <div className="dr-body lv-page" style={{ padding: 0, overflow: "visible" }}>
+        <h2 className="db-sr-only">Load details</h2>
         {pageBody}
         <div className="dr-foot" style={{ border: "1px solid var(--db-border)", borderRadius: "var(--db-r-lg)" }}>{footer}</div>
       </div>

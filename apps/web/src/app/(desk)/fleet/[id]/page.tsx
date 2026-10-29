@@ -83,7 +83,7 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
           {open === 0 ? (
             <p className="tl-note">No open loads.</p>
           ) : (
-            <table className="tl-table">
+            <table className="tl-table" aria-label="Recent loads">
               <tbody>
                 {t.loads.map((l) => (
                   <tr key={l.id}>

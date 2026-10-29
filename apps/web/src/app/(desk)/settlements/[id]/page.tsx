@@ -54,7 +54,7 @@ export default async function StatementPage({ params }: { params: { id: string }
           </p>
         ) : null}
 
-        <table style={{ marginTop: 14 }}>
+        <table style={{ marginTop: 14 }} aria-label="Statement details">
           <tbody>
             <tr>
               <th>Paid to</th>
@@ -73,7 +73,7 @@ export default async function StatementPage({ params }: { params: { id: string }
         {st.lines.length === 0 ? (
           <p>No loads on this statement.</p>
         ) : (
-          <table>
+          <table aria-label="Loads paid">
             <thead>
               <tr>
                 <th>Load</th>
@@ -109,7 +109,7 @@ export default async function StatementPage({ params }: { params: { id: string }
         {st.adjustments.length > 0 ? (
           <>
             <h2>Adjustments</h2>
-            <table>
+            <table aria-label="Adjustments">
               <tbody>
                 {st.adjustments.map((a, i) => (
                   <tr key={i}>
@@ -131,7 +131,7 @@ export default async function StatementPage({ params }: { params: { id: string }
         ) : null}
 
         <h2>Total</h2>
-        <table>
+        <table aria-label="Total">
           <tbody>
             <tr>
               <td>

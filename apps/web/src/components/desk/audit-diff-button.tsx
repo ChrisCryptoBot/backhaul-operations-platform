@@ -22,7 +22,7 @@ export function DiffButton({ title, eyebrow, rows, reason }: { title: string; ey
             Close
           </button>
         }>
-        <table className="diff">
+        <table className="diff" aria-label="What changed">
           <thead>
             <tr>
               <th>Field</th>
