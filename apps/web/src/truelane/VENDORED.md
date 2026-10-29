@@ -24,4 +24,8 @@ The golden tests in `tests/truelane-domain.test.ts` pin the figures on the TrueL
 - `lib/formatNumbers.ts`
 - `lib/fuelSurcharge.ts`
 - `lib/invoice.ts`
+- `lib/rateCon/equipment.ts`
+- `lib/rateCon/types.ts`
+- `constants/trailerData.ts`
 - `utils/calculateHelpers.ts`
+- `supabase/functions/rate-con-extract/core.ts` (as `rate-con/core.ts`)

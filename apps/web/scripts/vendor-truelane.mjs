@@ -34,17 +34,24 @@ export const FILES = [
   "lib/formatNumbers.ts",
   "lib/fuelSurcharge.ts",
   "lib/invoice.ts",
+  "lib/rateCon/equipment.ts",
+  "lib/rateCon/types.ts",
+  "constants/trailerData.ts",
   "utils/calculateHelpers.ts"
 ];
 
+// Files whose path inside TrueLane differs from where they live here: [source, destination under src/truelane].
+export const MOVED = [["supabase/functions/rate-con-extract/core.ts", "rate-con/core.ts"]];
+
 const sha = execFileSync("git", ["-C", root, "rev-parse", "HEAD"]).toString().trim();
 
-for (const rel of FILES) {
+for (const [rel, to] of [...FILES.map((f) => [f, f]), ...MOVED]) {
   const src = fs.readFileSync(path.join(root, rel), "utf8").replace(/\r\n/g, "\n");
   const body = src
     .replaceAll("'@/lib/", "'@/truelane/lib/")
-    .replaceAll("'@/utils/", "'@/truelane/utils/");
-  const out = path.join(dest, rel);
+    .replaceAll("'@/utils/", "'@/truelane/utils/")
+    .replaceAll("'@/constants/", "'@/truelane/constants/");
+  const out = path.join(dest, to);
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, `// VENDORED from TrueLane ${rel} @ ${sha.slice(0, 8)}. Do not edit; run scripts/vendor-truelane.mjs.\n${body}`);
 }
@@ -61,7 +68,8 @@ fs.writeFileSync(
     "",
     "## Files",
     ...FILES.map((f) => `- \`${f}\``),
+    ...MOVED.map(([from, to]) => `- \`${from}\` (as \`${to}\`)`),
     ""
   ].join("\n")
 );
-console.log(`vendored ${FILES.length} files from ${sha.slice(0, 8)} into ${path.relative(process.cwd(), dest)}`);
+console.log(`vendored ${FILES.length + MOVED.length} files from ${sha.slice(0, 8)} into ${path.relative(process.cwd(), dest)}`);
