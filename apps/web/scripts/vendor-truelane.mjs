@@ -35,6 +35,7 @@ export const FILES = [
   "lib/domain/loadEconomics.ts",
   "lib/domain/marketVariance.ts",
   "lib/domain/marketVerdict.ts",
+  "lib/domain/onTime.ts",
   "lib/domain/oversize.ts",
   "lib/domain/quotedMiles.ts",
   "lib/domain/tripHours.ts",

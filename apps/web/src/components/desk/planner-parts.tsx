@@ -3,6 +3,7 @@ import React from "react";
 import type { DayCol, DueItem, PlannerItem, PlannerRow } from "@/lib/planner";
 import { spanText, timeText } from "@/lib/planner";
 import { dateTime } from "@/lib/desk-format";
+import { AssignButton } from "./assign-modal";
 import { Icon } from "./kit/icons";
 
 const STATE_LABEL: Record<DueItem["state"], string> = { past_due: "Past due", today: "Due today", upcoming: "Coming up", done: "Reached today" };
@@ -65,6 +66,7 @@ function Chip({ i }: { i: PlannerItem }) {
 
 /** Drivers down the side, days across the top, each load as a block in the cells it runs through. */
 export function PlannerGrid({ days, rows, tray }: { days: DayCol[]; rows: PlannerRow[]; tray: PlannerItem[][] }) {
+  const shown = new Set<string>();
   return (
     <div className="pl-wrap">
       <table className="pl" aria-label="Loads by driver and day">
@@ -87,9 +89,17 @@ export function PlannerGrid({ days, rows, tray }: { days: DayCol[]; rows: Planne
             </th>
             {tray.map((cell, i) => (
               <td key={days[i]!.key} className={days[i]!.isToday ? "today" : undefined}>
-                {cell.map((x) => (
-                  <Chip key={x.loadId} i={x} />
-                ))}
+                {cell.map((x) => {
+                  // One button per load, on the first day it shows in this week, so a load that runs for days is not offered once a day.
+                  const first = !shown.has(x.loadId);
+                  shown.add(x.loadId);
+                  return (
+                    <div key={x.loadId} className="pl-tray-item">
+                      <Chip i={x} />
+                      {first ? <AssignButton compact loadId={x.loadId} loadNumber={x.loadNumber ?? "This load"} /> : null}
+                    </div>
+                  );
+                })}
               </td>
             ))}
           </tr>

@@ -13,6 +13,8 @@ export type AlertCode =
   | "DRIVER_CLEARANCE"
   | "DOUBLE_BOOKED"
   | "PICKUP_NO_DRIVER"
+  | "NO_TRUCK"
+  | "LATE_ON_ROAD"
   | "SENT_NO_ANSWER"
   | "CLEARANCE_SOON"
   | "BELOW_COST_UNASSIGNED"
@@ -48,6 +50,20 @@ export const RULES: RuleDef[] = [
     title: "Pickup is close and no driver has been sent",
     appliesTo: "Loads still waiting for a driver",
     trigger: (t) => `The first pickup is within ${t.pickupHours} hours (or already past) and no driver has been sent the load.`
+  },
+  {
+    code: "NO_TRUCK",
+    level: "warn",
+    title: "Load has no truck",
+    appliesTo: "Open loads",
+    trigger: () => "A load that is not yet delivered has no truck set, so it has no cost floor and no verdict."
+  },
+  {
+    code: "LATE_ON_ROAD",
+    level: "warn",
+    title: "On the road and past its delivery window",
+    appliesTo: "Loads on the road",
+    trigger: () => "The load is on the road and its final stop's delivery window has closed without it being delivered."
   },
   {
     code: "SENT_NO_ANSWER",
@@ -113,6 +129,8 @@ export type AlertLoad = {
   /** Detention that is owed on a delivered load and not on any invoice, in dollars (0 or absent when none). */
   detentionUnbilled?: number;
   verdict: "accept" | "caution" | "reject" | "needs_fuel" | null;
+  /** Whether a truck is set on the load. Absent is read as having one, so a caller that does not know raises nothing. */
+  hasTruck?: boolean;
   stops: Array<{ timeWindowEarliest: Date | null; timeWindowLatest: Date | null; referenceNumbers: unknown }>;
   assignment: null | {
     status: string;
@@ -142,6 +160,14 @@ export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds =
     const a = l.assignment;
     const holding = a != null && a.status !== "declined";
     const unsent = !a || a.status === "draft" || a.status === "declined";
+
+    if (open && l.hasTruck === false) add(l, "NO_TRUCK", "warn", "No truck is set, so this load has no cost floor and no verdict. Pick one under Edit details.");
+
+    if (l.status === "in_progress") {
+      // The delivery is the final stop. With no closing time on it there is no deadline to be late for.
+      const close = l.stops[l.stops.length - 1]?.timeWindowLatest ?? null;
+      if (close && close.getTime() < now.getTime()) add(l, "LATE_ON_ROAD", "warn", `The delivery window closed ${hours(now.getTime() - close.getTime())} ago and the load is not delivered.`);
+    }
 
     if (open && holding) {
       const blocker = driverBlocker(a!.driver, now);

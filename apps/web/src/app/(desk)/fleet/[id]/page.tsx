@@ -6,7 +6,7 @@ import { listAudit } from "@/server/tl/audit";
 import { Card, PageHead, StatusChip } from "@/components/desk/ui";
 import { CostProfileForm, TruckForm, TruckRowActions } from "@/components/desk/fleet-forms";
 import { ACTION_LABEL } from "@/lib/audit-diff";
-import { dateTime, shortDate } from "@/lib/desk-format";
+import { dateTime, miles, perMile, shortDate } from "@/lib/desk-format";
 import { num } from "@/server/tl/convert";
 
 /** One truck: its details, its cost profile with the floor it produces, what is on it now, and what has been changed. */
@@ -24,7 +24,30 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
         <TruckRowActions hideOpen truck={{ id: t.id, name: t.name, archived: t.archivedAt != null, open }} />
       </PageHead>
 
-      <Card title="Details" className="tl-card">
+      <section className="tk-hero" aria-label="Break-even floor">
+        <div>
+          <div className="tk-label">Break-even floor</div>
+          <div className="qt-big">{d.stored ? perMile(d.stored.breakEven) : "—"}</div>
+          <p className="tl-sub" style={{ marginTop: 6 }}>{d.stored ? "Every load on this truck is measured against it." : "No cost profile yet. Fill it in below and the floor appears here."}</p>
+        </div>
+        <dl className="tk-facts">
+          <div>
+            <dt>Survival floor</dt>
+            <dd>{d.stored?.survival != null ? perMile(d.stored.survival) : "—"}</dd>
+          </div>
+          <div>
+            <dt>Planned miles a month</dt>
+            <dd>{d.numbers.estimatedMonthlyMiles != null ? miles(d.numbers.estimatedMonthlyMiles) : "—"}</dd>
+          </div>
+          <div>
+            <dt>Fuel price</dt>
+            <dd>{d.numbers.lastFuelPricePerGallon != null ? `$${d.numbers.lastFuelPricePerGallon.toFixed(2)}` : "—"}</dd>
+          </div>
+        </dl>
+      </section>
+
+      <details className="qt-more" open={!t.type || t.mpg == null || undefined}>
+        <summary>Details</summary>
         <TruckForm
           inline
           truck={{
@@ -46,7 +69,7 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
             hasPalletJack: t.hasPalletJack
           }}
         />
-      </Card>
+      </details>
 
       <Card title="Cost profile" className="tl-card">
         <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>

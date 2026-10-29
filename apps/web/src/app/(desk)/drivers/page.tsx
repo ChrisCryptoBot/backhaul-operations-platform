@@ -48,7 +48,7 @@ export default async function DriversPage() {
       cells: {
         driver: (
           <>
-            <b>{d.name}</b>
+            <Link href={`/drivers/${d.id}`}><b>{d.name}</b></Link>
             {d.active ? <span className="sub">{d.phone}</span> : <span className="sub"><span className="tl-chip muted">Out of service</span></span>}
           </>
         ),

@@ -150,10 +150,6 @@
 .dt-empty-row td { height: auto; padding: var(--db-8); text-align: center; color: var(--db-fg-dim); }
 
 /* ───────────────────────────── queue, bars, meters ───────────────────────────── */
-.tl-queue-item { display: block; padding: var(--db-3) var(--db-2); border-bottom: 1px solid var(--db-border-soft); text-decoration: none; color: inherit; }
-.tl-queue-item:hover { background: var(--db-bg-elev-1); }
-.tl-queue-item b { display: block; font-size: var(--db-text-base); }
-.tl-queue-item > .tl-sub { display: block; }
 .tl-meter { height: 8px; border-radius: var(--db-r-pill); background: var(--db-bg-elev-3); overflow: hidden; display: flex; }
 .tl-meter i { display: block; height: 100%; }
 
@@ -723,3 +719,36 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .rc-authority { display: flex; flex-wrap: wrap; align-items: center; gap: var(--db-1) var(--db-3); margin-top: var(--db-1); min-height: 20px; }
 
 .rc-hint.warn { color: var(--db-warn); }
+
+/* The Assign window: the best fits as ruled rows, then the driver, pay and rate. */
+.as-sugs { list-style: none; margin: 0 0 var(--db-4); padding: 0; border-top: 1px solid var(--db-border-soft); }
+.as-sug { display: flex; width: 100%; justify-content: space-between; align-items: baseline; gap: var(--db-3); padding: var(--db-2) var(--db-2); border: 0; border-bottom: 1px solid var(--db-border-soft); border-radius: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.as-sug:hover { background: var(--db-bg-elev-1); }
+.as-sug[aria-pressed="true"] { background: var(--db-bg-elev-2); }
+.as-sug b { font-weight: 600; }
+.as-ok { color: var(--db-pos); font-variant-numeric: tabular-nums; }
+.as-bad { color: var(--db-neg); font-variant-numeric: tabular-nums; }
+.as-fields { display: flex; flex-wrap: wrap; gap: var(--db-3); align-items: flex-end; }
+
+/* The dispatch queue: a load per ruled row, one signal on it, and the action that moves it on. */
+.dq { list-style: none; margin: 0; padding: 0; }
+.dq-row { display: grid; gap: var(--db-1); padding: var(--db-3) var(--db-2); border-bottom: 1px solid var(--db-border-soft); }
+.dq-top { display: flex; justify-content: space-between; align-items: baseline; gap: var(--db-3); }
+.dq-top a { color: inherit; font-weight: 600; text-decoration: none; }
+.dq-top a:hover { text-decoration: underline; }
+.dq-rate { color: var(--db-fg-mid); font-weight: 500; font-variant-numeric: tabular-nums; margin-left: var(--db-2); }
+.dq-foot { display: flex; justify-content: space-between; align-items: center; gap: var(--db-3); min-height: 28px; }
+.dq-who { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--db-1) var(--db-3); min-width: 0; }
+.dq-sig { font-size: var(--db-text-sm); font-weight: 600; }
+.dq-sig.block { color: var(--db-neg); }
+.dq-sig.warn { color: var(--db-warn); }
+
+.pl-tray-item { display: grid; gap: var(--db-1); justify-items: start; margin-bottom: var(--db-2); }
+.pl-tray-item .pl-load { justify-self: stretch; }
+
+/* A truck's page leads with the one number every load on it is judged against. */
+.tk-hero { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: var(--db-4) var(--db-8); padding: var(--db-3) 0 var(--db-4); margin-bottom: var(--db-2); border-bottom: 1px solid var(--db-border-soft); }
+.tk-label { margin-bottom: var(--db-2); font-family: var(--db-font-head); font-size: var(--db-text-sm); letter-spacing: 0.12em; text-transform: uppercase; color: var(--db-accent-fg); font-weight: 600; }
+.tk-facts { display: flex; flex-wrap: wrap; gap: var(--db-3) var(--db-8); margin: 0; }
+.tk-facts dt { font-size: var(--db-text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--db-fg-dim); }
+.tk-facts dd { margin: var(--db-1) 0 0; font-family: var(--db-font-head); font-size: var(--db-text-xl); font-weight: 600; font-variant-numeric: tabular-nums; }

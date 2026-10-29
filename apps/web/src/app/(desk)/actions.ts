@@ -22,6 +22,7 @@ import type { LoadEditValues } from "@/lib/load-edit";
 import type { InvoiceForm } from "@/lib/invoicing";
 import type { CompleteValues, ExpenseValues, StartValues } from "@/lib/trip";
 import { saveLoadDetails, type EditResult } from "@/server/tl/edit";
+import { assignFromQueue, assignOptions, type AssignOptions, type AssignOutcome } from "@/server/tl/suggest";
 import { deleteLoad, restoreLoad, type RemoveResult } from "@/server/tl/remove";
 import { completeTrip, saveExpenses, startTrip, type TripResult } from "@/server/tl/execution";
 import { undoPaid, type InvoiceOut, type PaidOut } from "@/server/tl/invoicing";
@@ -70,6 +71,18 @@ export async function assignAction(formData: FormData) {
     });
     return "Driver assigned. Send it when you are ready.";
   });
+}
+
+/** Who could take a load, with the best fits first: the data behind the Assign window on the dispatch queue and the planner. Reads only. */
+export async function assignOptionsAction(loadId: string): Promise<AssignOptions | null> {
+  return assignOptions(loadId);
+}
+
+/** Assign from the queue or the planner. Answers in place (no redirect), and everything that shows a load looks again. */
+export async function assignFromQueueAction(input: { loadId: string; driverId: string; payKind: string; rate: string; overrideReason?: string }): Promise<AssignOutcome> {
+  const out = await assignFromQueue(input);
+  if (out.ok) refreshLoads();
+  return out;
 }
 
 export async function unassignAction(formData: FormData) {

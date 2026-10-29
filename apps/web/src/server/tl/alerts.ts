@@ -23,6 +23,7 @@ export async function getAlerts(now = new Date(), workspaceId = DEMO_WORKSPACE_I
       invoicedAt: l.invoicedAt,
       payTermsDays: l.payTermsDays,
       detentionUnbilled: l.status === "completed" ? detentionOfLoad(l, thresholds.detentionGraceMinutes).unbilled : 0,
+      hasTruck: l.vehicleId != null,
       verdict: profile ? (evaluateTlLoad(l, profile, l.vehicle)?.finalDecision ?? null) : null,
       stops: l.stops.map((s) => ({ timeWindowEarliest: s.timeWindowEarliest, timeWindowLatest: s.timeWindowLatest, referenceNumbers: s.referenceNumbers })),
       assignment: a ? { status: a.status, dispatchedAt: a.dispatchedAt, driver: { id: a.driver.id, name: a.driver.name, cdlExpiry: a.driver.cdlExpiry, medicalCardExpiry: a.driver.medicalCardExpiry } } : null

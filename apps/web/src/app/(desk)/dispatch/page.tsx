@@ -2,27 +2,45 @@ import Link from "next/link";
 import React from "react";
 import { listBoardRows, type BoardRow } from "@/server/tl/queries";
 import { getAlerts } from "@/server/tl/alerts";
-import type { Alert } from "@/lib/alerts";
+import { topLevel, type Alert } from "@/lib/alerts";
 import { Card, PageHead, VerdictChip } from "@/components/desk/ui";
-import { AlertDot, AlertList } from "@/components/desk/alert-bits";
+import { AlertList } from "@/components/desk/alert-bits";
+import { AssignButton } from "@/components/desk/assign-modal";
 import { EmptyState } from "@/components/desk/kit/states";
-import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
+import { miles, shortDate, usd } from "@/lib/desk-format";
 
-function Item({ r, alerts }: { r: BoardRow; alerts: Alert[] | undefined }) {
+/**
+ * One signal per load: the most serious thing the alert rules say about it, else the verdict when it is not a plain "covers your cost", else
+ * nothing. A load that is fine does not need a word. The driver, when there is one, is plain text beside it.
+ */
+function Signal({ r, alerts }: { r: BoardRow; alerts: Alert[] | undefined }) {
+  const level = topLevel(alerts);
+  const worst = level && level !== "info" ? alerts!.find((a) => a.level === level) : null;
+  if (worst) return <span className={`dq-sig ${worst.level}`}>{worst.message}</span>;
+  if (r.verdict && r.verdict !== "accept") return <VerdictChip verdict={r.verdict} />;
+  return null;
+}
+
+function Row({ r, alerts, assign }: { r: BoardRow; alerts: Alert[] | undefined; assign?: boolean }) {
   return (
-    <Link href={`/loads/${r.id}`} className="tl-queue-item">
-      <b>
-        {r.loadNumber} · {usd(r.quotedRevenue)}
-        <AlertDot alerts={alerts} />
-      </b>
-      <span className="tl-sub">{r.origin} → {r.destination}</span>
-      <span className="tl-sub">Pickup {shortDate(r.scheduledDate)} · {miles(r.totalMiles)}</span>
-      <div style={{ marginTop: 6, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <VerdictChip verdict={r.verdict} />
-        <span className="tl-sub">{perMile(r.perMile)} vs floor {perMile(r.floorPerMile)}</span>
-        {r.driverName ? <span className="tl-sub">· {r.driverName}</span> : null}
+    <li className="dq-row">
+      <div className="dq-top">
+        <Link href={`/loads/${r.id}`}>
+          {r.loadNumber} <span className="dq-rate">{usd(r.quotedRevenue)}</span>
+        </Link>
+        <span className="tl-sub">{shortDate(r.scheduledDate)}</span>
       </div>
-    </Link>
+      <div className="tl-sub">
+        {r.origin} → {r.destination} · {miles(r.totalMiles)}
+      </div>
+      <div className="dq-foot">
+        <span className="dq-who">
+          <Signal r={r} alerts={alerts} />
+          {r.driverName ? <span className="tl-sub">{r.driverName}</span> : null}
+        </span>
+        {assign ? <AssignButton loadId={r.id} loadNumber={r.loadNumber ?? "This load"} label={r.driverName ? "Change driver" : "Assign"} /> : null}
+      </div>
+    </li>
   );
 }
 
@@ -37,7 +55,9 @@ export default async function DispatchPage() {
 
   return (
     <>
-      <PageHead title="Dispatch queue" sub="What still needs a driver, what is waiting on an answer, and what is moving. The soonest pickup is first in each column." />
+      <PageHead title="Dispatch queue" sub="What needs a driver, what is waiting on an answer, and what is moving. Soonest pickup first.">
+        <Link href="/quote" className="tl-btn">Price an offer</Link>
+      </PageHead>
 
       {urgent.length > 0 ? (
         <Card title={`Needs attention · ${urgent.length}`} className="tl-card">
@@ -52,13 +72,37 @@ export default async function DispatchPage() {
 
       <div className="tl-cols" style={{ marginTop: urgent.length > 0 ? 16 : 0 }}>
         <Card title={`Needs a driver · ${needs.length}`}>
-          {needs.length === 0 ? <EmptyState icon="check" title="Nothing waiting">Every load has a driver.</EmptyState> : needs.map((r) => <Item key={r.id} r={r} alerts={byLoad.get(r.id)} />)}
+          {needs.length === 0 ? (
+            <EmptyState icon="check" title="Nothing waiting">Every load has a driver.</EmptyState>
+          ) : (
+            <ul className="dq">
+              {needs.map((r) => (
+                <Row key={r.id} r={r} alerts={byLoad.get(r.id)} assign />
+              ))}
+            </ul>
+          )}
         </Card>
         <Card title={`Sent, waiting · ${sent.length}`}>
-          {sent.length === 0 ? <EmptyState icon="dispatch" title="Nothing out for an answer">Loads you send appear here until the driver answers.</EmptyState> : sent.map((r) => <Item key={r.id} r={r} alerts={byLoad.get(r.id)} />)}
+          {sent.length === 0 ? (
+            <EmptyState icon="dispatch" title="Nothing out for an answer">Loads you send appear here until the driver answers.</EmptyState>
+          ) : (
+            <ul className="dq">
+              {sent.map((r) => (
+                <Row key={r.id} r={r} alerts={byLoad.get(r.id)} />
+              ))}
+            </ul>
+          )}
         </Card>
         <Card title={`Accepted and moving · ${road.length}`}>
-          {road.length === 0 ? <EmptyState icon="trucks" title="Nothing on the road">Accepted loads show here until they are delivered.</EmptyState> : road.map((r) => <Item key={r.id} r={r} alerts={byLoad.get(r.id)} />)}
+          {road.length === 0 ? (
+            <EmptyState icon="trucks" title="Nothing on the road">Accepted loads show here until they are delivered.</EmptyState>
+          ) : (
+            <ul className="dq">
+              {road.map((r) => (
+                <Row key={r.id} r={r} alerts={byLoad.get(r.id)} />
+              ))}
+            </ul>
+          )}
         </Card>
       </div>
     </>
