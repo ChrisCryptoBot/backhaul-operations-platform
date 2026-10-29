@@ -16,6 +16,12 @@ import type { Thresholds } from "@/lib/thresholds";
 import type { PayKind } from "@/server/tl/projector";
 import { quoteWarnings, readQuote, type QuoteValues } from "@/lib/quote";
 import { bookQuote, discardQuote, fitQuote, quoteContext, saveQuote, type BookResult, type FitResult, type Override, type QuoteContext, type QuoteSave } from "@/server/tl/quote";
+import type { LoadEditValues } from "@/lib/load-edit";
+import type { InvoiceForm } from "@/lib/invoicing";
+import type { CompleteValues, ExpenseValues, StartValues } from "@/lib/trip";
+import { saveLoadDetails, type EditResult } from "@/server/tl/edit";
+import { completeTrip, saveExpenses, startTrip, type TripResult } from "@/server/tl/execution";
+import { undoPaid, type InvoiceOut, type PaidOut } from "@/server/tl/invoicing";
 import { readRateCon } from "@/server/ratecon/reader";
 import { saveReviewedDraft, type ReviewedDraft } from "@/server/ratecon/save";
 import type { RateConLoadDraft } from "@/server/ratecon/map";
@@ -274,4 +280,60 @@ export async function discardQuoteAction(id: string): Promise<{ ok: boolean }> {
   const ok = await discardQuote(id);
   if (ok) revalidatePath("/quote");
   return { ok };
+}
+
+// ── Editing a load, entering a trip, billing ───────────────────────────────────────────────────
+
+/** Everything that shows a load or its money has to look again after one of these. */
+function refreshLoads() {
+  for (const path of ["/loads", "/dispatch", "/planner", "/alerts", "/audit", "/kpi", "/invoices", "/brokers", "/lanes"]) revalidatePath(path);
+  revalidatePath("/", "layout");
+}
+
+export async function saveLoadDetailsAction(loadId: string, values: LoadEditValues): Promise<EditResult> {
+  const out = await saveLoadDetails(loadId, values);
+  if (out.ok && out.changed) refreshLoads();
+  return out;
+}
+
+export async function startTripAction(loadId: string, values: StartValues): Promise<TripResult> {
+  const out = await startTrip(loadId, values);
+  if (out.ok) refreshLoads();
+  return out;
+}
+
+export async function completeTripAction(loadId: string, values: CompleteValues): Promise<TripResult> {
+  const out = await completeTrip(loadId, values);
+  if (out.ok) refreshLoads();
+  return out;
+}
+
+export async function saveExpensesAction(loadId: string, values: ExpenseValues): Promise<TripResult & { changed?: boolean }> {
+  const out = await saveExpenses(loadId, values);
+  if (out.ok && out.changed) refreshLoads();
+  return out;
+}
+
+export async function invoiceLoadAction(loadId: string, form: InvoiceForm): Promise<InvoiceOut> {
+  const out = await invoiceLoad(loadId, { form });
+  if (out.ok) refreshLoads();
+  return out;
+}
+
+/** Mark an invoice paid with the amount that came in; blank means the invoice total. */
+export async function paidAction(loadId: string, amount: string): Promise<PaidOut> {
+  const text = amount.trim().replace(/,/g, "");
+  const typed = text === "" ? undefined : Number(text);
+  const out = await markLoadPaid(loadId, new Date(), { amount: typed });
+  if (out.ok) refreshLoads();
+  return out;
+}
+
+export async function undoPaidAction(formData: FormData) {
+  const loadId = String(formData.get("loadId"));
+  await attempt(loadId, async () => {
+    const out = await undoPaid(loadId, String(formData.get("reason") ?? ""));
+    if (!out.ok) throw new DispatchError("not_allowed", out.error ?? "That payment cannot be taken back.");
+    return "Payment taken back. The invoice is out again.";
+  });
 }

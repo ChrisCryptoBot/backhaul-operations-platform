@@ -6,6 +6,9 @@ import { Icon } from "./kit/icons";
 
 type Density = "comfortable" | "compact";
 
+/** The table with this id, and any table whose id continues it with "--" (a long list split into month tables shares one toolbar). */
+const tablesOf = (tableId: string) => Array.from(document.querySelectorAll<HTMLElement>(`[id="${tableId}"], [id^="${tableId}--"]`));
+
 /**
  * The toolbar above a <DataTable>: search, the filter chips passed in as children, a row count and the density control.
  * It also makes whole rows clickable (any row with a data-href) without making them focusable: the link in the first cell stays the one tab stop.
@@ -22,30 +25,34 @@ export function DataTableTools({ tableId, placeholder = "Search…", children, t
 
   // Search: hide rows whose text does not match. Done on the DOM so the table stays server-rendered.
   React.useEffect(() => {
-    const table = document.getElementById(tableId);
-    if (!table) return;
+    const tables = tablesOf(tableId);
+    if (tables.length === 0) return;
     const needle = q.trim().toLowerCase();
     let visible = 0;
-    table.querySelectorAll<HTMLTableRowElement>("tbody tr[data-search]").forEach((tr) => {
-      const match = needle === "" || (tr.dataset.search ?? "").includes(needle);
-      tr.hidden = !match;
-      if (match) visible += 1;
-    });
+    for (const table of tables) {
+      table.querySelectorAll<HTMLTableRowElement>("tbody tr[data-search]").forEach((tr) => {
+        const match = needle === "" || (tr.dataset.search ?? "").includes(needle);
+        tr.hidden = !match;
+        if (match) visible += 1;
+      });
+    }
     setShown(needle === "" ? total : visible);
   }, [q, tableId, total]);
 
   // Row clicks: a click on a row (not on a link, button or field inside it) opens the row's href.
   React.useEffect(() => {
-    const table = document.getElementById(tableId);
-    if (!table) return;
+    const tables = tablesOf(tableId);
+    if (tables.length === 0) return;
     const onClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (target.closest("a, button, input, select, textarea, label")) return;
       const tr = target.closest<HTMLTableRowElement>("tr[data-href]");
       if (tr?.dataset.href) router.push(tr.dataset.href);
     };
-    table.addEventListener("click", onClick);
-    return () => table.removeEventListener("click", onClick);
+    for (const table of tables) table.addEventListener("click", onClick);
+    return () => {
+      for (const table of tables) table.removeEventListener("click", onClick);
+    };
   }, [tableId, router]);
 
   const pick = (d: Density) => {

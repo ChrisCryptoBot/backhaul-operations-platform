@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 /** A modal that closes on Esc or a click outside, keeps Tab inside, and hands focus back to whatever opened it. */
-export function Modal({ open, onClose, eyebrow, title, children, footer }: { open: boolean; onClose: () => void; eyebrow?: string; title: string; children?: React.ReactNode; footer?: React.ReactNode }) {
+export function Modal({ open, onClose, eyebrow, title, children, footer, wide }: { open: boolean; onClose: () => void; eyebrow?: string; title: string; children?: React.ReactNode; footer?: React.ReactNode; wide?: boolean }) {
   const panel = React.useRef<HTMLDivElement>(null);
   const opener = React.useRef<HTMLElement | null>(null);
   const id = React.useId();
@@ -46,7 +46,7 @@ export function Modal({ open, onClose, eyebrow, title, children, footer }: { ope
   // Portalled to the body so a table cell or a drawer around the trigger cannot style it (alignment, clipping, stacking).
   return createPortal(
     <div className="k-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="k-modal" ref={panel} role="dialog" aria-modal="true" aria-labelledby={id}>
+      <div className={`k-modal${wide ? " wide" : ""}`} ref={panel} role="dialog" aria-modal="true" aria-labelledby={id}>
         <header>
           {eyebrow ? <div className="eyebrow">{eyebrow}</div> : null}
           <h2 id={id}>{title}</h2>

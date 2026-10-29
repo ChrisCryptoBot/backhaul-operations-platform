@@ -1,9 +1,13 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { defaultInvoiceNumber, invoiceReadiness } from "@/lib/invoicing";
 import { computeAnalytics, type AnalyticsPeriod } from "@/truelane/lib/analytics";
 import { computeAgingSummary } from "@/truelane/lib/invoice";
 import { evaluateTlLoad, resolveLabour } from "./evaluate";
 import { notQuote } from "@/lib/quote-status";
 import { toAgingView, toAnalyticsInput, num, numOrNull } from "./convert";
+import { detentionOfLoad } from "./detention";
+import { getThresholds } from "./thresholds";
 import { DEMO_WORKSPACE_ID } from "./workspace";
 
 /**
@@ -44,7 +48,18 @@ export async function listBoardRows(workspaceId = DEMO_WORKSPACE_ID) {
       floorPerMile: evaluation?.verdictFloorRpm ?? null,
       driverName: l.assignment?.driver.name ?? null,
       assignmentStatus: l.assignment?.status ?? null,
-      paymentStatus: l.paymentStatus
+      paymentStatus: l.paymentStatus,
+      poNumber: l.poNumber,
+      invoiceNumber: l.invoiceNumber,
+      brokerMc: l.brokerMcNumber,
+      completedAt: l.completedAt,
+      cancelledAt: l.cancelledAt,
+      cancelReason: l.cancelReason,
+      invoicedAt: l.invoicedAt,
+      payTermsDays: l.payTermsDays,
+      paidAt: l.paidAt,
+      invoicedAmount: numOrNull(l.invoicedAmount),
+      paidAmount: numOrNull(l.paidAmount)
     };
   });
 }
@@ -142,6 +157,9 @@ export async function listTrucks(workspaceId = DEMO_WORKSPACE_ID) {
     id: t.id,
     name: t.name,
     type: t.type,
+    make: t.make,
+    model: t.model,
+    year: t.year,
     mpg: numOrNull(t.mpg),
     fuelPrice: numOrNull(t.costProfile?.lastFuelPricePerGallon),
     breakEvenRpm: numOrNull(t.costProfile?.breakEvenRpm),
@@ -158,21 +176,40 @@ export async function listTrucks(workspaceId = DEMO_WORKSPACE_ID) {
 }
 
 export async function listInvoiceRows(workspaceId = DEMO_WORKSPACE_ID) {
-  const loads = await prisma.load.findMany({
-    where: { workspaceId, deletedAt: null, status: "completed" },
-    orderBy: [{ invoicedAt: "desc" }, { completedAt: "desc" }]
+  const [loads, thresholds] = await Promise.all([
+    prisma.load.findMany({
+      where: { workspaceId, deletedAt: null, status: "completed" },
+      include: { stops: true, vehicle: { include: { costProfile: true } } },
+      orderBy: [{ invoicedAt: "desc" }, { completedAt: "desc" }]
+    }),
+    getThresholds(workspaceId)
+  ]);
+  return loads.map((l) => {
+    const rate = num(l.quotedRevenue);
+    const billable = detentionOfLoad(l, thresholds.detentionGraceMinutes).billable;
+    const billed = num(l.invoicedAmount ?? l.actualRevenue ?? l.quotedRevenue);
+    const paidAmount = numOrNull(l.paidAmount);
+    return {
+      id: l.id,
+      loadNumber: l.loadNumber,
+      poNumber: l.poNumber,
+      broker: l.brokerName,
+      origin: l.originAddress,
+      destination: l.destinationAddress,
+      lane: `${l.originAddress ?? "?"} → ${l.destinationAddress ?? "?"}`,
+      completedAt: l.completedAt,
+      invoiceNumber: l.invoiceNumber,
+      invoicedAt: l.invoicedAt,
+      paidAt: l.paidAt,
+      payTermsDays: l.payTermsDays,
+      status: l.paymentStatus,
+      amount: billed,
+      paidAmount,
+      /** Negative when the broker paid less than the invoice. */
+      paidDifference: l.paymentStatus === "paid" && paidAmount != null ? new Prisma.Decimal(paidAmount).minus(billed).toDecimalPlaces(2).toNumber() : null,
+      invoiceContext: { rate, surcharge: num(l.fuelSurcharge), detention: billable, defaultTerms: l.payTermsDays ?? thresholds.defaultPayTermsDays },
+      defaultNumber: defaultInvoiceNumber(l.loadNumber, l.id),
+      readiness: invoiceReadiness({ ...l, quotedRevenue: rate })
+    };
   });
-  return loads.map((l) => ({
-    id: l.id,
-    loadNumber: l.loadNumber,
-    broker: l.brokerName,
-    lane: `${l.originAddress ?? "?"} → ${l.destinationAddress ?? "?"}`,
-    completedAt: l.completedAt,
-    invoiceNumber: l.invoiceNumber,
-    invoicedAt: l.invoicedAt,
-    paidAt: l.paidAt,
-    payTermsDays: l.payTermsDays,
-    status: l.paymentStatus,
-    amount: num(l.invoicedAmount ?? l.actualRevenue ?? l.quotedRevenue)
-  }));
 }

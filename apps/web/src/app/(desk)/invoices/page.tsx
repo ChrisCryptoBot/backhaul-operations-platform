@@ -2,7 +2,9 @@ import Link from "next/link";
 import React from "react";
 import { agingFor, listInvoiceRows } from "@/server/tl/queries";
 import { getDetentionRecovery } from "@/server/tl/detention";
-import { invoiceAction, markPaidAction } from "../actions";
+import { CopyText } from "@/components/desk/copy-text";
+import { InvoiceDialog, PaidDialog } from "@/components/desk/load-actions";
+import { reminderText } from "@/lib/invoicing";
 import { PageHead, Stat } from "@/components/desk/ui";
 import { DataTable, type Column, type Row } from "@/components/desk/data-table";
 import { DataTableTools } from "@/components/desk/data-table-tools";
@@ -41,7 +43,7 @@ const PAID: Column[] = [
   { key: "broker", label: "Broker" },
   { key: "sent", label: "Sent" },
   { key: "paid", label: "Paid" },
-  { key: "amount", label: "Amount", align: "num" }
+  { key: "amount", label: "Received", align: "num" }
 ];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -85,24 +87,31 @@ export default async function InvoicesPage() {
       lane: r.lane,
       done: shortDate(r.completedAt),
       amount: usd(r.amount, 2),
-      act: (<form action={invoiceAction}><input type="hidden" name="loadId" value={r.id} /><button className="tl-btn primary sm" type="submit">Create invoice</button></form>)
+      act: <InvoiceDialog loadId={r.id} loadNumber={r.loadNumber ?? "This load"} defaults={{ number: r.defaultNumber }} context={r.invoiceContext} blockers={r.readiness.blockers} cautions={r.readiness.cautions} size="sm" />
     }
   }));
   const outRows: Row[] = open.map((r) => {
     const due = dueOf(r);
-    const late = due != null && due.getTime() < Date.now();
+    const now = new Date();
+    const late = due != null && due.getTime() < now.getTime();
     return {
       id: r.id,
       href: `/loads/${r.id}`,
       flag: late ? "bad" : undefined,
-      search: [r.invoiceNumber, r.broker].filter(Boolean).join(" "),
+      search: [r.invoiceNumber, r.broker, r.loadNumber, r.poNumber].filter(Boolean).join(" "),
       cells: {
         invoice: <Link href={`/loads/${r.id}`}>{r.invoiceNumber}</Link>,
         broker: r.broker,
         sent: shortDate(r.invoicedAt),
         due: <span className={late ? "tone-neg" : ""}>{shortDate(due)}{late ? " · overdue" : ""}</span>,
         amount: usd(r.amount, 2),
-        act: (<form action={markPaidAction}><input type="hidden" name="loadId" value={r.id} /><button className="tl-btn sm" type="submit">Mark paid</button></form>)
+        act: (
+          <span className="dlg-row" style={{ justifyContent: "flex-end" }}>
+            {late && due && r.invoicedAt ? <CopyText label="Copy reminder" text={reminderText({ broker: r.broker, invoiceNumber: r.invoiceNumber, loadNumber: r.loadNumber, poNumber: r.poNumber, amount: r.amount, sent: r.invoicedAt, due, now, origin: r.origin, destination: r.destination })} /> : null}
+            <Link href={`/invoices/${r.id}`} className="tl-btn sm">View</Link>
+            <PaidDialog loadId={r.id} invoiceNumber={r.invoiceNumber} billed={r.amount} size="sm" />
+          </span>
+        )
       }
     };
   });
@@ -110,7 +119,18 @@ export default async function InvoicesPage() {
     id: r.id,
     href: `/loads/${r.id}`,
     search: [r.invoiceNumber, r.broker].filter(Boolean).join(" "),
-    cells: { invoice: <Link href={`/loads/${r.id}`}>{r.invoiceNumber}</Link>, broker: r.broker, sent: shortDate(r.invoicedAt), paid: shortDate(r.paidAt), amount: usd(r.amount, 2) }
+    cells: {
+      invoice: <Link href={`/loads/${r.id}`}>{r.invoiceNumber}</Link>,
+      broker: r.broker,
+      sent: shortDate(r.invoicedAt),
+      paid: shortDate(r.paidAt),
+      amount: (
+        <>
+          {usd(r.paidAmount ?? r.amount, 2)}
+          {r.paidDifference != null && r.paidDifference < 0 ? <span className="sub tone-neg">{usd(Math.abs(r.paidDifference), 2)} short of {usd(r.amount, 2)}</span> : r.paidDifference != null && r.paidDifference > 0 ? <span className="sub">{usd(r.paidDifference, 2)} over</span> : null}
+        </>
+      )
+    }
   }));
 
   return (
@@ -139,7 +159,7 @@ export default async function InvoicesPage() {
         <DataTable id="inv-ready" label="Ready to invoice" columns={READY} rows={readyRows} empty={<EmptyState icon="check" title="Every delivered load has an invoice" />} />
       </Section>
       <Section title={`Out and waiting · ${open.length}`}>
-        <DataTableTools tableId="inv-out" total={outRows.length} placeholder="Search invoice or broker…" />
+        <DataTableTools tableId="inv-out" total={outRows.length} placeholder="Search invoice, load, PO or broker…" />
         <DataTable id="inv-out" label="Out and waiting" columns={OUT} rows={outRows} empty={<EmptyState icon="invoices" title="Nothing waiting on payment" />} />
       </Section>
       <Section title={`Paid · ${paid.length}`}>

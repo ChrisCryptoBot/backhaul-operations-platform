@@ -177,6 +177,8 @@
 .k-modal > header .eyebrow { font-size: var(--db-text-xs); letter-spacing: 0.12em; text-transform: uppercase; color: var(--db-fg-dim); font-weight: 700; }
 .k-modal > header h2 { font-size: var(--db-text-xl); margin-top: 2px; }
 .k-modal > .body { padding: var(--db-2) var(--db-5) var(--db-4); color: var(--db-fg-mid); }
+.k-modal.wide { width: min(900px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
+.k-modal.wide > .body { overflow: auto; }
 .k-modal > footer { display: flex; justify-content: flex-end; gap: var(--db-2); padding: var(--db-3) var(--db-5); border-top: 1px solid var(--db-border-soft); }
 
 /* ───────────────────────────── settings ───────────────────────────── */

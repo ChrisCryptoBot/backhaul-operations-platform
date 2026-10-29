@@ -1,0 +1,80 @@
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3100
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 6.5s
+ ○ Compiling /loads/[id] ...
+Browserslist: caniuse-lite is outdated. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+ ✓ Compiled /loads in 29.7s (1032 modules)
+ ✓ Compiled /[...rest] in 321ms (747 modules)
+ GET /loads/cmvtg57h90012uv0s9ok033lp 200 in 34020ms
+ GET /favicon.ico 200 in 3034ms
+ GET /favicon.ico 200 in 174ms
+ GET /favicon.ico 200 in 162ms
+ POST /loads/cmvtg57h90012uv0s9ok033lp 200 in 263ms
+ GET /favicon.ico 200 in 85ms
+ ○ Compiling /invoices ...
+ ✓ Compiled /invoices in 652ms (1042 modules)
+ GET /favicon.ico 200 in 179ms
+ GET /favicon.ico 200 in 121ms
+ GET /favicon.ico 200 in 119ms
+ GET /favicon.ico 200 in 105ms
+ POST /quote 200 in 94ms
+ GET /favicon.ico 200 in 96ms
+ GET /favicon.ico 200 in 71ms
+ POST /loads/cmvtg57h90012uv0s9ok033lp 200 in 218ms
+ GET /favicon.ico 200 in 93ms
+ ○ Compiling /invoices/[id] ...
+ ✓ Compiled /invoices/[id] in 834ms (1049 modules)
+ GET /invoices/cmvtg57h90012uv0s9ok033lp 200 in 1454ms
+ GET /favicon.ico 200 in 128ms
+ GET /loads/cmvtg57h90012uv0s9ok033lp 200 in 203ms
+ GET /favicon.ico 200 in 86ms
+ GET /favicon.ico 200 in 107ms
+ POST /loads/cmvtg57h90012uv0s9ok033lp 200 in 160ms
+ GET /favicon.ico 200 in 93ms
+ POST /loads/cmvtg57h90012uv0s9ok033lp 303 in 179ms
+ GET /favicon.ico 200 in 94ms
+ ○ Compiling /(.)loads/[id] ...
+ ✓ Compiled /(.)loads/[id] in 552ms (813 modules)
+ GET /favicon.ico 200 in 245ms
+ GET /loads/cmvtg57hi0018uv0sqb9i1y6u 200 in 226ms
+ GET /favicon.ico 200 in 165ms
+ GET /favicon.ico 200 in 90ms
+ GET /favicon.ico 200 in 84ms
+ GET /favicon.ico 200 in 74ms
+ ✓ Compiled /loads in 330ms (530 modules)
+ GET /favicon.ico 200 in 135ms
+ GET /favicon.ico 200 in 92ms
+ GET /favicon.ico 200 in 109ms
+ GET /favicon.ico 200 in 107ms
+ GET /favicon.ico 200 in 89ms
+ GET /favicon.ico 200 in 84ms
+ GET /favicon.ico 200 in 110ms
+ GET /favicon.ico 200 in 86ms
+ ✓ Compiled /invoices in 344ms (752 modules)
+ GET /invoices 200 in 4857ms
+ GET /favicon.ico 200 in 139ms
+ GET /favicon.ico 200 in 137ms
+ GET /favicon.ico 200 in 110ms
+ ✓ Compiled in 1237ms (1043 modules)
+ GET /favicon.ico 200 in 212ms
+ GET /favicon.ico 200 in 102ms
+ GET /favicon.ico 200 in 154ms
+ GET /favicon.ico 200 in 164ms
+ GET /favicon.ico 200 in 116ms
+ GET /favicon.ico 200 in 127ms
+ GET /favicon.ico 200 in 137ms
+ GET /favicon.ico 200 in 139ms
+ ✓ Compiled in 2.9s (1043 modules)
+ GET /invoices 200 in 4094ms
+ GET /favicon.ico 200 in 227ms
+ ○ Compiling /rate-cons ...
+ ✓ Compiled /rate-cons in 2.2s (1059 modules)
+ GET /rate-cons 200 in 2654ms
+ GET /favicon.ico 200 in 145ms
+ GET /favicon.ico 200 in 123ms
+ POST /rate-cons 200 in 170ms

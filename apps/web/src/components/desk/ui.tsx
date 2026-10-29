@@ -51,9 +51,9 @@ export function AssignmentChip({ status }: { status: string | null }) {
   return <span className={`tl-chip ${s.tone}`}>{s.label}</span>;
 }
 
-export function Tabs({ items, active, hrefFor }: { items: Array<{ key: string; label: string; count?: number }>; active: string; hrefFor: (key: string) => string }) {
+export function Tabs({ items, active, hrefFor, label = "Filter" }: { items: Array<{ key: string; label: string; count?: number }>; active: string; hrefFor: (key: string) => string; label?: string }) {
   return (
-    <nav className="tl-tabs" aria-label="Filter">
+    <nav className="tl-tabs" aria-label={label}>
       {items.map((t) => (
         <Link key={t.key} href={hrefFor(t.key)} className="tl-tab" aria-current={t.key === active ? "true" : undefined}>
           {t.label}

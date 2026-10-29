@@ -91,8 +91,27 @@ export async function setDriverActive(id: string, active: boolean, now = new Dat
 // ── Trucks ─────────────────────────────────────────────────────────────────────────────────────
 
 function truckSnapshot(v: TruckValues): AuditSnapshot {
-  return { Name: v.name, Type: v.type || null, "Miles per gallon": v.mpg || null, Fuel: v.fuelType || null, "Home base": v.homeBaseAddress || null };
+  return {
+    Name: v.name,
+    Type: v.type || null,
+    Make: v.make || null,
+    Model: v.model || null,
+    Year: v.year || null,
+    "Miles per gallon": v.mpg || null,
+    Fuel: v.fuelType || null,
+    "Payload (lb)": v.payloadLbs || null,
+    "Cargo length (ft)": v.maxLengthFt || null,
+    "Cargo width (ft)": v.maxWidthFt || null,
+    "Cargo height (in)": v.maxHeightIn || null,
+    "Home base": v.homeBaseAddress || null
+  };
 }
+
+/** A truck's values with every number written the way it is stored, so 6.80 typed over a stored 6.8 is not a change. */
+const canonicalTruck = (v: TruckValues, mpg: number | null, s: { year: number | null; payloadLbs: number | null; maxLengthFt: number | null; maxWidthFt: number | null; maxHeightIn: number | null }): TruckValues => {
+  const text = (n: number | null) => (n == null ? "" : String(n));
+  return { ...v, mpg: text(mpg), year: text(s.year), payloadLbs: text(s.payloadLbs), maxLengthFt: text(s.maxLengthFt), maxWidthFt: text(s.maxWidthFt), maxHeightIn: text(s.maxHeightIn) };
+};
 
 export async function saveTruck(raw: Record<string, unknown>, id: string | null, now = new Date()): Promise<SaveResult<keyof TruckValues>> {
   const check = validateTruck(raw);
@@ -101,8 +120,21 @@ export async function saveTruck(raw: Record<string, unknown>, id: string | null,
   const v = check.value;
   const clash = await prisma.vehicle.findFirst({ where: { workspaceId: ws.id, archivedAt: null, name: { equals: v.name, mode: "insensitive" }, ...(id ? { id: { not: id } } : {}) } });
   if (clash) return { ok: false, errors: { name: "A truck with that name already exists." } };
-  const data = { name: v.name, type: v.type || null, mpg: check.mpg, fuelType: v.fuelType || null, homeBaseAddress: v.homeBaseAddress || null };
-  const after = truckSnapshot(v);
+  const data = {
+    name: v.name,
+    type: v.type || null,
+    mpg: check.mpg,
+    fuelType: v.fuelType || null,
+    homeBaseAddress: v.homeBaseAddress || null,
+    make: v.make || null,
+    model: v.model || null,
+    year: check.specs.year,
+    payloadLbs: check.specs.payloadLbs,
+    maxLengthFt: check.specs.maxLengthFt,
+    maxWidthFt: check.specs.maxWidthFt,
+    maxHeightIn: check.specs.maxHeightIn
+  };
+  const after = truckSnapshot(canonicalTruck(v, check.mpg, check.specs));
 
   if (id == null) {
     const created = await prisma.$transaction(async (tx) => {
@@ -114,7 +146,21 @@ export async function saveTruck(raw: Record<string, unknown>, id: string | null,
   }
   const prev = await prisma.vehicle.findFirst({ where: { id, workspaceId: ws.id } });
   if (!prev) return { ok: false, error: "That truck does not exist." };
-  const before = truckSnapshot({ name: prev.name ?? "", type: prev.type ?? "", mpg: prev.mpg == null ? "" : String(num(prev.mpg)), fuelType: prev.fuelType ?? "", homeBaseAddress: prev.homeBaseAddress ?? "" });
+  const stored = (d: typeof prev.mpg) => (d == null ? "" : String(num(d)));
+  const before = truckSnapshot({
+    name: prev.name ?? "",
+    type: prev.type ?? "",
+    mpg: stored(prev.mpg),
+    fuelType: prev.fuelType ?? "",
+    homeBaseAddress: prev.homeBaseAddress ?? "",
+    make: prev.make ?? "",
+    model: prev.model ?? "",
+    year: prev.year == null ? "" : String(prev.year),
+    payloadLbs: prev.payloadLbs == null ? "" : String(prev.payloadLbs),
+    maxLengthFt: stored(prev.maxLengthFt),
+    maxWidthFt: stored(prev.maxWidthFt),
+    maxHeightIn: stored(prev.maxHeightIn)
+  });
   const moved = Object.keys(after).filter((k) => String(before[k] ?? "") !== String(after[k] ?? ""));
   if (moved.length === 0) return { ok: true, id, changed: false };
   await prisma.$transaction(async (tx) => {

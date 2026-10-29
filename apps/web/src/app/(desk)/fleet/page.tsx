@@ -27,12 +27,16 @@ export default async function FleetPage() {
   const trucks = [...all].sort((a, b) => Number(a.archived) - Number(b.archived) || (a.name ?? "").localeCompare(b.name ?? ""));
   const rows: Row[] = trucks.map((t) => ({
     id: t.id,
-    search: [t.name, t.type].filter(Boolean).join(" "),
+    search: [t.name, t.type, t.make, t.model].filter(Boolean).join(" "),
     cells: {
       truck: (
         <>
           <Link href={`/fleet/${t.id}`}><b>{t.name}</b></Link>
-          <span className="sub">{t.archived ? <span className="tl-chip muted">Archived</span> : t.archetype?.replace("_", " ") ?? "no cost profile"}</span>
+          <span className="sub">
+            {[t.make, t.model, t.year].filter(Boolean).join(" ")}
+            {t.make || t.model ? " · " : ""}
+            {t.archived ? <span className="tl-chip muted">Archived</span> : (t.archetype?.replace("_", " ") ?? "no cost profile")}
+          </span>
         </>
       ),
       type: t.type?.replace("_", " ") ?? "—",

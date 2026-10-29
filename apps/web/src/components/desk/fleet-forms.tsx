@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import React from "react";
 import { saveCostProfileAction, saveDriverAction, saveTruckAction, setDriverActiveAction, setTruckArchivedAction } from "@/app/(desk)/actions";
 import { CDL_CLASSES, DEFAULT_BURDEN_PERCENT, DEFAULT_CARRIER_CUT_PERCENT, FUEL_TYPES, PAY_KINDS, PROFILE_FIELDS, TRUCK_TYPES, canonicalTruckType, industryValues, previewOf, profileField, profileSummary, profileWarnings, readChoices, truckMpg, typicalBands, validateDriver, validateProfile, validateTruck, type DriverValues, type ProfileChoices, type ProfileErrorKey, type ProfileKey, type ProfileNumbers, type ProfileValues, type TruckValues } from "@/lib/fleet-forms";
+import { pickMake, pickModel, specFill, truckMakes, truckModels, truckYears, withCurrent } from "@/lib/truck-specs";
 import { COST_ARCHETYPES } from "@/truelane/lib/domain/costArchetype";
 import type { CostProfileMathInput } from "@/truelane/lib/domain/calculators";
 import { deltaOf } from "@/lib/kpi-view";
@@ -243,13 +244,110 @@ export function DriverRowActions({ driver, trucks }: { driver: DriverRow; trucks
 
 // ── Trucks ─────────────────────────────────────────────────────────────────────────────────────
 
-function TruckFields({ values, set, errors }: { values: Record<keyof TruckValues, string>; set: (k: keyof TruckValues) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; errors: Partial<Record<keyof TruckValues, string>> }) {
+type TruckErrors = Partial<Record<keyof TruckValues, string>>;
+
+function TruckFields({ values, set, errors, onMake, onModel }: { values: Record<keyof TruckValues, string>; set: (k: keyof TruckValues) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void; errors: TruckErrors; onMake: (make: string) => void; onModel: (model: string) => void }) {
+  // A truck that is not in the phone's list is typed in. A stored make or model that is not in the list opens as typing, so editing it shows what is there.
+  const [typeMake, setTypeMake] = React.useState(values.make !== "" && !truckMakes().includes(values.make));
+  const [typeModel, setTypeModel] = React.useState(values.model !== "" && !truckModels(values.make).includes(values.model));
+  const makeBox = React.useRef<HTMLInputElement>(null);
+  const modelBox = React.useRef<HTMLInputElement>(null);
+  // A make that is not listed has no models to choose from, so its model is typed too.
+  const modelTyped = typeMake || typeModel;
+  const makes = truckMakes();
+  const models = truckModels(values.make);
+  // A year is picked only when the dataset has years for this model; otherwise it is typed (a one-item list made of what was typed would swallow the keyboard).
+  const listedYears = truckYears(values.make, values.model);
+  const years = withCurrent(listedYears, values.year === "" || Number.isNaN(Number(values.year)) ? "" : Number(values.year));
+  const known = specFill(values.make, values.model);
+  const modelHint = known ? "Type, miles per gallon, payload and cargo size fill in from this model. Change any that are not right for this truck." : values.model ? "No specs on file for this one. Enter them below." : undefined;
+  const makeHint = typeMake ? "Not in the list? Type the make and model, then enter the specs below." : undefined;
+  const typeIn = (which: "make" | "model") => {
+    if (which === "make") {
+      onMake("");
+      setTypeMake(true);
+      setTimeout(() => makeBox.current?.focus(), 0);
+    } else {
+      onModel("");
+      setTypeModel(true);
+      setTimeout(() => modelBox.current?.focus(), 0);
+    }
+  };
+  const backToList = (which: "make" | "model") => {
+    if (which === "make") {
+      onMake("");
+      setTypeMake(false);
+      setTypeModel(false);
+    } else {
+      onModel("");
+      setTypeModel(false);
+    }
+  };
+  const NOT_LISTED = "__not_listed__";
   return (
     <>
       <Field label="Name" error={errors.name}>
         <input data-autofocus value={values.name} onChange={set("name")} placeholder="Unit 104" autoComplete="off" />
       </Field>
       <div className="dlg-two">
+        <Field label="Make" error={errors.make} hint={makeHint}>
+          {typeMake ? (
+            <>
+              <input ref={makeBox} value={values.make} onChange={set("make")} placeholder="Make" autoComplete="off" />
+              <button type="button" className="tl-btn sm" style={{ marginTop: 6 }} onClick={() => backToList("make")}>
+                Pick from the list instead
+              </button>
+            </>
+          ) : (
+            <select value={values.make} onChange={(e) => (e.target.value === NOT_LISTED ? typeIn("make") : onMake(e.target.value))}>
+              <option value="">Not set</option>
+              {makes.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+              <option value={NOT_LISTED}>Not listed, type it in</option>
+            </select>
+          )}
+        </Field>
+        <Field label="Model" error={errors.model} hint={modelHint}>
+          {modelTyped ? (
+            <>
+              <input ref={modelBox} value={values.model} onChange={set("model")} placeholder="Model" autoComplete="off" />
+              {!typeMake ? (
+                <button type="button" className="tl-btn sm" style={{ marginTop: 6 }} onClick={() => backToList("model")}>
+                  Pick from the list instead
+                </button>
+              ) : null}
+            </>
+          ) : (
+            <select value={values.model} onChange={(e) => (e.target.value === NOT_LISTED ? typeIn("model") : onModel(e.target.value))} disabled={values.make === ""}>
+              <option value="">{values.make === "" ? "Pick a make first" : "Not set"}</option>
+              {models.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+              <option value={NOT_LISTED}>Not listed, type it in</option>
+            </select>
+          )}
+        </Field>
+      </div>
+      <div className="dlg-two">
+        <Field label="Year" error={errors.year}>
+          {listedYears.length > 0 ? (
+            <select value={values.year} onChange={set("year")}>
+              <option value="">Not set</option>
+              {years.map((y) => (
+                <option key={y} value={String(y)}>
+                  {y}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input value={values.year} onChange={set("year")} inputMode="numeric" placeholder="2022" autoComplete="off" />
+          )}
+        </Field>
         <Field label="Type" error={errors.type}>
           <select value={values.type} onChange={set("type")}>
             <option value="">Not set</option>
@@ -260,6 +358,8 @@ function TruckFields({ values, set, errors }: { values: Record<keyof TruckValues
             ))}
           </select>
         </Field>
+      </div>
+      <div className="dlg-two">
         <Field label="Fuel" error={errors.fuelType}>
           <select value={values.fuelType} onChange={set("fuelType")}>
             <option value="">Not set</option>
@@ -270,22 +370,64 @@ function TruckFields({ values, set, errors }: { values: Record<keyof TruckValues
             ))}
           </select>
         </Field>
-      </div>
-      <div className="dlg-two">
         <Field label="Miles per gallon" error={errors.mpg} hint="Verdicts use this for fuel.">
           <input value={values.mpg} onChange={set("mpg")} inputMode="decimal" autoComplete="off" />
         </Field>
-        <Field label="Home base" error={errors.homeBaseAddress}>
-          <input value={values.homeBaseAddress} onChange={set("homeBaseAddress")} placeholder="Dallas, TX" autoComplete="off" />
+      </div>
+      <div className="dlg-two">
+        <Field label="Payload (lb)" error={errors.payloadLbs}>
+          <input value={values.payloadLbs} onChange={set("payloadLbs")} inputMode="numeric" autoComplete="off" />
+        </Field>
+        <Field label="Cargo length (ft)" error={errors.maxLengthFt}>
+          <input value={values.maxLengthFt} onChange={set("maxLengthFt")} inputMode="decimal" autoComplete="off" />
         </Field>
       </div>
+      <div className="dlg-two">
+        <Field label="Cargo width (ft)" error={errors.maxWidthFt}>
+          <input value={values.maxWidthFt} onChange={set("maxWidthFt")} inputMode="decimal" autoComplete="off" />
+        </Field>
+        <Field label="Cargo height (in)" error={errors.maxHeightIn}>
+          <input value={values.maxHeightIn} onChange={set("maxHeightIn")} inputMode="decimal" autoComplete="off" />
+        </Field>
+      </div>
+      <Field label="Home base" error={errors.homeBaseAddress}>
+        <input value={values.homeBaseAddress} onChange={set("homeBaseAddress")} placeholder="Dallas, TX" autoComplete="off" />
+      </Field>
     </>
   );
 }
 
-export type TruckInfo = { id: string; name: string | null; type: string | null; mpg: number | null; fuelType: string | null; homeBase: string | null };
+export type TruckInfo = {
+  id: string;
+  name: string | null;
+  type: string | null;
+  mpg: number | null;
+  fuelType: string | null;
+  homeBase: string | null;
+  make?: string | null;
+  model?: string | null;
+  year?: number | null;
+  payloadLbs?: number | null;
+  maxLengthFt?: number | null;
+  maxWidthFt?: number | null;
+  maxHeightIn?: number | null;
+};
 
-const truckValues = (t?: TruckInfo): Record<keyof TruckValues, string> => ({ name: t?.name ?? "", type: t?.type ?? "", mpg: t?.mpg == null ? "" : String(t.mpg), fuelType: t?.fuelType ?? "", homeBaseAddress: t?.homeBase ?? "" });
+const text = (n: number | null | undefined) => (n == null ? "" : String(n));
+const truckValues = (t?: TruckInfo): Record<keyof TruckValues, string> => ({
+  name: t?.name ?? "",
+  type: t?.type ?? "",
+  mpg: text(t?.mpg),
+  fuelType: t?.fuelType ?? "",
+  homeBaseAddress: t?.homeBase ?? "",
+  make: t?.make ?? "",
+  model: t?.model ?? "",
+  year: text(t?.year),
+  payloadLbs: text(t?.payloadLbs),
+  maxLengthFt: text(t?.maxLengthFt),
+  maxWidthFt: text(t?.maxWidthFt),
+  maxHeightIn: text(t?.maxHeightIn)
+});
 
 /** Add a truck (a dialog), or edit one's details (inline on its own page). */
 export function TruckForm({ truck, onDone, inline }: { truck?: TruckInfo; onDone?: () => void; inline?: boolean }) {
@@ -301,6 +443,14 @@ export function TruckForm({ truck, onDone, inline }: { truck?: TruckInfo; onDone
   const set = (k: keyof TruckValues) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     shown.touch(k);
     setValues((v) => ({ ...v, [k]: e.target.value }));
+  };
+  const onMake = (make: string) => {
+    shown.touch("make");
+    setValues((v) => pickMake(v, make));
+  };
+  const onModel = (model: string) => {
+    shown.touch("model");
+    setValues((v) => pickModel(v, model));
   };
   const unchanged = truck != null && JSON.stringify(values) === JSON.stringify(truckValues(truck));
   return (
@@ -323,7 +473,7 @@ export function TruckForm({ truck, onDone, inline }: { truck?: TruckInfo; onDone
           }
         });
       }}>
-      <TruckFields values={values} set={set} errors={errors} />
+      <TruckFields values={values} set={set} errors={errors} onMake={onMake} onModel={onModel} />
       {message ? (
         <p className="tl-note warn" role="alert">
           {message}

@@ -8,7 +8,10 @@ import { num } from "@/server/tl/convert";
 import { detentionOfLoad } from "@/server/tl/detention";
 import { getThresholds } from "@/server/tl/thresholds";
 import { AssignFields } from "./assign-fields";
-import { assignAction, invoiceAction, markPaidAction, respondAction, sendAction, unassignAction } from "@/app/(desk)/actions";
+import { assignAction, respondAction, sendAction, unassignAction, undoPaidAction } from "@/app/(desk)/actions";
+import { InvoiceDialog, LoadEditDialog, PaidDialog, TripEntry } from "./load-actions";
+import { defaultInvoiceNumber, invoiceReadiness } from "@/lib/invoicing";
+import { toEditValues } from "@/lib/load-edit";
 import { deriveTimeline } from "@/lib/desk-timeline";
 import { CAN_CANCEL, CAN_RESCHEDULE, CAN_TONU, reasonLabel } from "@/lib/disruptions";
 import { toCentralLocal } from "@/lib/zoned";
@@ -52,6 +55,31 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   const fellThrough = load.status === "cancelled" || load.status === "tonu";
   const firstPickup = load.stops.map((s) => s.timeWindowEarliest).find((d): d is Date => d != null) ?? null;
   const can = { cancel: CAN_CANCEL.includes(load.status), tonu: CAN_TONU.includes(load.status), reschedule: CAN_RESCHEDULE.includes(load.status) && firstPickup != null };
+
+  // Editing, trip entry and billing. A load that has started keeps its stops where they are; the rest can still be corrected.
+  const scheduleLocked = !["draft", "accepted"].includes(load.status);
+  const stored = (v: Parameters<typeof num>[0]) => {
+    const n = num(v);
+    return n > 0 ? String(n) : "";
+  };
+  const tripStops = load.stops.map((s) => ({
+    id: s.id,
+    sequence: s.stopSequence,
+    role: s.stopRole ?? s.stopType,
+    place: s.facilityName ?? s.addressString,
+    arrivedLocal: s.arrivedAt ? toCentralLocal(s.arrivedAt.getTime()) : "",
+    waitMinutes: s.waitMinutes != null ? String(s.waitMinutes) : "",
+    seal: s.sealNumber ?? ""
+  }));
+  const tripVisible = !!a && ["accepted", "in_progress", "completed"].includes(load.status);
+  const readiness = invoiceReadiness({ ...load, quotedRevenue: num(load.quotedRevenue) });
+  const invoiceContext = { rate: num(load.quotedRevenue), surcharge: num(load.fuelSurcharge), detention: dt.billable, defaultTerms: load.payTermsDays ?? thresholds.defaultPayTermsDays };
+  const billed = num(load.invoicedAmount ?? load.quotedRevenue);
+  const invoiceLines = Array.isArray(load.invoiceLines) ? (load.invoiceLines as Array<{ label: string; amount: number }>) : null;
+  const dueAt = load.invoicedAt ? new Date(load.invoicedAt.getTime() + (load.payTermsDays ?? 0) * 86_400_000) : null;
+  const paidAmount = load.paidAmount != null ? num(load.paidAmount) : null;
+  const needs = [load.requiresLiftgate ? "liftgate" : null, load.requiresRamp ? "ramp" : null, load.requiresPalletJack ? "pallet jack" : null].filter((x): x is string => x != null);
+  const size = [load.lengthFt, load.widthFt].every((x) => x == null) && load.loadHeightIn == null ? null : [load.lengthFt != null ? `${num(load.lengthFt)} ft long` : null, load.widthFt != null ? `${num(load.widthFt)} ft wide` : null, load.loadHeightIn != null ? `${num(load.loadHeightIn)} in high` : null].filter(Boolean).join(", ");
 
   const steps = deriveTimeline({
     status: load.status,
@@ -230,9 +258,32 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         </section>
       ) : null}
 
+      {tripVisible ? (
+        <section className="sec">
+          <h3>Trip</h3>
+          <div className="sec-box">
+            <TripEntry
+              loadId={load.id}
+              status={load.status}
+              assignmentStatus={a?.status ?? null}
+              driverName={a?.driver.name ?? null}
+              stops={tripStops}
+              expenses={{ fuel: stored(load.expenseFuelActual), tolls: stored(load.expenseTolls), misc: stored(load.expenseMisc) }}
+              delivered={load.completedAt ? toCentralLocal(load.completedAt.getTime()) : ""}
+              pod={{ note: load.podNote ?? "", without: load.closedWithoutPod === true }}
+            />
+          </div>
+        </section>
+      ) : null}
+
       <section className="sec">
         <h3>Stops</h3>
         <div className="sec-box">
+          {fellThrough ? null : (
+            <div style={{ marginBottom: 10 }}>
+              <LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load)} scheduleLocked={scheduleLocked} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} />
+            </div>
+          )}
           <table className="tl-table">
             <tbody>
               {load.stops.map((s) => (
@@ -257,10 +308,66 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
             <dt>PO</dt>
             <dd>{load.poNumber ?? "—"}</dd>
             <dt>Terms</dt>
-            <dd>{load.channel ?? "dispatch"} · {load.paymentTerms ?? "terms not set"}</dd>
+            <dd>{load.channel ?? "dispatch"} · {load.payTermsDays != null ? `Net ${load.payTermsDays}` : load.paymentTerms ?? "terms not set"}</dd>
+            <dt>Broker</dt>
+            <dd>
+              {load.brokerName ?? "—"}
+              {load.brokerMcNumber ? ` · MC ${load.brokerMcNumber}` : ""}
+              {load.brokerPhone || load.brokerEmail ? <div className="tl-sub">{[load.brokerPhone, load.brokerEmail].filter(Boolean).join(" · ")}</div> : null}
+            </dd>
+            <dt>Freight</dt>
+            <dd>
+              {load.trailerType ? load.trailerType.replace(/_/g, " ") : "Trailer not stated"}
+              {load.weightLbs != null ? ` · ${load.weightLbs.toLocaleString("en-US")} lb` : ""}
+              {load.hazmatClass ? ` · hazmat ${load.hazmatClass}` : ""}
+              {size ? <div className="tl-sub">{size}</div> : null}
+              {needs.length > 0 ? <div className="tl-sub">Needs a {needs.join(", ")}</div> : null}
+            </dd>
+            {load.notes ? (
+              <>
+                <dt>Notes</dt>
+                <dd>{load.notes}</dd>
+              </>
+            ) : null}
           </dl>
         </div>
       </section>
+
+      {load.paymentStatus && load.invoicedAt ? (
+        <section className="sec">
+          <h3>Invoice</h3>
+          <div className="sec-box">
+            <dl className="tl-kv" style={{ marginBottom: 10 }}>
+              <dt>Number</dt>
+              <dd>{load.invoiceNumber ?? "—"} · Net {load.payTermsDays ?? 0}</dd>
+              <dt>Sent</dt>
+              <dd>{dateTime(load.invoicedAt)}</dd>
+              <dt>Due</dt>
+              <dd>{dueAt ? dateTime(dueAt) : "—"}</dd>
+              <dt>Status</dt>
+              <dd>
+                {load.paymentStatus === "paid"
+                  ? `Paid ${load.paidAt ? dateTime(load.paidAt) : ""} · ${usd(paidAmount, 2)}${paidAmount != null && paidAmount < billed ? `, ${usd(billed - paidAmount, 2)} short` : paidAmount != null && paidAmount > billed ? `, ${usd(paidAmount - billed, 2)} over` : ""}`
+                  : "Out and waiting"}
+              </dd>
+            </dl>
+            <table className="tl-table">
+              <tbody>
+                {(invoiceLines ?? [{ label: "Line haul and fuel surcharge", amount: billed }]).map((l) => (
+                  <tr key={l.label}>
+                    <td>{l.label}</td>
+                    <td className="num">{usd(l.amount, 2)}</td>
+                  </tr>
+                ))}
+                <tr>
+                  <td><b>Total due</b></td>
+                  <td className="num"><b>{usd(billed, 2)}</b></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
       {load.stops.some((s) => s.waitMinutes != null) && (dt.totalWaitMinutes > 0 || dt.noRate) ? (
         <section className="sec">
@@ -352,21 +459,26 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         </form>
       ) : null}
       {load.status === "completed" && !load.paymentStatus ? (
-        <form action={invoiceAction}>
-          <input type="hidden" name="loadId" value={load.id} />
-          {dt.billable > 0 ? (
-            <label className="dlg-check">
-              <input type="checkbox" name="detention" defaultChecked /> Add {usd(dt.billable, 2)} detention
-            </label>
-          ) : null}
-          <button type="submit" className="tl-btn primary">Create invoice</button>
-        </form>
+        <InvoiceDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} defaults={{ number: defaultInvoiceNumber(load.loadNumber, load.id) }} context={invoiceContext} blockers={readiness.blockers} cautions={readiness.cautions} />
       ) : null}
-      {load.paymentStatus === "invoiced" ? (
-        <form action={markPaidAction}>
-          <input type="hidden" name="loadId" value={load.id} />
-          <button type="submit" className="tl-btn primary">Mark paid</button>
-        </form>
+      {load.paymentStatus ? (
+        <Link href={`/invoices/${load.id}`} className="tl-btn">
+          View invoice
+        </Link>
+      ) : null}
+      {load.paymentStatus === "invoiced" ? <PaidDialog loadId={load.id} invoiceNumber={load.invoiceNumber} billed={billed} /> : null}
+      {load.paymentStatus === "paid" ? (
+        <ConfirmForm
+          action={undoPaidAction}
+          fields={{ loadId: load.id }}
+          label="Undo payment"
+          title={`Take back the payment on ${load.invoiceNumber ?? "this invoice"}?`}
+          eyebrow="Payment"
+          confirmLabel="Take it back"
+          destructive
+          askReason>
+          <p className="tl-note">For a payment entered against the wrong invoice, or one that bounced. The invoice goes back to out and waiting, and the reason is kept in the audit trail.</p>
+        </ConfirmForm>
       ) : null}
     </>
   );

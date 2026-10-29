@@ -19,13 +19,30 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
 
   return (
     <>
-      <PageHead title={t.name ?? "Truck"} sub={`${t.type?.replace("_", " ") ?? "No type set"}${t.archivedAt ? " · archived" : ""} · ${open} open ${open === 1 ? "load" : "loads"}`}>
+      <PageHead title={t.name ?? "Truck"} sub={`${[t.make, t.model, t.year].filter(Boolean).join(" ") || (t.type?.replace("_", " ") ?? "No type set")}${t.archivedAt ? " · archived" : ""} · ${open} open ${open === 1 ? "load" : "loads"}`}>
         <Link href="/fleet" className="tl-btn">All trucks</Link>
         <TruckRowActions hideOpen truck={{ id: t.id, name: t.name, archived: t.archivedAt != null, open }} />
       </PageHead>
 
       <Card title="Details" className="tl-card">
-        <TruckForm inline truck={{ id: t.id, name: t.name, type: t.type, mpg: t.mpg == null ? null : num(t.mpg), fuelType: t.fuelType, homeBase: t.homeBaseAddress }} />
+        <TruckForm
+          inline
+          truck={{
+            id: t.id,
+            name: t.name,
+            type: t.type,
+            mpg: t.mpg == null ? null : num(t.mpg),
+            fuelType: t.fuelType,
+            homeBase: t.homeBaseAddress,
+            make: t.make,
+            model: t.model,
+            year: t.year,
+            payloadLbs: t.payloadLbs,
+            maxLengthFt: t.maxLengthFt == null ? null : num(t.maxLengthFt),
+            maxWidthFt: t.maxWidthFt == null ? null : num(t.maxWidthFt),
+            maxHeightIn: t.maxHeightIn == null ? null : num(t.maxHeightIn)
+          }}
+        />
       </Card>
 
       <Card title="Cost profile" className="tl-card">

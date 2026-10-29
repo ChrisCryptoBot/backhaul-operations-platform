@@ -4,6 +4,7 @@ import Link from "next/link";
 import React from "react";
 import { readSampleRateConAction, readUploadedRateConAction, saveRateConAction, type DraftDto, type ReadResult } from "@/app/(desk)/actions";
 import { dateTime, perMile, usd } from "@/lib/desk-format";
+import { needsStopCheck, rateConChecks } from "@/lib/rate-con-checks";
 import { parseCentralLocal, toCentralLocal } from "@/lib/zoned";
 import { cityState } from "@/server/ratecon/map";
 import { trailerLabel } from "@/truelane/constants/trailerData";
@@ -41,6 +42,8 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
   const [fileName, setFileName] = React.useState("");
   const [message, setMessage] = React.useState<string | null>(null);
   const [confirmed, setConfirmed] = React.useState(false);
+  // The stops box is ticked for one set of confirm-level checks; if the stops change so that the checks change, it clears itself.
+  const [stopsTicked, setStopsTicked] = React.useState<string | null>(null);
   const [savedId, setSavedId] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [over, setOver] = React.useState(false);
@@ -66,6 +69,7 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
     setMessage(null);
     setSavedId(null);
     setConfirmed(false);
+    setStopsTicked(null);
     try {
       arrive(await run());
     } catch {
@@ -85,6 +89,7 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
     setDraft(null);
     setMessage(null);
     setConfirmed(false);
+    setStopsTicked(null);
     setSavedId(null);
   }
 
@@ -112,8 +117,12 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
     if (draft.stops.some((s) => s.addressString.trim() === "")) problems.push("Every stop needs an address.");
   }
 
+  const checks = draft ? rateConChecks({ stops: draft.stops, loadedMiles: draft.load.loadedMiles }) : [];
+  const stopsSignature = checks.filter((c) => c.level === "confirm").map((c) => c.id).join(",");
+  const stopsOk = !needsStopCheck(checks) || stopsTicked === stopsSignature;
+
   async function save() {
-    if (!draft || problems.length > 0) return;
+    if (!draft || problems.length > 0 || !stopsOk) return;
     setSaving(true);
     setMessage(null);
     // The lane follows the stops, so a corrected address changes the load's from and to as well.
@@ -425,6 +434,17 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                 </div>
               ) : null}
 
+              {checks.length > 0 ? (
+                <div className="rc-warns">
+                  <p className="rc-eyebrow">Worth a second look</p>
+                  <ul>
+                    {checks.map((c) => (
+                      <li key={c.id}>{c.text}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
               {problems.length > 0 ? (
                 <ul className="rc-todo" role="status">
                   {problems.map((p) => (
@@ -433,11 +453,17 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                 </ul>
               ) : null}
 
+              {needsStopCheck(checks) ? (
+                <label className="dlg-check rc-confirm">
+                  <input type="checkbox" checked={stopsTicked === stopsSignature} onChange={(e) => setStopsTicked(e.target.checked ? stopsSignature : null)} />
+                  I checked the stops and their order.
+                </label>
+              ) : null}
               <label className="dlg-check rc-confirm">
                 <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
                 I checked these details against the document.
               </label>
-              <button type="button" className="tl-btn primary" disabled={saving || !confirmed || problems.length > 0} aria-busy={saving || undefined} onClick={() => void save()}>
+              <button type="button" className="tl-btn primary" disabled={saving || !confirmed || problems.length > 0 || !stopsOk} aria-busy={saving || undefined} onClick={() => void save()}>
                 {saving ? "Saving…" : "Save as a draft load"}
               </button>
               <p className="tl-note">It lands on the Dispatch queue as needing a driver. No verdict is shown: this load is already agreed.</p>

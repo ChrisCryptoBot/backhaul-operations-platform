@@ -275,3 +275,53 @@ every driver who runs it, with the same verdict maths, so "which of my trucks sh
 - Not done: address autocomplete, routed miles and drive hours (they need a Mapbox key, which is Chris's to set; typed miles and a 50 mph drive time stand in), the
   fuel price from EIA (the truck profile's price is used), the phone's load size and requirement fields, the lead-time tip, a "pass on it" decision, editing a booked
   load's stops (Wave 7); at 1024 the verdict panel sits below the form; a production build and a keyboard-only walk (Wave 8).
+
+## Desk rework, Wave 7 (done): loads and billing parity
+Plan: `~/.claude/plans/radiant-stargazing-spark.md`. The phone's Loads tab is where a load is edited, run and billed. This wave gives the desk the same,
+for a dispatcher entering it on behalf of drivers. **Driver settlement is split off as Wave 7b** (it needs a new model and migration of its own and a
+decision on what a finalized statement locks); add and remove stops, a proof-of-delivery file upload, email sending and aligning the cancel reasons are not done
+(each needs a decision about who is acting, or storage the desk does not have).
+- **Migration** `20261031000000_load_details_and_invoice_lines`: on `loads`, weight, cargo length, width and height, hazmat class, liftgate, ramp and pallet
+  jack needs, broker phone and email, notes, a proof-of-delivery note, and `invoice_lines` (what an invoice was billed as). Applied to the demo database only.
+- **Edit a load** (`Edit details` on the load; `lib/load-edit.ts`, `server/tl/edit.ts`, `components/desk/load-actions.tsx`). Broker and MC, load and PO number,
+  trailer, weight and size, what it needs, pay terms, notes, and for each stop its place, window, facility, references, contact and notes. Checked in the
+  dialog and again on the server, with each error next to its field. A cancelled or TONU load, or a quote, is refused; a load on the road or delivered keeps
+  its stops where they are but its details can be corrected. If a driver has the load and a place or time changes, their assignment goes back to sent (they
+  confirm again, version up one), and a move that would put them on two loads at once is refused. The audit entry lists only what changed, before and after.
+- **Enter a trip for the driver** (`Trip` on the load; `lib/trip.ts`, `server/tl/execution.ts`). Pickup (arrival, wait, seal; needs the load and the driver's
+  answer accepted), delivery (arrival and wait at the later stops, when it was delivered, proof of delivery received or the reason there is none, fuel, tolls
+  and other costs) and expenses on their own. The same record the phone writes: the load goes on the road then to delivered, actual revenue is the agreed rate,
+  and the waits add up to the dock wait detention reads. Times are Dallas time, cannot be more than ten minutes ahead, and the delivery cannot precede the
+  pickup. Each entry is audited as entered by the desk.
+- **Invoices** (`lib/invoicing.ts`, `server/tl/invoicing.ts`). A dialog on the load and on every Ready to invoice row: number (default `INV-` and the load number,
+  unique on the desk), terms, detention, lumper, layover and one other charge, and the total as you type from the phone's own `invoiceTotalDue`. A delivered load
+  with nobody to bill, no load number or no rate is refused; a missing broker contact or proof-of-delivery note only cautions. The invoice keeps its lines.
+  Mark paid takes the amount that came in: a short payment is recorded as it came and says by how much (on the load, the list and the audit entry). Undo
+  payment (with a reason) puts it back to out and waiting. `/invoices/<id>` is the invoice as billed on a sheet that prints or saves as a PDF; an overdue
+  invoice gets Copy reminder, a ready-written message for the dispatcher's own email (nothing is sent from the desk; if the browser blocks the clipboard the
+  text opens in a dialog, selected).
+- **Loads: Open and History** (`lib/loads-history.ts`). Open is the live board (needs a driver, accepted, on the road, below cost); History is delivered,
+  cancelled and TONU loads grouped by month, filtered All, Owed or Cancelled and sorted newest, oldest, pay or dollars per mile, with where the money is on
+  each row (Paid, Out and waiting, Overdue by the invoice's own terms, Not invoiced yet, the cancel reason). Search now covers PO, invoice number and the broker's
+  MC; when it narrows to one broker, a line gives how they have treated the desk (invoiced, paid, days to pay, short pays, still out, cancelled). An old link to
+  `?status=completed` lands on History.
+- **Rate-confirmation review checks** (`lib/rate-con-checks.ts`). Not vendored: the phone's file sits on the 1,387-line Community precheck and a closure of
+  eight more, and carries rate-per-mile bands tuned for drivers. The desk's own follow the same two levels: stops out of order, a delivery first or a pickup
+  last, and three or more stops need the new "I checked the stops and their order" box before Save; a first appointment in the past, a window that ends before it
+  opens, a stop with no appointment and no printed miles only caution.
+- **Trucks: make, model, year and specs** (Chris's request during the wave; `lib/truck-specs.ts`). The truck form had type, fuel and miles per gallon only. It now
+  has the phone's Make, Model and Year pickers: choosing a model fills the type, miles per gallon, payload and cargo size from the phone's dataset, and it only
+  fills a field that is blank or still holds the previous model's value, so a number typed by hand is never overwritten. A truck that is not listed is typed in
+  (Make and Model each offer "Not listed, type it in"; a typed make types its model; the specs are entered by hand). Stored values show on the truck page and list;
+  the audit entry lists them.
+- Verified: `tsc` and eslint clean; vitest 28 files / 338 tests pass with the database tests (67 new, 9 of them against the database: edit, refusal, reconfirm and
+  clash, trip entry, invoicing, short pay and undo, the board and invoice list). In the browser at 1440 and 1024 on a clean seed: History (months, Owed, sort,
+  search by broker with its pay record, an overdue row), a load's Trip section (the guard before the driver accepts, the pickup, the delivery with expenses), Create
+  invoice with a lumper, the invoice page, a short payment and Undo payment with its reason, the Edit dialog (sections, stops, footer), the Invoices list
+  (View, Mark paid, Copy reminder on the two overdue rows), a three-stop rate confirmation needing the stops box, and the truck form (a listed model filling its
+  specs; a typed make, model and year saved, shown on the truck page, then removed). The demo database was reseeded afterwards.
+- Found, not fixed: an action that ends in the older redirect (assign, send, driver answer, Undo payment) opens the load drawer on top of the full load page, so the
+  page shows twice until you move on. It predates this wave; the new dialogs refresh in place and do not do it.
+- Not done: driver settlement (Wave 7b); the phone's profit-per-mile and dollars-per-hour sorts (the desk has no per-load net or drive hours; dollars per mile on
+  every mile stands in); the CSV export does not follow the History filters (it takes the search only); the proof-of-delivery file itself; sending an invoice or a
+  reminder; the dispatcher margin and the flat-pay reading, which still need Chris's sign-off; a production build and a keyboard-only walk (Wave 8).

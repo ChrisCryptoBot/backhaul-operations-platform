@@ -99,7 +99,25 @@ export function validateDriver(input: Raw): DriverCheck {
 
 // ── Trucks ─────────────────────────────────────────────────────────────────────────────────────
 
-export type TruckValues = { name: string; type: string; mpg: string; fuelType: string; homeBaseAddress: string };
+export type TruckValues = {
+  name: string;
+  type: string;
+  mpg: string;
+  fuelType: string;
+  homeBaseAddress: string;
+  /** What the truck is, picked from the phone's own list so its specs fill in: make, model, year, payload and cargo size. */
+  make: string;
+  model: string;
+  year: string;
+  payloadLbs: string;
+  maxLengthFt: string;
+  maxWidthFt: string;
+  maxHeightIn: string;
+};
+export const BLANK_TRUCK: TruckValues = { name: "", type: "", mpg: "", fuelType: "", homeBaseAddress: "", make: "", model: "", year: "", payloadLbs: "", maxLengthFt: "", maxWidthFt: "", maxHeightIn: "" };
+
+/** The numbers a truck's specs come to once checked. */
+export type TruckSpecs = { year: number | null; payloadLbs: number | null; maxLengthFt: number | null; maxWidthFt: number | null; maxHeightIn: number | null };
 
 /** The phone's vehicle categories, so the type means the same here (and picks the same industry numbers). */
 export const TRUCK_TYPES = [
@@ -121,10 +139,23 @@ export const FUEL_TYPES = [
   { key: "gasoline", label: "Gasoline" }
 ];
 
-export type TruckCheck = { ok: true; value: TruckValues; mpg: number | null } | { ok: false; errors: Partial<Record<keyof TruckValues, string>> };
+export type TruckCheck = { ok: true; value: TruckValues; mpg: number | null; specs: TruckSpecs } | { ok: false; errors: Partial<Record<keyof TruckValues, string>> };
 
 export function validateTruck(input: Raw): TruckCheck {
-  const v: TruckValues = { name: str(input.name).replace(/\s+/g, " "), type: canonicalTruckType(str(input.type)) ?? "", mpg: str(input.mpg), fuelType: str(input.fuelType) === "gas" ? "gasoline" : str(input.fuelType), homeBaseAddress: str(input.homeBaseAddress) };
+  const v: TruckValues = {
+    name: str(input.name).replace(/\s+/g, " "),
+    type: canonicalTruckType(str(input.type)) ?? "",
+    mpg: str(input.mpg),
+    fuelType: str(input.fuelType) === "gas" ? "gasoline" : str(input.fuelType),
+    homeBaseAddress: str(input.homeBaseAddress),
+    make: str(input.make),
+    model: str(input.model),
+    year: str(input.year),
+    payloadLbs: str(input.payloadLbs).replace(/,/g, ""),
+    maxLengthFt: str(input.maxLengthFt),
+    maxWidthFt: str(input.maxWidthFt),
+    maxHeightIn: str(input.maxHeightIn)
+  };
   const errors: Partial<Record<keyof TruckValues, string>> = {};
   if (v.name.length < 1) errors.name = "Give the truck a name, for example Unit 104.";
   else if (v.name.length > 40) errors.name = "That name is too long.";
@@ -136,8 +167,26 @@ export function validateTruck(input: Raw): TruckCheck {
     if (!Number.isFinite(n) || n < 2 || n > 40) errors.mpg = "Miles per gallon between 2 and 40.";
     else mpg = n;
   }
+  if (v.make.length > 60) errors.make = "That make is too long.";
+  if (v.model.length > 60) errors.model = "That model is too long.";
+  const spec = (key: "year" | "payloadLbs" | "maxLengthFt" | "maxWidthFt" | "maxHeightIn", min: number, max: number, whole: boolean, message: string): number | null => {
+    if (!v[key]) return null;
+    const n = Number(v[key]);
+    if (!Number.isFinite(n) || n < min || n > max || (whole && !Number.isInteger(n))) {
+      errors[key] = message;
+      return null;
+    }
+    return n;
+  };
+  const specs: TruckSpecs = {
+    year: spec("year", 1980, new Date().getFullYear() + 2, true, "A model year, for example 2022."),
+    payloadLbs: spec("payloadLbs", 1, 100000, true, "Payload in whole pounds, 1 to 100,000."),
+    maxLengthFt: spec("maxLengthFt", 1, 60, false, "Cargo length in feet, 1 to 60."),
+    maxWidthFt: spec("maxWidthFt", 1, 10, false, "Cargo width in feet, 1 to 10."),
+    maxHeightIn: spec("maxHeightIn", 1, 200, false, "Cargo height in inches, 1 to 200.")
+  };
   if (Object.keys(errors).length > 0) return { ok: false, errors };
-  return { ok: true, value: v, mpg };
+  return { ok: true, value: v, mpg, specs };
 }
 
 // ── Cost profile ───────────────────────────────────────────────────────────────────────────────

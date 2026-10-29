@@ -164,6 +164,21 @@ model Load {
   poNumber                      String?   @map("po_number")
   pickupNumbers                 Json?     @map("pickup_numbers")
   deliveryNumbers               Json?     @map("delivery_numbers")
+  weightLbs                     Int?      @map("weight_lbs")
+  lengthFt                      Decimal?  @map("length_ft") @db.Decimal(8, 2)
+  widthFt                       Decimal?  @map("width_ft") @db.Decimal(8, 2)
+  loadHeightIn                  Decimal?  @map("load_height_in") @db.Decimal(8, 2)
+  hazmatClass                   String?   @map("hazmat_class")
+  requiresLiftgate              Boolean?  @map("requires_liftgate")
+  requiresRamp                  Boolean?  @map("requires_ramp")
+  requiresPalletJack            Boolean?  @map("requires_pallet_jack")
+  brokerPhone                   String?   @map("broker_phone")
+  brokerEmail                   String?   @map("broker_email")
+  notes                         String?
+  /// What the proof of delivery is, or why there is none (closedWithoutPod). The file itself waits for the phone's storage.
+  podNote                       String?   @map("pod_note")
+  /// The invoice as billed, one entry per line: [{ label, amount }]. Its total is invoicedAmount.
+  invoiceLines                  Json?     @map("invoice_lines")
   rateConPath                   String?   @map("rate_con_path")
   closedWithoutPod              Boolean?  @map("closed_without_pod")
   invoiceNumber                 String?   @map("invoice_number")

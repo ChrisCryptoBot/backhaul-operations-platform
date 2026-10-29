@@ -79,7 +79,7 @@ describe.skipIf(!run)("thresholds, KPI totals and exports on the demo database",
   test("an invoice for a load with no terms takes the default from Settings", async () => {
     await saveThresholds({ defaultPayTermsDays: "45" });
     const load = await prisma.load.create({
-      data: { workspaceId: WS, loadNumber: "W3-INV", status: "completed", completedAt: new Date(), actualRevenue: 800, quotedRevenue: 800, payTermsDays: null }
+      data: { workspaceId: WS, loadNumber: "W3-INV", brokerName: "W3 Broker", status: "completed", completedAt: new Date(), actualRevenue: 800, quotedRevenue: 800, payTermsDays: null }
     });
     loadIds.push(load.id);
     expect(await invoiceLoad(load.id)).toMatchObject({ ok: true });
