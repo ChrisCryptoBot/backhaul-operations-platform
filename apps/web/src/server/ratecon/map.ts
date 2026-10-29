@@ -14,8 +14,8 @@ export type RateConLoadDraft = {
     originAddress: string | null;
     destinationAddress: string | null;
     trailerType: string | null;
+    /** What the document pays all-in. A flat fuel surcharge printed on it is already inside this: see `printed`. */
     quotedRevenue: number | null;
-    fuelSurcharge: number | null;
     loadedMiles: number | null;
     payTermsDays: number | null;
     paymentTerms: string | null;
@@ -37,6 +37,23 @@ export type RateConLoadDraft = {
     contactPhone: string | null;
     stopNotes: string | null;
   }>;
+  /** What else the document prints. Shown for checking; a load has nowhere to keep these yet. */
+  printed: {
+    commodity: string | null;
+    weightLbs: number | null;
+    /**
+     * The flat fuel surcharge inside the all-in rate, if one was printed. It is not saved on the load: the load's own surcharge field
+     * is a per-mile or percent rate, and saving a flat amount there would count it twice.
+     */
+    fuelSurchargeIncluded: number | null;
+    /** Detention and TONU wording as printed, with the free time and hourly rate when they were read. */
+    dockTerms: string | null;
+    detentionFreeMinutes: number | null;
+    detentionHourlyRate: number | null;
+    notes: string | null;
+    /** The document pays only a TONU fee: nothing was hauled. */
+    tonuOnly: boolean;
+  };
   /** What the reader was unsure of, plus what the mapper could not fill. Shown on the review sheet. */
   warnings: string[];
 };
@@ -72,13 +89,13 @@ export function extractionToLoadDraft(raw: unknown): RateConLoadDraft | null {
   const warnings = [...x.warnings];
   const pickups = x.stops.filter((s) => s.type === "pickup");
   const deliveries = x.stops.filter((s) => s.type === "delivery");
-  if (pickups.length === 0) warnings.push("No pickup was read: add one before saving.");
-  if (deliveries.length === 0) warnings.push("No delivery was read: add one before saving.");
+  if (pickups.length === 0) warnings.push("No pickup was read from this document.");
+  if (deliveries.length === 0) warnings.push("No delivery was read from this document.");
   const first = x.stops[0];
   const last = x.stops[x.stops.length - 1];
   const trailer = resolveTrailer(readEquipment(x.equipment)).trailer;
+  // A missing rate is not a warning here: the review page asks for it and clears the ask as soon as one is typed.
   const total = rateConTotal(x);
-  if (total == null) warnings.push("No rate was read: type the agreed rate.");
 
   return {
     load: {
@@ -90,7 +107,6 @@ export function extractionToLoadDraft(raw: unknown): RateConLoadDraft | null {
       destinationAddress: cityState(last?.address ?? null),
       trailerType: trailer,
       quotedRevenue: total,
-      fuelSurcharge: x.rate.fuelSurcharge,
       loadedMiles: x.milesPrinted,
       payTermsDays: x.paymentTermsDays,
       paymentTerms: x.paymentTermsText,
@@ -116,6 +132,16 @@ export function extractionToLoadDraft(raw: unknown): RateConLoadDraft | null {
         stopNotes: s.instructions
       };
     }),
+    printed: {
+      commodity: x.commodity,
+      weightLbs: x.weightLbs,
+      fuelSurchargeIncluded: x.rate.fuelSurcharge,
+      dockTerms: x.detentionTerms,
+      detentionFreeMinutes: x.detention.freeMinutes,
+      detentionHourlyRate: x.detention.hourlyRate,
+      notes: x.notes,
+      tonuOnly: x.tonuOnly
+    },
     warnings
   };
 }

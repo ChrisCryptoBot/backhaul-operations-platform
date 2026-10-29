@@ -39,7 +39,6 @@ export async function saveReviewedDraft(d: ReviewedDraft) {
       destinationAddress: d.load.destinationAddress,
       trailerType: d.load.trailerType,
       quotedRevenue: d.load.quotedRevenue!,
-      fuelSurcharge: d.load.fuelSurcharge,
       loadedMiles: d.load.loadedMiles ?? 0,
       payTermsDays: d.load.payTermsDays,
       paymentTerms: d.load.paymentTerms,

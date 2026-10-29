@@ -177,3 +177,29 @@ driver is sent), `/dispatch` (needs a driver, sent and waiting, moving), `/drive
   planner, drivers, brokers, lanes, KPI and invoices pages; the planner's week scrolls inside its frame with the driver column pinned.
 - Not done: recording a TONU and reactivating a driver were exercised by the database tests, not in the browser; a TONU fee cannot be
   invoiced yet; detention is not added to the KPI gross; a production build, a keyboard-only walk and the print dialog (Wave 5).
+
+## Desk rework, Wave 5 (started): the Rate confirmations page
+The page was one card with two buttons and nothing under it. It is now a working intake, in the desk's own patterns.
+- **Read.** A drop zone (drag a file on it, or choose one: PDF, photo or screenshot, up to 10 MB) and the two invented samples. The file goes
+  to the server as an upload (`readUploadedRateConAction`; `serverActions.bodySizeLimit` is 10 MB in `next.config.mjs`). A sample's file
+  name still reads with no key; anything else needs `ANTHROPIC_API_KEY`, and the page says so up front rather than after a drop.
+- **Check.** Three steps across the top. Load fields, money and terms (the rate worked out per printed mile as you type), and every stop as a
+  card with its facility, address and appointment editable (moving an appointment moves the end of its window by the same amount). A
+  "Will be saved as" panel stays beside it with the lane, truck, rate, anything the reader was unsure of, and what still blocks saving
+  (no rate, no stop, an empty address). What else the document prints (commodity, weight, dock terms, notes) is shown for checking.
+  Nothing is saved until the box is ticked, and no verdict appears: the load is already agreed.
+- **Runs on.** A truck can be chosen before saving. Nothing else in the desk sets a load's truck afterwards, and without one the load's own
+  screen has no floor to read it against. It is a field on the review, remembered between documents.
+- **Read so far.** The latest eight loads that came from a document, with their rate, per printed mile, where each stands and when it was
+  read, and the total. A save shows up at once. The seed now makes a third of its loads (15) rate-confirmation loads, each with its
+  `rate_con_saved` event, so the list is never empty on a fresh seed (events: 163 to 178).
+- **A bug fixed on the way.** A rate confirmation's flat fuel surcharge was saved on the load as well as inside its all-in rate, and the
+  load's surcharge field is a per-mile or percent rate, so the $800 sample showed as "$15,320 all-in" and would have invoiced at $860.
+  The load now keeps the all-in rate and no separate surcharge; the page still says how much of the rate is fuel. The phone app's own
+  mapping of the same field was not checked.
+- Verified: `tsc` and eslint clean; vitest 18 files / 226 tests pass with the database tests. In the browser: both samples read, the
+  rate cleared and retyped (Save blocked, then allowed), an appointment moved, a truck chosen, saved, the new load at the top of the
+  list, its page showing $800 all-in against the truck's floor; at 1440 wide in Night, at 1024 wide (the review stacks into one column,
+  no page overflow) in Night and Day.
+- Not done: reading a real file (it needs a key, so the live path is still unverified from this app); dragging a file onto the zone or
+  choosing one with the file picker (both are written, but only the two samples were run); a keyboard-only walk; a production build.

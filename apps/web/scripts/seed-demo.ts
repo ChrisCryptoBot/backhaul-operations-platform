@@ -246,6 +246,8 @@ async function main() {
     const pickupArrived = finished ? arrive(pk0, pk1, arrivalRng() < 0.2) : p.status === "in_progress" || p.status === "tonu" ? arrive(pk0, pk1, p.pickupArrival === "late") : null;
     const deliveryArrived = finished ? arrive(dl0, dl1, arrivalRng() < 0.15) : null;
     const cancelledAt = p.cancelAtHours != null ? new Date(pk0 + p.cancelAtHours * HOUR) : null;
+    // A third of the loads came in as a rate confirmation (the rest were booked by phone or board); the rate cons page lists those.
+    const fromRateCon = seq % 3 === 0;
     const loaded = p.lane.miles;
     const covered = p.status === "completed" && rand() < 0.45; // some finished loads had a load back
     const returnDh = covered ? 0 : p.returnDh;
@@ -261,7 +263,7 @@ async function main() {
       data: {
         workspaceId: WORKSPACE_ID,
         vehicleId: vehicle.id,
-        channel: "dispatch",
+        channel: fromRateCon ? "rate_con" : "dispatch",
         brokerName: BROKERS[p.brokerIdx],
         originAddress: p.lane.from,
         destinationAddress: p.lane.to,
@@ -339,6 +341,10 @@ async function main() {
             : undefined
       }
     });
+    if (fromRateCon) {
+      const readAt = new Date(Math.min(when.getTime() - 0.5 * DAY, now - HOUR));
+      audits.push({ workspaceId: WORKSPACE_ID, loadId: load.id, loadNumber: load.loadNumber, actor: "Dispatcher", entity: "intake", action: "rate_con_saved", summary: `Read from a rate confirmation from ${BROKERS[p.brokerIdx]} and reviewed`, after: { Load: load.loadNumber, Broker: BROKERS[p.brokerIdx], Stops: 2 }, createdAt: readAt });
+    }
     if (p.status === "cancelled") {
       const label = reasonLabel(p.cancelReason);
       audits.push({ workspaceId: WORKSPACE_ID, loadId: load.id, loadNumber: load.loadNumber, actor: "Dispatcher", entity: "load", action: "cancelled", summary: `Cancelled: ${label}`, before: { Status: "Needs a driver", Driver: null }, after: { Status: "Cancelled", Reason: label }, createdAt: cancelledAt! });

@@ -19,7 +19,12 @@ describe("rate-con reader (demo readings)", () => {
     expect(load.loadNumber).toBe("AFB-482913");
     expect(load.poNumber).toBe("5521084");
     expect(load.quotedRevenue).toBe(800);
-    expect(load.fuelSurcharge).toBe(60);
+    // The $60 surcharge is inside the $800, and the load must not carry it a second time: its surcharge field is a per-mile or percent rate.
+    expect(load).not.toHaveProperty("fuelSurcharge");
+    expect(out.draft.printed.fuelSurchargeIncluded).toBe(60);
+    expect(out.draft.printed.dockTerms).toMatch(/TONU \$100/);
+    expect(out.draft.printed.detentionHourlyRate).toBe(45);
+    expect(out.draft.printed.commodity).toBe("Palletized goods");
     expect(load.loadedMiles).toBe(242);
     expect(load.payTermsDays).toBe(30);
     expect(load.originAddress).toBe("Dallas, TX");

@@ -79,6 +79,10 @@ describe.skipIf(!run)("dispatcher flow on the TrueLane-shaped tables", () => {
     const saved = await saveReviewedDraft({ ...out.draft, confirmed: true });
     expect(saved.stops).toHaveLength(2);
     expect(saved.status).toBe("draft");
+    // All-in $800 with the $60 surcharge inside it: no second copy on the load, so the invoice is $800, not $860.
+    expect(Number(saved.quotedRevenue)).toBe(800);
+    expect(saved.fuelSurcharge).toBeNull();
+    expect(saved.channel).toBe("rate_con");
     expect((await prisma.auditEvent.findMany({ where: { loadId: saved.id } })).map((e) => e.action)).toEqual(["rate_con_saved"]);
     await prisma.auditEvent.deleteMany({ where: { loadId: saved.id } });
     await prisma.load.delete({ where: { id: saved.id } });

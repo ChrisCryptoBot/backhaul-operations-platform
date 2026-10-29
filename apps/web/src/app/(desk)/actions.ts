@@ -142,21 +142,39 @@ function toDto(d: RateConLoadDraft): DraftDto {
   return { ...d, stops: d.stops.map((s) => ({ ...s, timeWindowEarliest: s.timeWindowEarliest?.toISOString() ?? null, timeWindowLatest: s.timeWindowLatest?.toISOString() ?? null })) };
 }
 
-export async function readSampleRateConAction(fileName: string): Promise<{ ok: true; source: "demo" | "live"; draft: DraftDto } | { ok: false; reason: string }> {
+export type ReadResult = { ok: true; source: "demo" | "live"; fileName: string; draft: DraftDto } | { ok: false; reason: string };
+
+export async function readSampleRateConAction(fileName: string): Promise<ReadResult> {
   const out = await readRateCon({ fileName });
-  return out.ok ? { ok: true, source: out.source, draft: toDto(out.draft) } : { ok: false, reason: out.reason };
+  return out.ok ? { ok: true, source: out.source, fileName, draft: toDto(out.draft) } : { ok: false, reason: out.reason };
 }
 
-export async function saveRateConAction(dto: DraftDto, confirmed: boolean): Promise<{ ok: true; loadId: string } | { ok: false; error: string }> {
+/** The most a rate confirmation file can be: a phone photo of two pages is a few megabytes. Matches `serverActions.bodySizeLimit`. */
+const MAX_RATE_CON_BYTES = 10 * 1024 * 1024;
+
+/** A file chosen or dropped on the page. A sample's name still reads without a key; anything else needs one. */
+export async function readUploadedRateConAction(formData: FormData): Promise<ReadResult> {
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, reason: "unreadable" };
+  if (file.size > MAX_RATE_CON_BYTES) return { ok: false, reason: "too_big" };
+  const out = await readRateCon({ fileName: file.name, mime: file.type, bytes: new Uint8Array(await file.arrayBuffer()) });
+  return out.ok ? { ok: true, source: out.source, fileName: file.name, draft: toDto(out.draft) } : { ok: false, reason: out.reason };
+}
+
+export async function saveRateConAction(dto: DraftDto, confirmed: boolean, vehicleId: string | null = null): Promise<{ ok: true; loadId: string } | { ok: false; error: string }> {
   try {
     const draft: ReviewedDraft = {
       ...dto,
       confirmed,
+      vehicleId,
       stops: dto.stops.map((s) => ({ ...s, timeWindowEarliest: s.timeWindowEarliest ? new Date(s.timeWindowEarliest) : null, timeWindowLatest: s.timeWindowLatest ? new Date(s.timeWindowLatest) : null }))
     };
     const load = await saveReviewedDraft(draft);
     revalidatePath("/loads");
     revalidatePath("/dispatch");
+    revalidatePath("/rate-cons");
+    revalidatePath("/audit");
+    revalidatePath("/planner");
     return { ok: true, loadId: load.id };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not save." };
