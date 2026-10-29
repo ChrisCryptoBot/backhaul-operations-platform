@@ -56,16 +56,20 @@ driver is sent), `/dispatch` (needs a driver, sent and waiting, moving), `/drive
   cost); the driver preview carries no revenue.
 - After: `tsc` and eslint clean on the new code; vitest 89 files / 520 tests pass.
 
-## Moved to Stage 2 on purpose
-These are coupled to the schema and ingestion rewrite, so doing them first would mean touching everything twice:
-- Region dimension and employer vocabulary (Region, RegionConfig, UserRegionRole, `runInRegionScope`, MG/TMW, MileMax,
-  Carlisle, Leesport, Sealed Air, "Drop Bucket", relay/drop-lot terms). `WeekSnapshot`, `snapshots.ts` and `lane-week-*`
-  stay (the KPI dashboard needs them), re-keyed to one demo workspace.
-- AWS S3/SQS and the cron queue (replaced by local upload and synchronous parse), together with the old `server/llm/*`
-  layer, `LlmProviderConfig` and `@anthropic-ai/sdk` (replaced by the TrueLane-schema rate-con reader).
-- Live DAT client and `DatProviderConfig` (mock variance stays), FSC table, route and tool.
-- Clerk replaced by a `DEMO_MODE` session behind an `auth()` seam.
-
-## Next
-Stage 4: retire the old board, KPI, reference, review and settings pages and server code (and the old tables), make the desk
-the root route, then the final greps and a full browser walk.
+## Stage 4 (done): the old coordinator-task app is retired
+- Deleted: every old page and API route, the old board, KPI, reference, review, settings, audit and market-variance code, the
+  region/week/drop-lot server layer, the old LLM and queue layers, the AWS storage and queue code, Clerk and its middleware, the
+  old tests, scripts and docs, and the 24 old tables (migration `20261028010000_retire_legacy_dispatch_tables`, destructive:
+  run it only on a database you can lose the old data from).
+- The TrueLane models now carry their bare names (`Workspace, Vehicle, CostProfile, Load, Stop, TripSegment, LoadDecision,
+  Driver, Assignment`), mapped to TrueLane's table names. The root route redirects to `/loads`.
+- Guard test `tests/no-legacy.test.ts` fails if the old vocabulary or any employer-specific name comes back.
+- Verified: a clean production build (`next build`), then every desk page returns 200 from the production server, the old
+  routes return 404, `/` redirects to `/loads`, and assign, send and accept work in the browser with a clean console.
+  (Note: build into a clean `.next` before `next start`; a `next dev` that ran against the same folder leaves mixed output and
+  every page but one returns 500.)
+- After: `tsc` and eslint clean; vitest 7 files / 37 tests pass, including the 5 database tests (`RUN_DB_INTEGRATION=true`).
+- Left as history: the migration folder still contains the old tables' creation migrations (their names carry the old
+  vocabulary); they are not scanned by the guard test and are superseded by the retire migration.
+- Unverified and left for you: the live rate-confirmation read (needs a key), a production deploy (this is a demo), and rotating
+  the old dev API key noted in `docs/CONVERGENCE_BUILD_PLAN.md`.
