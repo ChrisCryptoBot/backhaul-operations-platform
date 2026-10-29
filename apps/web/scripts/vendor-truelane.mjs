@@ -17,6 +17,7 @@ const root = process.env.TRUELANE_ROOT ?? "C:/Users/14698/OneDrive/Desktop/TRUEL
 // The import closure of the modules this app needs (checked: only 'react' is imported from outside, as a type).
 export const FILES = [
   "lib/analytics.ts",
+  "lib/calculate/acceptGate.ts",
   "lib/calculate/afterDelivery.ts",
   "lib/calculate/emptyMiles.ts",
   "lib/costProfileHero.ts",

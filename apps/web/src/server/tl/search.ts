@@ -1,3 +1,4 @@
+import { notQuote } from "@/lib/quote-status";
 import { prisma } from "@/lib/db";
 import { DEMO_WORKSPACE_ID } from "./workspace";
 
@@ -16,13 +17,13 @@ export async function searchDesk(raw: string, workspaceId = DEMO_WORKSPACE_ID): 
 
   const [loads, drivers, brokers, lanes] = await Promise.all([
     prisma.load.findMany({
-      where: { workspaceId, deletedAt: null, OR: [has("loadNumber"), has("poNumber"), has("brokerName"), has("originAddress"), has("destinationAddress")] },
+      where: { workspaceId, deletedAt: null, ...notQuote, OR: [has("loadNumber"), has("poNumber"), has("brokerName"), has("originAddress"), has("destinationAddress")] },
       orderBy: [{ scheduledDate: "desc" }, { createdAt: "desc" }],
       take: 6
     }),
     prisma.driver.findMany({ where: { workspaceId, OR: [has("name"), has("phone")] }, orderBy: { name: "asc" }, take: 4 }),
-    prisma.load.groupBy({ by: ["brokerName"], where: { workspaceId, deletedAt: null, ...has("brokerName") }, _count: { _all: true }, orderBy: { brokerName: "asc" }, take: 4 }),
-    prisma.load.findMany({ where: { workspaceId, deletedAt: null, OR: [has("originAddress"), has("destinationAddress")] }, select: { originAddress: true, destinationAddress: true }, take: 300 })
+    prisma.load.groupBy({ by: ["brokerName"], where: { workspaceId, deletedAt: null, ...notQuote, ...has("brokerName") }, _count: { _all: true }, orderBy: { brokerName: "asc" }, take: 4 }),
+    prisma.load.findMany({ where: { workspaceId, deletedAt: null, ...notQuote, OR: [has("originAddress"), has("destinationAddress")] }, select: { originAddress: true, destinationAddress: true }, take: 300 })
   ]);
 
   const needle = q.toLowerCase();

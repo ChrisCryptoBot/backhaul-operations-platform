@@ -1,3 +1,4 @@
+import { notQuote } from "@/lib/quote-status";
 import { prisma } from "@/lib/db";
 import { computeAnalytics } from "@/truelane/lib/analytics";
 import { computeAgingSummary } from "@/truelane/lib/invoice";
@@ -49,7 +50,7 @@ export function buildShellData(rows: ShellRow[], now: number = Date.now(), alert
 
 export async function getShellData(workspaceId = DEMO_WORKSPACE_ID): Promise<ShellData> {
   const [loads, alerts] = await Promise.all([
-    prisma.load.findMany({ where: { workspaceId, deletedAt: null }, include: { assignment: { select: { status: true } } } }),
+    prisma.load.findMany({ where: { workspaceId, deletedAt: null, ...notQuote }, include: { assignment: { select: { status: true } } } }),
     getAlerts(new Date(), workspaceId)
   ]);
   return buildShellData(loads, Date.now(), alerts.counts);

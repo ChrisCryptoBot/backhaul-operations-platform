@@ -23,6 +23,7 @@ const PATHS = {
   bell: "M6 16v-5a6 6 0 1 1 12 0v5l2 2H4l2-2Zm4 4a2 2 0 0 0 4 0",
   history: "M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 8v5l3 2",
   calendar: "M4 6h16v14H4V6Zm0 4h16M8 3v4m8-4v4",
+  calculator: "M6 3h12v18H6V3Zm2 4h8v3H8V7Zm0 6h2m3 0h3M8 17h2m3 0h3",
   building: "M5 21V4h9v17M14 9h5v12M8 8h3M8 12h3M8 16h3M3 21h18",
   route: "M6 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm12-10a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM8 17h6.5a3 3 0 0 0 0-6h-5a3 3 0 0 1 0-6H16"
 } as const;

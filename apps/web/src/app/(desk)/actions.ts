@@ -14,6 +14,8 @@ import { saveCostProfile, saveDriver, saveTruck, setDriverActive, setTruckArchiv
 import type { DriverValues, ProfileKey, TruckValues } from "@/lib/fleet-forms";
 import type { Thresholds } from "@/lib/thresholds";
 import type { PayKind } from "@/server/tl/projector";
+import { quoteWarnings, readQuote, type QuoteValues } from "@/lib/quote";
+import { bookQuote, discardQuote, fitQuote, quoteContext, saveQuote, type BookResult, type FitResult, type Override, type QuoteContext, type QuoteSave } from "@/server/tl/quote";
 import { readRateCon } from "@/server/ratecon/reader";
 import { saveReviewedDraft, type ReviewedDraft } from "@/server/ratecon/save";
 import type { RateConLoadDraft } from "@/server/ratecon/map";
@@ -239,4 +241,37 @@ export async function setAppearanceAction(formData: FormData) {
   if (typeof density === "string") jar.set(DENSITY_COOKIE, asDensity(density), { path: "/", maxAge: year, sameSite: "lax" });
   revalidatePath("/", "layout");
   redirect("/settings?note=" + encodeURIComponent("Appearance saved."));
+}
+
+// ── Quote ──────────────────────────────────────────────────────────────────────────────────────
+
+export type PricedQuote = { ok: true; fit: FitResult; context: QuoteContext; warnings: string[] } | { ok: false };
+
+/** The offer priced as you type: every truck and driver, plus what the desk already knows about the lane and the broker. Writes nothing. */
+export async function priceQuoteAction(values: QuoteValues): Promise<PricedQuote> {
+  const input = readQuote(values);
+  if (!input) return { ok: false };
+  const [fit, context] = await Promise.all([fitQuote(input), quoteContext(input)]);
+  return { ok: true, fit, context, warnings: quoteWarnings(input) };
+}
+
+export async function saveQuoteAction(values: QuoteValues, quoteId: string | null, vehicleId: string | null): Promise<QuoteSave> {
+  const out = await saveQuote(values, quoteId, vehicleId);
+  if (out.ok) revalidatePath("/quote");
+  return out;
+}
+
+export async function bookQuoteAction(values: QuoteValues, pick: { vehicleId: string; driverId: string | null }, override: Override | null, quoteId: string | null): Promise<BookResult> {
+  const out = await bookQuote(values, pick, override, quoteId);
+  if (out.ok) {
+    for (const path of ["/quote", "/loads", "/dispatch", "/planner", "/alerts", "/audit", "/kpi"]) revalidatePath(path);
+    revalidatePath("/", "layout");
+  }
+  return out;
+}
+
+export async function discardQuoteAction(id: string): Promise<{ ok: boolean }> {
+  const ok = await discardQuote(id);
+  if (ok) revalidatePath("/quote");
+  return { ok };
 }

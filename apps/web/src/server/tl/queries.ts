@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { computeAnalytics, type AnalyticsPeriod } from "@/truelane/lib/analytics";
 import { computeAgingSummary } from "@/truelane/lib/invoice";
 import { evaluateTlLoad, resolveLabour } from "./evaluate";
+import { notQuote } from "@/lib/quote-status";
 import { toAgingView, toAnalyticsInput, num, numOrNull } from "./convert";
 import { DEMO_WORKSPACE_ID } from "./workspace";
 
@@ -20,7 +21,7 @@ export type BoardRow = Awaited<ReturnType<typeof listBoardRows>>[number];
 /** Every live load with its verdict, newest first. The verdict is TrueLane's finalDecision on the truck's own floor. */
 export async function listBoardRows(workspaceId = DEMO_WORKSPACE_ID) {
   const loads = await prisma.load.findMany({
-    where: { workspaceId, deletedAt: null },
+    where: { workspaceId, deletedAt: null, ...notQuote },
     include: loadInclude,
     orderBy: [{ scheduledDate: "desc" }, { createdAt: "desc" }]
   });
@@ -49,12 +50,12 @@ export async function listBoardRows(workspaceId = DEMO_WORKSPACE_ID) {
 }
 
 export async function analyticsFor(period: AnalyticsPeriod, now = new Date(), workspaceId = DEMO_WORKSPACE_ID) {
-  const loads = await prisma.load.findMany({ where: { workspaceId, deletedAt: null } });
+  const loads = await prisma.load.findMany({ where: { workspaceId, deletedAt: null, ...notQuote } });
   return computeAnalytics(loads.map(toAnalyticsInput), period, now);
 }
 
 export async function agingFor(now = Date.now(), workspaceId = DEMO_WORKSPACE_ID) {
-  const loads = await prisma.load.findMany({ where: { workspaceId, deletedAt: null, paymentStatus: "invoiced" } });
+  const loads = await prisma.load.findMany({ where: { workspaceId, deletedAt: null, ...notQuote, paymentStatus: "invoiced" } });
   return computeAgingSummary(loads.map(toAgingView), now);
 }
 
@@ -64,7 +65,7 @@ import { driverBlocker, driverClashNote } from "./dispatch";
 import { projectLoadToSummary, type LoadSummary, type PayKind } from "./projector";
 
 export async function getLoadDetail(id: string, workspaceId = DEMO_WORKSPACE_ID) {
-  const l = await prisma.load.findFirst({ where: { id, workspaceId, deletedAt: null }, include: loadInclude });
+  const l = await prisma.load.findFirst({ where: { id, workspaceId, deletedAt: null, ...notQuote }, include: loadInclude });
   if (!l) return null;
   const profile = l.vehicle?.costProfile ?? null;
   const evaluation = profile ? evaluateTlLoad(l, profile, l.vehicle) : null;
@@ -136,7 +137,7 @@ export async function listDrivers(workspaceId = DEMO_WORKSPACE_ID) {
 }
 
 export async function listTrucks(workspaceId = DEMO_WORKSPACE_ID) {
-  const trucks = await prisma.vehicle.findMany({ where: { workspaceId }, include: { costProfile: true, loads: { where: { deletedAt: null } } }, orderBy: { name: "asc" } });
+  const trucks = await prisma.vehicle.findMany({ where: { workspaceId }, include: { costProfile: true, loads: { where: { deletedAt: null, ...notQuote } } }, orderBy: { name: "asc" } });
   return trucks.map((t) => ({
     id: t.id,
     name: t.name,

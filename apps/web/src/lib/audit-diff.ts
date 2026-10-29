@@ -35,6 +35,7 @@ export type AuditAction =
   | "invoiced"
   | "paid"
   | "rate_con_saved"
+  | "booked"
   | "thresholds_changed"
   | "driver_added"
   | "driver_changed"
@@ -59,6 +60,7 @@ export const ACTION_LABEL: Record<string, string> = {
   invoiced: "Invoice created",
   paid: "Marked paid",
   rate_con_saved: "Created from a rate confirmation",
+  booked: "Booked from a quote",
   thresholds_changed: "Thresholds changed",
   driver_added: "Driver added",
   driver_changed: "Driver changed",
@@ -84,6 +86,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   invoiced: "info",
   paid: "ok",
   rate_con_saved: "muted",
+  booked: "ok",
   thresholds_changed: "muted",
   driver_added: "info",
   driver_changed: "muted",
@@ -98,7 +101,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
 
 /** The filter chips on the audit page: which actions belong to which group. */
 export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[] }> = [
-  { key: "dispatch", label: "Dispatch", actions: ["assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "tonu", "rescheduled"] },
+  { key: "dispatch", label: "Dispatch", actions: ["booked", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "tonu", "rescheduled"] },
   { key: "money", label: "Money", actions: ["invoiced", "paid"] },
   { key: "intake", label: "Intake", actions: ["rate_con_saved"] },
   { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_deactivated", "driver_reactivated", "truck_added", "truck_changed", "truck_archived", "truck_restored", "cost_profile_changed"] },

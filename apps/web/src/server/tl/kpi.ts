@@ -12,6 +12,7 @@ import { THRESHOLD_DEFAULTS, type Thresholds } from "@/lib/thresholds";
 import type { Verdict } from "@/lib/desk-format";
 import { reasonLabel } from "@/lib/disruptions";
 import { evaluateTlLoad } from "./evaluate";
+import { notQuote } from "@/lib/quote-status";
 import { ms, num, numOrNull, toAgingView, toAnalyticsInput, toMarketVarianceLoad, type LoadRow } from "./convert";
 import { getThresholds } from "./thresholds";
 import { DEMO_WORKSPACE_ID } from "./workspace";
@@ -452,7 +453,7 @@ export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: T
 
 export async function getKpiRows(workspaceId = DEMO_WORKSPACE_ID): Promise<KpiLoadRow[]> {
   const loads = await prisma.load.findMany({
-    where: { workspaceId, deletedAt: null },
+    where: { workspaceId, deletedAt: null, ...notQuote },
     include: { vehicle: { include: { costProfile: true } }, assignment: { include: { driver: true } }, stops: { select: { waitMinutes: true, arrivedAt: true, timeWindowLatest: true } } }
   });
   return loads.map((l) => {

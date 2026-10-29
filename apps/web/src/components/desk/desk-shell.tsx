@@ -17,6 +17,7 @@ const NAV: Array<{ label: string; items: Item[] }> = [
   {
     label: "Dispatch",
     items: [
+      { href: "/quote", label: "Quote a load", icon: "calculator" },
       { href: "/loads", label: "Loads", icon: "loads" },
       { href: "/dispatch", label: "Dispatch queue", icon: "dispatch", pill: (c) => (c.needsDriver > 0 ? { n: c.needsDriver, tone: "warn" } : null) },
       { href: "/planner", label: "Planner", icon: "calendar" },
@@ -55,6 +56,7 @@ const NAV: Array<{ label: string; items: Item[] }> = [
 ];
 
 const TITLES: Array<[string, string]> = [
+  ["/quote", "Quote a load"],
   ["/loads", "Loads"],
   ["/dispatch", "Dispatch queue"],
   ["/planner", "Planner"],

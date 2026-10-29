@@ -240,3 +240,38 @@ drivers work for them). This wave is the foundation Quote and Loads read from. T
 - Not done: the dispatcher's margin (revenue minus driver pay minus truck cost), which needs its definition agreed first; the confirm dialog's "Save as typed"
   and "Fill with typical numbers" were not clicked; a flat pay as a per-mile rate is my reading and is flagged for sign-off; burden is per truck, not per driver;
   no CDL number on drivers; a production build, a keyboard-only walk and the print dialog (Wave 8).
+
+## Desk rework, Wave 6 (done): Quote a load (the phone's Calculate for a dispatcher)
+Plan: `~/.claude/plans/radiant-stargazing-spark.md`. The phone's Calculate prices one load for one truck; here an offer is priced for every truck and
+every driver who runs it, with the same verdict maths, so "which of my trucks should take this, and does it clear?" has an answer before it is booked.
+- **The page** (`/quote`; `components/desk/quote-desk.tsx`, `lib/quote.ts`, `server/tl/quote.ts`). The load (stops with a pickup first and a delivery last,
+  middle stops either; broker with the desk's brokers as suggestions; trailer), the money (offer, fuel surcharge as a percent or dollars a loaded mile,
+  market rate as a total, pay terms, factoring) and the miles (loaded, empty to the pickup, empty home, "I have a load back"). It prices as you type
+  (a short pause, then `priceQuoteAction`); nothing is written until a quote is saved or booked.
+- **Truck and driver table.** One row per truck and driver (a truck with no driver set gets one row), best first, a driver who cannot take it last. Each
+  row is the offer run through `evaluateTlLoad` with that driver's usual pay as the labour (the truck's own profile when they have none), so a driver on a
+  truck changes the answer. The verdict band uses the phone's words (Below your cost, Add mpg and fuel price, Strong caution, Negotiate up, At market, Above
+  market, Add a market rate). Empty miles to the pickup can be typed per truck, because the desk has no routing to work it out. A lapsed card, or another load
+  at that time (when both times are typed), blocks a driver's row and says why.
+- **The verdict panel.** The band, the per-mile figure with the miles it is per ("$1.19/mi all-in on 545 mi · 237 mi empty home", the phone's own golden
+  case), the floor it used and what the load clears or misses it by, pay with surcharge, the market comparison, the pay needed to cover it when it does
+  not, fuel, whose driver pay is in it, and every reason to pause (route minimum, thin margin, time trap, rests, a missing fuel price).
+- **A reason when one is needed.** The accept gate is the phone's `acceptGate` (vendored): below cost, no fuel price, below market or no market rate asks for
+  a reason first, with the phone's four reasons and its question for each gate. The server works the verdict out again and refuses a booking without the
+  reason; the decision (`LoadDecision`: accepted, or overridden with the reason and notes) and a `booked` audit entry are written with it.
+- **Quotes are loads with status `quote`** (`lib/quote-status.ts`). One predicate, `notQuote`, is in every general load query (board, analytics, aging,
+  load detail, alerts, KPI rows, search, the sidebar counts, a truck's load counts), and the planner and the due list name their statuses, so a quote is
+  on none of them; the Quote page is the one place that lists them (saved quotes, with Reopen and Discard). Booking changes the quote's status to
+  `draft` (needs a driver): same row, no copy.
+- **Book.** Needs a time at both ends (the desk cannot yet edit a stop, and a load with no times cannot be planned or chased), a truck with a cost profile,
+  and the reason if one is asked. It creates the load (number `QT-...`, channel `dispatch`) with its stops, freezes the floor and dock terms
+  (`freezeLoadSnapshot`), and, if a driver's row was chosen and they have a usual pay, assigns them at it (not sent). If the driver cannot be assigned (a lapsed
+  card, or a clash) the load is still booked and the page says why.
+- **What the desk already knows.** Last time on this lane (the five latest finished loads between the same two cities, with the average per loaded mile) and
+  the broker's record (loads, finished, fell through, average per loaded mile and days to pay), from the desk's own loads.
+- Verified: `tsc` and eslint clean; vitest 21 files / 271 tests pass with the database tests (11 new for quoting, 8 for the form). In the browser at 1440 and
+  1024: the page, pricing as typed, the table and its selection, the lane and broker cards, reopening a saved quote, the missing-times message, the override
+  question (the Book button stays off until a reason is picked), a booking with an override and a clean booking with its driver, and the success panel.
+- Not done: address autocomplete, routed miles and drive hours (they need a Mapbox key, which is Chris's to set; typed miles and a 50 mph drive time stand in), the
+  fuel price from EIA (the truck profile's price is used), the phone's load size and requirement fields, the lead-time tip, a "pass on it" decision, editing a booked
+  load's stops (Wave 7); at 1024 the verdict panel sits below the form; a production build and a keyboard-only walk (Wave 8).

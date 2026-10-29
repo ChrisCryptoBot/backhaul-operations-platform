@@ -7,6 +7,7 @@ The golden tests in `tests/truelane-domain.test.ts` pin the figures on the TrueL
 
 ## Files
 - `lib/analytics.ts`
+- `lib/calculate/acceptGate.ts`
 - `lib/calculate/afterDelivery.ts`
 - `lib/calculate/emptyMiles.ts`
 - `lib/costProfileHero.ts`
