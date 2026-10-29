@@ -35,6 +35,7 @@ export class DispatchError extends Error {
       | "not_assigned"
       | "already_sent"
       | "not_sent"
+      | "not_ready"
       | "double_booked"
       | "reason_required"
       | "not_unassignable"
@@ -219,7 +220,7 @@ export async function driverSummaryFor(loadId: string): Promise<LoadSummary> {
 }
 
 /** Send the assignment to the driver: status becomes dispatched and the version is bumped. */
-export async function dispatchLoad(loadId: string, now = new Date()) {
+export async function dispatchLoad(loadId: string, now = new Date(), opts: { sentWithout?: string } = {}) {
   const summary = await driverSummaryFor(loadId); // throws if not assigned or if anything would leak
   const a = await prisma.assignment.findUniqueOrThrow({ where: { loadId }, include: { driver: true, load: true } });
   if (a.status !== "draft") throw new DispatchError("already_sent", "This load was already sent to the driver.");
@@ -234,7 +235,7 @@ export async function dispatchLoad(loadId: string, now = new Date()) {
         action: "sent",
         loadId,
         loadNumber: a.load.loadNumber,
-        summary: `Sent to ${a.driver.name}`,
+        summary: `Sent to ${a.driver.name}${opts.sentWithout ? `, without ${opts.sentWithout}` : ""}`,
         before: { Status: "Assigned, not sent" },
         after: { Status: "Sent, waiting" },
         at: now

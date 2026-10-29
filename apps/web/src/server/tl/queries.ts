@@ -81,7 +81,8 @@ import { rateConTotal } from "@/lib/pay";
 import { driverFacingPay, projectLoadToSummary, type LoadSummary, type PayKind } from "./projector";
 
 export async function getLoadDetail(id: string, workspaceId = DEMO_WORKSPACE_ID) {
-  const l = await prisma.load.findFirst({ where: { id, workspaceId, deletedAt: null, ...notQuote }, include: loadInclude });
+  // The decision is read here only (the board shares loadInclude and does not need it): how the quote became this load.
+  const l = await prisma.load.findFirst({ where: { id, workspaceId, deletedAt: null, ...notQuote }, include: { ...loadInclude, decisions: { orderBy: { decidedAt: "desc" as const }, take: 1 } } });
   if (!l) return null;
   const profile = l.vehicle?.costProfile ?? null;
   const evaluation = profile ? evaluateTlLoad(l, profile, l.vehicle) : null;

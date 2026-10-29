@@ -65,9 +65,10 @@ async function main() {
   await prisma.workspace.create({ data: { id: WORKSPACE_ID, name: "Demo fleet" } });
 
   const trucks = [
-    { name: "Unit 101", type: "heavy_duty", mpg: 6.8, insurance: 1450, loan: 1900, miles: 6500, base: "Dallas, TX" },
-    { name: "Unit 102", type: "heavy_duty", mpg: 6.5, insurance: 1380, loan: 0, miles: 7000, base: "Houston, TX" },
-    { name: "Unit 103", type: "box_truck", mpg: 9.2, insurance: 1100, loan: 1250, miles: 6000, base: "Oklahoma City, OK" }
+    // What each can carry: the tractors pull a 53 ft trailer to the legal limits; the box truck is a 26 ft straight truck with a liftgate and a pallet jack.
+    { name: "Unit 101", type: "heavy_duty", mpg: 6.8, insurance: 1450, loan: 1900, miles: 6500, base: "Dallas, TX", payload: 44000, length: 53, width: 8.5, height: 162, liftgate: false, ramp: false, jack: false },
+    { name: "Unit 102", type: "heavy_duty", mpg: 6.5, insurance: 1380, loan: 0, miles: 7000, base: "Houston, TX", payload: 44000, length: 53, width: 8.5, height: 162, liftgate: false, ramp: false, jack: false },
+    { name: "Unit 103", type: "box_truck", mpg: 9.2, insurance: 1100, loan: 1250, miles: 6000, base: "Oklahoma City, OK", payload: 9500, length: 26, width: 8, height: 96, liftgate: true, ramp: false, jack: true }
   ];
   const vehicles: Array<{ id: string; mpg: number; breakEven: number }> = [];
   for (const t of trucks) {
@@ -89,6 +90,13 @@ async function main() {
         mpg: t.mpg,
         fuelType: "diesel",
         homeBaseAddress: t.base,
+        payloadLbs: t.payload,
+        maxLengthFt: t.length,
+        maxWidthFt: t.width,
+        maxHeightIn: t.height,
+        hasLiftgate: t.liftgate,
+        hasRamp: t.ramp,
+        hasPalletJack: t.jack,
         costProfile: {
           create: {
             monthlyInsurance: input.monthlyInsurance,

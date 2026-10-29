@@ -140,6 +140,8 @@
   --db-text-xl: 20px;
   --db-text-2xl: 26px;
   --db-text-3xl: 34px;
+  /** The one hero figure on a screen: the verdict, the all-in. */
+  --db-text-hero: 46px;
 
   /* 4px spacing scale */
   --db-1: 4px;

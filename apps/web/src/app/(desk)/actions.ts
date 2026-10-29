@@ -17,7 +17,7 @@ import type { DriverValues, ProfileKey, TruckValues } from "@/lib/fleet-forms";
 import type { Thresholds } from "@/lib/thresholds";
 import type { PayKind } from "@/server/tl/projector";
 import { quoteWarnings, readQuote, type QuoteValues } from "@/lib/quote";
-import { bookQuote, discardQuote, fitQuote, quoteContext, saveQuote, type BookResult, type FitResult, type Override, type QuoteContext, type QuoteSave } from "@/server/tl/quote";
+import { bookQuote, discardQuote, fitQuote, passQuote, quoteContext, saveQuote, type BookResult, type FitResult, type Override, type QuoteContext, type QuoteSave } from "@/server/tl/quote";
 import type { LoadEditValues } from "@/lib/load-edit";
 import type { InvoiceForm } from "@/lib/invoicing";
 import type { CompleteValues, ExpenseValues, StartValues } from "@/lib/trip";
@@ -28,6 +28,8 @@ import { undoPaid, type InvoiceOut, type PaidOut } from "@/server/tl/invoicing";
 import { discardSettlement, finalizeSettlement, saveDraft, startSettlement, voidSettlement, type Draft, type SettleResult } from "@/server/tl/settlement";
 import { readRateCon } from "@/server/ratecon/reader";
 import { DuplicateLoadError, saveReviewedDraft, type ReviewedDraft } from "@/server/ratecon/save";
+import { loadSendGaps } from "@/server/tl/readiness";
+import { gapsPhrase } from "@/lib/send-readiness";
 import type { RateConLoadDraft } from "@/server/ratecon/map";
 
 /**
@@ -80,9 +82,14 @@ export async function unassignAction(formData: FormData) {
 
 export async function sendAction(formData: FormData) {
   const loadId = String(formData.get("loadId"));
+  const sendAnyway = formData.get("sendAnyway") === "1";
   await attempt(loadId, async () => {
-    await dispatchLoad(loadId);
-    return "Sent to the driver.";
+    // The server decides what is missing, whatever the page showed. A load that lacks something goes only when the dispatcher says to send anyway.
+    const gaps = await loadSendGaps(loadId);
+    const missing = gapsPhrase(gaps);
+    if (gaps.length > 0 && !sendAnyway) throw new DispatchError("not_ready", `Not ready: still missing ${missing}. Send anyway if the driver has it another way.`);
+    await dispatchLoad(loadId, new Date(), gaps.length > 0 ? { sentWithout: missing } : {});
+    return gaps.length > 0 ? `Sent without ${missing}.` : "Sent to the driver.";
   });
 }
 
@@ -269,6 +276,15 @@ export async function bookQuoteAction(values: QuoteValues, pick: { vehicleId: st
   if (out.ok) {
     for (const path of ["/quote", "/loads", "/dispatch", "/planner", "/alerts", "/audit", "/kpi"]) revalidatePath(path);
     revalidatePath("/", "layout");
+  }
+  return out;
+}
+
+export async function passQuoteAction(id: string, reason: string, notes: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const out = await passQuote(id, reason, notes);
+  if (out.ok) {
+    revalidatePath("/quote");
+    revalidatePath("/audit");
   }
   return out;
 }

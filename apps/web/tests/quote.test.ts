@@ -99,3 +99,27 @@ describe("the quote status", () => {
     expect(isQuote(null)).toBe(false);
   });
 });
+
+describe("what the load is: weight, size, hazmat and what it needs", () => {
+  test("left blank, the load says nothing about itself", () => {
+    const r = readQuote(good)!;
+    expect(r.specs).toEqual({ weightLbs: null, lengthFt: null, widthFt: null, heightIn: null, hazmatClass: null, requiresLiftgate: false, requiresRamp: false, requiresPalletJack: false });
+    expect(validateQuote(good).ok).toBe(true);
+  });
+
+  test("typed, they are read as numbers and flags", () => {
+    const r = readQuote({ ...good, weightLbs: "12,500", lengthFt: "26", widthFt: "8.5", heightIn: "96", hazmatClass: " 3 ", requiresLiftgate: true, requiresPalletJack: true })!;
+    expect(r.specs).toEqual({ weightLbs: 12500, lengthFt: 26, widthFt: 8.5, heightIn: 96, hazmatClass: "3", requiresLiftgate: true, requiresRamp: false, requiresPalletJack: true });
+  });
+
+  test("a figure that cannot be right is refused, in words", () => {
+    expect(errorsOf({ weightLbs: "abc" }).weightLbs).toMatch(/whole number/);
+    expect(errorsOf({ weightLbs: "12.5" }).weightLbs).toMatch(/whole number/);
+    expect(errorsOf({ weightLbs: "300000" }).weightLbs).toMatch(/200,000/);
+    expect(errorsOf({ lengthFt: "0" }).lengthFt).toMatch(/above 0/);
+    expect(errorsOf({ widthFt: "45" }).widthFt).toMatch(/30/);
+    expect(errorsOf({ heightIn: "-4" }).heightIn).toMatch(/above 0/);
+    expect(errorsOf({ hazmatClass: "x".repeat(21) }).hazmatClass).toMatch(/20/);
+    expect(errorsOf({ weightLbs: "44000", lengthFt: "53", widthFt: "8.5", heightIn: "162" })).toEqual({});
+  });
+});

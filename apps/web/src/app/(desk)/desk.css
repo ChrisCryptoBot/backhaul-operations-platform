@@ -475,6 +475,7 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .dlg-actions { display: flex; justify-content: flex-end; gap: var(--db-2); margin-top: var(--db-2); }
 .dlg-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--db-text-sm); color: var(--db-fg-mid); }
 .dlg-check input { width: 16px; height: 16px; accent-color: var(--db-accent); }
+.th-checks { display: flex; flex-wrap: wrap; gap: var(--db-2) var(--db-5); min-height: 36px; align-items: center; }
 .k-modal .tl-field select, .k-modal .tl-field input { width: 100%; }
 
 /* ───────────────────────────── thresholds (Settings) ───────────────────────────── */
@@ -642,21 +643,31 @@ a.al:hover { background: var(--db-bg-elev-1); }
 /* ───────────────────────────── quote a load ───────────────────────────── */
 .qt { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: var(--db-5); align-items: start; }
 .qt-main { display: grid; gap: var(--db-4); min-width: 0; }
-.qt-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--db-3) var(--db-5); align-items: start; }
-.qt-check { align-self: end; min-height: 36px; }
+.qt-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--db-3) var(--db-5); align-items: start; }
+.qt-check { grid-column: 1 / -1; min-height: 28px; }
 .qt-stops { display: grid; gap: var(--db-2); margin: 0; padding: 0; list-style: none; }
-.qt-stop { display: grid; grid-template-columns: 96px minmax(0, 1fr) 200px 34px; gap: var(--db-3); align-items: start; }
-.qt-stop > .tl-chip, .qt-stop > select { align-self: center; justify-self: start; }
+.qt-stop { display: grid; grid-template-columns: 84px minmax(0, 1fr) 200px 34px; gap: var(--db-3); align-items: start; }
+.qt-stop > select { align-self: center; justify-self: start; }
+.qt-role { align-self: center; font-family: var(--db-font-head); font-size: var(--db-text-sm); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600; color: var(--db-fg-dim); }
 .qt-stop select { min-height: 36px; padding: 0 var(--db-3); background: var(--db-bg-input); color: var(--db-fg); border: 1px solid var(--db-border-strong); border-radius: var(--db-r-md); font-size: var(--db-text-base); }
 .qt-stops-foot { display: flex; align-items: center; gap: var(--db-3); margin-top: var(--db-3); flex-wrap: wrap; }
 .th-input .cp-seg { margin-left: var(--db-2); }
 .qt-side { position: sticky; top: 76px; display: grid; gap: var(--db-3); padding: var(--db-4) var(--db-5); border: 1px solid var(--db-border); border-top-color: var(--db-border-lit); border-radius: var(--db-r-card); background: var(--db-bg-inset); }
 .qt-verdict { display: grid; gap: var(--db-2); }
 .qt-band { height: 26px; font-size: var(--db-text-sm); padding: 0 var(--db-3); }
-.qt-big { font-family: var(--db-font-head); font-size: var(--db-text-3xl); font-weight: 600; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.qt-big { font-family: var(--db-font-head); font-size: var(--db-text-hero); font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
 .qt-big span { font-size: var(--db-text-base); font-weight: 500; color: var(--db-fg-dim); }
 .qt-notes { margin-top: var(--db-1); color: var(--db-warn); }
 .qt-actions { display: grid; gap: var(--db-2); }
+.qt-actions-row { display: grid; grid-template-columns: 1fr auto; gap: var(--db-2); }
+.qt-more { margin-top: var(--db-4); border-top: 1px solid var(--db-border-soft); padding-top: var(--db-2); }
+.qt-more > summary { cursor: pointer; padding: var(--db-1) 0; font-family: var(--db-font-head); font-size: var(--db-text-sm); letter-spacing: 0.12em; text-transform: uppercase; font-weight: 600; color: var(--db-accent-fg); }
+.qt-more > summary .tl-sub { margin-left: var(--db-2); letter-spacing: 0; text-transform: none; font-family: var(--db-font-body, inherit); font-weight: 400; }
+.qt-more[open] > summary { margin-bottom: var(--db-3); }
+.qt-spec { margin-top: 0; border-top: 0; padding-top: 0; }
+.qt-needs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--db-2) var(--db-5); margin-top: var(--db-3); }
+.rc-warns-list { margin: var(--db-1) 0 0; padding-left: 18px; font-size: var(--db-text-sm); color: var(--db-warn); }
+.qt-table tr.qt-off td { color: var(--db-fg-dim); }
 .qt-fit { margin-top: var(--db-6); }
 .qt-scroll { max-height: none; }
 .qt-table td, .qt-table th { vertical-align: middle; }
@@ -664,6 +675,8 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .qt-table tbody tr:hover { background: var(--db-bg-elev-2); }
 .qt-on, .qt-table tbody tr.qt-on { background: var(--db-accent-bg); }
 .qt-table .sub { display: block; font-size: var(--db-text-sm); color: var(--db-fg-dim); font-weight: 400; }
+.qt-table .sub.neg { color: var(--db-neg); }
+.qt-table .sub.warn { color: var(--db-warn); }
 .qt-table td.neg { color: var(--db-neg); }
 .qt-table th.num, .qt-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .qt-mini { width: 72px; min-height: 30px; padding: 0 var(--db-2); text-align: right; background: var(--db-bg-input); color: var(--db-fg); border: 1px solid var(--db-border-strong); border-radius: var(--db-r-md); font-size: var(--db-text-sm); }
@@ -690,3 +703,18 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .demo-controls > summary { cursor: pointer; color: var(--db-fg-dim); padding: var(--db-1) 0; }
 .demo-controls[open] > summary { margin-bottom: var(--db-2); }
 .demo-controls form { display: flex; flex-wrap: wrap; align-items: center; gap: var(--db-2); }
+
+/* New load: two doors */
+.nl-doors { display: grid; gap: var(--db-3); }
+.nl-door { display: grid; gap: 2px; padding: var(--db-3) var(--db-4); border: 1px solid var(--db-border-strong); border-radius: var(--db-r-note); color: var(--db-fg); text-decoration: none; }
+.nl-door:hover, .nl-door:focus-visible { border-color: var(--db-accent); background: var(--db-accent-bg); }
+.nl-door span { color: var(--db-fg-mid); font-size: var(--db-text-sm); }
+
+/* load view: the hero, and the page's main column with its rail */
+.lv-hero .trio { grid-template-columns: 1.5fr 1fr 1fr; }
+.lv-hero .trio > div:nth-child(1) .v { font-size: var(--db-text-hero); line-height: 1; }
+.lv-hero .trio > div:nth-child(2) .v { font-size: var(--db-text-2xl); }
+.lv-cols { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: var(--db-6); align-items: start; }
+.lv-main, .lv-rail { display: grid; gap: var(--db-4); align-content: start; min-width: 0; }
+.lv-more { display: flex; flex-wrap: wrap; align-items: center; gap: var(--db-2); }
+@media (max-width: 1100px) { .lv-cols { grid-template-columns: 1fr; } }

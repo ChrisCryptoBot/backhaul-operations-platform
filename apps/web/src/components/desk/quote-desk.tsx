@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React from "react";
-import { bookQuoteAction, discardQuoteAction, priceQuoteAction, saveQuoteAction, type PricedQuote } from "@/app/(desk)/actions";
+import { bookQuoteAction, discardQuoteAction, passQuoteAction, priceQuoteAction, saveQuoteAction, type PricedQuote } from "@/app/(desk)/actions";
 import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
 import { addressReady, roundMiles } from "@/lib/geo";
-import { BAND_LABEL, BLANK_QUOTE, gateTitle, missingTimes, OVERRIDE_REASONS, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
+import { BAND_LABEL, BLANK_QUOTE, gateTitle, missingTimes, OVERRIDE_REASONS, PASS_REASONS, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
 import type { FitRow, QuoteListRow } from "@/server/tl/quote";
 import type { Measured } from "@/server/geo/measure";
 import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
@@ -15,13 +15,14 @@ import { Icon } from "./kit/icons";
 import { Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
 
-type Initial = { id: string; values: QuoteValues; vehicleId: string | null } | null;
+type Initial = { id: string | null; values: QuoteValues; vehicleId: string | null } | null;
 
 /**
  * The phone's Calculate screen for a dispatcher. Type an offer and it is priced for every truck and driver as you go, with the verdict
  * the phone would give, so the question "which of my trucks should take this, and does it clear?" has an answer before anything is
- * booked. Save it as a quote to come back to, or book it: a load that needs a reason (below its cost, no fuel price, below the market, no
- * market rate) asks for one first, and the answer is kept with the decision.
+ * booked. Save it as a quote to come back to, pass on it, or book it: a load that needs a reason (below its cost, no fuel price, below the
+ * market, no market rate) asks for one first, and the answer is kept with the decision. A truck that cannot carry the load (heavier or bigger
+ * than it is rated for) is listed last with the reason and cannot be picked.
  */
 export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]; brokers: string[]; initial: Initial }) {
   const router = useRouter();
@@ -37,6 +38,9 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
   const [asking, setAsking] = React.useState(false);
   const [reason, setReason] = React.useState<string>("");
   const [notes, setNotes] = React.useState("");
+  const [passing, setPassing] = React.useState(false);
+  const [passReason, setPassReason] = React.useState<string>("");
+  const [passNotes, setPassNotes] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [done, setDone] = React.useState<{ loadId: string; loadNumber: string | null; note: string | null; assigned: boolean; truck: string } | null>(null);
   const seq = React.useRef(0);
@@ -46,6 +50,9 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
   const routeKey = (stops: QuoteStop[]) => stops.map((s) => `${s.role}|${s.address.trim().toLowerCase()}`).join("~");
   const lastRoute = React.useRef(initial ? routeKey(initial.values.stops) : "");
   const [measure, setMeasure] = React.useState<{ state: "idle" | "busy" | "ok" | "error"; text: string }>({ state: "idle", text: "" });
+  // The two rarely used groups open on their own when the quote already has something in them.
+  const [paperOpen] = React.useState(() => !!initial && [initial.values.brokerMc, initial.values.loadNumber, initial.values.poNumber, initial.values.brokerPhone, initial.values.brokerEmail].some((x) => x.trim() !== ""));
+  const [specOpen] = React.useState(() => !!initial && [initial.values.weightLbs, initial.values.lengthFt, initial.values.widthFt, initial.values.heightIn, initial.values.hazmatClass, initial.values.trailer].some((x) => x.trim() !== "") || !!(initial?.values.requiresLiftgate || initial?.values.requiresRamp || initial?.values.requiresPalletJack));
 
   const check = validateQuote(values);
   const errors: Record<string, string> = { ...serverErrors, ...(tried && !check.ok ? check.errors : {}) };
@@ -207,6 +214,45 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
     }
   }
 
+  /** Pass on it: the quote is kept (saved first when it was only typed) with the reason, so the lane and the broker are remembered. */
+  function onOpenPass() {
+    setTried(true);
+    if (!check.ok) {
+      setMessage("Fix what is marked, then pass on it.");
+      return;
+    }
+    setPassReason("");
+    setPassNotes("");
+    setPassing(true);
+  }
+
+  async function onPass() {
+    setBusy(true);
+    let id = quoteId;
+    if (!id) {
+      const saved = await saveQuoteAction(values, null, row?.truckId ?? null);
+      if (!saved.ok) {
+        setBusy(false);
+        setPassing(false);
+        setServerErrors(saved.errors ?? {});
+        setMessage(saved.error ?? "Fix what is marked, then pass on it.");
+        return;
+      }
+      id = saved.id;
+    }
+    const out = await passQuoteAction(id, passReason, passNotes);
+    setBusy(false);
+    if (!out.ok) {
+      setMessage(out.error);
+      return;
+    }
+    setPassing(false);
+    toast({ text: `Passed: ${passReason}. It stays in Saved quotes.`, tone: "ok" });
+    reset();
+    router.replace("/quote");
+    router.refresh();
+  }
+
   const err = (k: string) => errors[k];
   const stopCount = values.stops.length;
 
@@ -235,7 +281,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
       <div className="qt">
         <div className="qt-main">
           <section className="tl-card">
-            <h2>The load</h2>
+            <h2>Route</h2>
             {err("stops") ? <p className="th-err" role="alert">{err("stops")}</p> : null}
             <ol className="qt-stops">
               {values.stops.map((s, i) => {
@@ -244,7 +290,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                 return (
                   <li key={i} className="qt-stop">
                     {first || last ? (
-                      <span className={`tl-chip ${first ? "info" : "ok"}`}>{first ? "Pickup" : "Delivery"}</span>
+                      <span className="qt-role">{first ? "Pickup" : "Delivery"}</span>
                     ) : (
                       <select aria-label={`Stop ${i + 1} is a`} value={s.role} onChange={(e) => setStop(i, { role: e.target.value as QuoteStop["role"] })}>
                         <option value="pickup">Pickup</option>
@@ -276,10 +322,14 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
               <button type="button" className="tl-btn sm" onClick={addStop}>
                 Add a stop
               </button>
-              <span className="tl-sub">Times are Dallas time. They are needed to book it, not to price it.</span>
+              <span className="tl-sub">Times are Dallas time, needed to book it and not to price it.</span>
             </div>
-            <div className="qt-grid" style={{ marginTop: 14 }}>
-              <label className="tl-field">
+          </section>
+
+          <section className="tl-card">
+            <h2>The deal</h2>
+            <div className="qt-grid">
+              <label className="tl-field th-field">
                 Broker
                 <input list="qt-brokers" value={values.broker} onChange={(e) => set({ broker: e.target.value })} autoComplete="off" />
                 <datalist id="qt-brokers">
@@ -288,47 +338,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                   ))}
                 </datalist>
               </label>
-              <label className="tl-field">
-                Broker MC
-                <input value={values.brokerMc} onChange={(e) => set({ brokerMc: e.target.value })} inputMode="numeric" autoComplete="off" aria-invalid={err("brokerMc") ? true : undefined} />
-                {err("brokerMc") ? <span className="th-err" role="alert">{err("brokerMc")}</span> : null}
-              </label>
-              <label className="tl-field">
-                Broker&apos;s load number
-                <input value={values.loadNumber} onChange={(e) => set({ loadNumber: e.target.value })} autoComplete="off" />
-              </label>
-              <label className="tl-field">
-                PO number
-                <input value={values.poNumber} onChange={(e) => set({ poNumber: e.target.value })} autoComplete="off" />
-              </label>
-              <label className="tl-field">
-                Broker phone
-                <input value={values.brokerPhone} onChange={(e) => set({ brokerPhone: e.target.value })} inputMode="tel" autoComplete="off" aria-invalid={err("brokerPhone") ? true : undefined} />
-                {err("brokerPhone") ? <span className="th-err" role="alert">{err("brokerPhone")}</span> : null}
-              </label>
-              <label className="tl-field">
-                Broker email
-                <input value={values.brokerEmail} onChange={(e) => set({ brokerEmail: e.target.value })} inputMode="email" autoComplete="off" aria-invalid={err("brokerEmail") ? true : undefined} />
-                {err("brokerEmail") ? <span className="th-err" role="alert">{err("brokerEmail")}</span> : null}
-              </label>
-              <label className="tl-field">
-                Trailer
-                <select value={values.trailer} onChange={(e) => set({ trailer: e.target.value })}>
-                  <option value="">Not stated</option>
-                  {TRAILER_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </section>
-
-          <section className="tl-card">
-            <h2>The money</h2>
-            <div className="qt-grid">
-              <Money label="Offer" unit="$" value={values.offer} error={err("offer")} onChange={(v) => set({ offer: v })} hint="What the broker pays for the load, before any fuel surcharge." />
+              <Money label="Offer" unit="$" value={values.offer} error={err("offer")} onChange={(v) => set({ offer: v })} />
               <div className="th-field">
                 <label htmlFor="qt-fsc">Fuel surcharge</label>
                 <div className="th-input">
@@ -342,12 +352,40 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                     </button>
                   </div>
                 </div>
-                {err("fsc") ? <span className="th-err">{err("fsc")}</span> : <span className="th-hint">Blank if none. A percent of the offer, or dollars on each loaded mile.</span>}
+                {err("fsc") ? <span className="th-err">{err("fsc")}</span> : null}
               </div>
-              <Money label="Market rate" unit="$ total" value={values.marketRate} error={err("marketRate")} onChange={(v) => set({ marketRate: v })} hint="What this load pays at market, as a total, not per mile. Blank skips the market check." />
-              <Money label="Pay terms" unit="days" value={values.payTermsDays} error={err("payTermsDays")} onChange={(v) => set({ payTermsDays: v })} hint="Net days. Did you ask?" />
-              <Money label="Factoring fee" unit="%" value={values.factoringPct} error={err("factoringPct")} onChange={(v) => set({ factoringPct: v })} hint="Blank uses each truck's own fee." />
+              <Money label="Market rate" unit="$ total" value={values.marketRate} error={err("marketRate")} onChange={(v) => set({ marketRate: v })} hint="The total for the load, not per mile. Blank skips the market check." />
+              <Money label="Pay terms" unit="days" value={values.payTermsDays} error={err("payTermsDays")} onChange={(v) => set({ payTermsDays: v })} />
+              <Money label="Factoring fee" unit="%" value={values.factoringPct} error={err("factoringPct")} onChange={(v) => set({ factoringPct: v })} hint="Blank uses each truck's own." />
             </div>
+            <details className="qt-more" open={paperOpen || undefined}>
+              <summary>Broker paperwork</summary>
+              <div className="qt-grid">
+                <label className="tl-field">
+                  MC number
+                  <input value={values.brokerMc} onChange={(e) => set({ brokerMc: e.target.value })} inputMode="numeric" autoComplete="off" aria-invalid={err("brokerMc") ? true : undefined} />
+                  {err("brokerMc") ? <span className="th-err" role="alert">{err("brokerMc")}</span> : null}
+                </label>
+                <label className="tl-field">
+                  Their load number
+                  <input value={values.loadNumber} onChange={(e) => set({ loadNumber: e.target.value })} autoComplete="off" />
+                </label>
+                <label className="tl-field">
+                  PO number
+                  <input value={values.poNumber} onChange={(e) => set({ poNumber: e.target.value })} autoComplete="off" />
+                </label>
+                <label className="tl-field">
+                  Phone
+                  <input value={values.brokerPhone} onChange={(e) => set({ brokerPhone: e.target.value })} inputMode="tel" autoComplete="off" aria-invalid={err("brokerPhone") ? true : undefined} />
+                  {err("brokerPhone") ? <span className="th-err" role="alert">{err("brokerPhone")}</span> : null}
+                </label>
+                <label className="tl-field">
+                  Email
+                  <input value={values.brokerEmail} onChange={(e) => set({ brokerEmail: e.target.value })} inputMode="email" autoComplete="off" aria-invalid={err("brokerEmail") ? true : undefined} />
+                  {err("brokerEmail") ? <span className="th-err" role="alert">{err("brokerEmail")}</span> : null}
+                </label>
+              </div>
+            </details>
           </section>
 
           <section className="tl-card">
@@ -358,14 +396,59 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
               </p>
             ) : null}
             <div className="qt-grid">
-              <Money label="Loaded miles" unit="miles" value={values.loadedMiles} error={err("loadedMiles")} onChange={(v) => typedMiles("loadedMiles", v)} hint="Pickup to last delivery." />
-              <Money label="Empty to the pickup" unit="miles" value={values.emptyToPickup} error={err("emptyToPickup")} onChange={(v) => typedMiles("emptyToPickup", v)} hint="From the truck. Each truck with a base is measured below." />
-              <Money label="Empty home after" unit="miles" value={values.emptyHome} error={err("emptyHome")} onChange={(v) => typedMiles("emptyHome", v)} hint="From the last delivery back. Typing it replaces each truck's own." />
+              <Money label="Loaded" unit="miles" value={values.loadedMiles} error={err("loadedMiles")} onChange={(v) => typedMiles("loadedMiles", v)} />
+              <Money label="Empty to the pickup" unit="miles" value={values.emptyToPickup} error={err("emptyToPickup")} onChange={(v) => typedMiles("emptyToPickup", v)} hint="Each truck with a base is measured below." />
+              <Money label="Empty home after" unit="miles" value={values.emptyHome} error={err("emptyHome")} onChange={(v) => typedMiles("emptyHome", v)} />
               <label className="dlg-check qt-check">
                 <input type="checkbox" checked={values.loadBack} onChange={(e) => set({ loadBack: e.target.checked })} />
                 I have a load back: the way home is covered
               </label>
             </div>
+          </section>
+
+          <section className="tl-card">
+            <details className="qt-more qt-spec" open={specOpen || undefined}>
+              <summary>
+                Load details <span className="tl-sub">Weight, size, trailer, what it needs. A truck that cannot take it is not offered.</span>
+              </summary>
+              <div className="qt-grid">
+                <Money label="Weight" unit="lb" value={values.weightLbs} error={err("weightLbs")} onChange={(v) => set({ weightLbs: v })} />
+                <Money label="Length" unit="ft" value={values.lengthFt} error={err("lengthFt")} onChange={(v) => set({ lengthFt: v })} />
+                <Money label="Width" unit="ft" value={values.widthFt} error={err("widthFt")} onChange={(v) => set({ widthFt: v })} />
+                <Money label="Height" unit="in" value={values.heightIn} error={err("heightIn")} onChange={(v) => set({ heightIn: v })} />
+                <label className="tl-field">
+                  Trailer
+                  <select value={values.trailer} onChange={(e) => set({ trailer: e.target.value })}>
+                    <option value="">Not stated</option>
+                    {TRAILER_TYPES.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="tl-field">
+                  Hazmat class
+                  <input value={values.hazmatClass} onChange={(e) => set({ hazmatClass: e.target.value })} placeholder="None" autoComplete="off" aria-invalid={err("hazmatClass") ? true : undefined} />
+                  {err("hazmatClass") ? <span className="th-err" role="alert">{err("hazmatClass")}</span> : null}
+                </label>
+              </div>
+              <div className="th-checks qt-needs">
+                <span className="tl-sub">Needs</span>
+                <label className="dlg-check">
+                  <input type="checkbox" checked={values.requiresLiftgate} onChange={(e) => set({ requiresLiftgate: e.target.checked })} />
+                  Liftgate
+                </label>
+                <label className="dlg-check">
+                  <input type="checkbox" checked={values.requiresRamp} onChange={(e) => set({ requiresRamp: e.target.checked })} />
+                  Ramp
+                </label>
+                <label className="dlg-check">
+                  <input type="checkbox" checked={values.requiresPalletJack} onChange={(e) => set({ requiresPalletJack: e.target.checked })} />
+                  Pallet jack
+                </label>
+              </div>
+            </details>
           </section>
         </div>
 
@@ -382,12 +465,21 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
             <button type="button" className="tl-btn primary" disabled={busy || !row || !!row.blocked} aria-busy={busy || undefined} onClick={onBook}>
               {row ? `Book on ${row.truckName}${row.driverName ? ` with ${row.driverName.split(" ")[0]}` : ""}` : "Book it"}
             </button>
-            <button type="button" className="tl-btn" disabled={busy} onClick={() => void onSave()}>
-              {quoteId ? "Update quote" : "Save as a quote"}
-            </button>
+            <div className="qt-actions-row">
+              <button type="button" className="tl-btn" disabled={busy} onClick={() => void onSave()}>
+                {quoteId ? "Update quote" : "Save as a quote"}
+              </button>
+              <button type="button" className="tl-btn ghost" disabled={busy || !row} onClick={onOpenPass}>
+                Pass on it
+              </button>
+            </div>
           </div>
-          {row?.blocked ? <p className="tl-note warn">{row.driverName} cannot take it: {row.blocked}. Pick another row.</p> : null}
-          <p className="tl-note">Nothing is saved until you book or save. A quote stays off the board.</p>
+          {row?.blocked ? (
+            <p className="tl-note warn">
+              {row.truckName}
+              {row.driverName ? ` with ${row.driverName}` : ""} cannot take it: {row.blocked} Pick another row.
+            </p>
+          ) : null}
         </aside>
       </div>
 
@@ -397,9 +489,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
           <span className="tl-sub">{pricing ? "Pricing…" : rows.length > 0 ? `${rows.length} ${rows.length === 1 ? "way" : "ways"} to run it, best first` : ""}</span>
         </div>
         {rows.length === 0 ? (
-          <div className="tl-card">
-            <p className="tl-note">Every truck and driver is priced here once there is an offer and loaded miles. A driver&apos;s usual pay (on the Drivers page) is what counts for them.</p>
-          </div>
+          <p className="tl-note">Every truck and driver is priced here once there is an offer and loaded miles.</p>
         ) : (
           <div className="dt-wrap qt-scroll">
             <table className="tl-table qt-table">
@@ -412,7 +502,6 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                   <th className="num">Every mile</th>
                   <th className="num">Floor</th>
                   <th className="num">Left over</th>
-                  <th>Note</th>
                 </tr>
               </thead>
               <tbody>
@@ -420,13 +509,19 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                   const band = BAND_LABEL[r.band];
                   const on = row?.key === r.key;
                   return (
-                    <tr key={r.key} className={on ? "qt-on" : undefined} onClick={() => setSelected(r.key)}>
+                    <tr key={r.key} className={`${on ? "qt-on" : ""}${r.blocked ? " qt-off" : ""}`.trim() || undefined} onClick={() => setSelected(r.key)}>
                       <td>
                         <input type="radio" name="qt-pick" checked={on} onChange={() => setSelected(r.key)} aria-label={`Run it on ${r.truckName}${r.driverName ? ` with ${r.driverName}` : ""}`} />
                       </td>
                       <td>
                         <b>{r.truckName}</b>
-                        <span className="sub">{r.driverName ?? "No driver set on this truck"}</span>
+                        <span className="sub">{r.driverName ? `${r.driverName} · ${shortLabour(r)}` : "No driver set on this truck"}</span>
+                        {r.blocked ? <span className="sub neg">{r.blocked}</span> : null}
+                        {r.warnings.map((w) => (
+                          <span key={w} className="sub warn">
+                            {w}
+                          </span>
+                        ))}
                       </td>
                       <td className="num">
                         <input
@@ -450,7 +545,6 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                       <td className="num">{perMile(r.allInPerMile)}</td>
                       <td className="num">{perMile(r.floorPerMile)}</td>
                       <td className={`num ${r.leftOver != null && r.leftOver < 0 ? "neg" : ""}`}>{r.leftOver == null ? "—" : `${r.leftOver < 0 ? "−" : ""}${usd(Math.abs(r.leftOver), 0)}`}</td>
-                      <td className="tl-sub">{r.blocked ?? (r.driverName ? shortLabour(r) : "No driver pay counted")}</td>
                     </tr>
                   );
                 })}
@@ -510,12 +604,10 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
       <section className="qt-quotes">
         <div className="rc-list-head">
           <h2 className="rc-eyebrow">Saved quotes</h2>
-          <span className="tl-sub">{quotes.length === 0 ? "" : `${quotes.length} not booked`}</span>
+          <span className="tl-sub">{quotes.length === 0 ? "" : `${quotes.filter((q) => !q.passedFor).length} open, ${quotes.filter((q) => q.passedFor).length} passed`}</span>
         </div>
         {quotes.length === 0 ? (
-          <div className="tl-card">
-            <p className="tl-note">Nothing saved. A quote you save here waits off the board until you book it.</p>
-          </div>
+          <p className="tl-note">Nothing saved. A quote you save waits off the board until you book it.</p>
         ) : (
           <div className="dt-wrap qt-scroll">
             <table className="tl-table">
@@ -525,7 +617,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                   <th>Broker</th>
                   <th className="num">Offer</th>
                   <th className="num">Loaded</th>
-                  <th>Truck</th>
+                  <th>Outcome</th>
                   <th>Saved</th>
                   <th aria-label="Actions" />
                 </tr>
@@ -539,12 +631,15 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                     <td>{q.broker ?? "—"}</td>
                     <td className="num">{usd(q.offer, 0)}</td>
                     <td className="num">{miles(q.loadedMiles)}</td>
-                    <td>{q.truck ?? "—"}</td>
+                    <td>{q.passedFor ? <span className="tl-chip muted">{`Passed · ${q.passedFor}`}</span> : <span className="tl-chip info">Open</span>}</td>
                     <td>{shortDate(q.savedAt)}</td>
                     <td>
                       <div className="row-actions">
                         <Link className="tl-btn sm" href={`/quote?quote=${q.id}`}>
                           Reopen
+                        </Link>
+                        <Link className="tl-btn ghost sm" href={`/quote?like=${q.id}`}>
+                          Quote like this
                         </Link>
                         <button
                           type="button"
@@ -595,13 +690,40 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
           </div>
         </div>
       </Modal>
+
+      <Modal open={passing} onClose={() => setPassing(false)} eyebrow="Pass on it" title="Why pass on this one?">
+        <div className="dlg-form">
+          <p className="tl-note">The quote is kept with the reason, so the lane and the broker are remembered.</p>
+          <div role="radiogroup" aria-label="Why pass" className="qt-reasons">
+            {PASS_REASONS.map((r) => (
+              <label key={r} className="dlg-check">
+                <input type="radio" name="qt-pass-reason" checked={passReason === r} onChange={() => setPassReason(r)} />
+                {r}
+              </label>
+            ))}
+          </div>
+          <label className="tl-field">
+            Notes {passReason === "Other" ? "(say what the reason is)" : "(optional)"}
+            <textarea value={passNotes} onChange={(e) => setPassNotes(e.target.value)} placeholder="A few words" />
+          </label>
+          {message ? <p className="tl-note warn" role="alert">{message}</p> : null}
+          <div className="dlg-actions">
+            <button type="button" className="tl-btn" onClick={() => setPassing(false)}>
+              Back
+            </button>
+            <button type="button" className="tl-btn primary" disabled={busy || passReason === "" || (passReason === "Other" && passNotes.trim().length < 3)} onClick={() => void onPass()}>
+              Pass on it
+            </button>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }
 
 function shortLabour(r: FitRow): string {
   const m = /: (.*?), plus/.exec(r.labourNote);
-  return m ? `Pay ${m[1]}` : r.labourNote;
+  return m ? `pay ${m[1]}` : r.labourNote;
 }
 
 function Money({ label, unit, value, error, onChange, hint }: { label: string; unit: string; value: string; error?: string; onChange: (v: string) => void; hint?: string }) {
@@ -624,7 +746,7 @@ function Money({ label, unit, value, error, onChange, hint }: { label: string; u
   );
 }
 
-/** The result card: the band, the per-mile figure with the miles it is per, what the floor is, and every reason to pause. */
+/** The hero: the band, the per-mile figure with the miles it is per, what the floor is, and every reason to pause. */
 function Verdict({ row, values }: { row: FitRow; values: QuoteValues }) {
   const band = BAND_LABEL[row.band];
   const d = row.detail;
@@ -636,6 +758,7 @@ function Verdict({ row, values }: { row: FitRow; values: QuoteValues }) {
   if (d.thinMargin) notes.push("It clears, but by less than five cents a mile.");
   if (d.timeTrap && d.profitPerHour != null) notes.push(`Profit per trip hour is ${usd(d.profitPerHour, 2)}, under the ${usd(d.hourlyTarget, 0)} an hour target.`);
   if (d.requiredRests > 0) notes.push(`A run this long needs ${d.requiredRests} ten-hour ${d.requiredRests === 1 ? "rest" : "rests"}: about ${d.elapsedHours.toFixed(0)} hours elapsed.`);
+  const fitNotes = row.warnings;
   return (
     <div className="qt-verdict">
       <div>
@@ -687,6 +810,13 @@ function Verdict({ row, values }: { row: FitRow; values: QuoteValues }) {
       {notes.length > 0 ? (
         <ul className="rc-todo qt-notes">
           {notes.map((n) => (
+            <li key={n}>{n}</li>
+          ))}
+        </ul>
+      ) : null}
+      {fitNotes.length > 0 ? (
+        <ul className="rc-warns-list">
+          {fitNotes.map((n) => (
             <li key={n}>{n}</li>
           ))}
         </ul>

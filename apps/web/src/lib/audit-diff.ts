@@ -41,6 +41,7 @@ export type AuditAction =
   | "paid"
   | "rate_con_saved"
   | "booked"
+  | "quote_passed"
   | "load_edited"
   | "trip_started"
   | "delivered"
@@ -78,6 +79,7 @@ export const ACTION_LABEL: Record<string, string> = {
   paid: "Marked paid",
   rate_con_saved: "Created from a rate confirmation",
   booked: "Booked from a quote",
+  quote_passed: "Quote passed",
   load_edited: "Load details changed",
   trip_started: "Picked up",
   delivered: "Delivered",
@@ -116,6 +118,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   paid: "ok",
   rate_con_saved: "muted",
   booked: "ok",
+  quote_passed: "muted",
   load_edited: "muted",
   trip_started: "info",
   delivered: "ok",
@@ -140,7 +143,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
 
 /** The filter chips on the audit page: which actions belong to which group. */
 export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[] }> = [
-  { key: "dispatch", label: "Dispatch", actions: ["booked", "load_edited", "trip_started", "delivered", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled"] },
+  { key: "dispatch", label: "Dispatch", actions: ["booked", "quote_passed", "load_edited", "trip_started", "delivered", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled"] },
   { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "paid", "payment_undone", "statement_started", "statement_finalized", "statement_voided", "statement_discarded"] },
   { key: "intake", label: "Intake", actions: ["rate_con_saved"] },
   { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_deactivated", "driver_reactivated", "truck_added", "truck_changed", "truck_archived", "truck_restored", "cost_profile_changed"] },

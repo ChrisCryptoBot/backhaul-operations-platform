@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { driverBlocker } from "@/lib/clearance";
-import { missingTimes, OVERRIDE_REASONS, surchargeDollars, validateQuote, type QuoteErrors, type QuoteInput, type QuoteValues } from "@/lib/quote";
+import { truckFit, type TruckLimits } from "@/lib/load-fit";
+import { missingTimes, OVERRIDE_REASONS, PASS_REASONS, surchargeDollars, validateQuote, type QuoteErrors, type QuoteInput, type QuoteValues } from "@/lib/quote";
 import { notQuote, QUOTE_STATUS } from "@/lib/quote-status";
 import { loadWindow } from "@/lib/schedule";
 import { toCentralLocal } from "@/lib/zoned";
@@ -67,8 +68,10 @@ export type FitRow = {
   marginPerMile: number | null;
   /** The margin over every mile, in dollars. */
   leftOver: number | null;
-  /** A reason this driver cannot take it: a lapsed card, or another load at that time. */
+  /** A reason this truck or driver cannot take it: a load over the truck's limits, a lapsed card, or another load at that time. */
   blocked: string | null;
+  /** Things to know that do not stop it: equipment the truck is not marked as carrying, oversize freight, hazmat. */
+  warnings: string[];
   detail: FitDetail;
 };
 
@@ -127,6 +130,17 @@ const windowOf = (input: QuoteInput) => {
 
 type TruckForFit = Prisma.VehicleGetPayload<{ include: { costProfile: true; drivers: true } }>;
 
+/** What a truck holds and carries, as the load check reads it. */
+export const truckLimits = (t: { payloadLbs: number | null; maxLengthFt: Prisma.Decimal | null; maxWidthFt: Prisma.Decimal | null; maxHeightIn: Prisma.Decimal | null; hasLiftgate: boolean; hasRamp: boolean; hasPalletJack: boolean }): TruckLimits => ({
+  payloadLbs: t.payloadLbs,
+  maxLengthFt: numOrNull(t.maxLengthFt),
+  maxWidthFt: numOrNull(t.maxWidthFt),
+  maxHeightIn: numOrNull(t.maxHeightIn),
+  hasLiftgate: t.hasLiftgate,
+  hasRamp: t.hasRamp,
+  hasPalletJack: t.hasPalletJack
+});
+
 function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["drivers"][number] | null, blocked: string | null): FitRow | null {
   const profile = truck.costProfile;
   if (!profile) return null;
@@ -137,6 +151,7 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
   const e = evaluateTlLoad(row, profile as never, { mpg: truck.mpg });
   const labour = resolveLabour(profile as never, row.assignment, e.totalMiles, num(row.quotedRevenue) + num(row.fuelSurcharge));
   const margin = e.result.verdictMarginPerMi;
+  const forLoad = truckFit(input.specs, truckLimits(truck));
   return {
     key: `${truck.id}:${driver?.id ?? "none"}`,
     truckId: truck.id,
@@ -154,7 +169,8 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
     floorPerMile: e.verdictFloorRpm,
     marginPerMile: margin,
     leftOver: margin == null ? null : margin * e.totalMiles,
-    blocked,
+    blocked: blocked ?? forLoad.blocker,
+    warnings: forLoad.warnings,
     detail: {
       effectiveGross: e.effectiveGross,
       surcharge: e.fuelSurchargeDollars,
@@ -287,6 +303,14 @@ function loadFields(input: QuoteInput, truckId: string | null) {
     originAddress: cityState(input.stops[0]!.address) ?? input.stops[0]!.address,
     destinationAddress: cityState(input.stops[input.stops.length - 1]!.address) ?? input.stops[input.stops.length - 1]!.address,
     trailerType: input.trailer,
+    weightLbs: input.specs.weightLbs,
+    lengthFt: input.specs.lengthFt,
+    widthFt: input.specs.widthFt,
+    loadHeightIn: input.specs.heightIn,
+    hazmatClass: input.specs.hazmatClass,
+    requiresLiftgate: input.specs.requiresLiftgate || null,
+    requiresRamp: input.specs.requiresRamp || null,
+    requiresPalletJack: input.specs.requiresPalletJack || null,
     quotedRevenue: input.offer,
     fuelSurcharge: surchargeDollars(input),
     fuelSurchargeUnit: input.fscUnit,
@@ -333,17 +357,26 @@ export async function brokerNames(workspaceId = DEMO_WORKSPACE_ID): Promise<stri
   return rows.map((r) => r.brokerName).filter((b): b is string => !!b);
 }
 
-export type QuoteListRow = { id: string; lane: string; broker: string | null; offer: number; loadedMiles: number; savedAt: Date; truck: string | null };
+export type QuoteListRow = { id: string; lane: string; broker: string | null; offer: number; loadedMiles: number; savedAt: Date; truck: string | null; /** Why it was passed on, or null while it is still open. */ passedFor: string | null };
 
 export async function listQuotes(workspaceId = DEMO_WORKSPACE_ID): Promise<QuoteListRow[]> {
-  const rows = await prisma.load.findMany({ where: { workspaceId, status: QUOTE_STATUS, deletedAt: null }, include: { vehicle: true }, orderBy: { updatedAt: "desc" }, take: 10 });
-  return rows.map((l) => ({ id: l.id, lane: `${cityState(l.originAddress) ?? "?"} to ${cityState(l.destinationAddress) ?? "?"}`, broker: l.brokerName, offer: num(l.quotedRevenue), loadedMiles: num(l.loadedMiles), savedAt: l.updatedAt, truck: l.vehicle?.name ?? null }));
+  const rows = await prisma.load.findMany({ where: { workspaceId, status: QUOTE_STATUS, deletedAt: null }, include: { vehicle: true, decisions: { orderBy: { decidedAt: "desc" }, take: 1 } }, orderBy: { updatedAt: "desc" }, take: 12 });
+  return rows.map((l) => ({
+    id: l.id,
+    lane: `${cityState(l.originAddress) ?? "?"} to ${cityState(l.destinationAddress) ?? "?"}`,
+    broker: l.brokerName,
+    offer: num(l.quotedRevenue),
+    loadedMiles: num(l.loadedMiles),
+    savedAt: l.updatedAt,
+    truck: l.vehicle?.name ?? null,
+    passedFor: l.decisions[0]?.decisionType === PASSED ? (l.decisions[0].overrideReason ?? "Passed") : null
+  }));
 }
 
-/** A saved quote as the form's values, to reopen it. The surcharge goes back to the unit it was typed in, as the phone does. */
-export async function getQuote(id: string, workspaceId = DEMO_WORKSPACE_ID): Promise<{ values: QuoteValues; vehicleId: string | null } | null> {
-  const l = await prisma.load.findFirst({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null }, include: { stops: { orderBy: { stopSequence: "asc" } } } });
-  if (!l) return null;
+type LoadWithStops = Prisma.LoadGetPayload<{ include: { stops: true } }>;
+
+/** A load as the form's values. The surcharge goes back to the unit it was typed in, as the phone does. */
+export function quoteValuesFromLoad(l: LoadWithStops): QuoteValues {
   const dec = (n: number | null, places = 4) => (n == null ? "" : new Prisma.Decimal(n).toDecimalPlaces(places).toString());
   const unit = l.fuelSurchargeUnit === "per_mile" ? "per_mile" : "percent";
   const dollars = numOrNull(l.fuelSurcharge) ?? 0;
@@ -352,33 +385,91 @@ export async function getQuote(id: string, workspaceId = DEMO_WORKSPACE_ID): Pro
   const allMiles = num(l.pickupDeadheadMiles) + loaded + num(l.returnDeadheadMiles);
   const bench = numOrNull(l.marketBenchmark);
   const factoring = numOrNull(l.factoringFeePct);
+  const stops = [...l.stops].sort((a, b) => a.stopSequence - b.stopSequence);
   return {
-    vehicleId: l.vehicleId,
-    values: {
-      stops: l.stops.map((s) => ({ role: s.stopRole === "delivery" ? "delivery" : "pickup", address: s.addressString, appointment: s.timeWindowEarliest ? toCentralLocal(s.timeWindowEarliest.getTime()) : "" })),
-      broker: l.brokerName ?? "",
-      brokerMc: l.brokerMcNumber ?? "",
-      // A QT- number is the desk's own, not the broker's: it is not offered back as one to type over.
-      loadNumber: l.loadNumber && !/^QT-/.test(l.loadNumber) ? l.loadNumber : "",
-      poNumber: l.poNumber ?? "",
-      brokerPhone: l.brokerPhone ?? "",
-      brokerEmail: l.brokerEmail ?? "",
-      trailer: l.trailerType ?? "",
-      offer: dec(num(l.quotedRevenue), 2),
-      fsc: dec(fsc, 4),
-      fscUnit: unit,
-      marketRate: bench != null && allMiles > 0 ? dec(bench * allMiles, 0) : "",
-      loadedMiles: dec(loaded),
-      emptyToPickup: num(l.pickupDeadheadMiles) > 0 ? dec(num(l.pickupDeadheadMiles)) : "",
-      emptyHome: num(l.returnDeadheadMiles) > 0 ? dec(num(l.returnDeadheadMiles)) : "",
-      loadBack: l.isBackhaul,
-      payTermsDays: l.payTermsDays == null ? "" : String(l.payTermsDays),
-      factoringPct: factoring != null && factoring > 0 ? dec(factoring * 100) : "",
-      emptyByTruck: {},
-      emptyHomeByTruck: {},
-      loadedHours: l.estimatedLoadedHours == null ? "" : dec(num(l.estimatedLoadedHours), 2)
-    }
+    stops: stops.map((s) => ({ role: s.stopRole === "delivery" ? "delivery" : "pickup", address: s.addressString, appointment: s.timeWindowEarliest ? toCentralLocal(s.timeWindowEarliest.getTime()) : "" })),
+    broker: l.brokerName ?? "",
+    brokerMc: l.brokerMcNumber ?? "",
+    // A QT- number is the desk's own, not the broker's: it is not offered back as one to type over.
+    loadNumber: l.loadNumber && !/^QT-/.test(l.loadNumber) ? l.loadNumber : "",
+    poNumber: l.poNumber ?? "",
+    brokerPhone: l.brokerPhone ?? "",
+    brokerEmail: l.brokerEmail ?? "",
+    trailer: l.trailerType ?? "",
+    weightLbs: l.weightLbs == null ? "" : String(l.weightLbs),
+    lengthFt: dec(numOrNull(l.lengthFt), 2),
+    widthFt: dec(numOrNull(l.widthFt), 2),
+    heightIn: dec(numOrNull(l.loadHeightIn), 2),
+    hazmatClass: l.hazmatClass ?? "",
+    requiresLiftgate: l.requiresLiftgate === true,
+    requiresRamp: l.requiresRamp === true,
+    requiresPalletJack: l.requiresPalletJack === true,
+    offer: dec(num(l.quotedRevenue), 2),
+    fsc: dec(fsc, 4),
+    fscUnit: unit,
+    marketRate: bench != null && allMiles > 0 ? dec(bench * allMiles, 0) : "",
+    loadedMiles: dec(loaded),
+    emptyToPickup: num(l.pickupDeadheadMiles) > 0 ? dec(num(l.pickupDeadheadMiles)) : "",
+    emptyHome: num(l.returnDeadheadMiles) > 0 ? dec(num(l.returnDeadheadMiles)) : "",
+    loadBack: l.isBackhaul,
+    payTermsDays: l.payTermsDays == null ? "" : String(l.payTermsDays),
+    factoringPct: factoring != null && factoring > 0 ? dec(factoring * 100) : "",
+    emptyByTruck: {},
+    emptyHomeByTruck: {},
+    loadedHours: l.estimatedLoadedHours == null ? "" : dec(num(l.estimatedLoadedHours), 2)
   };
+}
+
+/** A saved quote as the form's values, to reopen it. */
+export async function getQuote(id: string, workspaceId = DEMO_WORKSPACE_ID): Promise<{ values: QuoteValues; vehicleId: string | null } | null> {
+  const l = await prisma.load.findFirst({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null }, include: { stops: { orderBy: { stopSequence: "asc" } } } });
+  if (!l) return null;
+  return { vehicleId: l.vehicleId, values: quoteValuesFromLoad(l) };
+}
+
+/**
+ * "Quote like this": any load (booked, finished or a saved quote) as the start of a new quote. The lane, broker, trailer, size and miles carry over;
+ * the load number, PO and both times do not, because they belong to that one load. Nothing is written until the new quote is saved or booked.
+ */
+export async function getQuoteLike(id: string, workspaceId = DEMO_WORKSPACE_ID): Promise<QuoteValues | null> {
+  const l = await prisma.load.findFirst({ where: { id, workspaceId, deletedAt: null }, include: { stops: { orderBy: { stopSequence: "asc" } } } });
+  if (!l || l.stops.length < 2) return null;
+  const v = quoteValuesFromLoad(l);
+  return { ...v, loadNumber: "", poNumber: "", stops: v.stops.map((st) => ({ ...st, appointment: "" })) };
+}
+
+// -- Passing on a quote ---------------------------------------------------------------------------
+
+/** A pass is a decision on the quote; the quote stays a quote, so it stays out of every list of loads. */
+export const PASSED = "passed";
+
+export async function passQuote(id: string, reason: string, notes: string, workspaceId = DEMO_WORKSPACE_ID, now = new Date()): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!(PASS_REASONS as readonly string[]).includes(reason)) return { ok: false, error: "Pick a reason." };
+  if (reason === "Other" && notes.trim().length < 3) return { ok: false, error: "Say what the reason is when you pick Other." };
+  const l = await prisma.load.findFirst({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null }, include: { decisions: { orderBy: { decidedAt: "desc" }, take: 1 } } });
+  if (!l) return { ok: false, error: "That quote is gone." };
+  if (l.decisions[0]?.decisionType === PASSED) return { ok: false, error: "That quote was already passed on." };
+  const lane = `${cityState(l.originAddress) ?? "?"} to ${cityState(l.destinationAddress) ?? "?"}`;
+  await prisma.$transaction(async (tx) => {
+    await tx.loadDecision.create({ data: { loadId: id, decisionType: PASSED, overrideReason: reason, overrideNotes: notes.trim() || null, decidedAt: now } });
+    await recordAudit(
+      {
+        entity: "load",
+        action: "quote_passed",
+        // The quote is not on the board, so the entry names it and does not link to a page that would not open.
+        loadId: null,
+        loadNumber: l.loadNumber,
+        workspaceId,
+        summary: `Passed on a quote: ${lane}, $${num(l.quotedRevenue).toLocaleString("en-US")}. ${reason}`,
+        reason: [reason, notes.trim()].filter(Boolean).join(": "),
+        before: null,
+        after: { Lane: lane, Offer: `$${num(l.quotedRevenue).toLocaleString("en-US")}`, Outcome: "Passed" },
+        at: now
+      },
+      tx
+    );
+  });
+  return { ok: true };
 }
 
 export async function discardQuote(id: string, workspaceId = DEMO_WORKSPACE_ID, now = new Date()): Promise<boolean> {
@@ -421,6 +512,8 @@ export async function bookQuote(
   if (pick.driverId && !driver) return { ok: false, error: "That driver is not available." };
 
   const fit = fitFor(input, { ...truck, drivers: driver ? [driver] : [] } as TruckForFit, driver, null)!;
+  const forLoad = truckFit(input.specs, truckLimits(truck));
+  if (forLoad.blocker) return { ok: false, error: `${truck.name} cannot take this load. ${forLoad.blocker}` };
   if (fit.gate) {
     const reason = override?.reason ?? "";
     const valid = (OVERRIDE_REASONS as readonly string[]).includes(reason) && (reason !== "Other" || (override?.notes ?? "").trim().length >= 3);

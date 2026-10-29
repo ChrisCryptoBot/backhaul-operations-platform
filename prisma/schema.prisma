@@ -69,6 +69,10 @@ model Vehicle {
   maxLengthFt     Decimal?  @map("max_length_ft") @db.Decimal(8, 2)
   maxWidthFt      Decimal?  @map("max_width_ft") @db.Decimal(8, 2)
   maxHeightIn     Decimal?  @map("max_height_in") @db.Decimal(8, 2)
+  /// What the truck carries for loads that need it. Unticked reads as "not equipped", as on the phone.
+  hasLiftgate     Boolean   @default(false) @map("has_liftgate")
+  hasRamp         Boolean   @default(false) @map("has_ramp")
+  hasPalletJack   Boolean   @default(false) @map("has_pallet_jack")
   active          Boolean   @default(true)
   archivedAt      DateTime? @map("archived_at")
   createdAt       DateTime  @default(now()) @map("created_at")

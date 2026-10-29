@@ -115,8 +115,12 @@ export type TruckValues = {
   maxLengthFt: string;
   maxWidthFt: string;
   maxHeightIn: string;
+  /** "yes" when the truck has it, blank when not. */
+  hasLiftgate: string;
+  hasRamp: string;
+  hasPalletJack: string;
 };
-export const BLANK_TRUCK: TruckValues = { name: "", type: "", mpg: "", fuelType: "", homeBaseAddress: "", make: "", model: "", year: "", payloadLbs: "", maxLengthFt: "", maxWidthFt: "", maxHeightIn: "" };
+export const BLANK_TRUCK: TruckValues = { name: "", type: "", mpg: "", fuelType: "", homeBaseAddress: "", make: "", model: "", year: "", payloadLbs: "", maxLengthFt: "", maxWidthFt: "", maxHeightIn: "", hasLiftgate: "", hasRamp: "", hasPalletJack: "" };
 
 /** The numbers a truck's specs come to once checked. */
 export type TruckSpecs = { year: number | null; payloadLbs: number | null; maxLengthFt: number | null; maxWidthFt: number | null; maxHeightIn: number | null };
@@ -156,7 +160,10 @@ export function validateTruck(input: Raw): TruckCheck {
     payloadLbs: str(input.payloadLbs).replace(/,/g, ""),
     maxLengthFt: str(input.maxLengthFt),
     maxWidthFt: str(input.maxWidthFt),
-    maxHeightIn: str(input.maxHeightIn)
+    maxHeightIn: str(input.maxHeightIn),
+    hasLiftgate: str(input.hasLiftgate) === "yes" ? "yes" : "",
+    hasRamp: str(input.hasRamp) === "yes" ? "yes" : "",
+    hasPalletJack: str(input.hasPalletJack) === "yes" ? "yes" : ""
   };
   const errors: Partial<Record<keyof TruckValues, string>> = {};
   if (v.name.length < 1) errors.name = "Give the truck a name, for example Unit 104.";

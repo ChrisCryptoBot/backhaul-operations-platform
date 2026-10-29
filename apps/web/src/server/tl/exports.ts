@@ -1,6 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { toCsv, type CsvCell } from "@/lib/csv";
 import { filterBoard } from "@/lib/board-filter";
+import { asHistoryFilter, asHistorySort, historyRows, isHistory, isOpen } from "@/lib/loads-history";
+import { prisma } from "@/lib/db";
 import { parseKpiParams } from "@/lib/kpi-params";
 import { DESK_TZ } from "@/lib/zoned";
 import { getDeskKpi } from "./kpi";
@@ -25,12 +27,58 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
   const name = (part: string) => `truelane-desk-${part}-${day}.csv`;
 
   if (kind === "loads") {
-    const rows = filterBoard(await listBoardRows(), { status: first(query.status), flag: first(query.flag), q: first(query.q) });
+    // Asked from Loads, the file is the list on screen: the Open board with its status tab, below-cost flag and search, or History with its filter,
+    // sort and search. Asked with no view (an old link), it is every load.
+    const all = await listBoardRows();
+    const view = first(query.view);
+    const q = first(query.q);
+    const rows =
+      view === "history"
+        ? historyRows(all.filter((r) => isHistory(r.status)), { filter: asHistoryFilter(first(query.filter)), sort: asHistorySort(first(query.sort)), q })
+        : filterBoard(view === "open" ? all.filter((r) => isOpen(r.status)) : all, { status: first(query.status), flag: first(query.flag), q });
+    // What the board does not carry: the money a load cost to run and what its driver is owed.
+    const extra = await prisma.load.findMany({
+      where: { id: { in: rows.map((r) => r.id) } },
+      select: { id: true, expenseFuelActual: true, expenseTolls: true, expenseMisc: true, assignment: { select: { payEstimate: true } } }
+    });
+    const money = new Map(
+      extra.map((l) => [
+        l.id,
+        {
+          expenses: new Prisma.Decimal(l.expenseFuelActual ?? 0).plus(l.expenseTolls ?? 0).plus(l.expenseMisc ?? 0).toDecimalPlaces(2).toNumber(),
+          driverPay: l.assignment?.payEstimate == null ? null : new Prisma.Decimal(l.assignment.payEstimate).toDecimalPlaces(2).toNumber()
+        }
+      ])
+    );
     return {
       filename: name("loads"),
       csv: toCsv(
-        ["Load", "Status", "Broker", "Origin", "Destination", "Pickup date", "Truck", "Driver", "Answer", "Miles", "Pay", "Pay per mile", "Floor per mile", "Verdict", "Invoice status"],
-        rows.map((r): CsvCell[] => [r.loadNumber, r.status, r.brokerName, r.origin, r.destination, ymd(r.scheduledDate), r.vehicleName, r.driverName, r.assignmentStatus, two(r.totalMiles), two(r.quotedRevenue), two(r.perMile), two(r.floorPerMile), r.verdict, r.paymentStatus])
+        ["Load", "Status", "Broker", "Origin", "Destination", "Pickup date", "Truck", "Driver", "Answer", "Miles", "Pay", "Pay per mile", "Floor per mile", "Verdict", "Invoice status", "Delivered", "Invoice number", "Invoiced", "Invoiced amount", "Paid", "Expenses", "Driver pay (estimate)", "Cancel reason"],
+        rows.map((r): CsvCell[] => [
+          r.loadNumber,
+          r.status,
+          r.brokerName,
+          r.origin,
+          r.destination,
+          ymd(r.scheduledDate),
+          r.vehicleName,
+          r.driverName,
+          r.assignmentStatus,
+          two(r.totalMiles),
+          two(r.quotedRevenue),
+          two(r.perMile),
+          two(r.floorPerMile),
+          r.verdict,
+          r.paymentStatus,
+          ymd(r.completedAt),
+          r.invoiceNumber,
+          ymd(r.invoicedAt),
+          two(r.invoicedAmount),
+          ymd(r.paidAt),
+          money.get(r.id)?.expenses ?? null,
+          money.get(r.id)?.driverPay ?? null,
+          r.cancelReason
+        ])
       )
     };
   }

@@ -8,6 +8,7 @@ import { AlertDot } from "@/components/desk/alert-bits";
 import { DataTable, type Column, type Row } from "@/components/desk/data-table";
 import { DataTableTools } from "@/components/desk/data-table-tools";
 import { EmptyState } from "@/components/desk/kit/states";
+import { NewLoad } from "@/components/desk/new-load";
 import { asBoardStatus, BOARD_STATUSES, filterBoard, isBelowCost, searchBoard } from "@/lib/board-filter";
 import { reasonLabel } from "@/lib/disruptions";
 import { asHistoryFilter, asHistorySort, fellThrough, HISTORY_FILTERS, HISTORY_SORTS, historyDate, historyRows, isHistory, isOpen, isOwed, monthGroups, payRecord } from "@/lib/loads-history";
@@ -64,9 +65,25 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
     return s ? `/loads?${s}` : "/loads";
   };
 
+  // The file is the list as it is on screen: the same view, tab, filter, sort and search.
+  const exportParams = new URLSearchParams({ view });
+  if (view === "history") {
+    const f = asHistoryFilter(searchParams?.filter);
+    const so = asHistorySort(searchParams?.sort);
+    if (f !== "all") exportParams.set("filter", f);
+    if (so !== "newest") exportParams.set("sort", so);
+  } else {
+    const st = asBoardStatus(searchParams?.status);
+    if (st !== "all") exportParams.set("status", st);
+    if (searchParams?.flag === "below") exportParams.set("flag", "below");
+  }
+  if (q) exportParams.set("q", q);
+  const exportHref = `/export/loads?${exportParams.toString()}`;
+
   const head = (
-    <PageHead title="Loads" sub={view === "open" ? "What is still moving, with the verdict on the truck's own cost: the same figure TrueLane gives a driver on the Calculate screen." : "What has finished: delivered, cancelled or paid a TONU, by month, with where the money is."}>
-      <a className="tl-btn" href={`/export/loads${q ? `?q=${encodeURIComponent(q)}` : ""}`}>Export CSV</a>
+    <PageHead title="Loads" sub={view === "open" ? "What is still moving, judged on each truck's own cost." : "What has finished, by month, with where the money is."}>
+      <a className="tl-btn" href={exportHref}>Export CSV</a>
+      <NewLoad />
     </PageHead>
   );
   const views = (
@@ -213,17 +230,15 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   };
 
   const rows: Row[] = shown.map((r) => {
-    const tone = r.verdict === "reject" ? "tone-neg" : r.verdict === "caution" ? "tone-warn" : r.verdict === "accept" ? "tone-pos" : "";
     return {
       id: r.id,
       href: `/loads/${r.id}`,
-      flag: isBelowCost(r) ? "bad" : undefined,
       search: [r.loadNumber, r.poNumber, r.brokerName, r.brokerMc, r.origin, r.destination, r.vehicleName, r.driverName].filter(Boolean).join(" "),
       cells: {
         load: (
           <>
             <Link href={`/loads/${r.id}`}>{r.loadNumber ?? "—"}</Link>
-            <AlertDot alerts={byLoad.get(r.id)} />
+            <AlertDot alerts={byLoad.get(r.id)?.filter((a) => a.code !== "BELOW_COST_UNASSIGNED")} />
             <span className="sub">{r.brokerName}</span>
           </>
         ),
@@ -237,7 +252,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
         truck: r.vehicleName ?? "—",
         miles: miles(r.totalMiles),
         pay: usd(r.quotedRevenue),
-        perMile: <span className={tone}>{perMile(r.perMile)}</span>,
+        perMile: perMile(r.perMile),
         floor: <span className="dim">{perMile(r.floorPerMile)}</span>,
         verdict: <VerdictChip verdict={r.verdict} />,
         driver: r.driverName ?? <span className="dim">—</span>,
@@ -266,7 +281,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
         label="Loads"
         columns={COLUMNS}
         rows={rows}
-        empty={<EmptyState icon="loads" title="No open loads match">Try another status, or clear the search. Finished loads are under History.</EmptyState>}
+        empty={<EmptyState icon="loads" title="No open loads match">Another status, or clear the search.</EmptyState>}
       />
     </>
   );

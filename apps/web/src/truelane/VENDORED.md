@@ -17,12 +17,14 @@ The golden tests in `tests/truelane-domain.test.ts` pin the figures on the TrueL
 - `lib/domain/completedAt.ts`
 - `lib/domain/costArchetype.ts`
 - `lib/domain/detention.ts`
+- `lib/domain/equipmentDrift.ts`
 - `lib/domain/evaluateLoad.ts`
 - `lib/domain/fieldRelevance.ts`
 - `lib/domain/hos.ts`
 - `lib/domain/loadEconomics.ts`
 - `lib/domain/marketVariance.ts`
 - `lib/domain/marketVerdict.ts`
+- `lib/domain/oversize.ts`
 - `lib/domain/quotedMiles.ts`
 - `lib/domain/tripHours.ts`
 - `lib/formatNumbers.ts`
@@ -30,6 +32,7 @@ The golden tests in `tests/truelane-domain.test.ts` pin the figures on the TrueL
 - `lib/fuelSurcharge.ts`
 - `lib/insuranceFields.ts`
 - `lib/invoice.ts`
+- `lib/loadReadiness.ts`
 - `lib/rateCon/equipment.ts`
 - `lib/rateCon/types.ts`
 - `constants/trailerData.ts`

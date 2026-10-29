@@ -40,7 +40,10 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
             payloadLbs: t.payloadLbs,
             maxLengthFt: t.maxLengthFt == null ? null : num(t.maxLengthFt),
             maxWidthFt: t.maxWidthFt == null ? null : num(t.maxWidthFt),
-            maxHeightIn: t.maxHeightIn == null ? null : num(t.maxHeightIn)
+            maxHeightIn: t.maxHeightIn == null ? null : num(t.maxHeightIn),
+            hasLiftgate: t.hasLiftgate,
+            hasRamp: t.hasRamp,
+            hasPalletJack: t.hasPalletJack
           }}
         />
       </Card>

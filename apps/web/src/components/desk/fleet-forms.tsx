@@ -392,6 +392,22 @@ function TruckFields({ values, set, errors, onMake, onModel }: { values: Record<
           <input value={values.maxHeightIn} onChange={set("maxHeightIn")} inputMode="decimal" autoComplete="off" />
         </Field>
       </div>
+      <Field label="Carries" hint="Loads that need one are checked against this.">
+        <div className="th-checks">
+          {(
+            [
+              ["hasLiftgate", "Liftgate"],
+              ["hasRamp", "Ramp"],
+              ["hasPalletJack", "Pallet jack"]
+            ] as const
+          ).map(([k, label]) => (
+            <label key={k} className="dlg-check">
+              <input type="checkbox" checked={values[k] === "yes"} onChange={(e) => set(k)({ target: { value: e.target.checked ? "yes" : "" } } as React.ChangeEvent<HTMLInputElement>)} />
+              {label}
+            </label>
+          ))}
+        </div>
+      </Field>
       <Field label="Home base" error={errors.homeBaseAddress}>
         <AddressInput label="Home base" value={values.homeBaseAddress} placeholder="Dallas, TX" onChange={(text) => set("homeBaseAddress")({ target: { value: text } } as React.ChangeEvent<HTMLInputElement>)} />
       </Field>
@@ -413,6 +429,9 @@ export type TruckInfo = {
   maxLengthFt?: number | null;
   maxWidthFt?: number | null;
   maxHeightIn?: number | null;
+  hasLiftgate?: boolean;
+  hasRamp?: boolean;
+  hasPalletJack?: boolean;
 };
 
 const text = (n: number | null | undefined) => (n == null ? "" : String(n));
@@ -428,7 +447,10 @@ const truckValues = (t?: TruckInfo): Record<keyof TruckValues, string> => ({
   payloadLbs: text(t?.payloadLbs),
   maxLengthFt: text(t?.maxLengthFt),
   maxWidthFt: text(t?.maxWidthFt),
-  maxHeightIn: text(t?.maxHeightIn)
+  maxHeightIn: text(t?.maxHeightIn),
+  hasLiftgate: t?.hasLiftgate ? "yes" : "",
+  hasRamp: t?.hasRamp ? "yes" : "",
+  hasPalletJack: t?.hasPalletJack ? "yes" : ""
 });
 
 /** Add a truck (a dialog), or edit one's details (inline on its own page). */

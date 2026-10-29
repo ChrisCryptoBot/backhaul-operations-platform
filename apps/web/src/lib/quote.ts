@@ -2,6 +2,7 @@ import type { AcceptGate, MarketBand } from "@/truelane/lib/domain/marketVerdict
 import { fuelSurchargeDollars, type FuelSurchargeUnit } from "@/truelane/lib/fuelSurcharge";
 import { isUnusualValue } from "@/truelane/lib/formatNumbers";
 import { parseCentralLocal } from "./zoned";
+import type { LoadSpecs } from "./load-fit";
 
 /**
  * A quote is the phone's Calculate screen as a dispatcher uses it: an offer on a load that is not booked yet, priced against a truck's cost
@@ -22,6 +23,15 @@ export type QuoteValues = {
   brokerPhone: string;
   brokerEmail: string;
   trailer: string;
+  /** What the load is, so a truck that cannot carry it is not offered. All optional; blank checks nothing. */
+  weightLbs: string;
+  lengthFt: string;
+  widthFt: string;
+  heightIn: string;
+  hazmatClass: string;
+  requiresLiftgate: boolean;
+  requiresRamp: boolean;
+  requiresPalletJack: boolean;
   offer: string;
   fsc: string;
   fscUnit: FuelSurchargeUnit;
@@ -56,6 +66,14 @@ export const BLANK_QUOTE: QuoteValues = {
   brokerPhone: "",
   brokerEmail: "",
   trailer: "",
+  weightLbs: "",
+  lengthFt: "",
+  widthFt: "",
+  heightIn: "",
+  hazmatClass: "",
+  requiresLiftgate: false,
+  requiresRamp: false,
+  requiresPalletJack: false,
   offer: "",
   fsc: "",
   fscUnit: "percent",
@@ -80,6 +98,7 @@ export type QuoteInput = {
   brokerPhone: string | null;
   brokerEmail: string | null;
   trailer: string | null;
+  specs: LoadSpecs;
   offer: number;
   fsc: number;
   fscUnit: FuelSurchargeUnit;
@@ -142,6 +161,16 @@ export function readQuote(values: QuoteValues): QuoteInput | null {
     brokerPhone: str(values.brokerPhone) || null,
     brokerEmail: str(values.brokerEmail) || null,
     trailer: str(values.trailer) || null,
+    specs: {
+      weightLbs: positive(values.weightLbs ?? ""),
+      lengthFt: positive(values.lengthFt ?? ""),
+      widthFt: positive(values.widthFt ?? ""),
+      heightIn: positive(values.heightIn ?? ""),
+      hazmatClass: str(values.hazmatClass ?? "") || null,
+      requiresLiftgate: values.requiresLiftgate === true,
+      requiresRamp: values.requiresRamp === true,
+      requiresPalletJack: values.requiresPalletJack === true
+    },
     offer,
     fsc,
     fscUnit: values.fscUnit === "per_mile" ? "per_mile" : "percent",
@@ -179,6 +208,13 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
   if (phone !== "" && (phone.replace(/\D/g, "").length < 7 || phone.replace(/\D/g, "").length > 15 || /[^\d\s()+.\-x]/i.test(phone))) errors.brokerPhone = "A phone number, for example 555-0142.";
   const email = str(values.brokerEmail);
   if (email !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.brokerEmail = "An email address, for example name@example.com.";
+  for (const [key, label, max, whole] of [["weightLbs", "Weight in pounds", 200000, true], ["lengthFt", "Length in feet", 120, false], ["widthFt", "Width in feet", 30, false], ["heightIn", "Height in inches", 300, false]] as const) {
+    const raw = str(values[key] ?? "");
+    if (raw === "") continue;
+    const n = num(raw);
+    if (n == null || !(n > 0) || n > max || (whole && !Number.isInteger(n))) errors[key] = `${label}: ${whole ? "a whole number" : "a number"} above 0 and up to ${max.toLocaleString("en-US")}.`;
+  }
+  if (str(values.hazmatClass ?? "").length > 20) errors.hazmatClass = "At most 20 characters.";
   const offer = num(str(values.offer));
   if (offer == null || !(offer > 0)) errors.offer = "Type what the load pays.";
   else if (offer > 100000) errors.offer = "That is a lot for one load. Check it.";
@@ -276,6 +312,9 @@ export function gateTitle(gate: AcceptGate): string {
   if (gate === "under_market") return "Book this below-market load?";
   return "Why book a load that does not cover its costs?";
 }
+
+/** Why a quote was passed on, in the order the dialog offers them. */
+export const PASS_REASONS = ["Rate too low", "Lost to another carrier", "Broker pulled it", "Cannot cover it", "Other"] as const;
 
 /** The phone's override reasons, in its order. */
 export const OVERRIDE_REASONS = ["Relationship", "Positioning for return load", "Cash flow", "Other"] as const;

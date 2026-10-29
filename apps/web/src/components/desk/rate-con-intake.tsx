@@ -269,14 +269,8 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                         </option>
                       ))}
                     </select>
-                    <span className="rc-hint">The truck sets the cost floor the load is read against on its own screen. It cannot be changed after saving yet.</span>
+                    <span className="rc-hint">Sets the cost floor for this load.</span>
                   </label>
-                </div>
-              </section>
-
-              <section className="tl-card">
-                <h2>Money and terms</h2>
-                <div className="rc-grid">
                   <label className="tl-field">
                     Agreed rate ($)
                     <input
@@ -288,19 +282,17 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                       aria-invalid={problems.includes("Type the agreed rate.") || undefined}
                       onChange={(e) => setLoad({ quotedRevenue: e.target.value === "" ? null : Number(e.target.value) })}
                     />
-                    <span className="rc-hint">{draft.printed.fuelSurchargeIncluded ? `Includes ${usd(draft.printed.fuelSurchargeIncluded, 2)} fuel surcharge.` : "All-in, as the document states it."}</span>
+                    {draft.printed.fuelSurchargeIncluded ? <span className="rc-hint">{`Includes ${usd(draft.printed.fuelSurchargeIncluded, 2)} fuel surcharge.`}</span> : null}
                   </label>
                   <label className="tl-field">
                     Printed miles
                     <input type="number" min="0" step="0.1" inputMode="decimal" value={draft.load.loadedMiles ?? ""} onChange={(e) => setLoad({ loadedMiles: e.target.value === "" ? null : Number(e.target.value) })} />
-                    <span className="rc-hint">
-                      {draft.load.quotedRevenue != null && draft.load.quotedRevenue > 0 && draft.load.loadedMiles ? `The rate comes to ${perMile(draft.load.quotedRevenue / draft.load.loadedMiles)} on these miles.` : "Miles the document prints, if any."}
-                    </span>
+                    {draft.load.quotedRevenue != null && draft.load.quotedRevenue > 0 && draft.load.loadedMiles ? <span className="rc-hint">{`The rate comes to ${perMile(draft.load.quotedRevenue / draft.load.loadedMiles)} on these miles.`}</span> : null}
                   </label>
                   <label className="tl-field">
                     Pay terms (days)
                     <input type="number" min="0" step="1" inputMode="numeric" value={draft.load.payTermsDays ?? ""} onChange={(e) => setLoad({ payTermsDays: e.target.value === "" ? null : Number(e.target.value) })} />
-                    <span className="rc-hint">{draft.load.paymentTerms ? `Printed as “${draft.load.paymentTerms}”.` : "Net days to pay."}</span>
+                    {draft.load.paymentTerms ? <span className="rc-hint">{`Printed as “${draft.load.paymentTerms}”.`}</span> : null}
                   </label>
                 </div>
               </section>
@@ -320,7 +312,7 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                           </span>
                           <div className="rc-stop-body">
                             <div className="rc-stop-head">
-                              <span className={`tl-chip ${s.stopType === "pickup" ? "info" : "ok"}`}>{s.stopType === "pickup" ? "Pickup" : "Delivery"}</span>
+                              <span className="qt-role">{s.stopType === "pickup" ? "Pickup" : "Delivery"}</span>
                               {ends ? <span className="tl-sub">Window ends {clock(ends)} CT</span> : null}
                               {s.contactPhone ? <span className="tl-sub">{s.contactPhone}</span> : null}
                             </div>
@@ -391,14 +383,13 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                       </>
                     ) : null}
                   </dl>
-                  <p className="tl-note" style={{ marginTop: 10 }}>Shown so you can check them against the document. A load has nowhere to keep these yet.</p>
                 </section>
               ) : null}
             </div>
 
             <aside className="rc-side" aria-label="What will be saved">
               <h2 className="rc-eyebrow">Will be saved as</h2>
-              <h3>Draft load</h3>
+              <div className="qt-big">{draft.load.quotedRevenue != null && draft.load.quotedRevenue > 0 ? usd(draft.load.quotedRevenue, 2) : "—"} <span>agreed rate</span></div>
               <p className="rc-lane">
                 {cityState(draft.stops[0]?.addressString ?? null) ?? draft.load.originAddress ?? "—"} to {cityState(draft.stops[draft.stops.length - 1]?.addressString ?? null) ?? draft.load.destinationAddress ?? "—"}
               </p>
@@ -422,12 +413,6 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                 <div>
                   <dt>First stop</dt>
                   <dd>{dateTime(draft.stops[0]?.timeWindowEarliest)}</dd>
-                </div>
-                <div>
-                  <dt>Agreed rate</dt>
-                  <dd>
-                    <b>{draft.load.quotedRevenue != null && draft.load.quotedRevenue > 0 ? usd(draft.load.quotedRevenue, 2) : "—"}</b>
-                  </dd>
                 </div>
               </dl>
 
@@ -482,7 +467,7 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                   </button>
                 </p>
               ) : null}
-              <p className="tl-note">It lands on the Dispatch queue as needing a driver. No verdict is shown: this load is already agreed.</p>
+              <p className="tl-note">It lands on the Dispatch queue, needing a driver. No verdict: the load is already agreed.</p>
             </aside>
           </div>
         </>

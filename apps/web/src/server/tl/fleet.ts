@@ -105,6 +105,9 @@ function truckSnapshot(v: TruckValues): AuditSnapshot {
     "Cargo length (ft)": v.maxLengthFt || null,
     "Cargo width (ft)": v.maxWidthFt || null,
     "Cargo height (in)": v.maxHeightIn || null,
+    Liftgate: v.hasLiftgate === "yes" ? "Yes" : null,
+    Ramp: v.hasRamp === "yes" ? "Yes" : null,
+    "Pallet jack": v.hasPalletJack === "yes" ? "Yes" : null,
     "Home base": v.homeBaseAddress || null
   };
 }
@@ -134,7 +137,10 @@ export async function saveTruck(raw: Record<string, unknown>, id: string | null,
     payloadLbs: check.specs.payloadLbs,
     maxLengthFt: check.specs.maxLengthFt,
     maxWidthFt: check.specs.maxWidthFt,
-    maxHeightIn: check.specs.maxHeightIn
+    maxHeightIn: check.specs.maxHeightIn,
+    hasLiftgate: v.hasLiftgate === "yes",
+    hasRamp: v.hasRamp === "yes",
+    hasPalletJack: v.hasPalletJack === "yes"
   };
   const after = truckSnapshot(canonicalTruck(v, check.mpg, check.specs));
 
@@ -161,7 +167,10 @@ export async function saveTruck(raw: Record<string, unknown>, id: string | null,
     payloadLbs: prev.payloadLbs == null ? "" : String(prev.payloadLbs),
     maxLengthFt: stored(prev.maxLengthFt),
     maxWidthFt: stored(prev.maxWidthFt),
-    maxHeightIn: stored(prev.maxHeightIn)
+    maxHeightIn: stored(prev.maxHeightIn),
+    hasLiftgate: prev.hasLiftgate ? "yes" : "",
+    hasRamp: prev.hasRamp ? "yes" : "",
+    hasPalletJack: prev.hasPalletJack ? "yes" : ""
   });
   const moved = Object.keys(after).filter((k) => String(before[k] ?? "") !== String(after[k] ?? ""));
   if (moved.length === 0) return { ok: true, id, changed: false };

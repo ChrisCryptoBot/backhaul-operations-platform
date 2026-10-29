@@ -49,7 +49,7 @@ export default async function RateConsPage() {
 
   return (
     <>
-      <PageHead title="Rate confirmations" sub="A document in, a draft load out. Check and correct what was read before anything is saved. A rate confirmation shows no verdict: the load is already agreed." />
+      <PageHead title="Rate confirmations" sub="A document in, a draft load out. Check what was read before anything is saved." />
       <RateConIntake liveReading={Boolean(process.env.ANTHROPIC_API_KEY)} trucks={trucks.filter((t) => !t.archived).map((t) => ({ id: t.id, name: t.name }))} />
 
       <div className="rc-list-head">
