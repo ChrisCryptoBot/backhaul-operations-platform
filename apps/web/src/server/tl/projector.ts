@@ -6,6 +6,8 @@
  *
  * Contract: TRUELANE/docs/parked/EXTERNAL_DISPATCH_CONTRACT.md section 5; plan: docs/CONVERGENCE_BUILD_PLAN.md.
  */
+import { Prisma } from "@prisma/client";
+
 export type PayKind = "flat" | "cpm" | "hourly";
 export type AssignmentPay = { kind: PayKind; rate: number };
 
@@ -59,7 +61,7 @@ export type LoadSummary = {
 /** Display-only estimate, as the contract defines it: flat = rate, cpm = rate x loaded miles, hourly = rate x est. hours. */
 export function payEstimate(pay: AssignmentPay, loadedMiles: number, estimatedHours: number | null | undefined): number {
   const raw = pay.kind === "flat" ? pay.rate : pay.kind === "cpm" ? pay.rate * loadedMiles : pay.rate * (estimatedHours ?? 0);
-  return Math.round(raw * 100) / 100;
+  return new Prisma.Decimal(raw).toDecimalPlaces(2).toNumber();
 }
 
 const iso = (d?: Date | null) => (d ? d.toISOString() : undefined);

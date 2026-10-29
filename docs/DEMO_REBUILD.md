@@ -37,6 +37,25 @@ deleted `tools.ts`; recover it from commit `3b422f3` if it is ever wanted.
   `tests/integration/tl-dispatch.integration.test.ts` runs the whole dispatcher flow there with `RUN_DB_INTEGRATION=true`.
 - After: `tsc` clean; vitest 88 files / 513 tests pass (2 integration files skipped without a database).
 
+
+## Stage 3 (done): the dispatcher desk, new pages on the new tables
+Route group `src/app/(desk)` (own layout, no Clerk, no region): `/loads` (board with a verdict per load), `/loads/[id]`
+(count-every-mile what-if, stops, assign a driver and pay, send, record the driver's answer, a preview of exactly what the
+driver is sent), `/dispatch` (needs a driver, sent and waiting, moving), `/drivers`, `/fleet` (trucks and their floors),
+`/invoices` (create, mark paid), `/rate-cons` (read a sample, check it, confirm, save), `/kpi` (the rebuilt KPI dashboard).
+- The KPI dashboard is rebuilt on the new tables: `src/server/tl/kpi.ts` (`buildDeskKpi`, pure) feeds `/kpi` with the
+  vendored analytics, load economics and invoice aging: revenue by week and month, empty-mile share, pipeline, verdict mix
+  on open loads, money owed, top lanes and brokers, market variance, per-driver roll-up. The old region/week KPI code is
+  untouched and still reads the old tables until the Stage 4 teardown.
+- Styling reuses the app's dark theme tokens (`--db-*`); the new layout classes are in `(desk)/desk.css`. Times are shown in Central.
+- Run it: start the throwaway Postgres (see Stage 2), seed it, then
+  `DATABASE_URL=postgresql://demo:demo@localhost:54330/demo BYPASS_AUTH=true npx next dev apps/web -p 3100` from the repo root
+  and open http://localhost:3100/loads. `.claude/launch.json` has a `desk-demo` entry with the same settings.
+- Verified in the browser pane against the seeded database: every page returns 200 with no console errors; assign, send and
+  accept on the deadhead-trap load ($1.19/mi on 545 mi, floor $1.34, below cost; $2.11/mi on 308 mi with a load back, covers
+  cost); the driver preview carries no revenue.
+- After: `tsc` and eslint clean on the new code; vitest 89 files / 520 tests pass.
+
 ## Moved to Stage 2 on purpose
 These are coupled to the schema and ingestion rewrite, so doing them first would mean touching everything twice:
 - Region dimension and employer vocabulary (Region, RegionConfig, UserRegionRole, `runInRegionScope`, MG/TMW, MileMax,
@@ -48,5 +67,5 @@ These are coupled to the schema and ingestion rewrite, so doing them first would
 - Clerk replaced by a `DEMO_MODE` session behind an `auth()` seam.
 
 ## Next
-Stage 3: new pages on the new tables (board, load detail and dispatch, drivers and trucks, rate-con intake and review,
-invoices and aging, analytics), then the KPI dashboard decision, then the old-code teardown and verify (4).
+Stage 4: retire the old board, KPI, reference, review and settings pages and server code (and the old tables), make the desk
+the root route, then the final greps and a full browser walk.

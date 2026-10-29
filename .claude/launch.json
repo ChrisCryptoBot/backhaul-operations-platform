@@ -6,6 +6,16 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "desk-demo",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["next", "dev", "apps/web", "-p", "3100"],
+      "port": 3100,
+      "env": {
+        "DATABASE_URL": "postgresql://demo:demo@localhost:54330/demo",
+        "BYPASS_AUTH": "true"
+      }
     }
   ]
 }

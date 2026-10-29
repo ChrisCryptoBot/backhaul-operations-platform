@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import type { AgingLoadView } from "@/truelane/lib/invoice";
 import type { AnalyticsLoadInput } from "@/truelane/lib/analytics";
 import type { MarketVarianceLoad } from "@/truelane/lib/domain/marketVariance";
@@ -9,8 +9,8 @@ import type { MarketVarianceLoad } from "@/truelane/lib/domain/marketVariance";
  */
 type Dec = Prisma.Decimal | number | string | null | undefined;
 
-export const num = (d: Dec): number => (d == null ? 0 : Number(d));
-export const numOrNull = (d: Dec): number | null => (d == null ? null : Number(d));
+export const num = (d: Dec): number => (d == null ? 0 : new Prisma.Decimal(d).toNumber());
+export const numOrNull = (d: Dec): number | null => (d == null ? null : new Prisma.Decimal(d).toNumber());
 export const ms = (d: Date | null | undefined): number | null => (d ? d.getTime() : null);
 
 /** The columns of `loads` that every adapter reads. */

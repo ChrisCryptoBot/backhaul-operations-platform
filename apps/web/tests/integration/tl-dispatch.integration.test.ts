@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { prisma } from "@/lib/db";
 import { assertDriverSafe } from "@/server/tl/projector";
 import { assignDriver, dispatchLoad, DispatchError, driverBlocker, driverSummaryFor, recordDriverResponse } from "@/server/tl/dispatch";
@@ -23,6 +23,12 @@ describe.skipIf(!run)("dispatcher flow on the TrueLane-shaped tables", () => {
     await prisma.tlAssignment.deleteMany({ where: { loadId: draftLoadId } });
     await prisma.tlLoad.update({ where: { id: draftLoadId }, data: { status: "draft" } });
     driverId = (await prisma.tlDriver.findFirstOrThrow({ where: { name: "Alex Rivera" } })).id;
+  });
+
+  // Leave the demo data as the seed wrote it: the deadhead-trap load unassigned and still a draft.
+  afterAll(async () => {
+    await prisma.tlAssignment.deleteMany({ where: { loadId: draftLoadId } });
+    await prisma.tlLoad.update({ where: { id: draftLoadId }, data: { status: "draft" } });
   });
 
   test("the board shows the deadhead-trap load rejected at its real miles", async () => {
