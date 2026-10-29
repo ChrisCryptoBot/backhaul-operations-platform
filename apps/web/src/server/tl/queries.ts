@@ -19,7 +19,7 @@ export type BoardRow = Awaited<ReturnType<typeof listBoardRows>>[number];
 
 /** Every live load with its verdict, newest first. The verdict is TrueLane's finalDecision on the truck's own floor. */
 export async function listBoardRows(workspaceId = DEMO_WORKSPACE_ID) {
-  const loads = await prisma.tlLoad.findMany({
+  const loads = await prisma.load.findMany({
     where: { workspaceId, deletedAt: null },
     include: loadInclude,
     orderBy: [{ scheduledDate: "desc" }, { createdAt: "desc" }]
@@ -49,12 +49,12 @@ export async function listBoardRows(workspaceId = DEMO_WORKSPACE_ID) {
 }
 
 export async function analyticsFor(period: AnalyticsPeriod, now = new Date(), workspaceId = DEMO_WORKSPACE_ID) {
-  const loads = await prisma.tlLoad.findMany({ where: { workspaceId, deletedAt: null } });
+  const loads = await prisma.load.findMany({ where: { workspaceId, deletedAt: null } });
   return computeAnalytics(loads.map(toAnalyticsInput), period, now);
 }
 
 export async function agingFor(now = Date.now(), workspaceId = DEMO_WORKSPACE_ID) {
-  const loads = await prisma.tlLoad.findMany({ where: { workspaceId, deletedAt: null, paymentStatus: "invoiced" } });
+  const loads = await prisma.load.findMany({ where: { workspaceId, deletedAt: null, paymentStatus: "invoiced" } });
   return computeAgingSummary(loads.map(toAgingView), now);
 }
 
@@ -64,13 +64,13 @@ import { driverBlocker } from "./dispatch";
 import { projectLoadToSummary, type LoadSummary, type PayKind } from "./projector";
 
 export async function getLoadDetail(id: string, workspaceId = DEMO_WORKSPACE_ID) {
-  const l = await prisma.tlLoad.findFirst({ where: { id, workspaceId, deletedAt: null }, include: loadInclude });
+  const l = await prisma.load.findFirst({ where: { id, workspaceId, deletedAt: null }, include: loadInclude });
   if (!l) return null;
   const profile = l.vehicle?.costProfile ?? null;
   const evaluation = profile ? evaluateTlLoad(l, profile, l.vehicle) : null;
   // The same offer with the way home flipped: the clip's "what if a load covers the trip back".
   const flipped = profile ? evaluateTlLoad({ ...l, isBackhaul: !l.isBackhaul }, profile, l.vehicle) : null;
-  const drivers = await prisma.tlDriver.findMany({ where: { workspaceId, active: true }, orderBy: { name: "asc" } });
+  const drivers = await prisma.driver.findMany({ where: { workspaceId, active: true }, orderBy: { name: "asc" } });
   let driverView: LoadSummary | null = null;
   if (l.assignment) {
     driverView = projectLoadToSummary(
@@ -106,7 +106,7 @@ export async function getLoadDetail(id: string, workspaceId = DEMO_WORKSPACE_ID)
 }
 
 export async function listDrivers(workspaceId = DEMO_WORKSPACE_ID) {
-  const drivers = await prisma.tlDriver.findMany({
+  const drivers = await prisma.driver.findMany({
     where: { workspaceId },
     include: { assignedVehicle: true, assignments: { include: { load: true }, orderBy: { updatedAt: "desc" } } },
     orderBy: { name: "asc" }
@@ -128,7 +128,7 @@ export async function listDrivers(workspaceId = DEMO_WORKSPACE_ID) {
 }
 
 export async function listTrucks(workspaceId = DEMO_WORKSPACE_ID) {
-  const trucks = await prisma.tlVehicle.findMany({ where: { workspaceId }, include: { costProfile: true, loads: { where: { deletedAt: null } } }, orderBy: { name: "asc" } });
+  const trucks = await prisma.vehicle.findMany({ where: { workspaceId }, include: { costProfile: true, loads: { where: { deletedAt: null } } }, orderBy: { name: "asc" } });
   return trucks.map((t) => ({
     id: t.id,
     name: t.name,
@@ -145,7 +145,7 @@ export async function listTrucks(workspaceId = DEMO_WORKSPACE_ID) {
 }
 
 export async function listInvoiceRows(workspaceId = DEMO_WORKSPACE_ID) {
-  const loads = await prisma.tlLoad.findMany({
+  const loads = await prisma.load.findMany({
     where: { workspaceId, deletedAt: null, status: "completed" },
     orderBy: [{ invoicedAt: "desc" }, { completedAt: "desc" }]
   });

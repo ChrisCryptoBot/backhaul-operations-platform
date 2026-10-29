@@ -54,8 +54,8 @@ const profileBase = {
 
 async function main() {
   // Clean slate for the demo workspace (children cascade).
-  await prisma.tlWorkspace.deleteMany({ where: { id: WORKSPACE_ID } });
-  await prisma.tlWorkspace.create({ data: { id: WORKSPACE_ID, name: "Demo fleet" } });
+  await prisma.workspace.deleteMany({ where: { id: WORKSPACE_ID } });
+  await prisma.workspace.create({ data: { id: WORKSPACE_ID, name: "Demo fleet" } });
 
   const trucks = [
     { name: "Unit 101", type: "tractor", mpg: 6.8, insurance: 1450, loan: 1900, miles: 6500 },
@@ -74,7 +74,7 @@ async function main() {
       archetype: "solo_owner"
     };
     const breakEven = computeBreakEvenRpm(input);
-    const v = await prisma.tlVehicle.create({
+    const v = await prisma.vehicle.create({
       data: {
         workspaceId: WORKSPACE_ID,
         name: t.name,
@@ -108,7 +108,7 @@ async function main() {
   const drivers = [];
   for (const [i, name] of DRIVERS.entries()) {
     drivers.push(
-      await prisma.tlDriver.create({
+      await prisma.driver.create({
         data: {
           workspaceId: WORKSPACE_ID,
           name,
@@ -191,7 +191,7 @@ async function main() {
     const bench = round((p.offer / (p.pickupDh + loaded + p.returnDh)) * between(0.9, 1.25), 2);
     const invoicedAt = p.invoiced ? new Date(when.getTime() + 1 * DAY) : null;
     const paidAt = p.paid && invoicedAt ? new Date(invoicedAt.getTime() + Math.floor(between(18, 34)) * DAY) : null;
-    const load = await prisma.tlLoad.create({
+    const load = await prisma.load.create({
       data: {
         workspaceId: WORKSPACE_ID,
         vehicleId: vehicle.id,
@@ -252,7 +252,7 @@ async function main() {
       const kind = drvCursor % 3 === 0 ? "flat" : "cpm";
       const rate = kind === "flat" ? round(p.offer * 0.7, 0) : 0.68;
       const est = kind === "flat" ? rate : round(rate * loaded, 2);
-      await prisma.tlAssignment.create({
+      await prisma.assignment.create({
         data: {
           loadId: load.id,
           driverId: driver.id,
@@ -268,11 +268,11 @@ async function main() {
   }
 
   const counts = {
-    vehicles: await prisma.tlVehicle.count(),
-    drivers: await prisma.tlDriver.count(),
-    loads: await prisma.tlLoad.count(),
-    stops: await prisma.tlStop.count(),
-    assignments: await prisma.tlAssignment.count()
+    vehicles: await prisma.vehicle.count(),
+    drivers: await prisma.driver.count(),
+    loads: await prisma.load.count(),
+    stops: await prisma.stop.count(),
+    assignments: await prisma.assignment.count()
   };
   console.log("seeded", counts);
 }

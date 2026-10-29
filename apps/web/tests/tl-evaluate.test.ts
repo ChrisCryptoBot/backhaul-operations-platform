@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { evaluateTlLoad, profileMathInput, type TlCostProfileRow, type TlEvaluateLoadRow } from "@/server/tl/evaluate";
+import { evaluateTlLoad, profileMathInput, type CostProfileRow, type EvaluateLoadRow } from "@/server/tl/evaluate";
 import { computeCostProfileFloorBreakdown } from "@/truelane/lib/domain/calculators";
 
-const profile: TlCostProfileRow = {
+const profile: CostProfileRow = {
   monthlyInsurance: 1400,
   monthlyAuthority: 120,
   monthlyPhoneSubscriptions: 90,
@@ -31,7 +31,7 @@ const profile: TlCostProfileRow = {
   factoringFeePct: null
 };
 
-const load: TlEvaluateLoadRow = {
+const load: EvaluateLoadRow = {
   status: "draft",
   updatedAt: new Date("2026-10-20T00:00:00Z"),
   completedAt: null,

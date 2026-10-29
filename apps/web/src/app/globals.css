@@ -1,26 +1,57 @@
+/* Global tokens and base styles for the dispatcher desk. One dark scheme, TrueLane's amber accent.
+   Layout classes for the desk live in (desk)/desk.css. The --db-* names are kept so the desk styles read the same. */
 :root {
-  color-scheme: light;
-}
-
-:root[data-theme="dark"] {
   color-scheme: dark;
-}
 
-@import "./board.css";
-@import "./paper.css";
+  --db-bg: #0e1117;
+  --db-bg-elev-1: #141923;
+  --db-bg-elev-2: #181e2a;
+  --db-bg-elev-3: #1f2634;
+  --db-bg-rail: #0b0e14;
+  --db-border: #263043;
+  --db-border-soft: #1c2433;
+  --db-border-strong: #33415a;
 
-body {
-  margin: 0;
-  font-family: var(--db-font-ui);
-  background: var(--db-bg);
-  color: var(--db-fg);
-  text-rendering: optimizeLegibility;
+  --db-fg: #e8edf2;
+  --db-fg-mid: #aeb8c6;
+  --db-fg-dim: #7f8b9c;
+  --db-fg-faint: #566174;
+
+  --db-accent: #e8a020;
+  --db-accent-hover: #f0b13f;
+  --db-accent-fg: #f4c15d;
+  --db-accent-bg: #3a2a0e;
+  --db-accent-on: #1a1205;
+
+  --db-pos: #6ee7a8;
+  --db-pos-bg: #0f3024;
+  --db-neg: #ef6f7a;
+  --db-neg-bg: #3a1418;
+  --db-warn: #f5b964;
+  --db-warn-bg: #3a2a14;
+  --db-cool-fg: #7eb6ff;
+  --db-status-booked-bg: #15233f;
+  --db-muted-bg: #1f2430;
+
+  --db-scrollbar-track: #0b0e14;
+  --db-scrollbar-thumb: #33415a;
+  --db-scrollbar-thumb-hover: #e8a020;
+
+  --db-font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
 html {
   font-size: 100%;
   -webkit-text-size-adjust: 100%;
   scrollbar-gutter: stable;
+}
+
+body {
+  margin: 0;
+  font-family: var(--db-font-sans);
+  background: var(--db-bg);
+  color: var(--db-fg);
+  text-rendering: optimizeLegibility;
 }
 
 * {
@@ -33,7 +64,8 @@ html {
   height: 10px;
 }
 
-*::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
   background: var(--db-scrollbar-track);
 }
 
@@ -45,14 +77,4 @@ html {
 
 *::-webkit-scrollbar-thumb:hover {
   background: var(--db-scrollbar-thumb-hover);
-}
-
-*::-webkit-scrollbar-corner {
-  background: var(--db-scrollbar-track);
-}
-
-main:not(.db-main):not(.db-dash-main):not(.db-review-main) {
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 1.5rem;
 }

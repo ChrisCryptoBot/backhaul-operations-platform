@@ -2,7 +2,7 @@ import { computeCostProfileFloorBreakdown, type CostProfileMathInput } from "@/t
 import { effectiveCarrierCutPct, fscCutAppliesFor, normalizeArchetype } from "@/truelane/lib/domain/costArchetype";
 import { evaluateLoad, type EvaluateLoadInput, type LoadEvaluation } from "@/truelane/lib/domain/evaluateLoad";
 import { clampFraction } from "@/truelane/lib/formatNumbers";
-import { num, numOrNull, type TlLoadRow } from "./convert";
+import { num, numOrNull, type LoadRow } from "./convert";
 
 /**
  * The same verdict the phone gives on its Calculate screen, run on a dispatcher's load: the truck's break-even
@@ -11,7 +11,7 @@ import { num, numOrNull, type TlLoadRow } from "./convert";
  */
 type Dec = number | string | { toString(): string } | null | undefined;
 
-export type TlCostProfileRow = {
+export type CostProfileRow = {
   monthlyInsurance: Dec;
   monthlyAuthority: Dec;
   monthlyPhoneSubscriptions: Dec;
@@ -43,7 +43,7 @@ export type TlCostProfileRow = {
 /** Average road speed used for the drive-time estimate when the load has no measured hours (the phone uses a routed estimate). */
 export const ASSUMED_AVG_MPH = 50;
 
-export type TlEvaluateLoadRow = TlLoadRow & {
+export type EvaluateLoadRow = LoadRow & {
   fuelSurcharge: Dec;
   fuelSurchargeUnit: string | null;
   factoringFeePct: Dec;
@@ -54,7 +54,7 @@ export type TlEvaluateLoadRow = TlLoadRow & {
 
 const n = (d: Dec) => num(d as never);
 
-export function profileMathInput(p: TlCostProfileRow): CostProfileMathInput {
+export function profileMathInput(p: CostProfileRow): CostProfileMathInput {
   return {
     monthlyInsurance: n(p.monthlyInsurance),
     monthlyAuthority: n(p.monthlyAuthority),
@@ -80,8 +80,8 @@ export function profileMathInput(p: TlCostProfileRow): CostProfileMathInput {
 }
 
 export function evaluateTlLoad(
-  load: TlEvaluateLoadRow,
-  profile: TlCostProfileRow,
+  load: EvaluateLoadRow,
+  profile: CostProfileRow,
   vehicle: { mpg: Dec } | null
 ): LoadEvaluation {
   const breakdown = computeCostProfileFloorBreakdown(profileMathInput(profile));

@@ -32,7 +32,7 @@ const NAV: Array<{ label: string; items: Array<{ href: string; label: string }> 
 export function DeskShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "";
   return (
-    <div className="db-root tl-app" data-theme="dark">
+    <div className="tl-app">
       <aside className="tl-side" aria-label="Primary navigation">
         <div className="tl-brand">
           <span className="tl-mark" aria-hidden="true">T</span>

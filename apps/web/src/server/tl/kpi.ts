@@ -5,7 +5,7 @@ import { computeAgingSummary, invoiceBilledTotal, agingDueAtMs, type AgingSummar
 import { deadheadMilesOf, deadheadPct, drivenMiles, loadCompletedAtMs, loadGross, revenueMiles } from "@/truelane/lib/domain/loadEconomics";
 import { calendarDaysBetween } from "@/truelane/lib/domain/calendarDays";
 import { evaluateTlLoad } from "./evaluate";
-import { ms, num, numOrNull, toAgingView, toAnalyticsInput, type TlLoadRow } from "./convert";
+import { ms, num, numOrNull, toAgingView, toAnalyticsInput, type LoadRow } from "./convert";
 import { DEMO_WORKSPACE_ID } from "./workspace";
 import type { Verdict } from "@/lib/desk-format";
 
@@ -13,7 +13,7 @@ import type { Verdict } from "@/lib/desk-format";
  * The KPI dashboard's numbers, computed from the TrueLane-shaped tables with TrueLane's own functions
  * (analytics, load economics, invoice aging). `buildDeskKpi` is pure so it can be tested with plain rows.
  */
-export type KpiLoadRow = TlLoadRow & {
+export type KpiLoadRow = LoadRow & {
   id: string;
   loadNumber: string | null;
   createdAt: Date;
@@ -136,7 +136,7 @@ export function buildDeskKpi(rows: KpiLoadRow[], period: AnalyticsPeriod, now: D
 }
 
 export async function getDeskKpi(period: AnalyticsPeriod, now = new Date(), workspaceId = DEMO_WORKSPACE_ID): Promise<DeskKpi> {
-  const loads = await prisma.tlLoad.findMany({
+  const loads = await prisma.load.findMany({
     where: { workspaceId, deletedAt: null },
     include: { vehicle: { include: { costProfile: true } }, assignment: { include: { driver: true } } }
   });

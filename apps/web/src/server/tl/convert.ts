@@ -14,7 +14,7 @@ export const numOrNull = (d: Dec): number | null => (d == null ? null : new Pris
 export const ms = (d: Date | null | undefined): number | null => (d ? d.getTime() : null);
 
 /** The columns of `loads` that every adapter reads. */
-export type TlLoadRow = {
+export type LoadRow = {
   status: string;
   updatedAt: Date;
   completedAt: Date | null;
@@ -44,7 +44,7 @@ export type TlLoadRow = {
   invoicedAmount: Dec;
 };
 
-export function toAnalyticsInput(l: TlLoadRow): AnalyticsLoadInput {
+export function toAnalyticsInput(l: LoadRow): AnalyticsLoadInput {
   return {
     status: l.status,
     updatedAt: l.updatedAt,
@@ -72,7 +72,7 @@ export function toAnalyticsInput(l: TlLoadRow): AnalyticsLoadInput {
   };
 }
 
-export function toAgingView(l: TlLoadRow): AgingLoadView {
+export function toAgingView(l: LoadRow): AgingLoadView {
   return {
     paymentStatus: l.paymentStatus,
     invoicedAt: ms(l.invoicedAt),
@@ -83,7 +83,7 @@ export function toAgingView(l: TlLoadRow): AgingLoadView {
   };
 }
 
-export function toMarketVarianceLoad(l: TlLoadRow): MarketVarianceLoad {
+export function toMarketVarianceLoad(l: LoadRow): MarketVarianceLoad {
   return {
     status: l.status,
     quotedRevenue: num(l.quotedRevenue),

@@ -7,7 +7,7 @@ import { prisma } from "@/lib/db";
 export const DEMO_WORKSPACE_ID = "demo-workspace";
 
 export async function currentWorkspace() {
-  return prisma.tlWorkspace.upsert({
+  return prisma.workspace.upsert({
     where: { id: DEMO_WORKSPACE_ID },
     update: {},
     create: { id: DEMO_WORKSPACE_ID, name: "Demo fleet" }

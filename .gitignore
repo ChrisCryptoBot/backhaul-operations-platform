@@ -17,7 +17,3 @@ replace-secrets.txt
 **/.tmp/
 test-results/
 **/test-results/
-
-# Design drops are working artifacts (zips + extracted assets), not committed
-docs/design/incoming/*
-!docs/design/incoming/README.md

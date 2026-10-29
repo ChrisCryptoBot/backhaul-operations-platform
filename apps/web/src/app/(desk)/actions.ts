@@ -59,10 +59,10 @@ export async function respondAction(formData: FormData) {
 
 export async function invoiceAction(formData: FormData) {
   const id = String(formData.get("loadId"));
-  const load = await prisma.tlLoad.findUniqueOrThrow({ where: { id } });
+  const load = await prisma.load.findUniqueOrThrow({ where: { id } });
   if (load.status !== "completed" || load.paymentStatus) redirect("/invoices");
   const amount = load.actualRevenue ?? load.quotedRevenue;
-  await prisma.tlLoad.update({
+  await prisma.load.update({
     where: { id },
     data: { paymentStatus: "invoiced", invoicedAt: new Date(), invoicedAmount: amount, invoiceNumber: `INV-${load.loadNumber ?? id.slice(-6)}`, payTermsDays: load.payTermsDays ?? 30 }
   });
@@ -73,9 +73,9 @@ export async function invoiceAction(formData: FormData) {
 
 export async function markPaidAction(formData: FormData) {
   const id = String(formData.get("loadId"));
-  const load = await prisma.tlLoad.findUniqueOrThrow({ where: { id } });
+  const load = await prisma.load.findUniqueOrThrow({ where: { id } });
   if (load.paymentStatus !== "invoiced") redirect("/invoices");
-  await prisma.tlLoad.update({ where: { id }, data: { paymentStatus: "paid", paidAt: new Date(), paidAmount: load.invoicedAmount ?? load.quotedRevenue } });
+  await prisma.load.update({ where: { id }, data: { paymentStatus: "paid", paidAt: new Date(), paidAmount: load.invoicedAmount ?? load.quotedRevenue } });
   revalidatePath("/invoices");
   revalidatePath("/kpi");
   redirect("/invoices");

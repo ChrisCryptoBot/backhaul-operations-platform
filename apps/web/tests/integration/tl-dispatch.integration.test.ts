@@ -18,17 +18,17 @@ describe.skipIf(!run)("dispatcher flow on the TrueLane-shaped tables", () => {
   let driverId = "";
 
   beforeAll(async () => {
-    const load = await prisma.tlLoad.findFirstOrThrow({ where: { loadNumber: "DM-40001" } });
+    const load = await prisma.load.findFirstOrThrow({ where: { loadNumber: "DM-40001" } });
     draftLoadId = load.id;
-    await prisma.tlAssignment.deleteMany({ where: { loadId: draftLoadId } });
-    await prisma.tlLoad.update({ where: { id: draftLoadId }, data: { status: "draft" } });
-    driverId = (await prisma.tlDriver.findFirstOrThrow({ where: { name: "Alex Rivera" } })).id;
+    await prisma.assignment.deleteMany({ where: { loadId: draftLoadId } });
+    await prisma.load.update({ where: { id: draftLoadId }, data: { status: "draft" } });
+    driverId = (await prisma.driver.findFirstOrThrow({ where: { name: "Alex Rivera" } })).id;
   });
 
   // Leave the demo data as the seed wrote it: the deadhead-trap load unassigned and still a draft.
   afterAll(async () => {
-    await prisma.tlAssignment.deleteMany({ where: { loadId: draftLoadId } });
-    await prisma.tlLoad.update({ where: { id: draftLoadId }, data: { status: "draft" } });
+    await prisma.assignment.deleteMany({ where: { loadId: draftLoadId } });
+    await prisma.load.update({ where: { id: draftLoadId }, data: { status: "draft" } });
   });
 
   test("the board shows the deadhead-trap load rejected at its real miles", async () => {
@@ -51,15 +51,15 @@ describe.skipIf(!run)("dispatcher flow on the TrueLane-shaped tables", () => {
     await expect(dispatchLoad(draftLoadId)).rejects.toMatchObject({ code: "already_sent" });
     const answered = await recordDriverResponse(draftLoadId, "accepted");
     expect(answered.status).toBe("accepted");
-    expect((await prisma.tlLoad.findUniqueOrThrow({ where: { id: draftLoadId } })).status).toBe("accepted");
+    expect((await prisma.load.findUniqueOrThrow({ where: { id: draftLoadId } })).status).toBe("accepted");
   });
 
   test("a driver with a lapsed card cannot be assigned", async () => {
     expect(driverBlocker({ cdlExpiry: new Date("2020-01-01"), medicalCardExpiry: null })).toBe("CDL expired");
-    const lapsed = await prisma.tlDriver.create({ data: { workspaceId: "demo-workspace", name: "Lapsed Test", cdlExpiry: new Date("2020-01-01") } });
-    const other = await prisma.tlLoad.findFirstOrThrow({ where: { status: "draft", assignment: null } });
+    const lapsed = await prisma.driver.create({ data: { workspaceId: "demo-workspace", name: "Lapsed Test", cdlExpiry: new Date("2020-01-01") } });
+    const other = await prisma.load.findFirstOrThrow({ where: { status: "draft", assignment: null } });
     await expect(assignDriver({ loadId: other.id, driverId: lapsed.id, pay: { kind: "flat", rate: 300 } })).rejects.toBeInstanceOf(DispatchError);
-    await prisma.tlDriver.delete({ where: { id: lapsed.id } });
+    await prisma.driver.delete({ where: { id: lapsed.id } });
   });
 
   test("analytics and aging compute from the tables with TrueLane's math", async () => {
@@ -77,6 +77,6 @@ describe.skipIf(!run)("dispatcher flow on the TrueLane-shaped tables", () => {
     const saved = await saveReviewedDraft({ ...out.draft, confirmed: true });
     expect(saved.stops).toHaveLength(2);
     expect(saved.status).toBe("draft");
-    await prisma.tlLoad.delete({ where: { id: saved.id } });
+    await prisma.load.delete({ where: { id: saved.id } });
   });
 });

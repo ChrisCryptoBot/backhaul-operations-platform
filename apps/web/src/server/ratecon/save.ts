@@ -23,7 +23,7 @@ export function assertSavable(d: ReviewedDraft): void {
 export async function saveReviewedDraft(d: ReviewedDraft) {
   assertSavable(d);
   const ws = await currentWorkspace();
-  return prisma.tlLoad.create({
+  return prisma.load.create({
     data: {
       workspaceId: ws.id,
       vehicleId: d.vehicleId ?? null,
