@@ -17,3 +17,6 @@ replace-secrets.txt
 **/.tmp/
 test-results/
 **/test-results/
+
+# local dev server logs
+apps/web/.dev*.log
