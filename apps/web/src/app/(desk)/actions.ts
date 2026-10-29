@@ -7,6 +7,8 @@ import { redirect, RedirectType } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
 import { invoiceLoad, markLoadPaid } from "@/server/tl/invoicing";
+import { saveThresholds } from "@/server/tl/thresholds";
+import type { Thresholds } from "@/lib/thresholds";
 import type { PayKind } from "@/server/tl/projector";
 import { readRateCon } from "@/server/ratecon/reader";
 import { saveReviewedDraft, type ReviewedDraft } from "@/server/ratecon/save";
@@ -124,6 +126,16 @@ export async function saveRateConAction(dto: DraftDto, confirmed: boolean): Prom
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not save." };
   }
+}
+
+// ── Thresholds (Settings) ──────────────────────────────────────────────────────────────────────
+
+/** Checks and saves the thresholds the form sent. Everything that reads them (alerts, the KPI lines, invoice terms) refreshes. */
+export async function saveThresholdsAction(values: Record<string, string>): Promise<{ ok: true; changed: boolean } | { ok: false; errors: Partial<Record<keyof Thresholds, string>> }> {
+  const out = await saveThresholds(values);
+  if (!out.ok) return { ok: false, errors: out.errors };
+  revalidatePath("/", "layout");
+  return { ok: true, changed: out.changed ?? false };
 }
 
 // ── Appearance (Settings) ──────────────────────────────────────────────────────────────────────

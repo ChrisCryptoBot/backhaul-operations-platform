@@ -1,12 +1,14 @@
 import { prisma } from "@/lib/db";
 import { alertsByLoad, countAlerts, deriveAlerts, type AlertLoad } from "@/lib/alerts";
+import { alertThresholds } from "@/lib/thresholds";
 import { evaluateTlLoad } from "./evaluate";
+import { getThresholds } from "./thresholds";
 import { loadInclude } from "./queries";
 import { DEMO_WORKSPACE_ID } from "./workspace";
 
 /** Reads the loads and applies the alert rules (src/lib/alerts.ts). Nothing is stored: the alerts are as fresh as the rows. */
 export async function getAlerts(now = new Date(), workspaceId = DEMO_WORKSPACE_ID) {
-  const loads = await prisma.load.findMany({ where: { workspaceId, deletedAt: null }, include: loadInclude });
+  const [loads, thresholds] = await Promise.all([prisma.load.findMany({ where: { workspaceId, deletedAt: null }, include: loadInclude }), getThresholds(workspaceId)]);
   const input: AlertLoad[] = loads.map((l) => {
     const profile = l.vehicle?.costProfile ?? null;
     const a = l.assignment;
@@ -23,6 +25,6 @@ export async function getAlerts(now = new Date(), workspaceId = DEMO_WORKSPACE_I
       assignment: a ? { status: a.status, dispatchedAt: a.dispatchedAt, driver: { id: a.driver.id, name: a.driver.name, cdlExpiry: a.driver.cdlExpiry, medicalCardExpiry: a.driver.medicalCardExpiry } } : null
     };
   });
-  const alerts = deriveAlerts(input, now);
+  const alerts = deriveAlerts(input, now, alertThresholds(thresholds));
   return { alerts, byLoad: alertsByLoad(alerts), counts: countAlerts(alerts) };
 }

@@ -88,7 +88,9 @@ export default async function InvoicesPage() {
 
   return (
     <>
-      <PageHead title="Invoices" sub="Delivered loads that still need an invoice, what is out, and what has been paid." />
+      <PageHead title="Invoices" sub="Delivered loads that still need an invoice, what is out, and what has been paid.">
+        <a className="tl-btn" href="/export/invoices">Export CSV</a>
+      </PageHead>
       <div className="tl-grid cols-4">
         <Stat label="Outstanding" value={usd(aging.totalOutstanding)} sub={`${aging.count} ${aging.count === 1 ? "invoice" : "invoices"}`} />
         <Stat label="Overdue" value={String(aging.overdueCount)} tone={aging.overdueCount > 0 ? "bad" : undefined} sub={aging.oldestDaysOverdue != null ? `oldest ${aging.oldestDaysOverdue} days` : "none"} />

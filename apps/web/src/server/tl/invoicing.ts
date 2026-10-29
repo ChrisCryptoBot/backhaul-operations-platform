@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { recordAudit } from "./audit";
 import { num } from "./convert";
+import { getThresholds } from "./thresholds";
 
 /** Invoice a delivered load, and mark an invoice paid. Each writes its audit event with the change. */
 export async function invoiceLoad(loadId: string, now = new Date()): Promise<{ ok: boolean }> {
@@ -8,7 +9,7 @@ export async function invoiceLoad(loadId: string, now = new Date()): Promise<{ o
   if (load.status !== "completed" || load.paymentStatus) return { ok: false };
   const amount = load.actualRevenue ?? load.quotedRevenue;
   const number = `INV-${load.loadNumber ?? loadId.slice(-6)}`;
-  const terms = load.payTermsDays ?? 30;
+  const terms = load.payTermsDays ?? (await getThresholds()).defaultPayTermsDays;
   await prisma.$transaction(async (tx) => {
     await tx.load.update({ where: { id: loadId }, data: { paymentStatus: "invoiced", invoicedAt: now, invoicedAmount: amount, invoiceNumber: number, payTermsDays: terms } });
     await recordAudit(

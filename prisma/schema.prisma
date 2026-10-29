@@ -26,6 +26,15 @@ model Workspace {
   name      String
   createdAt DateTime @default(now()) @map("created_at")
 
+  // Desk thresholds. Null means "use the default" (src/lib/thresholds.ts), so a fresh workspace needs no setup.
+  emptyAmberPct         Decimal? @map("empty_amber_pct") @db.Decimal(5, 2)
+  emptyRedPct           Decimal? @map("empty_red_pct") @db.Decimal(5, 2)
+  defaultPayTermsDays   Int?     @map("default_pay_terms_days")
+  detentionGraceMinutes Int?     @map("detention_grace_minutes")
+  alertPickupHours      Int?     @map("alert_pickup_hours")
+  alertSentHours        Int?     @map("alert_sent_hours")
+  alertClearanceDays    Int?     @map("alert_clearance_days")
+
   vehicles    Vehicle[]
   loads       Load[]
   drivers     Driver[]

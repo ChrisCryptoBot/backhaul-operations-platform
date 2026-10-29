@@ -67,19 +67,3 @@ export function Tabs({ items, active, hrefFor }: { items: Array<{ key: string; l
 export function Empty({ children }: { children: React.ReactNode }) {
   return <div className="tl-empty">{children}</div>;
 }
-
-/** A tiny bar chart: no library, so it renders on the server. */
-export function Bars({ data, format }: { data: Array<{ label: string; value: number }>; format: (n: number) => string }) {
-  const max = Math.max(1, ...data.map((d) => d.value));
-  return (
-    <div className="tl-bars" role="img" aria-label="Bar chart">
-      {data.map((d) => (
-        <div className="tl-bar" key={d.label}>
-          <b>{format(d.value)}</b>
-          <i style={{ height: `${Math.max(2, (d.value / max) * 100)}%` }} />
-          <span>{d.label}</span>
-        </div>
-      ))}
-    </div>
-  );
-}

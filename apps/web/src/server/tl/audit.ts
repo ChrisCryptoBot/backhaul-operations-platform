@@ -10,7 +10,7 @@ import { DEMO_WORKSPACE_ID } from "./workspace";
 export type AuditDb = PrismaClient | Prisma.TransactionClient;
 
 export type AuditInput = {
-  entity: "assignment" | "invoice" | "intake";
+  entity: "assignment" | "invoice" | "intake" | "settings";
   action: AuditAction;
   summary: string;
   loadId?: string | null;

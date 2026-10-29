@@ -107,3 +107,38 @@ driver is sent), `/dispatch` (needs a driver, sent and waiting, moving), `/drive
   browser: open, act inside and close the drawer (Esc, the close button, the dim area), assign, send, decline, re-assign, remove with a
   reason, assign over a double-booking with and without a reason, the audit details dialog, header search, Night and Day.
 - Not done: a production build of this wave, and a keyboard-only walk (both come in Wave 5).
+
+## Desk rework, Wave 3 (done): KPI dashboard, comparisons, exports, thresholds
+- **Periods and comparison.** Last four weeks (the default), this month, year to date, all time. Each compares with the equivalent stretch
+  before it (the four weeks before; the same days of last month; the same dates last year), with matching lengths so a part-month is
+  never set against a whole one. Months and years start at midnight Central (`lib/zoned.ts`, `lib/kpi-periods.ts`), daylight saving included.
+  Filters by lane, broker, driver and truck narrow every number on the page. The page, its CSV files and the printable report all read
+  the same address parameters (`lib/kpi-params.ts`).
+- **Numbers.** Finished loads become one fact each (`server/tl/kpi.ts`); every figure is a sum or a ratio of sums over the facts in a
+  window, run through TrueLane's own analytics, load-economics and market-variance functions. New measures: share of loads that cleared
+  the truck's floor frozen at accept (pay after tracked fuel, tolls and other costs, per mile driven), paid within terms, days to pay,
+  average wait at a stop, empty miles per driver and per lane (split before the pickup and after the delivery), and each load's rate
+  against its market rate.
+- **Charts** (`components/desk/kpi/`, plain SVG and CSS rendered on the server, no chart library): a hairline matrix of eight headline
+  numbers with change chips (colour is the judgement, the glyph is the direction, so a fall in empty miles is a green down arrow); twelve
+  weeks as four small charts plus last-four-against-prior-four growth bars on one scale; drivers ranked by empty miles with the amber and
+  red lines and the fleet's own mark (empty % or empty miles); bullets for floor, payment and dock time; a histogram of rate against
+  the market with loads that have no market rate kept apart; empty miles per lane split before and after; and a lane scorecard. Every
+  chart carries its unit, a one-line caption and a footer saying how it is worked out, and says so in words when it has nothing to show.
+- **Thresholds** (Settings, `lib/thresholds.ts`, `server/tl/thresholds.ts`, migration `20261029010000_workspace_thresholds`): seven
+  nullable columns on `workspaces` (empty-miles amber and red lines, default pay terms, free time at a dock, and the three alert
+  timings). Blank means the default. The form checks as you type and redraws a bar with the fleet's real empty-miles share on it;
+  saving writes an audit event with the before and after values. Alerts, invoice terms and the KPI lines now read them.
+- **Exports.** `GET /export/<kind>` with the same filters as the screen: `loads`, `invoices`, `kpi-drivers`, `kpi-lanes`, `kpi-weeks`.
+  CSV with a byte order mark and CRLF line ends; text that a spreadsheet would run as a formula is defused (`lib/csv.ts`). The Loads
+  filter is one shared function (`lib/board-filter.ts`), so the file always holds the rows on screen.
+- **Report.** `/kpi/report` is a one-sheet management report for the same period and filters, with a print stylesheet; "Print or save as
+  PDF" opens the browser's print dialog.
+- **Seed.** Empty miles lowered a little (shorter runs home, more loads with a load back) so the fleet shows a spread of green, amber and
+  red instead of all red.
+- Verified: `tsc` and eslint clean; vitest 13 files / 175 tests pass including the 18 database tests (`RUN_DB_INTEGRATION=true`), now run
+  one file at a time because they share one database. In the browser: every chart in Night and Day, period tabs, compare on and off,
+  filters, both leaderboard views, the empty state, the Settings form (inline errors, live preview, save, audit event, dashboard recolours),
+  every export, the report page.
+- Not done: the browser's print dialog was not exercised (the report page and its print stylesheet were), a production build of this
+  wave, and a keyboard-only walk (Wave 5).

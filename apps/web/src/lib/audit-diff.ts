@@ -22,7 +22,7 @@ export function describePay(kind: string, rate: number): string {
   return kind === "flat" ? `Flat $${r}` : kind === "cpm" ? `$${r}/mi` : `$${r}/hr`;
 }
 
-export type AuditAction = "assigned" | "reassigned" | "unassigned" | "sent" | "accepted" | "declined" | "invoiced" | "paid" | "rate_con_saved";
+export type AuditAction = "assigned" | "reassigned" | "unassigned" | "sent" | "accepted" | "declined" | "invoiced" | "paid" | "rate_con_saved" | "thresholds_changed";
 
 export const ACTION_LABEL: Record<string, string> = {
   assigned: "Driver assigned",
@@ -33,7 +33,8 @@ export const ACTION_LABEL: Record<string, string> = {
   declined: "Driver declined",
   invoiced: "Invoice created",
   paid: "Marked paid",
-  rate_con_saved: "Created from a rate confirmation"
+  rate_con_saved: "Created from a rate confirmation",
+  thresholds_changed: "Thresholds changed"
 };
 
 export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted"> = {
@@ -45,12 +46,14 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   declined: "bad",
   invoiced: "info",
   paid: "ok",
-  rate_con_saved: "muted"
+  rate_con_saved: "muted",
+  thresholds_changed: "muted"
 };
 
 /** The filter chips on the audit page: which actions belong to which group. */
 export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[] }> = [
   { key: "dispatch", label: "Dispatch", actions: ["assigned", "reassigned", "unassigned", "sent", "accepted", "declined"] },
   { key: "money", label: "Money", actions: ["invoiced", "paid"] },
-  { key: "intake", label: "Intake", actions: ["rate_con_saved"] }
+  { key: "intake", label: "Intake", actions: ["rate_con_saved"] },
+  { key: "settings", label: "Settings", actions: ["thresholds_changed"] }
 ];

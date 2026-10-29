@@ -3,17 +3,23 @@ import Link from "next/link";
 import React from "react";
 import { setAppearanceAction } from "../actions";
 import { Card, PageHead } from "@/components/desk/ui";
+import { ThresholdsForm } from "@/components/desk/thresholds-form";
 import { DENSITIES, DENSITY_COOKIE, DENSITY_LABEL, THEMES, THEME_COOKIE, THEME_LABEL, asDensity, asTheme } from "@/lib/appearance";
+import { THRESHOLD_FIELDS, type Thresholds } from "@/lib/thresholds";
+import { getDeskKpi } from "@/server/tl/kpi";
+import { getStoredThresholds } from "@/server/tl/thresholds";
 
-/** Settings: appearance for now (theme and row density). Each choice is a button that saves straight away. */
-export default function SettingsPage() {
+/** Settings: appearance (theme, row density) and the thresholds the desk judges by. Appearance buttons save straight away. */
+export default async function SettingsPage() {
   const jar = cookies();
   const theme = asTheme(jar.get(THEME_COOKIE)?.value);
   const density = asDensity(jar.get(DENSITY_COOKIE)?.value);
+  const [row, kpi] = await Promise.all([getStoredThresholds(), getDeskKpi({ period: "4w", compare: false })]);
+  const stored = Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, row[f.key] ?? null])) as Record<keyof Thresholds, number | null>;
 
   return (
     <>
-      <PageHead title="Settings" sub="How the desk looks (saved in this browser, applied before the page paints) and how alerts are decided." />
+      <PageHead title="Settings" sub="How the desk looks (saved in this browser, applied before the page paints) and the numbers it judges by." />
 
       <Card title="Theme">
         <form action={setAppearanceAction} className="st-choices">
@@ -45,8 +51,15 @@ export default function SettingsPage() {
         </form>
       </Card>
 
+      <Card title="Thresholds" className="tl-card">
+        <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
+          The lines the dashboard, the alerts and the invoices judge by. They are shared by everyone using this desk, and each change is recorded in the audit log.
+        </p>
+        <ThresholdsForm stored={stored} fleetEmptyShare={kpi.current.emptyShare} />
+      </Card>
+
       <Card title="Alert rules" className="tl-card">
-        <p className="tl-note" style={{ marginBottom: 10 }}>What raises a block, warn or info alert on a load, and the timings each one uses.</p>
+        <p className="tl-note" style={{ marginBottom: 10 }}>What raises a block, warn or info alert on a load, with the timings above.</p>
         <Link href="/settings/rules" className="tl-btn">See the rules</Link>
       </Card>
     </>

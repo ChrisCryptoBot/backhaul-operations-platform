@@ -7,15 +7,10 @@ import { AlertDot } from "@/components/desk/alert-bits";
 import { DataTable, type Column, type Row } from "@/components/desk/data-table";
 import { DataTableTools } from "@/components/desk/data-table-tools";
 import { EmptyState } from "@/components/desk/kit/states";
+import { asBoardStatus, BOARD_STATUSES, filterBoard, isBelowCost, searchBoard } from "@/lib/board-filter";
 import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
 
-const FILTERS = [
-  { key: "all", label: "All" },
-  { key: "draft", label: "Needs a driver" },
-  { key: "accepted", label: "Accepted" },
-  { key: "in_progress", label: "On the road" },
-  { key: "completed", label: "Delivered" }
-] as const;
+const FILTERS = BOARD_STATUSES;
 
 const COLUMNS: Column[] = [
   { key: "load", label: "Load", group: "Load", sticky: true, width: 150 },
@@ -35,16 +30,12 @@ const COLUMNS: Column[] = [
 export default async function LoadsPage({ searchParams }: { searchParams?: { status?: string; flag?: string; q?: string } }) {
   const [everything, { byLoad }] = await Promise.all([listBoardRows(), getAlerts()]);
   const q = searchParams?.q?.trim() ?? "";
-  const needle = q.toLowerCase();
   // `q` comes from the header search (a driver, broker or city) and narrows everything below, counts included.
-  const all = needle
-    ? everything.filter((r) => [r.loadNumber, r.brokerName, r.origin, r.destination, r.vehicleName, r.driverName].filter(Boolean).join(" ").toLowerCase().includes(needle))
-    : everything;
-  const active = FILTERS.some((f) => f.key === searchParams?.status) ? (searchParams!.status as string) : "all";
+  const all = searchBoard(everything, q);
+  const active = asBoardStatus(searchParams?.status);
   const below = searchParams?.flag === "below";
-  const isBelow = (r: (typeof all)[number]) => r.verdict === "reject" && r.status !== "completed";
-  const byStatus = active === "all" ? all : all.filter((r) => r.status === active);
-  const shown = below ? byStatus.filter(isBelow) : byStatus;
+  const isBelow = isBelowCost;
+  const shown = filterBoard(everything, { status: active, flag: below ? "below" : undefined, q });
   const counts = (key: string) => (key === "all" ? all.length : all.filter((r) => r.status === key).length);
   const belowCount = all.filter(isBelow).length;
   const href = (status: string, flag: boolean, text = q) => {
@@ -88,7 +79,9 @@ export default async function LoadsPage({ searchParams }: { searchParams?: { sta
 
   return (
     <>
-      <PageHead title="Loads" sub="Every load, with the verdict on the truck's own cost: the same figure TrueLane gives a driver on the Calculate screen." />
+      <PageHead title="Loads" sub="Every load, with the verdict on the truck's own cost: the same figure TrueLane gives a driver on the Calculate screen.">
+        <a className="tl-btn" href={`/export/loads${href(active, below).replace("/loads", "")}`}>Export CSV</a>
+      </PageHead>
       <DataTableTools tableId="loads-table" total={shown.length} placeholder="Search load, broker, city, driver…">
         <Tabs active={active} hrefFor={(k) => href(k, below)} items={FILTERS.map((f) => ({ ...f, count: counts(f.key) }))} />
         <Link href={href(active, !below)} className="tl-tab" aria-current={below ? "true" : undefined}>

@@ -184,7 +184,7 @@ async function main() {
       lane,
       offer: round(lane.miles * lane.rpm * between(0.88, 1.18), 0),
       pickupDh: round(between(10, 90), 0),
-      returnDh: round(between(0, 240), 0),
+      returnDh: round(between(0, 150), 0),
       daysAgo,
       brokerIdx: i % BROKERS.length,
       invoiced: true,
@@ -200,7 +200,7 @@ async function main() {
     const vehicle = p === (demoLoad as Plan) ? vehicles[0] : vehicles[seq % vehicles.length];
     const when = new Date(now - p.daysAgo * DAY);
     const loaded = p.lane.miles;
-    const covered = p.status === "completed" && rand() < 0.35; // some finished loads had a load back
+    const covered = p.status === "completed" && rand() < 0.45; // some finished loads had a load back
     const returnDh = covered ? 0 : p.returnDh;
     const fuelGallons = (p.pickupDh + loaded + returnDh) / vehicle.mpg;
     const fuel = p.status === "completed" ? round(fuelGallons * between(3.6, 4.2)) : 0;

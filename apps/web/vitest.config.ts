@@ -9,6 +9,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["tests/**/*.test.ts"]
+    include: ["tests/**/*.test.ts"],
+    // The database tests share one database and count its rows, so a file must not run while another is writing.
+    fileParallelism: false
   }
 });
