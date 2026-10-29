@@ -238,7 +238,7 @@ describe.skipIf(!run)("wave C1: what a truck can carry, passing on a quote, quot
 
     // The first columns are the ones the file always had; the new ones follow.
     const header = lines(history)[0]!;
-    expect(header.startsWith("Load,Status,Broker,Origin,Destination")).toBe(true);
+    expect(header.startsWith("Load,Status,Customer,Origin,Destination")).toBe(true);
     expect(header.endsWith("Delivered,Invoice number,Invoiced,Invoiced amount,Paid,Expenses,Driver pay (estimate),Cancel reason")).toBe(true);
   });
 });

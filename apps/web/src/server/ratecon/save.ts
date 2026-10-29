@@ -4,6 +4,7 @@ import type { RateConLoadDraft } from "./map";
 import { currentWorkspace } from "@/server/tl/workspace";
 import { recordAudit } from "@/server/tl/audit";
 import { freezeLoadSnapshot } from "@/server/tl/snapshot";
+import { normalizeMcNumber } from "@/lib/fmcsa";
 import { saveStopCoordinates } from "@/server/geo/persist";
 
 /**
@@ -64,7 +65,8 @@ export async function saveReviewedDraft(d: ReviewedDraft) {
       channel: d.load.channel,
       status: "draft",
       brokerName: d.load.brokerName,
-      brokerMcNumber: d.load.brokerMcNumber,
+      // Digits only, as everywhere else: a reviewer who typed "MC 1515" must not leave the load reading "MC MC 1515".
+      brokerMcNumber: normalizeMcNumber(d.load.brokerMcNumber),
       loadNumber: d.load.loadNumber,
       poNumber: d.load.poNumber,
       originAddress: d.load.originAddress,
@@ -111,7 +113,7 @@ export async function saveReviewedDraft(d: ReviewedDraft) {
         loadNumber: load.loadNumber,
         workspaceId: ws.id,
         summary: `Read from a rate confirmation${d.load.brokerName ? ` from ${d.load.brokerName}` : ""} and reviewed`,
-        after: { Load: load.loadNumber, Broker: d.load.brokerName, Stops: load.stops.length }
+        after: { Load: load.loadNumber, Customer: d.load.brokerName, Stops: load.stops.length }
       },
       tx
     );

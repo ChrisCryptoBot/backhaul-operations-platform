@@ -277,7 +277,7 @@ export const PROFILE_FIELDS: ProfileField[] = [
   { key: "routeIncludedStops", label: "Stops it includes", unit: "stops", min: 0, max: 100, step: 1, whole: true, group: "route" },
   { key: "routeOveragePerMile", label: "Per extra mile", unit: "$ a mile", min: 0, max: 20, step: 0.05, group: "route" },
   { key: "routeOveragePerStop", label: "Per extra stop", unit: "$ a stop", min: 0, max: 500, step: 1, group: "route" },
-  { key: "detentionHourlyRate", label: "Detention rate", unit: "$ an hour", min: 0, max: 300, step: 5, group: "dock", hint: "What a broker pays for waiting past the free time." },
+  { key: "detentionHourlyRate", label: "Detention rate", unit: "$ an hour", min: 0, max: 300, step: 5, group: "dock", hint: "What a customer pays for waiting past the free time." },
   { key: "freeGraceMinutes", label: "Free time at each stop", unit: "minutes", min: 0, max: 480, step: 15, whole: true, group: "dock", hint: "Blank uses the free time in Settings." }
 ];
 

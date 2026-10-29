@@ -11,6 +11,8 @@ import type { FitRow, QuoteListRow } from "@/server/tl/quote";
 import type { Measured } from "@/server/geo/measure";
 import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
 import { AddressInput } from "./address-input";
+import { AuthorityStatus, useAuthorityLookup } from "./customer-authority";
+import { LiveFuelPrice } from "./live-fuel-price";
 import { Icon } from "./kit/icons";
 import { Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
@@ -137,6 +139,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
     rows[0] ??
     null;
 
+  const authority = useAuthorityLookup();
   const set = (patch: Partial<QuoteValues>) => setValues((v) => ({ ...v, ...patch }));
   const setStop = (i: number, patch: Partial<QuoteStop>) => setValues((v) => ({ ...v, stops: v.stops.map((s, k) => (k === i ? { ...s, ...patch } : s)) }));
   const addStop = () => setValues((v) => ({ ...v, stops: [...v.stops.slice(0, -1), { role: "delivery", address: "", appointment: "" }, v.stops[v.stops.length - 1]!] }));
@@ -214,7 +217,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
     }
   }
 
-  /** Pass on it: the quote is kept (saved first when it was only typed) with the reason, so the lane and the broker are remembered. */
+  /** Pass on it: the quote is kept (saved first when it was only typed) with the reason, so the lane and the customer are remembered. */
   function onOpenPass() {
     setTried(true);
     if (!check.ok) {
@@ -330,7 +333,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
             <h2>The deal</h2>
             <div className="qt-grid">
               <label className="tl-field th-field">
-                Broker
+                Customer
                 <input list="qt-brokers" value={values.broker} onChange={(e) => set({ broker: e.target.value })} autoComplete="off" />
                 <datalist id="qt-brokers">
                   {brokers.map((b) => (
@@ -357,17 +360,30 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
               <Money label="Market rate" unit="$ total" value={values.marketRate} error={err("marketRate")} onChange={(v) => set({ marketRate: v })} hint="The total for the load, not per mile. Blank skips the market check." />
               <Money label="Pay terms" unit="days" value={values.payTermsDays} error={err("payTermsDays")} onChange={(v) => set({ payTermsDays: v })} />
               <Money label="Factoring fee" unit="%" value={values.factoringPct} error={err("factoringPct")} onChange={(v) => set({ factoringPct: v })} hint="Blank uses each truck's own." />
+              <Money label="Fuel price" unit="$ a gallon" value={values.fuelPrice} error={err("fuelPrice")} onChange={(v) => set({ fuelPrice: v })} hint="Blank uses each truck's own. For this check only: it is not saved." />
             </div>
+            <LiveFuelPrice fuel="diesel" origin={values.stops[0]?.address ?? ""} destination={values.stops[values.stops.length - 1]?.address ?? ""} typed={values.fuelPrice} onUse={(price) => set({ fuelPrice: price })} />
             <details className="qt-more" open={paperOpen || undefined}>
-              <summary>Broker paperwork</summary>
+              <summary>Customer paperwork</summary>
               <div className="qt-grid">
                 <label className="tl-field">
-                  MC number
-                  <input value={values.brokerMc} onChange={(e) => set({ brokerMc: e.target.value })} inputMode="numeric" autoComplete="off" aria-invalid={err("brokerMc") ? true : undefined} />
+                  MC number (brokers and carriers)
+                  <input
+                    value={values.brokerMc}
+                    onChange={(e) => {
+                      authority.reset();
+                      set({ brokerMc: e.target.value });
+                    }}
+                    onBlur={() => void authority.check(values.brokerMc, values.broker, (name) => setValues((v) => (v.broker.trim() === "" ? { ...v, broker: name } : v)))}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    aria-invalid={err("brokerMc") ? true : undefined}
+                  />
                   {err("brokerMc") ? <span className="th-err" role="alert">{err("brokerMc")}</span> : null}
+                  <AuthorityStatus busy={authority.busy} result={authority.result} />
                 </label>
                 <label className="tl-field">
-                  Their load number
+                  Customer&apos;s load number
                   <input value={values.loadNumber} onChange={(e) => set({ loadNumber: e.target.value })} autoComplete="off" />
                 </label>
                 <label className="tl-field">
@@ -456,6 +472,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
           <h2 className="rc-eyebrow">{row ? `Priced for ${row.truckName}${row.driverName ? ` · ${row.driverName}` : ""}` : "The verdict"}</h2>
           {row ? <Verdict row={row} values={values} /> : <p className="tl-note">{priced && !priced.ok ? "Type the offer and the loaded miles to price it." : pricing ? "Pricing…" : priced?.ok && priced.fit.skipped.length > 0 ? "No truck has a cost profile to price against." : "Type the offer and the loaded miles to price it."}</p>}
           {priced?.ok && priced.warnings.map((w) => <p key={w} className="tl-note warn">{w}</p>)}
+          {priced?.ok && check.ok && check.input.fuelPrice != null ? <p className="tl-note">{`Priced with fuel at $${check.input.fuelPrice.toFixed(2)} a gallon on diesel trucks, not their own price. Once booked, a load is judged on its truck's own price.`}</p> : null}
           {message ? (
             <p className="tl-note warn" role="alert">
               {message}
@@ -614,7 +631,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
               <thead>
                 <tr>
                   <th>Lane</th>
-                  <th>Broker</th>
+                  <th>Customer</th>
                   <th className="num">Offer</th>
                   <th className="num">Loaded</th>
                   <th>Outcome</th>
@@ -693,7 +710,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
 
       <Modal open={passing} onClose={() => setPassing(false)} eyebrow="Pass on it" title="Why pass on this one?">
         <div className="dlg-form">
-          <p className="tl-note">The quote is kept with the reason, so the lane and the broker are remembered.</p>
+          <p className="tl-note">The quote is kept with the reason, so the lane and the customer are remembered.</p>
           <div role="radiogroup" aria-label="Why pass" className="qt-reasons">
             {PASS_REASONS.map((r) => (
               <label key={r} className="dlg-check">

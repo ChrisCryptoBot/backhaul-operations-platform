@@ -26,7 +26,7 @@ export default async function SettingsPage() {
 
       <Card title="Company" className="tl-card">
         <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
-          Printed at the top of every invoice and driver statement, with where a broker should send the payment. Only the name is required; a sheet prints just what is filled in.
+          Printed at the top of every invoice and driver statement, with where a customer should send the payment. Only the name is required; a sheet prints just what is filled in.
         </p>
         <CompanyForm stored={toCompanyValues(company)} />
       </Card>

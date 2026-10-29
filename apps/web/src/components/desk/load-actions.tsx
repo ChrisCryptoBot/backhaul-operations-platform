@@ -11,6 +11,7 @@ import { toCentralLocal } from "@/lib/zoned";
 import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
 import { AddressInput } from "./address-input";
 import { PAID_METHODS } from "@/lib/pay-method";
+import { AuthorityStatus, useAuthorityLookup } from "./customer-authority";
 import { Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
 
@@ -52,12 +53,14 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
   React.useEffect(() => {
     if (open) {
       setV(initial);
+      authority.reset();
       setErrors({});
       setMessage(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  const authority = useAuthorityLookup();
   const set = (patch: Partial<LoadEditValues>) => setV((s) => ({ ...s, ...patch }));
   const setStop = (i: number, patch: Partial<EditStopValues>) => setV((s) => ({ ...s, stops: s.stops.map((x, k) => (k === i ? { ...x, ...patch } : x)) }));
   const setDeal = (patch: Partial<DealValues>) => setV((s) => (s.deal ? { ...s, deal: { ...s.deal, ...patch } } : s));
@@ -142,11 +145,24 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
           ) : null}
           <h3 className="th-group">Who it is for</h3>
           <div className="rc-grid">
-            {text("brokerName", "Broker")}
-            {text("brokerMc", "MC number", { hint: "Digits only." })}
+            {text("brokerName", "Customer", { hint: "A broker, shipper or direct customer." })}
+            <Fld label="MC number (brokers and carriers)" error={errors.brokerMc} hint="Leave blank for a shipper or direct customer.">
+              <input
+                value={v.brokerMc}
+                inputMode="numeric"
+                autoComplete="off"
+                aria-invalid={errors.brokerMc ? true : undefined}
+                onChange={(e) => {
+                  authority.reset();
+                  set({ brokerMc: e.target.value });
+                }}
+                onBlur={() => void authority.check(v.brokerMc, v.brokerName, (name) => setV((s) => (s.brokerName.trim() === "" ? { ...s, brokerName: name } : s)))}
+              />
+              <AuthorityStatus busy={authority.busy} result={authority.result} />
+            </Fld>
             {text("loadNumber", "Load number")}
-            {text("brokerPhone", "Broker phone", { inputMode: "tel" })}
-            {text("brokerEmail", "Broker email", { inputMode: "email", hint: "Where the invoice and a reminder go." })}
+            {text("brokerPhone", "Customer phone", { inputMode: "tel" })}
+            {text("brokerEmail", "Customer email", { inputMode: "email", hint: "Where the invoice and a reminder go." })}
             {text("poNumber", "PO number")}
           </div>
 

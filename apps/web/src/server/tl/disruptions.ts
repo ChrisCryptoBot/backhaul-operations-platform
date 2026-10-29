@@ -58,7 +58,7 @@ export async function cancelLoad(input: Why & { loadId: string }, now = new Date
 export async function recordTonu(input: Why & { loadId: string; fee: number }, now = new Date()) {
   const load = await loadWithDriver(input.loadId);
   if (!CAN_TONU.includes(load.status)) throw new DispatchError("not_allowed", "A TONU is for a load whose driver has accepted it or is on the way.");
-  if (!Number.isFinite(input.fee) || input.fee <= 0) throw new DispatchError("bad_fee", "Type the TONU fee the broker owes, above zero.");
+  if (!Number.isFinite(input.fee) || input.fee <= 0) throw new DispatchError("bad_fee", "Type the TONU fee the customer owes, above zero.");
   const label = checkWhy(input, isCancelReason);
   const a = load.assignment;
   const fee = input.fee.toFixed(2);

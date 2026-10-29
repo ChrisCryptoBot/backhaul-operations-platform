@@ -9,7 +9,7 @@ export const CANCEL_REASONS: Reason[] = [
   { key: "driver_no_show", label: "Driver no-show" },
   { key: "equipment", label: "Equipment problem" },
   { key: "weather_road", label: "Weather or road closure" },
-  { key: "broker_cancelled", label: "Broker cancelled" },
+  { key: "broker_cancelled", label: "Customer cancelled" },
   { key: "shipper_not_ready", label: "Shipper not ready" },
   { key: "rate_dispute", label: "Rate dispute" },
   { key: "pulled", label: "Load pulled (covered by someone else)" },
@@ -29,7 +29,7 @@ export const RESCHEDULE_REASONS: Reason[] = [
   { key: "shipper_not_ready", label: "Shipper not ready" },
   { key: "weather_road", label: "Weather or road closure" },
   { key: "equipment", label: "Equipment problem" },
-  { key: "broker_request", label: "Broker asked for a new time" },
+  { key: "broker_request", label: "Customer asked for a new time" },
   { key: "driver_unavailable", label: "Driver unavailable" },
   { key: "other", label: "Other" }
 ];

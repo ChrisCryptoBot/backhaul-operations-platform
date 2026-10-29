@@ -14,7 +14,7 @@ import { hasFilters, kpiHref, parseKpiParams } from "@/lib/kpi-params";
 import { KPI_PERIODS, windowLabel } from "@/lib/kpi-periods";
 import { shortDate, usd } from "@/lib/desk-format";
 
-const FILTER_LABEL = { lane: "Lane", broker: "Broker", driver: "Driver", truck: "Truck" } as const;
+const FILTER_LABEL = { lane: "Lane", broker: "Customer", driver: "Driver", truck: "Truck" } as const;
 
 export default async function KpiPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const params = parseKpiParams(searchParams);
@@ -144,12 +144,12 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
       </div>
 
       <div className="tl-grid cols-2" style={{ marginTop: 16 }}>
-        <Card title="Top brokers">
+        <Card title="Top customers">
           {k.analytics.summary.topBrokers.length === 0 ? (
-            <Empty>No brokers in this period.</Empty>
+            <Empty>No customers in this period.</Empty>
           ) : (
             <table className="tl-table">
-              <thead><tr><th>Broker</th><th className="num">Loads</th><th className="num">Revenue</th></tr></thead>
+              <thead><tr><th>Customer</th><th className="num">Loads</th><th className="num">Revenue</th></tr></thead>
               <tbody>
                 {k.analytics.summary.topBrokers.map((b) => (
                   <tr key={b.key}>
@@ -167,7 +167,7 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
             <Empty>Nothing outstanding.</Empty>
           ) : (
             <table className="tl-table">
-              <thead><tr><th>Load</th><th>Broker</th><th className="num">Billed</th><th>Due</th><th className="num">Days past due</th></tr></thead>
+              <thead><tr><th>Load</th><th>Customer</th><th className="num">Billed</th><th>Due</th><th className="num">Days past due</th></tr></thead>
               <tbody>
                 {k.outstanding.slice(0, 8).map((o) => (
                   <tr key={o.id}>

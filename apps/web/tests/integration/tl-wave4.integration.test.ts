@@ -94,7 +94,7 @@ describe.skipIf(!run)("disruptions, detention, fleet editing, planner and broker
     expect(after.cancelledAt).toBeInstanceOf(Date);
     expect(after.assignment).toBeNull();
     const [ev] = await listLoadAudit(l.id);
-    expect(ev).toMatchObject({ action: "cancelled", reason: "Broker found a cheaper truck", before: { Driver: "W4 Driver" }, after: { Status: "Cancelled", Reason: "Broker cancelled" } });
+    expect(ev).toMatchObject({ action: "cancelled", reason: "Broker found a cheaper truck", before: { Driver: "W4 Driver" }, after: { Status: "Cancelled", Reason: "Customer cancelled" } });
 
     await expect(cancelLoad({ loadId: l.id, reason: "pulled" })).rejects.toMatchObject({ code: "not_allowed" }); // already cancelled
     const done = await makeLoad("C2", -3 * D, -2 * D, { status: "completed", completedAt: new Date() });

@@ -5,7 +5,7 @@ import { DataTable, type Column, type Row } from "@/components/desk/data-table";
 import { EmptyState } from "@/components/desk/kit/states";
 import { PageHead, StatusChip } from "@/components/desk/ui";
 import { perMile, shortDate, usd } from "@/lib/desk-format";
-import { cityState } from "@/server/ratecon/map";
+import { cityState } from "@/lib/city-state";
 import { listRecentRateCons } from "@/server/ratecon/recent";
 import { listTrucks } from "@/server/tl/queries";
 
@@ -30,7 +30,7 @@ export default async function RateConsPage() {
       load: (
         <>
           <b>{r.loadNumber ?? "No number"}</b>
-          <span className="sub">{r.broker ?? "No broker"}</span>
+          <span className="sub">{r.broker ?? "No customer"}</span>
         </>
       ),
       lane: (

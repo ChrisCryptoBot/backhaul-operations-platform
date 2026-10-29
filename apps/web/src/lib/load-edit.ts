@@ -110,7 +110,7 @@ export function validateLoadEdit(v: LoadEditValues): LoadEditCheck {
     if (t(raw).length > max) errors[key] = `${label} is too long (${max} characters at most).`;
   };
 
-  len("brokerName", v.brokerName, "The broker's name", 80);
+  len("brokerName", v.brokerName, "The customer's name", 80);
   const mc = t(v.brokerMc).replace(/^mc[\s-]*/i, "");
   if (mc !== "" && !/^\d{3,8}$/.test(mc)) errors.brokerMc = "Digits only, for example 123456.";
   if (t(v.brokerPhone) && !phoneOk(t(v.brokerPhone))) errors.brokerPhone = "A phone number, for example 555-0142.";

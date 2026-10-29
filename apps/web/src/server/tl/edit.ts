@@ -5,7 +5,7 @@ import { dateTime } from "@/lib/desk-format";
 import { validateLoadEdit, type LoadEditValues } from "@/lib/load-edit";
 import { loadWindow } from "@/lib/schedule";
 import { saveStopCoordinates } from "@/server/geo/persist";
-import { cityState } from "@/server/ratecon/map";
+import { cityState } from "@/lib/city-state";
 import { recordAudit } from "./audit";
 import { payEstimate, type PayKind } from "./projector";
 import { rateConTotal } from "@/lib/pay";
@@ -69,10 +69,10 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
 
   // What changed, as label, before and after, for the audit entry.
   const rows: Array<[string, string | null, string | null]> = [
-    ["Broker", text(load.brokerName), v.brokerName],
+    ["Customer", text(load.brokerName), v.brokerName],
     ["MC number", text(load.brokerMcNumber), v.brokerMc],
-    ["Broker phone", text(load.brokerPhone), v.brokerPhone],
-    ["Broker email", text(load.brokerEmail), v.brokerEmail],
+    ["Customer phone", text(load.brokerPhone), v.brokerPhone],
+    ["Customer email", text(load.brokerEmail), v.brokerEmail],
     ["Load number", text(load.loadNumber), v.loadNumber],
     ["PO number", text(load.poNumber), v.poNumber],
     ["Trailer", text(load.trailerType), v.trailer],

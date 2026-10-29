@@ -1,5 +1,5 @@
 /**
- * Canned readings of two fictional sample rate confirmations (TrueLane's content/demo-rate-cons: invented brokers
+ * Canned readings of three fictional sample rate confirmations (TrueLane's content/demo-rate-cons: invented brokers
  * and shippers, 555 phone numbers, a SAMPLE DOCUMENT stamp). They are in the model's raw "zero-union" shape ("" for
  * not printed, money as text) so they go through the same normalizeExtraction a live reading does. They let the
  * intake flow run end to end with no API key.
@@ -115,5 +115,55 @@ export const DEMO_RATE_CON_READINGS: Record<string, Record<string, unknown>> = {
     paymentTermsText: "Net 21",
     detentionFreeMinutes: "120",
     detentionHourlyRate: "40"
+  },
+  // Crosses two time zones and prints no miles: the pickup is Eastern in daylight time, the delivery Mountain. For walking the stop-zone and the measured-miles paths.
+  "RC-SLG-55102": {
+    issuedDate: "2027-03-10",
+    broker: { name: "Summit Lane Demo Logistics", mcNumber: "", dotNumber: "", phone: "555-0171", email: "loads@example.com" },
+    carrier: { name: "", mcNumber: "" },
+    loadNumber: "SLG-55102",
+    poNumber: "8804471",
+    stops: [
+      {
+        type: "pickup",
+        name: "Sample Shipper Atlanta",
+        address: "1450 Marietta Blvd NW, Atlanta, GA 30318",
+        appointmentDate: "2027-03-16",
+        appointmentTime: "08:00",
+        appointmentType: "appointment",
+        windowEndTime: "",
+        referenceNumbers: ["PU-55102"],
+        contactName: "",
+        contactPhone: "555-0172",
+        instructions: "Dock 4, check in at the gate"
+      },
+      {
+        type: "delivery",
+        name: "Sample Receiver Denver",
+        address: "4800 Brighton Blvd, Denver, CO 80216",
+        appointmentDate: "2027-03-18",
+        appointmentTime: "13:00",
+        appointmentType: "window",
+        windowEndTime: "16:00",
+        referenceNumbers: ["DL-20931"],
+        contactName: "",
+        contactPhone: "555-0173",
+        instructions: ""
+      }
+    ],
+    rate: { total: "3150", lineHaul: "2900", fuelSurcharge: "250", accessorials: [] },
+    paymentTermsDays: "30",
+    weightLbs: "38000",
+    dimensions: { lengthFt: "", widthFt: "", heightIn: "" },
+    commodity: "Packaged goods",
+    equipment: "53 ft dry van",
+    detentionTerms: "$50 per hour after 2 hours free. TONU $150.",
+    notes: "",
+    tonuOnly: false,
+    warnings: [],
+    milesPrinted: "",
+    paymentTermsText: "Net 30",
+    detentionFreeMinutes: "120",
+    detentionHourlyRate: "50"
   }
 };

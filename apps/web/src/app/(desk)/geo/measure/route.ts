@@ -18,5 +18,7 @@ export async function POST(request: Request) {
   const raw = (body as { stops?: Array<{ address?: unknown; role?: unknown }> } | null)?.stops;
   if (!Array.isArray(raw) || raw.length < 2 || raw.length > 10) return NextResponse.json({ ok: false, error: "A route has two to ten stops." }, { status: 400 });
   const stops = raw.map((s) => ({ address: typeof s.address === "string" ? s.address.slice(0, 200) : "", role: s.role === "delivery" ? ("delivery" as const) : ("pickup" as const) }));
-  return NextResponse.json(await measureForDesk(stops));
+  // `homes: false` asks for the road miles alone (the rate-confirmation review has no trucks to measure from).
+  const homes = (body as { homes?: unknown } | null)?.homes !== false;
+  return NextResponse.json(await measureForDesk(stops, undefined, { homes }));
 }

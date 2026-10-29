@@ -53,7 +53,7 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
     return {
       filename: name("loads"),
       csv: toCsv(
-        ["Load", "Status", "Broker", "Origin", "Destination", "Pickup date", "Truck", "Driver", "Answer", "Miles", "Pay", "Pay per mile", "Floor per mile", "Verdict", "Invoice status", "Delivered", "Invoice number", "Invoiced", "Invoiced amount", "Paid", "Expenses", "Driver pay (estimate)", "Cancel reason"],
+        ["Load", "Status", "Customer", "Origin", "Destination", "Pickup date", "Truck", "Driver", "Answer", "Miles", "Pay", "Pay per mile", "Floor per mile", "Verdict", "Invoice status", "Delivered", "Invoice number", "Invoiced", "Invoiced amount", "Paid", "Expenses", "Driver pay (estimate)", "Cancel reason"],
         rows.map((r): CsvCell[] => [
           r.loadNumber,
           r.status,
@@ -88,7 +88,7 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
     return {
       filename: name("invoices"),
       csv: toCsv(
-        ["Load", "Invoice", "Broker", "Lane", "Delivered", "Invoiced", "Due", "Paid", "Terms (days)", "Amount", "Status"],
+        ["Load", "Invoice", "Customer", "Lane", "Delivered", "Invoiced", "Due", "Paid", "Terms (days)", "Amount", "Status"],
         rows.map((r): CsvCell[] => [
           r.loadNumber,
           r.invoiceNumber,
@@ -130,9 +130,9 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
     }
     if (kind === "kpi-brokers") {
       return {
-        filename: `truelane-desk-kpi-brokers-${tag}.csv`,
+        filename: `truelane-desk-kpi-customers-${tag}.csv`,
         csv: toCsv(
-          ["Broker", "Loads", "Gross", "Per revenue mile", "Against market (%)", "Loads with a market rate", "Paid invoices", "Days to pay", "Average wait at a stop (min)", "Cancelled or TONU"],
+          ["Customer", "Loads", "Gross", "Per revenue mile", "Against market (%)", "Loads with a market rate", "Paid invoices", "Days to pay", "Average wait at a stop (min)", "Cancelled or TONU"],
           k.brokers.map((b): CsvCell[] => [b.name, b.loads, two(b.gross), two(b.rpm), pctOf(b.marketVariancePct), b.benchmarked, b.paidLoads, two(b.avgDaysToPay), two(b.avgWaitMinutes), b.lost])
         )
       };

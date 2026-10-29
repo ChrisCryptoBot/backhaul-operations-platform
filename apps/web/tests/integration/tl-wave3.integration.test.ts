@@ -115,7 +115,7 @@ describe.skipIf(!run)("thresholds, KPI totals and exports on the demo database",
     const drafts = await prisma.load.count({ where: { workspaceId: WS, deletedAt: null, status: "draft" } });
     const loads = (await buildExport("loads", { status: "draft" }))!;
     expect(loads.filename).toMatch(/^truelane-desk-loads-\d{4}-\d{2}-\d{2}\.csv$/);
-    expect(loads.csv.startsWith("﻿Load,Status,Broker")).toBe(true);
+    expect(loads.csv.startsWith("﻿Load,Status,Customer")).toBe(true);
     expect(loads.csv.trim().split("\r\n")).toHaveLength(1 + drafts);
 
     const invoices = (await buildExport("invoices", {}))!;

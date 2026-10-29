@@ -8,7 +8,7 @@ import { windowLabel } from "@/lib/kpi-periods";
 import { deltaOf, type Delta } from "@/lib/kpi-view";
 import { dateTime, miles, pct, perMile, shortDate, signedPct, usd } from "@/lib/desk-format";
 
-const FILTER_LABEL = { lane: "Lane", broker: "Broker", driver: "Driver", truck: "Truck" } as const;
+const FILTER_LABEL = { lane: "Lane", broker: "Customer", driver: "Driver", truck: "Truck" } as const;
 const PERIOD_NAME = { "4w": "Last four weeks", month: "This month", ytd: "Year to date", all: "All time" } as const;
 
 /** A one-sheet management report for the period and filters on the dashboard. Print it, or save it as a PDF from the print dialog. */
@@ -132,7 +132,7 @@ export default async function KpiReportPage({ searchParams }: { searchParams?: R
             </p>
             <table>
               <thead>
-                <tr><th>Load</th><th>Broker</th><th className="num">Billed</th><th>Due</th><th className="num">Days past due</th></tr>
+                <tr><th>Load</th><th>Customer</th><th className="num">Billed</th><th>Due</th><th className="num">Days past due</th></tr>
               </thead>
               <tbody>
                 {k.outstanding.map((o) => (
@@ -155,7 +155,7 @@ export default async function KpiReportPage({ searchParams }: { searchParams?: R
           Cleared the floor: pay after tracked fuel, tolls and other costs, per mile driven, at or above the truck&apos;s floor frozen when the load was accepted. Paid within terms and days to pay use paid invoices only.
           Against market compares all-in pay with the market rate captured for the load, over the planned miles. Pay owed is the estimate shown on each assignment; the phone works out the final payout.
         </p>
-        <p className="rp-foot">Sample data only. Every name, broker and number here is invented.</p>
+        <p className="rp-foot">Sample data only. Every name, customer and number here is invented.</p>
       </article>
     </>
   );

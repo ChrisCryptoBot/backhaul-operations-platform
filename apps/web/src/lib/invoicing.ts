@@ -22,12 +22,12 @@ export function invoiceReadiness(l: ReadinessLoad): { blockers: string[]; cautio
   const blockers: string[] = [];
   const cautions: string[] = [];
   if (l.status !== "completed") blockers.push("The load has to be delivered first.");
-  if (!l.brokerName?.trim()) blockers.push("Who is it billed to? Add the broker on the load.");
+  if (!l.brokerName?.trim()) blockers.push("Who is it billed to? Add the customer on the load.");
   if (!l.loadNumber?.trim()) blockers.push("The invoice needs the load number. Add it on the load.");
   if (!(l.quotedRevenue > 0)) blockers.push("The load has no rate to bill.");
-  if (!l.brokerEmail?.trim() && !l.brokerPhone?.trim()) cautions.push("No contact for the broker's accounts team. Add an email or phone on the load so the invoice can be chased.");
-  if (l.closedWithoutPod) cautions.push("Closed without proof of delivery. Many brokers hold payment until they have it.");
-  else if (!l.podNote?.trim()) cautions.push("No note on the proof of delivery. Brokers usually want it before they pay.");
+  if (!l.brokerEmail?.trim() && !l.brokerPhone?.trim()) cautions.push("No contact for the customer's accounts team. Add an email or phone on the load so the invoice can be chased.");
+  if (l.closedWithoutPod) cautions.push("Closed without proof of delivery. Many customers hold payment until they have it.");
+  else if (!l.podNote?.trim()) cautions.push("No note on the proof of delivery. Customers usually want it before they pay.");
   return { blockers, cautions };
 }
 

@@ -379,7 +379,7 @@ export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: T
     priorRate: was ? rateOf(was) : null
   };
 
-  const brokerName = (b: string | null) => b ?? "No broker";
+  const brokerName = (b: string | null) => b ?? "No customer";
   const byBroker = new Map<string, Fact[]>();
   for (const f of scoped) byBroker.set(brokerName(f.broker), [...(byBroker.get(brokerName(f.broker)) ?? []), f]);
   for (const l of now0.cancelled) if (!byBroker.has(brokerName(l.brokerName))) byBroker.set(brokerName(l.brokerName), []);

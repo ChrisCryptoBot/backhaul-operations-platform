@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { fuelKindOf } from "@/lib/eia";
 import { prisma } from "@/lib/db";
 import { driverBlocker } from "@/lib/clearance";
 import { truckFit, type TruckLimits } from "@/lib/load-fit";
@@ -9,7 +10,7 @@ import { toCentralLocal } from "@/lib/zoned";
 import { acceptGateFor } from "@/truelane/lib/calculate/acceptGate";
 import type { AcceptGate, MarketBand } from "@/truelane/lib/domain/marketVerdict";
 import { fuelSurchargePercentFromDollars, fuelSurchargePerMileFromDollars } from "@/truelane/lib/fuelSurcharge";
-import { cityState } from "@/server/ratecon/map";
+import { cityState } from "@/lib/city-state";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { assignDriver, DispatchError, findDriverClash } from "./dispatch";
@@ -148,7 +149,10 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
   const usual = driver?.defaultPayKind && driver.defaultPayRate != null ? { kind: driver.defaultPayKind, rate: num(driver.defaultPayRate) } : null;
   const emptyHome = input.emptyHomeByTruck[truck.id] ?? input.emptyHome;
   const row = quoteLoadRow(input, emptyToPickup, usual, emptyHome);
-  const e = evaluateTlLoad(row, profile as never, { mpg: truck.mpg });
+  // A fuel price typed for this check stands in for the truck's own on diesel trucks. It is the same price the booking gate uses (bookQuote
+  // comes through here), and it is never saved: the profile and the booked load keep the truck's own.
+  const priced = input.fuelPrice != null && fuelKindOf(truck.fuelType) === "diesel" ? { ...profile, lastFuelPricePerGallon: input.fuelPrice } : profile;
+  const e = evaluateTlLoad(row, priced as never, { mpg: truck.mpg });
   const labour = resolveLabour(profile as never, row.assignment, e.totalMiles, num(row.quotedRevenue) + num(row.fuelSurcharge));
   const margin = e.result.verdictMarginPerMi;
   const forLoad = truckFit(input.specs, truckLimits(truck));
@@ -416,7 +420,9 @@ export function quoteValuesFromLoad(l: LoadWithStops): QuoteValues {
     factoringPct: factoring != null && factoring > 0 ? dec(factoring * 100) : "",
     emptyByTruck: {},
     emptyHomeByTruck: {},
-    loadedHours: l.estimatedLoadedHours == null ? "" : dec(num(l.estimatedLoadedHours), 2)
+    loadedHours: l.estimatedLoadedHours == null ? "" : dec(num(l.estimatedLoadedHours), 2),
+    // A fuel price is typed for one price check and is not kept: a reopened quote prices with each truck's own.
+    fuelPrice: ""
   };
 }
 

@@ -299,7 +299,7 @@ export async function discardQuoteAction(id: string): Promise<{ ok: boolean }> {
 
 /** Everything that shows a load or its money has to look again after one of these. */
 function refreshLoads() {
-  for (const path of ["/loads", "/dispatch", "/planner", "/alerts", "/audit", "/kpi", "/invoices", "/brokers", "/lanes"]) revalidatePath(path);
+  for (const path of ["/loads", "/dispatch", "/planner", "/alerts", "/audit", "/kpi", "/invoices", "/customers", "/lanes"]) revalidatePath(path);
   revalidatePath("/", "layout");
 }
 

@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { buildExtractionParams, isSupportedMime, normalizeExtraction, readExtraction } from "@/truelane/rate-con/core";
 import { DEMO_RATE_CON_READINGS } from "./fixtures";
+import { resolveStopZones } from "@/server/geo/zones";
+import { parseRateConExtraction } from "@/truelane/lib/rateCon/types";
 import { extractionToLoadDraft, type RateConLoadDraft } from "./map";
 
 /**
@@ -18,6 +20,13 @@ export type ReadOutcome =
   | { ok: true; source: "demo" | "live"; draft: RateConLoadDraft }
   | { ok: false; reason: "no_key" | "unsupported_file" | "unreadable" | "refused" | "upstream_error" };
 
+/** The draft, with each stop's time read in the stop's own zone (looked up from where the stop is). */
+async function draftWithZones(extraction: unknown): Promise<RateConLoadDraft | null> {
+  const parsed = parseRateConExtraction(extraction);
+  const zones = parsed ? await resolveStopZones(parsed.stops.map((s) => s.address)) : undefined;
+  return extractionToLoadDraft(extraction, zones);
+}
+
 export function demoKeyOf(fileName: string): string | null {
   const m = /RC-[A-Z]+-\d+/.exec(fileName.toUpperCase());
   return m && DEMO_RATE_CON_READINGS[m[0]] ? m[0] : null;
@@ -26,7 +35,7 @@ export function demoKeyOf(fileName: string): string | null {
 export async function readRateCon(input: ReadInput, env: { ANTHROPIC_API_KEY?: string | undefined } = { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY }): Promise<ReadOutcome> {
   const demo = demoKeyOf(input.fileName);
   if (demo) {
-    const draft = extractionToLoadDraft(normalizeExtraction(DEMO_RATE_CON_READINGS[demo]!));
+    const draft = await draftWithZones(normalizeExtraction(DEMO_RATE_CON_READINGS[demo]!));
     return draft ? { ok: true, source: "demo", draft } : { ok: false, reason: "unreadable" };
   }
   if (!env.ANTHROPIC_API_KEY) return { ok: false, reason: "no_key" };
@@ -39,7 +48,7 @@ export async function readRateCon(input: ReadInput, env: { ANTHROPIC_API_KEY?: s
     const res = await (client.beta.messages as unknown as { create: (p: unknown) => Promise<unknown> }).create(params);
     const read = readExtraction(res as Parameters<typeof readExtraction>[0]);
     if (!read.ok) return { ok: false, reason: read.reason === "refusal" ? "refused" : "unreadable" };
-    const draft = extractionToLoadDraft(normalizeExtraction(read.extraction));
+    const draft = await draftWithZones(normalizeExtraction(read.extraction));
     return draft ? { ok: true, source: "live", draft } : { ok: false, reason: "unreadable" };
   } catch {
     return { ok: false, reason: "upstream_error" };

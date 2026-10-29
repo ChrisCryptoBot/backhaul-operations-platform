@@ -11,6 +11,7 @@ The golden tests in `tests/truelane-domain.test.ts` pin the figures on the TrueL
 - `lib/calculate/afterDelivery.ts`
 - `lib/calculate/emptyMiles.ts`
 - `lib/costProfileHero.ts`
+- `lib/appointmentWindow.ts`
 - `lib/costProfileSnapshot.ts`
 - `lib/domain/calculators.ts`
 - `lib/domain/calendarDays.ts`
@@ -27,6 +28,7 @@ The golden tests in `tests/truelane-domain.test.ts` pin the figures on the TrueL
 - `lib/domain/oversize.ts`
 - `lib/domain/quotedMiles.ts`
 - `lib/domain/tripHours.ts`
+- `lib/eiaRegion.ts`
 - `lib/formatNumbers.ts`
 - `lib/fuelPriceForRates.ts`
 - `lib/fuelSurcharge.ts`
@@ -34,7 +36,9 @@ The golden tests in `tests/truelane-domain.test.ts` pin the figures on the TrueL
 - `lib/invoice.ts`
 - `lib/loadReadiness.ts`
 - `lib/rateCon/equipment.ts`
+- `lib/rateCon/stopTime.ts`
 - `lib/rateCon/types.ts`
+- `lib/rateCon/tz-lookup.d.ts`
 - `constants/trailerData.ts`
 - `constants/vehicleData.ts`
 - `utils/calculateHelpers.ts`

@@ -10,7 +10,7 @@ import { KPI_PERIODS, windowLabel } from "@/lib/kpi-periods";
 import { perMile, signedPct, usd } from "@/lib/desk-format";
 
 const COLUMNS: Column[] = [
-  { key: "broker", label: "Broker", sticky: true, width: 230 },
+  { key: "broker", label: "Customer", sticky: true, width: 230 },
   { key: "loads", label: "Loads", align: "num" },
   { key: "gross", label: "Gross", align: "num" },
   { key: "rpm", label: "Per mile", align: "num" },
@@ -51,19 +51,19 @@ export default async function BrokersPage({ searchParams }: { searchParams?: Rec
   const slow = [...k.brokers].filter((b) => b.avgDaysToPay != null).sort((a, b) => b.avgDaysToPay! - a.avgDaysToPay!)[0];
   return (
     <>
-      <PageHead title="Brokers" sub="What each broker pays, how fast, and how often a load falls through. Worked out from the finished loads in the period.">
+      <PageHead title="Customers" sub="What each customer pays, how fast, and how often a load falls through. Worked out from the finished loads in the period.">
         <a className="tl-btn" href={`/export/kpi-brokers${query}`}>Export CSV</a>
       </PageHead>
-      <Tabs active={params.period} hrefFor={(key) => (key === "all" ? "/brokers" : `/brokers?period=${key}`)} items={KPI_PERIODS} />
+      <Tabs active={params.period} hrefFor={(key) => (key === "all" ? "/customers" : `/customers?period=${key}`)} items={KPI_PERIODS} />
       <p className="tl-sub" style={{ margin: "0 0 12px" }}>{windowLabel(k.window)}</p>
       <ChartFrame
-        title="Broker scorecard"
-        unit="finished loads in the period, by broker"
+        title="Customer scorecard"
+        unit="finished loads in the period, by customer"
         empty={k.brokers.length === 0 ? "No finished loads in this period." : undefined}
         caption={slow ? `${slow.name} is the slowest to pay: ${slow.avgDaysToPay!.toFixed(1)} days on average over ${slow.paidLoads} paid ${slow.paidLoads === 1 ? "invoice" : "invoices"}.` : "No paid invoices in this period to measure payment speed."}
-        formula="Against market is (Σ all-in pay − Σ market total) ÷ Σ market total over the broker's loads that carry a market rate. Days to pay is invoice to payment on paid invoices. Wait is the mean recorded wait at a stop. Fell through counts cancelled loads and TONUs.">
-        <DataTableTools tableId="brokers-table" total={rows.length} placeholder="Search brokers…" />
-        <DataTable id="brokers-table" label="Broker scorecard" columns={COLUMNS} rows={rows} />
+        formula="Against market is (Σ all-in pay − Σ market total) ÷ Σ market total over the customer's loads that carry a market rate. Days to pay is invoice to payment on paid invoices. Wait is the mean recorded wait at a stop. Fell through counts cancelled loads and TONUs.">
+        <DataTableTools tableId="brokers-table" total={rows.length} placeholder="Search customers…" />
+        <DataTable id="brokers-table" label="Customer scorecard" columns={COLUMNS} rows={rows} />
       </ChartFrame>
     </>
   );

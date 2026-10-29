@@ -52,6 +52,8 @@ export type QuoteValues = {
   emptyHomeByTruck: Record<string, string>;
   /** Drive hours for the loaded miles as measured on the road. Blank: the verdict assumes 50 mph over every mile. Cleared when the loaded miles are typed by hand. */
   loadedHours: string;
+  /** A fuel price to price this check with, in place of each truck's own. Blank uses theirs. Never saved with the quote or the load. */
+  fuelPrice: string;
 };
 
 export const BLANK_QUOTE: QuoteValues = {
@@ -86,7 +88,8 @@ export const BLANK_QUOTE: QuoteValues = {
   factoringPct: "",
   emptyByTruck: {},
   emptyHomeByTruck: {},
-  loadedHours: ""
+  loadedHours: "",
+  fuelPrice: ""
 };
 
 export type QuoteInput = {
@@ -112,6 +115,8 @@ export type QuoteInput = {
   emptyByTruck: Record<string, number>;
   emptyHomeByTruck: Record<string, number>;
   loadedHours: number | null;
+  /** Dollars a gallon to use for every diesel truck in this check, or null for each truck's own. */
+  fuelPrice: number | null;
 };
 
 export type QuoteErrors = Record<string, string>;
@@ -125,6 +130,12 @@ const num = (s: string): number | null => {
 };
 
 /** The number in a field, or null when it is blank or not a number. For the live price, which never stops for a stray field. */
+/** The fuel price typed for this check: a believable price a gallon (the cost profile allows $0.50 to $25), else none. */
+const fuelOverride = (s: string): number | null => {
+  const n = num(str(s));
+  return n != null && n >= 0.5 && n <= 25 ? n : null;
+};
+
 const positive = (s: string): number | null => {
   const n = num(str(s));
   return n != null && n > 0 ? n : null;
@@ -183,7 +194,8 @@ export function readQuote(values: QuoteValues): QuoteInput | null {
     factoringFraction: factoring != null && factoring >= 0 && factoring <= 100 ? factoring / 100 : null,
     emptyByTruck: byTruck,
     emptyHomeByTruck: homeByTruck,
-    loadedHours: positive(values.loadedHours ?? "")
+    loadedHours: positive(values.loadedHours ?? ""),
+    fuelPrice: fuelOverride(values.fuelPrice ?? "")
   };
 }
 
@@ -242,6 +254,8 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
       if (n == null || n < 0 || n > 5000) errors[`emptyHome:${truck}`] = "A number from 0 to 5,000.";
     }
   }
+  const fuelRaw = str(values.fuelPrice ?? "");
+  if (fuelRaw !== "" && fuelOverride(fuelRaw) == null) errors.fuelPrice = "A price a gallon, $0.50 to $25.";
   const hoursRaw = str(values.loadedHours ?? "");
   if (hoursRaw !== "") {
     const n = num(hoursRaw);
@@ -314,7 +328,7 @@ export function gateTitle(gate: AcceptGate): string {
 }
 
 /** Why a quote was passed on, in the order the dialog offers them. */
-export const PASS_REASONS = ["Rate too low", "Lost to another carrier", "Broker pulled it", "Cannot cover it", "Other"] as const;
+export const PASS_REASONS = ["Rate too low", "Lost to another carrier", "Customer pulled it", "Cannot cover it", "Other"] as const;
 
 /** The phone's override reasons, in its order. */
 export const OVERRIDE_REASONS = ["Relationship", "Positioning for return load", "Cash flow", "Other"] as const;

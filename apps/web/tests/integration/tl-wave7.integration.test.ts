@@ -116,8 +116,8 @@ describe.skipIf(!run)("loads and billing on the demo database", () => {
 
     const [edited] = (await events(load.id)).filter((e) => e.action === "load_edited");
     expect(edited!.summary).toMatch(/^Details changed:/);
-    expect(Object.keys(edited!.after as object)).toEqual(expect.arrayContaining(["Broker email", "Weight (lb)", "Ramp needed", "Stop 1 references", "Stop 2 address"]));
-    expect(Object.keys(edited!.after as object)).not.toContain("Broker");
+    expect(Object.keys(edited!.after as object)).toEqual(expect.arrayContaining(["Customer email", "Weight (lb)", "Ramp needed", "Stop 1 references", "Stop 2 address"]));
+    expect(Object.keys(edited!.after as object)).not.toContain("Customer");
 
     const again = await saveLoadDetails(load.id, await valuesOf(load.id));
     expect(again).toMatchObject({ ok: true, changed: false });

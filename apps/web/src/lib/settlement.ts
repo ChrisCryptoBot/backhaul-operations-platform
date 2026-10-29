@@ -149,7 +149,7 @@ export function computeStatement(input: { loads: SettlementLoad[]; hours: Record
 
   if (totalCents < 0) cautions.push("The deductions come to more than the pay, so this statement is a negative amount: money the driver owes.");
   const unpaid = lines.filter((l) => l.brokerStatus !== "paid").length;
-  if (unpaid > 0) cautions.push(`${unpaid} of these ${unpaid === 1 ? "loads is" : "loads are"} not paid by the broker yet. Pay the driver on your own terms; the statement does not wait for it.`);
+  if (unpaid > 0) cautions.push(`${unpaid} of these ${unpaid === 1 ? "loads is" : "loads are"} not paid by the customer yet. Pay the driver on your own terms; the statement does not wait for it.`);
 
   return { lines, adjustments, loadsTotal: dollars(loadsCents), adjustmentsTotal: dollars(adjustmentCents), total: dollars(totalCents), errors, blockers, cautions };
 }

@@ -254,7 +254,7 @@ describe("loads that fell through, and brokers", () => {
     expect(k.reliability).toMatchObject({ cancelled: 2, tonu: 1, lost: 3, delivered: 3 });
     expect(k.reliability.rate).toBeCloseTo(3 / 6, 6);
     expect(k.reliability.reasons).toEqual([
-      { key: "broker_cancelled", label: "Broker cancelled", count: 2 },
+      { key: "broker_cancelled", label: "Customer cancelled", count: 2 },
       { key: "shipper_not_ready", label: "Shipper not ready", count: 1 }
     ]);
   });

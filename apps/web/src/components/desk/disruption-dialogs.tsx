@@ -107,7 +107,7 @@ export function DisruptionButtons({
           <input type="hidden" name="loadId" value={loadId} />
           <p className="tl-note">The truck went and there was nothing to haul. The fee counts as revenue and the load closes as a TONU.</p>
           <label className="tl-field">
-            TONU fee the broker owes ($)
+            TONU fee the customer owes ($)
             <input type="number" name="fee" min="1" step="0.01" required placeholder="150.00" />
           </label>
           {reasonField(CANCEL_REASONS)}

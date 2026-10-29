@@ -35,7 +35,7 @@ const NAV: Array<{ label: string; items: Item[] }> = [
   {
     label: "Market",
     items: [
-      { href: "/brokers", label: "Brokers", icon: "building" },
+      { href: "/customers", label: "Customers", icon: "building" },
       { href: "/lanes", label: "Lanes", icon: "route" }
     ]
   },
@@ -101,7 +101,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
             ))}
           </nav>
           <div className="tl-side-foot">
-            <div className="tl-side-note">Sample data only. Every name, broker and number here is invented.</div>
+            <div className="tl-side-note">Sample data only. Every name, customer and number here is invented.</div>
             <button type="button" className="tl-collapse" onClick={toggle} aria-expanded={!collapsed} aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
               <Icon name={collapsed ? "expand" : "collapse"} />
               <span className="lbl">Collapse</span>

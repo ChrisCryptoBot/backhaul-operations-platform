@@ -7,7 +7,8 @@ import { drive, geocode, mapboxConfigured } from "./mapbox";
  */
 export type MeasureInput = {
   stops: Array<{ address: string; role: StopRole }>;
-  homes: Array<{ id: string; address: string }>;
+  /** `point` is the base's stored coordinates when there are some, so it is not looked up again. */
+  homes: Array<{ id: string; address: string; point?: Place | null }>;
 };
 
 export type TruckMiles = { toPickup: number | null; home: number | null };
@@ -50,7 +51,7 @@ export async function measureQuote(input: MeasureInput): Promise<Measured> {
   await Promise.all(
     input.homes.map(async (h) => {
       if (h.address.trim() === "") return;
-      const base = await geocode(h.address);
+      const base = h.point ?? (await geocode(h.address));
       const [toPickup, home] = await Promise.all([legMiles(base, first), legMiles(last, base)]);
       perTruck[h.id] = { toPickup, home };
     })

@@ -1,5 +1,10 @@
 import { parseRateConExtraction, rateConTotal, type RateConExtraction } from "@/truelane/lib/rateCon/types";
 import { readEquipment, resolveTrailer } from "@/truelane/lib/rateCon/equipment";
+import { instantInZone } from "@/truelane/lib/rateCon/stopTime";
+import { cityState } from "@/lib/city-state";
+import { printedLabel, zoneForAddress, type StopZone } from "@/server/geo/zones";
+
+export { cityState };
 
 /**
  * A reviewed-or-not draft of a load planned from a rate confirmation. There is deliberately no verdict here:
@@ -36,6 +41,11 @@ export type RateConLoadDraft = {
     referenceNumbers: string[];
     contactPhone: string | null;
     stopNotes: string | null;
+    /** The time zone the printed times are in (an IANA name) and where it came from. Optional: a draft built by hand has neither. */
+    zone?: string;
+    zoneSource?: StopZone["source"];
+    /** The time as the document printed it, with the stop's own zone ("9:00 AM ET"), for the review. */
+    printed?: string | null;
   }>;
   /** What else the document prints. Shown for checking. Weight, the notes and dock terms, and the detention terms are saved on the load; the commodity is shown only. */
   printed: {
@@ -58,32 +68,18 @@ export type RateConLoadDraft = {
   warnings: string[];
 };
 
-const CENTRAL = new Set(["TX", "OK", "IL", "MO", "TN", "AL", "AR", "LA", "MN", "WI", "IA", "KS", "NE", "MS"]);
-
-function stateOf(address: string | null): string | null {
-  const m = address ? [...address.matchAll(/,\s*([A-Z]{2})\b/g)].pop() : null;
-  return m ? m[1]! : null;
-}
-
-/** "2300 Irving Blvd, Dallas, TX 75207" -> "Dallas, TX". Falls back to the text as printed. */
-export function cityState(address: string | null): string | null {
-  if (!address) return null;
-  const m = /([^,]+),\s*([A-Z]{2})\b/.exec(address.split(",").slice(-2).join(","));
-  return m ? `${m[1]!.trim()}, ${m[2]}` : address;
-}
-
 /**
- * Local date + time at a stop -> a Date. Assumes standard time (no daylight-saving lookup): Central states are UTC-6,
- * everything else UTC-5. A real build resolves the stop's time zone from its coordinates.
+ * Local date + time at a stop, in the stop's zone -> the instant it means. Daylight saving is the zone's own (an Eastern stop in July is
+ * UTC-4); the zone comes from the stop's coordinates or state (see geo/zones.ts), never a fixed offset.
  */
-export function stopTime(date: string | null, time: string | null, address: string | null): Date | null {
+export function stopTime(date: string | null, time: string | null, zone: string): Date | null {
   if (!date || !time) return null;
-  const offset = CENTRAL.has(stateOf(address) ?? "") ? "-06:00" : "-05:00";
-  const d = new Date(`${date}T${time}:00${offset}`);
-  return Number.isNaN(d.getTime()) ? null : d;
+  const ms = instantInZone(date, time, zone);
+  return ms == null ? null : new Date(ms);
 }
 
-export function extractionToLoadDraft(raw: unknown): RateConLoadDraft | null {
+/** `zones` are each stop's zone in order, when they were looked up; a stop without one is placed by its state (so this stays pure and needs no network). */
+export function extractionToLoadDraft(raw: unknown, zones?: Array<StopZone | undefined>): RateConLoadDraft | null {
   const x: RateConExtraction | null = parseRateConExtraction(raw);
   if (!x) return null;
   const warnings = [...x.warnings];
@@ -117,8 +113,9 @@ export function extractionToLoadDraft(raw: unknown): RateConLoadDraft | null {
       status: "draft"
     },
     stops: x.stops.map((s, i) => {
-      const end = s.windowEndTime && s.appointmentType === "window" ? stopTime(s.appointmentDate, s.windowEndTime, s.address) : null;
-      const start = stopTime(s.appointmentDate, s.appointmentTime, s.address);
+      const where = zones?.[i] ?? zoneForAddress(s.address);
+      const end = s.windowEndTime && s.appointmentType === "window" ? stopTime(s.appointmentDate, s.windowEndTime, where.zone) : null;
+      const start = stopTime(s.appointmentDate, s.appointmentTime, where.zone);
       return {
         stopSequence: i + 1,
         stopType: s.type,
@@ -129,7 +126,10 @@ export function extractionToLoadDraft(raw: unknown): RateConLoadDraft | null {
         timeWindowLatest: end ?? start,
         referenceNumbers: s.referenceNumbers,
         contactPhone: s.contactPhone,
-        stopNotes: s.instructions
+        stopNotes: s.instructions,
+        zone: where.zone,
+        zoneSource: where.source,
+        printed: printedLabel(s.appointmentTime, s.appointmentType === "window" ? s.windowEndTime : null, where.zone)
       };
     }),
     printed: {

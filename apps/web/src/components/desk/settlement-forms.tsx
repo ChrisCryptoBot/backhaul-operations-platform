@@ -127,7 +127,7 @@ export function StartStatement({ drivers, presets, initial, label = "Start a sta
 
 // ── The draft ──────────────────────────────────────────────────────────────────────────────────
 
-const BROKER: Record<string, string> = { paid: "Broker paid", invoiced: "Invoice out", not_invoiced: "Not invoiced" };
+const BROKER: Record<string, string> = { paid: "Customer paid", invoiced: "Invoice out", not_invoiced: "Not invoiced" };
 
 /** The draft: each load with what it pays, hours for hourly loads, adjustments, and the total as you type, with the same sums the server freezes. */
 export function SettlementEditor({ id, number, driverName, loads, initialHours, initialAdjustments }: { id: string; number: string; driverName: string; loads: SettlementLoad[]; initialHours: Record<string, string>; initialAdjustments: AdjustmentInput[] }) {

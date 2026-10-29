@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { saveTruckHomeCoordinates } from "@/server/geo/persist";
 import { percentText } from "@/lib/pay";
 import { prisma } from "@/lib/db";
 import { PAY_KINDS, PROFILE_FIELDS, profileFieldApplies, profileFloors, validateDriver, validateProfile, validateTruck, ymdOf, type DriverValues, type ProfileChoices, type ProfileErrorKey, type ProfileKey, type ProfileNumbers, type TruckValues } from "@/lib/fleet-forms";
@@ -150,6 +151,8 @@ export async function saveTruck(raw: Record<string, unknown>, id: string | null,
       await recordAudit({ entity: "fleet", action: "truck_added", summary: `${v.name} added as a truck`, before: null, after, at: now, workspaceId: ws.id }, tx);
       return t;
     });
+    // The home base is found after the save has committed, and never fails it.
+    await saveTruckHomeCoordinates(created.id);
     return { ok: true, id: created.id, changed: true };
   }
   const prev = await prisma.vehicle.findFirst({ where: { id, workspaceId: ws.id } });
@@ -174,10 +177,13 @@ export async function saveTruck(raw: Record<string, unknown>, id: string | null,
   });
   const moved = Object.keys(after).filter((k) => String(before[k] ?? "") !== String(after[k] ?? ""));
   if (moved.length === 0) return { ok: true, id, changed: false };
+  // A moved home base has no point until it is found again; the old one must not outlive the address it was found for.
+  const addressMoved = (prev.homeBaseAddress ?? "") !== (v.homeBaseAddress ?? "");
   await prisma.$transaction(async (tx) => {
-    await tx.vehicle.update({ where: { id }, data });
+    await tx.vehicle.update({ where: { id }, data: { ...data, ...(addressMoved ? { homeBaseLat: null, homeBaseLng: null } : {}) } });
     await recordAudit({ entity: "fleet", action: "truck_changed", summary: `${v.name}: changed ${moved.join(", ").toLowerCase()}`, before, after, at: now, workspaceId: ws.id }, tx);
   });
+  if (addressMoved) await saveTruckHomeCoordinates(id);
   return { ok: true, id, changed: true };
 }
 

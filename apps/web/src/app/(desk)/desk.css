@@ -718,3 +718,8 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .lv-main, .lv-rail { display: grid; gap: var(--db-4); align-content: start; min-width: 0; }
 .lv-more { display: flex; flex-wrap: wrap; align-items: center; gap: var(--db-2); }
 @media (max-width: 1100px) { .lv-cols { grid-template-columns: 1fr; } }
+
+/* What FMCSA says about the MC number a customer gave: a dot and a word, with the registered name under it. */
+.rc-authority { display: flex; flex-wrap: wrap; align-items: center; gap: var(--db-1) var(--db-3); margin-top: var(--db-1); min-height: 20px; }
+
+.rc-hint.warn { color: var(--db-warn); }

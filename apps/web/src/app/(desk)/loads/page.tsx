@@ -171,7 +171,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
     return (
       <>
         {head}
-        <DataTableTools tableId="loads-history" total={shown.length} placeholder="Search load, PO, invoice, broker, MC, city, driver…">
+        <DataTableTools tableId="loads-history" total={shown.length} placeholder="Search load, PO, invoice, customer, MC, city, driver…">
           {views}
           <Tabs label="Filter" active={filter} hrefFor={(k) => hrefFor({ filter: k })} items={HISTORY_FILTERS.map((f) => ({ ...f, count: counts[f.key] }))} />
           <span className="tl-sub" style={{ alignSelf: "center" }}>
@@ -264,7 +264,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   return (
     <>
       {head}
-      <DataTableTools tableId="loads-table" total={shown.length} placeholder="Search load, PO, broker, MC, city, driver…">
+      <DataTableTools tableId="loads-table" total={shown.length} placeholder="Search load, PO, customer, MC, city, driver…">
         {views}
         <Tabs active={active} hrefFor={(k) => href(k, below)} items={OPEN_FILTERS.map((f) => ({ ...f, count: counts(f.key) }))} />
         <Link href={href(active, !below)} className="tl-tab" aria-current={below ? "true" : undefined}>

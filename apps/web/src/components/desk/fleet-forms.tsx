@@ -14,7 +14,9 @@ import { deltaOf } from "@/lib/kpi-view";
 import { perMile, usd } from "@/lib/desk-format";
 import { DeltaChip } from "./kpi/parts";
 import { ConfirmDialog, Modal } from "./kit/modal";
+import { fuelKindOf } from "@/lib/eia";
 import { useToast } from "./kit/toast";
+import { LiveFuelPrice } from "./live-fuel-price";
 
 // ── Small pieces ───────────────────────────────────────────────────────────────────────────────
 
@@ -599,7 +601,9 @@ export function CostProfileForm({
   choices,
   base,
   stored,
-  openLoads
+  openLoads,
+  fuelType,
+  homeBase
 }: {
   vehicleId: string;
   vehicleType: string | null;
@@ -609,6 +613,9 @@ export function CostProfileForm({
   base: Partial<CostProfileMathInput>;
   stored: { breakEven: number; survival: number | null } | null;
   openLoads: number;
+  /** The truck's fuel and where it is based, so today's price is the right one for it. */
+  fuelType?: string | null;
+  homeBase?: string | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -788,6 +795,7 @@ export function CostProfileForm({
 
         <h3 className="th-group">Fuel</h3>
         <div className="th-grid">{field("lastFuelPricePerGallon", { hint: `${truckMpgInfo.typical ? `No mpg is set on the truck, so a typical ${truckMpgInfo.mpg} mpg is used.` : `Uses the truck's ${truckMpgInfo.mpg} mpg.`} Blank gives no verdict until fuel is known.` })}</div>
+        <LiveFuelPrice fuel={fuelKindOf(fuelType)} origin={homeBase ?? ""} typed={values.lastFuelPricePerGallon} onUse={(price) => set("lastFuelPricePerGallon", price)} idle={homeBase ? "Looks up this week's price for the truck's home base region. It fills the box; you still save." : "No home base is set, so this is the national price. It fills the box; you still save."} />
 
         <h3 className="th-group">Who drives</h3>
         {choice("This truck is run", "archetype", COST_ARCHETYPES.map((a) => ({ key: a.value, label: a.value === "hired_driver" ? "By a paid driver" : a.value === "leased_on" ? "Leased on to a carrier" : "By its owner" })), errors.archetype)}

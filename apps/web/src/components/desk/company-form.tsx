@@ -11,9 +11,9 @@ const FIELDS: Array<{ key: keyof CompanyValues; label: string; hint?: string; wi
   { key: "mcNumber", label: "MC number", hint: "Digits only.", inputMode: "numeric" },
   { key: "dotNumber", label: "DOT number", hint: "Digits only.", inputMode: "numeric" },
   { key: "phone", label: "Phone", inputMode: "tel" },
-  { key: "email", label: "Billing email", hint: "Where a broker writes about an invoice.", inputMode: "email" },
+  { key: "email", label: "Billing email", hint: "Where a customer writes about an invoice.", inputMode: "email" },
   { key: "address", label: "Address", hint: "The mailing address on the invoice.", area: true, wide: true },
-  { key: "remitTo", label: "Remit payment to", hint: "A bank, a factor or a lockbox, so a broker knows where to send it.", area: true, wide: true },
+  { key: "remitTo", label: "Remit payment to", hint: "A bank, a factor or a lockbox, so a customer knows where to send it.", area: true, wide: true },
   { key: "paymentNote", label: "Payment note", hint: "A line under every invoice, for example how a late fee works.", area: true, wide: true }
 ];
 

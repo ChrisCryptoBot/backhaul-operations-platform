@@ -6,14 +6,19 @@ import { readSampleRateConAction, readUploadedRateConAction, saveRateConAction, 
 import { dateTime, perMile, usd } from "@/lib/desk-format";
 import { needsStopCheck, rateConChecks } from "@/lib/rate-con-checks";
 import { parseCentralLocal, toCentralLocal } from "@/lib/zoned";
-import { cityState } from "@/server/ratecon/map";
+import { cityState } from "@/lib/city-state";
 import { trailerLabel } from "@/truelane/constants/trailerData";
 import { AddressInput } from "./address-input";
+import { AuthorityStatus, useAuthorityLookup } from "./customer-authority";
+import { addressReady } from "@/lib/geo";
+import { shouldMeasureMiles, sourceAfterTyping, type MilesSource } from "@/lib/rate-con-miles";
+import type { Measured } from "@/server/geo/measure";
 import { Icon } from "./kit/icons";
 
 const SAMPLES = [
   { file: "RC-AFB-482913_dallas-to-houston_cargo-van.pdf", title: "Sample 1", lane: "Dallas, TX to Houston, TX", detail: "One pickup, one delivery · cargo van" },
-  { file: "RC-RDL-77315_fort-worth-waco-austin_box-truck.pdf", title: "Sample 2", lane: "Fort Worth, Waco and Austin, TX", detail: "One pickup, two deliveries · box truck" }
+  { file: "RC-RDL-77315_fort-worth-waco-austin_box-truck.pdf", title: "Sample 2", lane: "Fort Worth, Waco and Austin, TX", detail: "One pickup, two deliveries · box truck" },
+  { file: "RC-SLG-55102_atlanta-to-denver_dry-van.pdf", title: "Sample 3", lane: "Atlanta, GA to Denver, CO", detail: "Two time zones · no miles printed · dry van" }
 ];
 
 const REASONS: Record<string, string> = {
@@ -51,12 +56,20 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
   const [over, setOver] = React.useState(false);
   // Kept between documents: a dispatcher reading a stack of them for one truck should not have to pick it every time.
   const [vehicleId, setVehicleId] = React.useState(trucks.length === 1 ? trucks[0]!.id : "");
+  // Where the miles in the box came from. A document that printed none gets the road miles measured from its stops; a typed figure is never replaced.
+  const [milesFrom, setMilesFrom] = React.useState<MilesSource>("none");
+  const [milesNote, setMilesNote] = React.useState<{ state: "busy" | "ok" | "error"; text: string } | null>(null);
+  const lastRoute = React.useRef("");
+  const milesSeq = React.useRef(0);
 
   function arrive(out: ReadResult) {
     if (out.ok) {
       setDraft(out.draft);
       setSource(out.source);
       setFileName(out.fileName);
+      setMilesFrom(out.draft.load.loadedMiles != null ? "document" : "none");
+      setMilesNote(null);
+      lastRoute.current = "";
       setStage("check");
     } else {
       setDraft(null);
@@ -93,7 +106,39 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
     setConfirmed(false);
     setStopsTicked(null);
     setSavedId(null);
+    authority.reset();
   }
+
+  const authority = useAuthorityLookup();
+
+  // Measure the road once every stop is something a map could find, a moment after the route stops changing.
+  const routeKey = draft ? draft.stops.map((s) => `${s.stopType}|${s.addressString.trim().toLowerCase()}`).join("~") : "";
+  const routeReady = !!draft && draft.stops.length >= 2 && draft.stops.every((s) => addressReady(s.addressString));
+  React.useEffect(() => {
+    if (!shouldMeasureMiles({ source: milesFrom, ready: routeReady, routeChanged: routeKey !== lastRoute.current })) return;
+    const mine = ++milesSeq.current;
+    const stops = draft!.stops.map((s) => ({ address: s.addressString, role: s.stopType }));
+    const timer = window.setTimeout(async () => {
+      lastRoute.current = routeKey;
+      setMilesNote({ state: "busy", text: "Measuring the route…" });
+      try {
+        const res = await fetch("/geo/measure", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ stops, homes: false }) });
+        const out = (await res.json()) as Measured;
+        if (mine !== milesSeq.current) return;
+        if (!out.ok) {
+          setMilesNote({ state: "error", text: out.error });
+          return;
+        }
+        setMilesFrom("measured");
+        setDraft((d) => (d ? { ...d, load: { ...d.load, loadedMiles: out.loadedMiles } } : d));
+        setMilesNote({ state: "ok", text: `Measured on the road: ${out.loadedMiles.toLocaleString("en-US")} mi. The document printed none. Type over it to use your own.` });
+      } catch {
+        if (mine === milesSeq.current) setMilesNote({ state: "error", text: "Could not reach the map. Type the miles." });
+      }
+    }, 900);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeKey, routeReady, milesFrom]);
 
   const setLoad = (patch: Partial<DraftDto["load"]>) => setDraft((d) => (d ? { ...d, load: { ...d.load, ...patch } } : d));
   const setStop = (i: number, patch: Partial<DraftDto["stops"][number]>) =>
@@ -245,12 +290,33 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
           <div className="rc-review">
             <div className="rc-main">
               <section className="tl-card">
-                <h2>The load</h2>
+                <h2>Customer</h2>
                 <div className="rc-grid">
                   <label className="tl-field">
-                    Broker
+                    Customer
                     <input value={draft.load.brokerName ?? ""} onChange={(e) => setLoad({ brokerName: e.target.value })} autoComplete="off" />
+                    <span className="rc-hint">A broker, shipper or direct customer.</span>
                   </label>
+                  <label className="tl-field">
+                    MC number (brokers and carriers)
+                    <input
+                      value={draft.load.brokerMcNumber ?? ""}
+                      inputMode="numeric"
+                      autoComplete="off"
+                      onChange={(e) => {
+                        authority.reset();
+                        setLoad({ brokerMcNumber: e.target.value === "" ? null : e.target.value });
+                      }}
+                      onBlur={() => void authority.check(draft.load.brokerMcNumber ?? "", draft.load.brokerName ?? "", (name) => setDraft((d) => (d && (d.load.brokerName ?? "").trim() === "" ? { ...d, load: { ...d.load, brokerName: name } } : d)))}
+                    />
+                    <AuthorityStatus busy={authority.busy} result={authority.result} />
+                  </label>
+                </div>
+              </section>
+
+              <section className="tl-card">
+                <h2>The load</h2>
+                <div className="rc-grid">
                   <label className="tl-field">
                     Load number
                     <input value={draft.load.loadNumber ?? ""} onChange={(e) => setLoad({ loadNumber: e.target.value })} autoComplete="off" />
@@ -285,8 +351,23 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                     {draft.printed.fuelSurchargeIncluded ? <span className="rc-hint">{`Includes ${usd(draft.printed.fuelSurchargeIncluded, 2)} fuel surcharge.`}</span> : null}
                   </label>
                   <label className="tl-field">
-                    Printed miles
-                    <input type="number" min="0" step="0.1" inputMode="decimal" value={draft.load.loadedMiles ?? ""} onChange={(e) => setLoad({ loadedMiles: e.target.value === "" ? null : Number(e.target.value) })} />
+                    {milesFrom === "document" ? "Printed miles" : "Miles"}
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      inputMode="decimal"
+                      value={draft.load.loadedMiles ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setMilesFrom(sourceAfterTyping(v));
+                        // Blanking the box hands it back to the map, so the route counts as unmeasured again.
+                        if (v === "") lastRoute.current = "";
+                        setMilesNote(null);
+                        setLoad({ loadedMiles: v === "" ? null : Number(v) });
+                      }}
+                    />
+                    {milesNote ? <span className={`rc-hint${milesNote.state === "error" ? " warn" : ""}`} role="status">{milesNote.text}</span> : null}
                     {draft.load.quotedRevenue != null && draft.load.quotedRevenue > 0 && draft.load.loadedMiles ? <span className="rc-hint">{`The rate comes to ${perMile(draft.load.quotedRevenue / draft.load.loadedMiles)} on these miles.`}</span> : null}
                   </label>
                   <label className="tl-field">
@@ -314,6 +395,7 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                             <div className="rc-stop-head">
                               <span className="qt-role">{s.stopType === "pickup" ? "Pickup" : "Delivery"}</span>
                               {ends ? <span className="tl-sub">Window ends {clock(ends)} CT</span> : null}
+                              {s.zone && s.zone !== "America/Chicago" && s.printed ? <span className="tl-sub">{`Printed ${s.printed}, the time zone at the stop`}</span> : null}
                               {s.contactPhone ? <span className="tl-sub">{s.contactPhone}</span> : null}
                             </div>
                             <div className="rc-stop-grid">
@@ -330,6 +412,7 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                                 <input type="datetime-local" value={s.timeWindowEarliest ? toCentralLocal(new Date(s.timeWindowEarliest).getTime()) : ""} onChange={(e) => moveStop(i, e.target.value)} />
                               </label>
                             </div>
+                            {s.zoneSource === "assumed" ? <p className="tl-note">{`The time zone at this stop could not be told from its address, so the time is read as Central. Check it against the document.`}</p> : null}
                             {s.referenceNumbers.length > 0 || s.stopNotes ? (
                               <div className="rc-refs">
                                 {s.referenceNumbers.map((r) => (
@@ -395,7 +478,7 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
               </p>
               <dl className="rc-facts">
                 <div>
-                  <dt>Broker</dt>
+                  <dt>Customer</dt>
                   <dd>{draft.load.brokerName || "—"}</dd>
                 </div>
                 <div>

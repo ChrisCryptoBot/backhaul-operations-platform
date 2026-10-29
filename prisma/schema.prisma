@@ -65,6 +65,9 @@ model Vehicle {
   mpg             Decimal?  @db.Decimal(8, 3)
   fuelType        String?   @map("fuel_type")
   homeBaseAddress String?   @map("home_base_address")
+  /// Where the home base is, found once (permanent geocoding) so measuring a quote does not look the address up each time. Blank until it is found.
+  homeBaseLat     Decimal?  @map("home_base_lat") @db.Decimal(9, 6)
+  homeBaseLng     Decimal?  @map("home_base_lng") @db.Decimal(9, 6)
   payloadLbs      Int?      @map("payload_lbs")
   maxLengthFt     Decimal?  @map("max_length_ft") @db.Decimal(8, 2)
   maxWidthFt      Decimal?  @map("max_width_ft") @db.Decimal(8, 2)

@@ -8,7 +8,7 @@ import type { SearchHit } from "@/server/tl/search";
 const GROUPS: Array<{ kind: SearchHit["kind"]; label: string }> = [
   { kind: "load", label: "Loads" },
   { kind: "driver", label: "Drivers" },
-  { kind: "broker", label: "Brokers" },
+  { kind: "broker", label: "Customers" },
   { kind: "city", label: "Cities" }
 ];
 
@@ -88,7 +88,7 @@ export function GlobalSearch() {
           aria-expanded={open && q.trim().length >= 2}
           aria-controls={listId}
           aria-activedescendant={ordered[active] ? `${listId}-${active}` : undefined}
-          aria-label="Search loads, drivers, brokers and cities"
+          aria-label="Search loads, drivers, customers and cities"
           placeholder="Search the desk"
           autoComplete="off"
           value={q}

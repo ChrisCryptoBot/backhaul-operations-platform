@@ -102,12 +102,12 @@ describe("a statement", () => {
     expect(st.adjustments).toEqual([]);
   });
 
-  it("refuses an empty statement, and cautions about a negative one and about loads the broker has not paid", () => {
+  it("refuses an empty statement, and cautions about a negative one and about loads the customer has not paid", () => {
     expect(computeStatement({ loads: [], hours: {}, adjustments: [] }).blockers).toEqual(["There is nothing to pay on this statement."]);
     const neg = computeStatement({ loads: [load({ brokerStatus: "invoiced" })], hours: {}, adjustments: [{ label: "Advance", amount: "-500" }] });
     expect(neg.total).toBe(-377.5);
     expect(neg.cautions.join(" ")).toMatch(/negative amount/);
-    expect(neg.cautions.join(" ")).toMatch(/1 of these loads is not paid by the broker yet/);
+    expect(neg.cautions.join(" ")).toMatch(/1 of these loads is not paid by the customer yet/);
     expect(neg.blockers).toEqual([]); // a caution, not a stop
     const clean = computeStatement({ loads: [load()], hours: {}, adjustments: [] });
     expect(clean.cautions).toEqual([]);

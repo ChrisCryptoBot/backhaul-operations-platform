@@ -337,7 +337,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           <dd>{load.poNumber ?? "—"}</dd>
           <dt>Terms</dt>
           <dd>{load.channel ?? "dispatch"} · {load.payTermsDays != null ? `Net ${load.payTermsDays}` : load.paymentTerms ?? "terms not set"}</dd>
-          <dt>Broker</dt>
+          <dt>Customer</dt>
           <dd>
             {load.brokerName ?? "—"}
             {load.brokerMcNumber ? ` · MC ${load.brokerMcNumber}` : ""}
@@ -615,7 +615,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     </>
   );
   // The money is in the hero; the head says who it is with and where it goes.
-  const sub = `${load.brokerName ?? "No broker"} · ${load.originAddress} → ${load.destinationAddress}`;
+  const sub = `${load.brokerName ?? "No customer"} · ${load.originAddress} → ${load.destinationAddress}`;
 
   if (variant === "drawer") {
     return (

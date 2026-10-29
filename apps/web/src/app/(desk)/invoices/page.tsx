@@ -16,7 +16,7 @@ type Inv = Awaited<ReturnType<typeof listInvoiceRows>>[number];
 
 const DETENTION: Column[] = [
   { key: "load", label: "Load", sticky: true, width: 150 },
-  { key: "broker", label: "Broker" },
+  { key: "broker", label: "Customer" },
   { key: "done", label: "Delivered" },
   { key: "waited", label: "Waited", align: "num" },
   { key: "billable", label: "Past free time", align: "num" },
@@ -32,7 +32,7 @@ const READY: Column[] = [
 ];
 const OUT: Column[] = [
   { key: "invoice", label: "Invoice", sticky: true, width: 150 },
-  { key: "broker", label: "Broker" },
+  { key: "broker", label: "Customer" },
   { key: "sent", label: "Sent" },
   { key: "due", label: "Due" },
   { key: "amount", label: "Amount", align: "num" },
@@ -40,7 +40,7 @@ const OUT: Column[] = [
 ];
 const PAID: Column[] = [
   { key: "invoice", label: "Invoice", sticky: true, width: 150 },
-  { key: "broker", label: "Broker" },
+  { key: "broker", label: "Customer" },
   { key: "sent", label: "Sent" },
   { key: "paid", label: "Paid" },
   { key: "amount", label: "Received", align: "num" }
@@ -159,7 +159,7 @@ export default async function InvoicesPage() {
         <DataTable id="inv-ready" label="Ready to invoice" columns={READY} rows={readyRows} empty={<EmptyState icon="check" title="Every delivered load has an invoice" />} />
       </Section>
       <Section title={`Out and waiting · ${open.length}`}>
-        <DataTableTools tableId="inv-out" total={outRows.length} placeholder="Search invoice, load, PO or broker…" />
+        <DataTableTools tableId="inv-out" total={outRows.length} placeholder="Search invoice, load, PO or customer…" />
         <DataTable id="inv-out" label="Out and waiting" columns={OUT} rows={outRows} empty={<EmptyState icon="invoices" title="Nothing waiting on payment" />} />
       </Section>
       <Section title={`Paid · ${paid.length}`}>
