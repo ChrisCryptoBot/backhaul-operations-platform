@@ -1,3 +1,4 @@
+import Link from "next/link";
 import React from "react";
 import type { DeskKpi, LaneStatus } from "@/server/tl/kpi";
 import { DataTable, type Column, type Row } from "@/components/desk/data-table";
@@ -34,7 +35,9 @@ export function LaneScorecard({ k }: { k: DeskKpi }) {
       cells: {
         lane: (
           <>
-            <b>{shortLane(l.key)}</b>
+            <Link href={`/lanes/detail?lane=${encodeURIComponent(l.key)}`}>
+              <b>{shortLane(l.key)}</b>
+            </Link>
             <span className="sub">{l.key}</span>
           </>
         ),

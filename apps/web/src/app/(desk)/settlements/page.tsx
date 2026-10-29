@@ -2,7 +2,7 @@ import Link from "next/link";
 import React from "react";
 import { listDrivers } from "@/server/tl/queries";
 import { listSettlements, unsettledByDriver } from "@/server/tl/settlement";
-import { PageHead, Stat } from "@/components/desk/ui";
+import { Card, PageHead, Stat } from "@/components/desk/ui";
 import { DataTable, type Column, type Row } from "@/components/desk/data-table";
 import { EmptyState } from "@/components/desk/kit/states";
 import { StartStatement } from "@/components/desk/settlement-forms";
@@ -26,15 +26,6 @@ const STATEMENTS: Column[] = [
   { key: "total", label: "Total", align: "num" },
   { key: "when", label: "When" }
 ];
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section style={{ marginTop: 20 }}>
-      <h2 style={{ fontFamily: "var(--db-font-sans)", fontSize: "var(--db-text-xs)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--db-fg-dim)", fontWeight: 700, margin: "0 0 10px" }}>{title}</h2>
-      {children}
-    </section>
-  );
-}
 
 /** Driver pay: what each driver is owed for loads they delivered, as statements you work up, finalize and print. */
 export default async function SettlementsPage() {
@@ -82,20 +73,20 @@ export default async function SettlementsPage() {
         <Stat label="Voided" value={String(voided.length)} />
       </div>
 
-      <Section title={`Delivered and not yet settled · ${unsettled.length}`}>
+      <Card title={`Delivered and not yet settled · ${unsettled.length}`}>
         <DataTable id="settle-open" label="Delivered and not yet settled" columns={UNSETTLED} rows={unsettledRows} empty={<EmptyState icon="check" title="Every delivered load is on a finalized statement">A load shows here once it is delivered, until it is paid on one.</EmptyState>} />
         <p className="tl-note" style={{ marginTop: 8 }}>Pay follows each load&apos;s own assignment: per loaded mile, a set amount, hourly, or a percent of the rate confirmation. Hourly loads need their hours on the statement.</p>
-      </Section>
-      <Section title={`Drafts · ${drafts.length}`}>
+      </Card>
+      <Card title={`Drafts · ${drafts.length}`}>
         <DataTable id="settle-drafts" label="Draft statements" columns={STATEMENTS} rows={drafts.map((s) => statementRow(s, `Started ${shortDate(s.createdAt)}`))} empty={<EmptyState icon="invoices" title="No drafts" />} />
-      </Section>
-      <Section title={`Finalized · ${final.length}`}>
+      </Card>
+      <Card title={`Finalized · ${final.length}`}>
         <DataTable id="settle-final" label="Finalized statements" columns={STATEMENTS} rows={final.map((s) => statementRow(s, `Finalized ${shortDate(s.finalizedAt)}`))} empty={<EmptyState icon="invoices" title="Nothing finalized yet" />} />
-      </Section>
+      </Card>
       {voided.length > 0 ? (
-        <Section title={`Voided · ${voided.length}`}>
+        <Card title={`Voided · ${voided.length}`}>
           <DataTable id="settle-void" label="Voided statements" columns={STATEMENTS} rows={voided.map((s) => statementRow(s, `Voided ${shortDate(s.voidedAt)}`))} />
-        </Section>
+        </Card>
       ) : null}
     </>
   );

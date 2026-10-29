@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { customerTermsMap } from "./customers";
 import { prisma } from "@/lib/db";
 import { defaultInvoiceNumber, invoiceReadiness } from "@/lib/invoicing";
 import { computeAnalytics, type AnalyticsPeriod } from "@/truelane/lib/analytics";
@@ -181,13 +182,14 @@ export async function listTrucks(workspaceId = DEMO_WORKSPACE_ID) {
 }
 
 export async function listInvoiceRows(workspaceId = DEMO_WORKSPACE_ID) {
-  const [loads, thresholds] = await Promise.all([
+  const [loads, thresholds, customerTerms] = await Promise.all([
     prisma.load.findMany({
       where: { workspaceId, deletedAt: null, status: "completed" },
       include: { stops: true, vehicle: { include: { costProfile: true } } },
       orderBy: [{ invoicedAt: "desc" }, { completedAt: "desc" }]
     }),
-    getThresholds(workspaceId)
+    getThresholds(workspaceId),
+    customerTermsMap(workspaceId)
   ]);
   return loads.map((l) => {
     const rate = num(l.quotedRevenue);
@@ -212,7 +214,7 @@ export async function listInvoiceRows(workspaceId = DEMO_WORKSPACE_ID) {
       paidAmount,
       /** Negative when the broker paid less than the invoice. */
       paidDifference: l.paymentStatus === "paid" && paidAmount != null ? new Prisma.Decimal(paidAmount).minus(billed).toDecimalPlaces(2).toNumber() : null,
-      invoiceContext: { rate, surcharge: num(l.fuelSurcharge), detention: billable, defaultTerms: l.payTermsDays ?? thresholds.defaultPayTermsDays },
+      invoiceContext: { rate, surcharge: num(l.fuelSurcharge), detention: billable, defaultTerms: l.payTermsDays ?? customerTerms.get((l.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays },
       defaultNumber: defaultInvoiceNumber(l.loadNumber, l.id),
       readiness: invoiceReadiness({ ...l, quotedRevenue: rate })
     };

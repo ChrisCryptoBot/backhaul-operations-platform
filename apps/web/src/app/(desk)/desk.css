@@ -752,3 +752,16 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .tk-facts { display: flex; flex-wrap: wrap; gap: var(--db-3) var(--db-8); margin: 0; }
 .tk-facts dt { font-size: var(--db-text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--db-fg-dim); }
 .tk-facts dd { margin: var(--db-1) 0 0; font-family: var(--db-font-head); font-size: var(--db-text-xl); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* The head of a printed sheet: who it is from and its number on the left, the one figure it is for on the right. */
+.rp-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 28px; padding-bottom: 16px; border-bottom: 2px solid #1b1712; }
+.rp-head h1 { margin: 2px 0 8px; font-size: 28px; }
+.rp-kick { font-family: var(--db-font-head); font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: #5d534b; font-weight: 600; }
+.rp-issuer { display: grid; gap: 1px; margin: 0; font-size: 12px; color: #3a322b; }
+.rp-issuer b { font-size: 14px; color: #1b1712; }
+.rp-hero { text-align: right; }
+.rp-big { font-family: var(--db-font-head); font-size: 40px; font-weight: 600; line-height: 1.05; font-variant-numeric: tabular-nums; color: #1b1712; }
+.rp-stamp { display: inline-block; margin-top: 8px; padding: 2px 9px; border: 1.5px solid currentColor; border-radius: 6px; font-family: var(--db-font-head); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 600; }
+.rp-stamp.good { color: #1b6e40; }
+.rp-stamp.bad { color: #b3303a; }
+.rp-stamp.plain { color: #5d534b; }

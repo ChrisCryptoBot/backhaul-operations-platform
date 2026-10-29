@@ -11,6 +11,8 @@ import { invoiceLoad, markLoadPaid } from "@/server/tl/invoicing";
 import { parseCentralLocal } from "@/lib/zoned";
 import { saveThresholds } from "@/server/tl/thresholds";
 import { saveCompany } from "@/server/tl/company";
+import { saveCustomer, type SaveCustomerResult } from "@/server/tl/customers";
+import type { CustomerValues } from "@/lib/customer";
 import type { CompanyValues } from "@/lib/company";
 import { saveCostProfile, saveDriver, saveTruck, setDriverActive, setTruckArchived, type ActResult, type SaveResult } from "@/server/tl/fleet";
 import type { DriverValues, ProfileKey, TruckValues } from "@/lib/fleet-forms";
@@ -250,6 +252,13 @@ export async function saveCompanyAction(values: CompanyValues): Promise<{ ok: tr
   if (!out.ok) return { ok: false, errors: out.errors };
   revalidatePath("/", "layout");
   return { ok: true, changed: out.changed ?? false };
+}
+
+/** A customer's record. Its name is on loads, so everything that shows a load or a customer looks again. */
+export async function saveCustomerAction(values: CustomerValues, id: string | null): Promise<SaveCustomerResult> {
+  const out = await saveCustomer(values, id);
+  if (out.ok && out.changed) refreshLoads();
+  return out;
 }
 
 // ── Appearance (Settings) ──────────────────────────────────────────────────────────────────────

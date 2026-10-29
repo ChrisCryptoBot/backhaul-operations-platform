@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import { defaultInvoiceNumber, invoiceReadiness, validateInvoice, type InvoiceForm } from "@/lib/invoicing";
 import { isPaidMethod, paidMethodLabel } from "@/lib/pay-method";
 import { parseCentralLocal, toCentralLocal } from "@/lib/zoned";
+import { customerTermsMap } from "./customers";
 import { recordAudit } from "./audit";
 import { toCompany } from "./company";
 import { num, numOrNull } from "./convert";
@@ -27,7 +28,7 @@ export async function invoiceLoad(loadId: string, opts: { includeDetention?: boo
   const thresholds = await getThresholds();
   const billable = detentionOfLoad(load, thresholds.detentionGraceMinutes).billable;
   const form: InvoiceForm = opts.form ?? { number: defaultInvoiceNumber(load.loadNumber, loadId), terms: "", detention: !!opts.includeDetention, lumper: "", layover: "", otherLabel: "", other: "" };
-  const check = validateInvoice(form, { rate: num(load.quotedRevenue), surcharge: num(load.fuelSurcharge), detention: billable, defaultTerms: load.payTermsDays ?? thresholds.defaultPayTermsDays });
+  const check = validateInvoice(form, { rate: num(load.quotedRevenue), surcharge: num(load.fuelSurcharge), detention: billable, defaultTerms: load.payTermsDays ?? (await customerTermsMap(load.workspaceId)).get((load.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays });
   if (!check.ok) return { ok: false, detention: 0, errors: check.errors };
   const { number, terms, lines, total } = check.value;
   const detention = lines.find((l) => l.label === "Detention")?.amount ?? 0;

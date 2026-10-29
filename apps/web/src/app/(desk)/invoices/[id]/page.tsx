@@ -5,7 +5,7 @@ import { getInvoice } from "@/server/tl/invoicing";
 import { CopyText } from "@/components/desk/copy-text";
 import { PrintButton } from "@/components/desk/kpi/print-button";
 import { reminderText } from "@/lib/invoicing";
-import { companyLine } from "@/lib/company";
+import { DocHead } from "@/components/desk/doc-head";
 import { paidMethodLabel } from "@/lib/pay-method";
 import { dateTime, miles, shortDate, usd } from "@/lib/desk-format";
 
@@ -32,12 +32,15 @@ export default async function InvoicePage({ params }: { params: { id: string } }
         {overdue ? <CopyText size="md" label="Copy reminder" text={reminderText({ broker: inv.billTo.name, invoiceNumber: inv.invoiceNumber, loadNumber: inv.load.number, poNumber: inv.poNumber, amount: inv.total, sent: inv.sent, due: inv.due, now, origin: inv.load.origin, destination: inv.load.destination })} /> : null}
       </div>
       <article className="rp">
-        <h1>Invoice {inv.invoiceNumber}</h1>
-        <p className="rp-meta">
-          From <b>{inv.company.name}</b>
-          {companyLine(inv.company) ? ` · ${companyLine(inv.company)}` : ""}
-        </p>
-        {inv.company.address ? <p className="rp-meta" style={{ whiteSpace: "pre-line" }}>{inv.company.address}</p> : null}
+        <DocHead
+          kicker="Invoice"
+          number={inv.invoiceNumber}
+          company={inv.company}
+          heroLabel={inv.status === "paid" ? "Invoiced" : "Total due"}
+          hero={usd(inv.total, 2)}
+          sub={`Due ${shortDate(inv.due)} · Net ${inv.terms}`}
+          stamp={inv.status === "paid" ? { text: `Paid ${inv.paidAt ? shortDate(inv.paidAt) : ""}`.trim(), tone: "good" } : overdue ? { text: `Overdue ${Math.max(1, Math.floor((now.getTime() - inv.due.getTime()) / 86_400_000))} days`, tone: "bad" } : { text: `Due in ${Math.max(0, Math.ceil((inv.due.getTime() - now.getTime()) / 86_400_000))} days`, tone: "plain" }}
+        />
 
         <h2>Bill to</h2>
         <p>

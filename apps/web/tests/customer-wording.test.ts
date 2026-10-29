@@ -15,7 +15,8 @@ const SRC = path.join(__dirname, "..", "src");
 const SKIP_DIRS = new Set(["truelane"]);
 const SKIP_FILES = new Set([path.join("server", "ratecon", "fixtures.ts")]); // demo documents, with their invented broker companies
 
-const ALLOWED = ["Broker authority active", "not a broker", "A broker, shipper or direct customer", "brokers and carriers"];
+// "label: \"Broker\"" is the name of a kind of customer in the list of kinds, which is what a broker is.
+const ALLOWED = ["Broker authority active", "not a broker", "A broker, shipper or direct customer", "brokers and carriers", 'label: "Broker"'];
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {

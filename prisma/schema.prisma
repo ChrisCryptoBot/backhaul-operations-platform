@@ -50,8 +50,33 @@ model Workspace {
   drivers     Driver[]
   auditEvents AuditEvent[]
   settlements Settlement[]
+  customers   Customer[]
 
   @@map("workspaces")
+}
+
+/// Who a load is for: a broker, a shipper or a direct customer. A load keeps its customer's name as text, so this is the profile attached to that
+/// name (kind, MC for a broker or carrier, billing contact, default pay terms, notes) rather than something every load points at.
+model Customer {
+  id                  String   @id @default(cuid())
+  workspaceId         String   @map("workspace_id")
+  name                String
+  /// broker, shipper or other.
+  kind                String   @default("broker")
+  mcNumber            String?  @map("mc_number")
+  contactName         String?  @map("contact_name")
+  contactEmail        String?  @map("contact_email")
+  contactPhone        String?  @map("contact_phone")
+  /// Used for an invoice to this customer when the load names no terms of its own.
+  defaultPayTermsDays Int?     @map("default_pay_terms_days")
+  notes               String?
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("customers")
 }
 
 model Vehicle {

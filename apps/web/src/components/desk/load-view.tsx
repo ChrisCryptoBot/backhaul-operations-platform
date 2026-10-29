@@ -13,6 +13,7 @@ import { assignAction, respondAction, sendAction, unassignAction, undoPaidAction
 import { InvoiceDialog, LoadEditDialog, PaidDialog, TripEntry } from "./load-actions";
 import { defaultInvoiceNumber, invoiceReadiness } from "@/lib/invoicing";
 import { toEditValues } from "@/lib/load-edit";
+import { customerTermsMap } from "@/server/tl/customers";
 import { DeleteLoadButton } from "./delete-load";
 import { deriveTimeline } from "@/lib/desk-timeline";
 import { CAN_CANCEL, CAN_RESCHEDULE, CAN_TONU, reasonLabel } from "@/lib/disruptions";
@@ -80,7 +81,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   }));
   const tripVisible = !!a && ["accepted", "in_progress", "completed"].includes(load.status);
   const readiness = invoiceReadiness({ ...load, quotedRevenue: num(load.quotedRevenue) });
-  const invoiceContext = { rate: num(load.quotedRevenue), surcharge: num(load.fuelSurcharge), detention: dt.billable, defaultTerms: load.payTermsDays ?? thresholds.defaultPayTermsDays };
+  const invoiceContext = { rate: num(load.quotedRevenue), surcharge: num(load.fuelSurcharge), detention: dt.billable, defaultTerms: load.payTermsDays ?? (await customerTermsMap()).get((load.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays };
   const billed = num(load.invoicedAmount ?? load.quotedRevenue);
   const invoiceLines = Array.isArray(load.invoiceLines) ? (load.invoiceLines as Array<{ label: string; amount: number }>) : null;
   const dueAt = load.invoicedAt ? new Date(load.invoicedAt.getTime() + (load.payTermsDays ?? 0) * 86_400_000) : null;

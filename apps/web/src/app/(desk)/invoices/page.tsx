@@ -2,10 +2,8 @@ import Link from "next/link";
 import React from "react";
 import { agingFor, listInvoiceRows } from "@/server/tl/queries";
 import { getDetentionRecovery } from "@/server/tl/detention";
-import { CopyText } from "@/components/desk/copy-text";
 import { InvoiceDialog, PaidDialog } from "@/components/desk/load-actions";
-import { reminderText } from "@/lib/invoicing";
-import { PageHead, Stat } from "@/components/desk/ui";
+import { Card, PageHead, Stat } from "@/components/desk/ui";
 import { DataTable, type Column, type Row } from "@/components/desk/data-table";
 import { DataTableTools } from "@/components/desk/data-table-tools";
 import { EmptyState } from "@/components/desk/kit/states";
@@ -45,15 +43,6 @@ const PAID: Column[] = [
   { key: "paid", label: "Paid" },
   { key: "amount", label: "Received", align: "num" }
 ];
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section style={{ marginTop: 20 }}>
-      <h2 style={{ fontFamily: "var(--db-font-sans)", fontSize: "var(--db-text-xs)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--db-fg-dim)", fontWeight: 700, margin: "0 0 10px" }}>{title}</h2>
-      {children}
-    </section>
-  );
-}
 
 export default async function InvoicesPage() {
   const [all, aging, detention] = await Promise.all([listInvoiceRows(), agingFor(), getDetentionRecovery()]);
@@ -100,18 +89,18 @@ export default async function InvoicesPage() {
       flag: late ? "bad" : undefined,
       search: [r.invoiceNumber, r.broker, r.loadNumber, r.poNumber].filter(Boolean).join(" "),
       cells: {
-        invoice: <Link href={`/loads/${r.id}`}>{r.invoiceNumber}</Link>,
+        invoice: (
+          <>
+            <Link href={`/invoices/${r.id}`}>{r.invoiceNumber}</Link>
+            <span className="sub">{r.loadNumber}</span>
+          </>
+        ),
         broker: r.broker,
         sent: shortDate(r.invoicedAt),
         due: <span className={late ? "tone-neg" : ""}>{shortDate(due)}{late ? " · overdue" : ""}</span>,
         amount: usd(r.amount, 2),
-        act: (
-          <span className="dlg-row" style={{ justifyContent: "flex-end" }}>
-            {late && due && r.invoicedAt ? <CopyText label="Copy reminder" text={reminderText({ broker: r.broker, invoiceNumber: r.invoiceNumber, loadNumber: r.loadNumber, poNumber: r.poNumber, amount: r.amount, sent: r.invoicedAt, due, now, origin: r.origin, destination: r.destination })} /> : null}
-            <Link href={`/invoices/${r.id}`} className="tl-btn sm">View</Link>
-            <PaidDialog loadId={r.id} invoiceNumber={r.invoiceNumber} billed={r.amount} size="sm" />
-          </span>
-        )
+        // One action: the payment. The invoice opens from its number, and the reminder for a late one is on that sheet.
+        act: <PaidDialog loadId={r.id} invoiceNumber={r.invoiceNumber} billed={r.amount} size="sm" />
       }
     };
   });
@@ -145,7 +134,7 @@ export default async function InvoicesPage() {
         <Stat label="Paid" value={String(paid.length)} />
       </div>
 
-      <Section title={`Detention not yet billed · ${detention.unbilledLoads} ${detention.unbilledLoads === 1 ? "load" : "loads"} · ${usd(detention.totalUnbilled, 2)}`}>
+      <Card title={`Detention not yet billed · ${detention.unbilledLoads} ${detention.unbilledLoads === 1 ? "load" : "loads"} · ${usd(detention.totalUnbilled, 2)}`}>
         <DataTable
           id="inv-detention"
           label="Detention not yet billed"
@@ -154,17 +143,17 @@ export default async function InvoicesPage() {
           empty={<EmptyState icon="check" title="No detention is waiting to be billed">When a driver waits past the free time at a dock, it shows here until it is on an invoice.</EmptyState>}
         />
         {detention.totalBilled > 0 ? <p className="tl-note" style={{ marginTop: 8 }}>{usd(detention.totalBilled, 2)} of detention has already gone out on invoices.</p> : null}
-      </Section>
-      <Section title={`Ready to invoice · ${toInvoice.length}`}>
+      </Card>
+      <Card title={`Ready to invoice · ${toInvoice.length}`}>
         <DataTable id="inv-ready" label="Ready to invoice" columns={READY} rows={readyRows} empty={<EmptyState icon="check" title="Every delivered load has an invoice" />} />
-      </Section>
-      <Section title={`Out and waiting · ${open.length}`}>
+      </Card>
+      <Card title={`Out and waiting · ${open.length}`}>
         <DataTableTools tableId="inv-out" total={outRows.length} placeholder="Search invoice, load, PO or customer…" />
         <DataTable id="inv-out" label="Out and waiting" columns={OUT} rows={outRows} empty={<EmptyState icon="invoices" title="Nothing waiting on payment" />} />
-      </Section>
-      <Section title={`Paid · ${paid.length}`}>
+      </Card>
+      <Card title={`Paid · ${paid.length}`}>
         <DataTable id="inv-paid" label="Paid" columns={PAID} rows={paidRows} empty={<EmptyState icon="invoices" title="No paid invoices yet" />} />
-      </Section>
+      </Card>
     </>
   );
 }
