@@ -56,7 +56,7 @@ export default async function DriversPage() {
         pay: payLabel(d.payKind, d.payRate),
         cdl: <>Class {d.cdlClass ?? "?"} · to {shortDate(d.cdlExpiry)}</>,
         medical: <>to {shortDate(d.medicalCardExpiry)}</>,
-        clearance: !d.active ? <span className="dim">—</span> : d.blocker ? <span className="tl-chip bad">{d.blocker}</span> : <span className="tl-chip ok">Clear</span>,
+        clearance: !d.active ? <span className="dim">—</span> : d.blocker ? <span className="tl-chip bad">{d.blocker}</span> : <span className="dim">—</span>,
         now:
           d.current.length === 0 ? (
             <span className="dim">—</span>

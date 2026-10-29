@@ -39,21 +39,24 @@ export const VERDICT: Record<Verdict, { label: string; tone: "ok" | "warn" | "ba
   needs_fuel: { label: "Needs a fuel price", tone: "muted" }
 };
 
-export const LOAD_STATUS: Record<string, { label: string; tone: "ok" | "warn" | "bad" | "info" | "muted" }> = {
-  draft: { label: "Needs a driver", tone: "info" },
-  accepted: { label: "Accepted", tone: "warn" },
-  in_progress: { label: "On the road", tone: "warn" },
+/** Tones: gold asks the dispatcher to act, green is settled, steel is moving, amber is waiting on someone, red is wrong, grey is closed. */
+export type Tone = "ok" | "warn" | "bad" | "info" | "gold" | "muted";
+
+export const LOAD_STATUS: Record<string, { label: string; tone: Tone }> = {
+  draft: { label: "Needs a driver", tone: "gold" },
+  accepted: { label: "Accepted", tone: "ok" },
+  in_progress: { label: "On the road", tone: "info" },
   completed: { label: "Delivered", tone: "ok" },
   tonu: { label: "TONU", tone: "muted" },
   cancelled: { label: "Cancelled", tone: "bad" }
 };
 
-export const ASSIGNMENT_STATUS: Record<string, { label: string; tone: "ok" | "warn" | "bad" | "info" | "muted" }> = {
-  draft: { label: "Assigned, not sent", tone: "muted" },
+export const ASSIGNMENT_STATUS: Record<string, { label: string; tone: Tone }> = {
+  draft: { label: "Assigned, not sent", tone: "gold" },
   dispatched: { label: "Sent, waiting", tone: "warn" },
   accepted: { label: "Driver accepted", tone: "ok" },
   declined: { label: "Driver declined", tone: "bad" },
-  in_progress: { label: "On the road", tone: "warn" },
+  in_progress: { label: "On the road", tone: "info" },
   completed: { label: "Delivered", tone: "ok" }
 };
 

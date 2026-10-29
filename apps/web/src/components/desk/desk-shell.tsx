@@ -56,24 +56,6 @@ const NAV: Array<{ label: string; items: Item[] }> = [
   }
 ];
 
-const TITLES: Array<[string, string]> = [
-  ["/quote", "Quote a load"],
-  ["/loads", "Loads"],
-  ["/dispatch", "Dispatch queue"],
-  ["/planner", "Planner"],
-  ["/brokers", "Brokers"],
-  ["/lanes", "Lanes"],
-  ["/alerts", "Alerts"],
-  ["/audit", "Audit log"],
-  ["/rate-cons", "Rate confirmations"],
-  ["/drivers", "Drivers"],
-  ["/fleet", "Trucks"],
-  ["/invoices", "Invoices"],
-  ["/settlements", "Settlements"],
-  ["/kpi", "KPI dashboard"],
-  ["/settings", "Settings"]
-];
-
 const SIDEBAR_COOKIE = "desk-sidebar";
 
 export function DeskShell({ children, drawer, data, initialCollapsed }: { children: React.ReactNode; drawer?: React.ReactNode; data: ShellData; initialCollapsed: boolean }) {
@@ -87,7 +69,6 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
     setCollapsed(next);
     document.cookie = `${SIDEBAR_COOKIE}=${next ? "1" : "0"}; path=/; max-age=31536000; samesite=lax`;
   };
-  const title = TITLES.find(([p]) => pathname === p || pathname.startsWith(`${p}/`))?.[1] ?? "Dispatch desk";
   const t = data.totals;
 
   return (
@@ -129,9 +110,6 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
         </aside>
         <div className="tl-col">
           <header className="tl-header">
-            <div className="tl-crumb">
-              {title} <span>/ TrueLane</span>
-            </div>
             <GlobalSearch />
             <div className="tl-totals" aria-label="Fleet totals">
               <div className="tl-total"><b>{t.open}</b><span>Open loads</span></div>

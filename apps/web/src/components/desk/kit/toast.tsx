@@ -13,11 +13,29 @@ export const useToast = () => React.useContext(ToastCtx);
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = React.useState<ToastItem[]>([]);
   const next = React.useRef(1);
-  const push = React.useCallback<Push>(({ text, tone = "plain", action, ms = 6000 }) => {
-    const id = next.current++;
-    setItems((xs) => [...xs, { id, text, tone, action }]);
-    window.setTimeout(() => setItems((xs) => xs.filter((x) => x.id !== id)), action ? Math.max(ms, 8000) : ms);
+  const timers = React.useRef(new Map<number, number>());
+  const drop = React.useCallback((id: number) => {
+    window.clearTimeout(timers.current.get(id));
+    timers.current.delete(id);
+    setItems((xs) => xs.filter((x) => x.id !== id));
   }, []);
+  /** A toast leaves on its own, but not while it is being read: pointing at it or focusing in it holds it, and it gets a short grace when released. */
+  const arm = React.useCallback(
+    (id: number, ms: number) => {
+      window.clearTimeout(timers.current.get(id));
+      timers.current.set(id, window.setTimeout(() => drop(id), ms));
+    },
+    [drop]
+  );
+  const hold = (id: number) => window.clearTimeout(timers.current.get(id));
+  const push = React.useCallback<Push>(
+    ({ text, tone = "plain", action, ms = 6000 }) => {
+      const id = next.current++;
+      setItems((xs) => [...xs, { id, text, tone, action }]);
+      arm(id, action ? Math.max(ms, 8000) : ms);
+    },
+    [arm]
+  );
   return (
     <ToastCtx.Provider value={push}>
       {children}
@@ -26,14 +44,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       </React.Suspense>
       <div className="k-toasts" role="status" aria-live="polite">
         {items.map((t) => (
-          <div key={t.id} className={`k-toast ${t.tone === "plain" ? "" : t.tone}`}>
+          <div key={t.id} className={`k-toast ${t.tone === "plain" ? "" : t.tone}`} onMouseEnter={() => hold(t.id)} onMouseLeave={() => arm(t.id, 3000)} onFocus={() => hold(t.id)} onBlur={() => arm(t.id, 3000)}>
             <span>{t.text}</span>
             {t.action ? (
               <button
                 type="button"
                 onClick={() => {
                   t.action!.run();
-                  setItems((xs) => xs.filter((x) => x.id !== t.id));
+                  drop(t.id);
                 }}>
                 {t.action.label}
               </button>

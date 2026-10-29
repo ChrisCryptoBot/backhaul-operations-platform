@@ -69,6 +69,16 @@ describe.each(Object.entries(THEMES))("%s theme contrast", (_name, t) => {
     expect(ratio(t[fg]!, t[bg]!), `${fg} ${t[fg]} on ${bg} ${t[bg]}`).toBeGreaterThanOrEqual(4.5);
   });
 
+  // Raised and interactive surfaces: hovered rows and the active nav item (elev 2 and 3), inputs and placeholders, and the selected-row fill.
+  const RAISED = ["--db-bg-elev-2", "--db-bg-elev-3", "--db-bg-input", "--db-accent-bg"];
+  it.each(TEXT.flatMap((fg) => RAISED.map((bg) => [fg, bg] as const)))("%s on the raised surface %s is at least 4.5:1", (fg, bg) => {
+    expect(ratio(t[fg]!, t[bg]!), `${fg} ${t[fg]} on ${bg} ${t[bg]}`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each([...SURFACES, ...RAISED])("the gold kicker (accent text) is readable on %s", (bg) => {
+    expect(ratio(t["--db-accent-fg"]!, t[bg]!), `${t["--db-accent-fg"]} on ${bg} ${t[bg]}`).toBeGreaterThanOrEqual(4.5);
+  });
+
   it("text on the accent fill is at least 4.5:1", () => {
     expect(ratio(t["--db-accent-on"]!, t["--db-accent"]!)).toBeGreaterThanOrEqual(4.5);
   });

@@ -26,7 +26,7 @@
   /* Text. faint is decoration and disabled text only (not tested for body contrast). */
   --db-fg: #e8edf2;
   --db-fg-mid: #9aa7b4;
-  --db-fg-dim: #7e8794;
+  --db-fg-dim: #8d97a4;
   --db-fg-faint: #566170;
 
   /* Accent: TrueLane gold. accent-fg is gold used as text; accent-on is text placed on a gold fill. */
@@ -58,9 +58,9 @@
   --db-warn-fill: #f97316;
   --db-info-fill: #5980a6;
 
-  --db-shadow-pop: 0 10px 32px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--db-border-strong);
-  --db-shadow-drawer: -18px 0 48px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--db-border);
-  --db-shadow-sticky: 6px 0 10px -6px rgba(0, 0, 0, 0.65);
+  --db-shadow-pop: 0 0 0 1px var(--db-border-strong);
+  --db-shadow-drawer: 0 0 0 1px var(--db-border);
+  --db-shadow-sticky: 1px 0 0 var(--db-border-strong);
   --db-scrim: rgba(4, 6, 9, 0.62);
 
   --db-scrollbar-track: #0a0c0f;
@@ -80,14 +80,14 @@
   --db-bg-elev-2: #ece5db;
   --db-bg-elev-3: #e3d9cc;
 
-  --db-border: #d6c8b6;
+  --db-border: #cdbca4;
   --db-border-soft: #e3d8c9;
-  --db-border-strong: #c5b39b;
+  --db-border-strong: #b6a389;
   --db-border-lit: #ffffff;
 
   --db-fg: #2c2620;
   --db-fg-mid: #5d534b;
-  --db-fg-dim: #6f6258;
+  --db-fg-dim: #675a50;
   --db-fg-faint: #9c8c7e;
 
   --db-accent: #e8a020;
@@ -115,9 +115,9 @@
   --db-warn-fill: #c46f00;
   --db-info-fill: #2c5fa8;
 
-  --db-shadow-pop: 0 8px 24px rgba(60, 45, 25, 0.18), 0 0 0 1px var(--db-border);
-  --db-shadow-drawer: -16px 0 40px rgba(60, 45, 25, 0.18), 0 0 0 1px var(--db-border);
-  --db-shadow-sticky: 6px 0 8px -6px rgba(60, 45, 25, 0.28);
+  --db-shadow-pop: 0 0 0 1px var(--db-border-strong);
+  --db-shadow-drawer: 0 0 0 1px var(--db-border);
+  --db-shadow-sticky: 1px 0 0 var(--db-border-strong);
   --db-scrim: rgba(33, 30, 27, 0.4);
 
   --db-scrollbar-track: #efe6da;
@@ -155,6 +155,11 @@
   --db-r-sm: 4px;
   --db-r-md: 8px;
   --db-r-lg: 12px;
+  --db-r-press: 6px;
+  --db-r-field: 8px;
+  --db-r-tile: 10px;
+  --db-r-note: 14px;
+  --db-r-card: 20px;
   --db-r-pill: 999px;
 
   --db-sidebar-w: 224px;
@@ -162,9 +167,10 @@
   --db-header-h: 52px;
 
   --db-ease: cubic-bezier(0.2, 0.7, 0.3, 1);
-  --db-dur-fast: 100ms;
-  --db-dur-base: 160ms;
+  --db-dur-fast: 110ms;
+  --db-dur-base: 200ms;
   --db-dur-slow: 220ms;
+  --db-dur-settle: 320ms;
 
   /* Density: comfortable by default */
   --db-row-h: 40px;
@@ -227,7 +233,11 @@ textarea {
 :focus-visible {
   outline: 2px solid var(--db-accent);
   outline-offset: 2px;
-  border-radius: var(--db-r-sm);
+}
+
+::placeholder {
+  color: var(--db-fg-dim);
+  opacity: 1;
 }
 
 ::selection {
