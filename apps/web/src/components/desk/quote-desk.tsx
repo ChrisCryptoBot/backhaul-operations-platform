@@ -280,8 +280,34 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
     );
   }
 
+  /** Below 1100 px the verdict sits under the form; the bar keeps its headline in view and this takes you to the rest. */
+  const jumpToVerdict = () =>
+    document.getElementById("qt-verdict")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
+
   return (
     <>
+      <div className="qt-bar" role="group" aria-label="Verdict summary" data-tone={row ? BAND_LABEL[row.band].tone : "none"}>
+        {row ? (
+          <>
+            <span className={`tl-chip ${BAND_LABEL[row.band].tone}`}>{BAND_LABEL[row.band].label}</span>
+            <strong className="qt-bar-fig">
+              {perMile(row.allInPerMile)} <span>all-in</span>
+            </strong>
+            <span className="qt-bar-fact">
+              {row.marginPerMile == null ? `Floor ${perMile(row.floorPerMile)}` : `${row.marginPerMile < 0 ? "Short by" : "Clears by"} ${perMile(Math.abs(row.marginPerMile))}`}
+            </span>
+            <span className="qt-bar-truck">
+              {row.truckName}
+              {row.driverName ? ` · ${row.driverName}` : ""}
+            </span>
+          </>
+        ) : (
+          <span className="qt-bar-fact">{pricing ? "Pricing…" : "Type the offer and the loaded miles to price it."}</span>
+        )}
+        <button type="button" className="tl-btn ghost qt-bar-jump" onClick={jumpToVerdict}>
+          Verdict
+        </button>
+      </div>
       <div className="qt">
         <div className="qt-main">
           <section className="tl-card">
@@ -469,7 +495,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
           </section>
         </div>
 
-        <aside className="qt-side" aria-label="The verdict" aria-live="polite" data-tone={row ? BAND_LABEL[row.band].tone : "none"}>
+        <aside id="qt-verdict" className="qt-side" aria-label="The verdict" aria-live="polite" data-tone={row ? BAND_LABEL[row.band].tone : "none"}>
           <div className="qt-glass">
           <h2 className="rc-eyebrow">{row ? `Priced for ${row.truckName}${row.driverName ? ` · ${row.driverName}` : ""}` : "The verdict"}</h2>
           {row ? <Verdict row={row} values={values} /> : <p className="tl-note">{priced && !priced.ok ? "Type the offer and the loaded miles to price it." : pricing ? "Pricing…" : priced?.ok && priced.fit.skipped.length > 0 ? "No truck has a cost profile to price against." : "Type the offer and the loaded miles to price it."}</p>}

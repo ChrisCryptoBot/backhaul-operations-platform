@@ -415,15 +415,8 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .rs-row b { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ───────────────────────────── planner ───────────────────────────── */
-.wl-key { display: flex; gap: var(--db-4); flex-wrap: wrap; margin-bottom: var(--db-3); font-size: var(--db-text-xs); color: var(--db-fg-dim); }
-.wl-key i { display: inline-block; width: 4px; height: 12px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
-.wl-key i.past_due, .wl-row.past_due .wl-bar { background: var(--db-neg-fill); }
-.wl-key i.today, .wl-row.today .wl-bar { background: var(--db-warn-fill); }
-.wl-key i.upcoming, .wl-row.upcoming .wl-bar { background: var(--db-info-fill); }
-.wl-key i.done, .wl-row.done .wl-bar { background: var(--db-pos-fill); }
 .wl { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--db-2); }
-.wl-row { display: grid; grid-template-columns: 4px minmax(0, 1fr) auto; gap: var(--db-3); align-items: center; padding: var(--db-2) var(--db-3) var(--db-2) 0; border-bottom: 1px solid var(--db-border-soft); overflow: hidden; }
-.wl-bar { align-self: stretch; }
+.wl-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--db-3); align-items: center; padding: var(--db-2) 0; border-bottom: 1px solid var(--db-border-soft); overflow: hidden; }
 .wl-main { min-width: 0; font-size: var(--db-text-base); }
 .wl-sub { font-size: var(--db-text-sm); color: var(--db-fg-mid); }
 .pl-head { display: flex; align-items: baseline; gap: var(--db-4); flex-wrap: wrap; margin: var(--db-5) 0 var(--db-2); }
@@ -438,22 +431,24 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .pl th:last-child, .pl td:last-child { border-right: 0; }
 .pl thead th { font-size: var(--db-text-sm); font-weight: 600; color: var(--db-fg-mid); background: var(--db-bg-elev-1); }
 .pl thead th span { color: var(--db-fg-dim); font-weight: 500; }
-.pl thead th em { font-style: normal; margin-left: 6px; font-size: var(--db-text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--db-accent-ink); }
+.pl thead th em { font-style: normal; margin-left: 6px; font-size: var(--db-text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--db-accent-fg); }
 .pl .pl-who { width: 150px; position: sticky; left: 0; z-index: 2; background: var(--db-bg-card); font-weight: 600; font-size: var(--db-text-base); }
 .pl thead .pl-who { background: var(--db-bg-elev-1); z-index: 3; }
 .pl .pl-who span { display: block; font-weight: 500; font-size: var(--db-text-xs); color: var(--db-fg-dim); }
 .pl td.today, .pl thead th.today { background: var(--db-accent-bg); }
 .pl-tray .pl-who, .pl-tray td { background: var(--db-bg-inset); }
 .pl-tray td.today { background: var(--db-accent-bg); }
-.pl-load { display: grid; gap: 1px; padding: 4px 8px; margin-bottom: 4px; border: 1px solid var(--db-border-strong); border-left: 4px solid var(--db-fg-faint); border-radius: var(--db-r-sm); background: var(--db-bg-elev-2); color: var(--db-fg); text-decoration: none; font-size: var(--db-text-sm); }
+.pl-load { display: grid; gap: 1px; padding: 4px 8px; margin-bottom: 4px; border: 1px solid var(--db-border-strong); --dot: var(--db-fg-faint); border-radius: var(--db-r-sm); background: var(--db-bg-elev-2); color: var(--db-fg); text-decoration: none; font-size: var(--db-text-sm); }
 .pl-load:hover { border-color: var(--db-accent); }
 .pl-load b { font-size: var(--db-text-base); }
+/* State is a dot before the number (the sidebar's and the alerts' language), never a coloured edge. */
+.pl-load b::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--dot); vertical-align: 1px; }
 .pl-load small { color: var(--db-fg-dim); font-size: var(--db-text-xs); }
-.pl-load.draft { border-left-color: var(--db-info-fill); }
-.pl-load.accepted { border-left-color: var(--db-pos-fill); }
-.pl-load.in_progress { border-left-color: var(--db-accent); }
-.pl-load.notsent { border-style: dashed; border-left-style: solid; }
-.pl-load.done { border-left-color: var(--db-fg-faint); background: var(--db-bg-inset); }
+.pl-load.draft { --dot: var(--db-info-fill); }
+.pl-load.accepted { --dot: var(--db-pos-fill); }
+.pl-load.in_progress { --dot: var(--db-accent); }
+.pl-load.notsent { border-style: dashed; }
+.pl-load.done { --dot: var(--db-fg-faint); background: var(--db-bg-inset); }
 .pl-load.done b { color: var(--db-fg-mid); }
 .pl-load.conflict { border-color: var(--db-neg-fill); background: var(--db-neg-bg); }
 .pl-warn { color: var(--db-neg); margin-left: 4px; vertical-align: -2px; }
@@ -809,7 +804,7 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
   border-top-color: var(--db-glass-rim);
   box-shadow: inset 0 1px 0 var(--db-glass-hi), inset 0 -1px 0 var(--db-glass-lo);
 }
-.tl-header, .dr, .k-modal, .gs-pop, .menu-pop, .ai-list, .k-toast {
+.tl-header, .qt-bar, .dr, .k-modal, .gs-pop, .menu-pop, .ai-list, .k-toast {
   background: var(--db-glass-sheen), var(--db-glass-bg-strong);
   -webkit-backdrop-filter: blur(var(--db-glass-blur)) saturate(var(--db-glass-sat));
   backdrop-filter: blur(var(--db-glass-blur)) saturate(var(--db-glass-sat));
@@ -890,11 +885,11 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 
 /* No blur available, or less transparency asked for: the same surfaces, solid. */
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .tl-side, .qt-glass, .tl-header, .dr, .k-modal, .gs-pop, .menu-pop, .ai-list, .k-toast { background: var(--db-bg-card); }
+  .tl-side, .qt-glass, .tl-header, .qt-bar, .dr, .k-modal, .gs-pop, .menu-pop, .ai-list, .k-toast { background: var(--db-bg-card); }
   .qt-glass::after { display: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .tl-side, .qt-glass, .tl-header, .dr, .k-modal, .gs-pop, .menu-pop, .ai-list, .k-toast { background: var(--db-bg-card); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .tl-side, .qt-glass, .tl-header, .qt-bar, .dr, .k-modal, .gs-pop, .menu-pop, .ai-list, .k-toast { background: var(--db-bg-card); -webkit-backdrop-filter: none; backdrop-filter: none; }
   .k-scrim, .dr-scrim { -webkit-backdrop-filter: none; backdrop-filter: none; }
   .qt-glass::after { display: none; }
 }
@@ -910,7 +905,27 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 @media (prefers-reduced-transparency: reduce) { .tl-col::before { display: none; } }
 @media print { .tl-col::before { display: none; } }
 /* Below 1100 px the verdict stops being sticky; it must still be positioned so its light is clipped with the column. */
-@media (max-width: 1100px) { .qt-side { position: relative; } }
+@media (max-width: 1100px) { .qt-side { position: relative; scroll-margin-top: 150px; } }
+
+/* Below 1100 px the verdict sits under the form, so a slim glass bar holds its headline just under the header for the whole page.
+   It is the same glass as the header; the verdict's tone is carried by its chip (dot and kicker), never a coloured edge. Above 1100 px the verdict is sticky beside the form and the bar is not needed. */
+.qt-bar { display: none; --tone-glow: var(--db-accent); }
+.qt-bar[data-tone="ok"] { --tone-glow: var(--db-pos-fill); }
+.qt-bar[data-tone="warn"] { --tone-glow: var(--db-warn-fill); }
+.qt-bar[data-tone="bad"] { --tone-glow: var(--db-neg-fill); }
+.qt-bar[data-tone="info"] { --tone-glow: var(--db-info-fill); }
+@media (max-width: 1100px) {
+  .qt-bar {
+    display: flex; align-items: center; gap: var(--db-4); position: sticky; top: 84px; z-index: 15; min-height: 46px; margin-bottom: var(--db-4);
+    padding: var(--db-2) var(--db-2) var(--db-2) var(--db-4); border-radius: var(--db-r-card);
+    box-shadow: inset 0 1px 0 var(--db-glass-hi), inset 0 -1px 0 var(--db-glass-lo);
+  }
+  .qt-bar-fig { font-family: var(--db-font-head); font-size: var(--db-text-xl, 22px); font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .qt-bar-fig span { font-size: var(--db-text-sm); font-weight: 500; color: var(--db-fg-dim); }
+  .qt-bar-fact { font-size: var(--db-text-base); color: var(--db-fg-mid); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .qt-bar-truck { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--db-text-sm); color: var(--db-fg-dim); }
+  .qt-bar-jump { margin-left: auto; flex: none; }
+}
 
 /* ───────────────────────────── date and time field ─────────────────────────────
    Replaces the browser's own date box, whose pop-up cannot be styled. A text box you can type in, a calendar button, and a glass calendar. */

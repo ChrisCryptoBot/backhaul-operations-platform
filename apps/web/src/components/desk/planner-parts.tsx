@@ -16,21 +16,13 @@ function dueWords(i: DueItem, now: number): string {
   return i.late ? `Arrived ${clock(i.arrivedAt!)}, ${spanText(i.minutesLate ?? 0)} after the window closed` : `Arrived ${clock(i.arrivedAt!)}, on time`;
 }
 
-/** The stops that need eyes now, each with a bar in its priority colour: past due, due today, coming up, reached today. */
+/** The stops that need eyes now, each with its state as a chip: past due, due today, coming up, reached today. */
 export function DueNow({ items, now }: { items: DueItem[]; now: number }) {
   return (
     <div>
-      <div className="wl-key" aria-hidden="true">
-        {(["past_due", "today", "upcoming", "done"] as const).map((s) => (
-          <span key={s}>
-            <i className={s} /> {STATE_LABEL[s]}
-          </span>
-        ))}
-      </div>
       <ul className="wl">
         {items.map((i) => (
           <li key={`${i.loadId}-${i.stopRole}-${i.due.getTime()}`} className={`wl-row ${i.state}`}>
-            <span className="wl-bar" aria-hidden="true" />
             <div className="wl-main">
               <div>
                 <Link href={`/loads/${i.loadId}`}>{i.loadNumber}</Link> · <span style={{ textTransform: "capitalize" }}>{i.stopRole}</span> · {i.city}
@@ -51,6 +43,7 @@ function Chip({ i }: { i: PlannerItem }) {
   return (
     <Link href={`/loads/${i.loadId}`} className={cls} title={`${i.loadNumber}: ${i.lane}${i.conflict ? ". The driver is on another load at the same time." : ""}${i.notSent ? " Assigned, not sent yet." : ""}`}>
       <b>
+        <span className="db-sr-only">{i.done ? "Done. " : i.status === "in_progress" ? "In progress. " : i.status === "accepted" ? "Accepted. " : "Draft. "}</span>
         {i.loadNumber}
         {i.conflict ? (
           <span className="pl-warn" role="img" aria-label="Double-booked">
