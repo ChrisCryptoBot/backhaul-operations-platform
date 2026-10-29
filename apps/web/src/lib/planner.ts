@@ -77,18 +77,23 @@ export type PlannerItem = {
 
 export type PlannerRow = { driverId: string; name: string; cells: PlannerItem[][] };
 
+/** An open load with no pickup or delivery time on any stop: it cannot sit on a day, so it is listed beside the grid instead of vanishing. */
+export type UntimedLoad = { loadId: string; loadNumber: string | null; lane: string; status: string; driverName: string | null };
+
 /**
  * One row per driver and a tray of loads that have no driver (or whose driver declined), each as a list of loads per day.
  * A load that is on the road keeps its driver's row until it is delivered, so with `now` its span runs at least to now: a truck that is late
  * on a delivery whose window closed yesterday is still in its row today, not only in the due list.
  */
-export function buildPlanner(loads: PlannerLoad[], drivers: Array<{ id: string; name: string }>, days: DayCol[], now?: number): { rows: PlannerRow[]; tray: PlannerItem[][] } {
+export function buildPlanner(loads: PlannerLoad[], drivers: Array<{ id: string; name: string }>, days: DayCol[], now?: number): { rows: PlannerRow[]; tray: PlannerItem[][]; untimed: UntimedLoad[] } {
   type Raw = { l: PlannerLoad; start: number; end: number };
   const raws: Raw[] = [];
+  const untimed: UntimedLoad[] = [];
   for (const l of loads) {
     if (l.status !== "completed" && !OPEN.includes(l.status)) continue;
     const w = loadWindow(l.stops.map((s) => ({ timeWindowEarliest: s.earliest, timeWindowLatest: s.latest })));
     if (w) raws.push({ l, start: w.start.getTime(), end: l.status === "in_progress" && now != null ? Math.max(w.end.getTime(), now) : w.end.getTime() });
+    else if (OPEN.includes(l.status)) untimed.push({ loadId: l.id, loadNumber: l.loadNumber, lane: `${city(l.origin)} → ${city(l.destination)}`, status: l.status, driverName: l.assignmentStatus !== "declined" ? l.driverName : null });
   }
 
   const driverOf = (r: Raw) => (r.l.driverId && r.l.assignmentStatus !== "declined" ? r.l.driverId : null);
@@ -128,7 +133,7 @@ export function buildPlanner(loads: PlannerLoad[], drivers: Array<{ id: string; 
     }
   }
   const tray = cellsFor(raws.filter((r) => !driverOf(r) && OPEN.includes(r.l.status)));
-  return { rows, tray };
+  return { rows, tray, untimed };
 }
 
 export type DueState = "past_due" | "today" | "upcoming" | "done";

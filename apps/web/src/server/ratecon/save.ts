@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { RateConLoadDraft } from "./map";
 import { currentWorkspace } from "@/server/tl/workspace";
@@ -9,7 +10,24 @@ import { saveStopCoordinates } from "@/server/geo/persist";
  * The review gate. A draft read from a rate confirmation becomes a load only when a person has looked at it and
  * sent it back with `confirmed: true` (and any edits). Nothing here computes a verdict.
  */
-export type ReviewedDraft = RateConLoadDraft & { confirmed: boolean; vehicleId?: string | null };
+export type ReviewedDraft = RateConLoadDraft & {
+  confirmed: boolean;
+  vehicleId?: string | null;
+  /** The file the document came from, kept on the load so it can be found again. */
+  fileName?: string | null;
+  /** Save even though the desk already has a load with this number from this broker. */
+  allowDuplicate?: boolean;
+};
+
+/** A load with this number from this broker is already on the desk. Carries it, so the page can link to it. */
+export class DuplicateLoadError extends Error {
+  constructor(
+    message: string,
+    readonly loadId: string
+  ) {
+    super(message);
+  }
+}
 
 export class ReviewRequiredError extends Error {
   constructor() {
@@ -23,9 +41,21 @@ export function assertSavable(d: ReviewedDraft): void {
   if (d.stops.length === 0) throw new Error("A load needs at least one stop.");
 }
 
+const same = (a: string | null | undefined, b: string | null | undefined) => (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
+
 export async function saveReviewedDraft(d: ReviewedDraft) {
   assertSavable(d);
   const ws = await currentWorkspace();
+  const number = d.load.loadNumber?.trim();
+  if (number && !d.allowDuplicate) {
+    const twins = await prisma.load.findMany({ where: { workspaceId: ws.id, deletedAt: null, status: { not: "quote" }, loadNumber: { equals: number, mode: "insensitive" } }, select: { id: true, brokerName: true, status: true } });
+    // The same number from a broker that is not named is still the same number: only two different named brokers are two different loads.
+    const twin = twins.find((t) => !t.brokerName || !d.load.brokerName || same(t.brokerName, d.load.brokerName));
+    if (twin) throw new DuplicateLoadError(`Load ${number}${twin.brokerName ? ` from ${twin.brokerName}` : ""} is already on the desk. Open it, or save this one anyway.`, twin.id);
+  }
+  const weight = d.printed.weightLbs != null && d.printed.weightLbs > 0 ? new Prisma.Decimal(d.printed.weightLbs).toDecimalPlaces(0).toNumber() : null;
+  // What the document says about the dock and anything else, kept where the dispatcher will see it (the load's notes).
+  const notes = [d.printed.notes?.trim(), d.printed.dockTerms?.trim() ? `Dock terms: ${d.printed.dockTerms.trim()}` : null].filter(Boolean).join("\n").slice(0, 1000) || null;
   const saved = await prisma.$transaction(async (tx) => {
     const load = await tx.load.create({
     data: {
@@ -48,6 +78,12 @@ export async function saveReviewedDraft(d: ReviewedDraft) {
       pickupNumbers: d.load.pickupNumbers,
       deliveryNumbers: d.load.deliveryNumbers,
       scheduledDate: d.stops[0]?.timeWindowEarliest ?? null,
+      weightLbs: weight,
+      notes,
+      rateConPath: d.fileName?.trim() || null,
+      // The document's own detention terms win over the truck's profile for this load (freezing the profile later only fills what is still empty).
+      snapshotDetentionRate: d.printed.detentionHourlyRate != null && d.printed.detentionHourlyRate > 0 ? d.printed.detentionHourlyRate : null,
+      snapshotFreeGraceMinutes: d.printed.detentionFreeMinutes != null && d.printed.detentionFreeMinutes >= 0 ? d.printed.detentionFreeMinutes : null,
       stops: {
         create: d.stops.map((s) => ({
           stopSequence: s.stopSequence,

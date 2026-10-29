@@ -16,6 +16,14 @@ export const CANCEL_REASONS: Reason[] = [
   { key: "other", label: "Other" }
 ];
 
+/** Why a load was deleted. A deleted load is a record that should never have been (a duplicate, a slip), not one that fell through: it is not counted as lost. */
+export const DELETE_REASONS: Reason[] = [
+  { key: "duplicate", label: "Duplicate of another load" },
+  { key: "mistake", label: "Entered by mistake" },
+  { key: "test", label: "A test or practice load" },
+  { key: "other", label: "Other" }
+];
+
 /** Why a pickup was moved to another time. */
 export const RESCHEDULE_REASONS: Reason[] = [
   { key: "shipper_not_ready", label: "Shipper not ready" },
@@ -28,9 +36,10 @@ export const RESCHEDULE_REASONS: Reason[] = [
 
 export function reasonLabel(key: string | null | undefined): string {
   if (!key) return "No reason given";
-  return [...CANCEL_REASONS, ...RESCHEDULE_REASONS].find((r) => r.key === key)?.label ?? key;
+  return [...CANCEL_REASONS, ...RESCHEDULE_REASONS, ...DELETE_REASONS].find((r) => r.key === key)?.label ?? key;
 }
 
+export const isDeleteReason = (key: string) => DELETE_REASONS.some((r) => r.key === key);
 export const isCancelReason = (key: string) => CANCEL_REASONS.some((r) => r.key === key);
 export const isRescheduleReason = (key: string) => RESCHEDULE_REASONS.some((r) => r.key === key);
 

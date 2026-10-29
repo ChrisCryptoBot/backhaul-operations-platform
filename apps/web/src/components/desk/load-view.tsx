@@ -13,6 +13,7 @@ import { assignAction, respondAction, sendAction, unassignAction, undoPaidAction
 import { InvoiceDialog, LoadEditDialog, PaidDialog, TripEntry } from "./load-actions";
 import { defaultInvoiceNumber, invoiceReadiness } from "@/lib/invoicing";
 import { toEditValues } from "@/lib/load-edit";
+import { DeleteLoadButton } from "./delete-load";
 import { deriveTimeline } from "@/lib/desk-timeline";
 import { CAN_CANCEL, CAN_RESCHEDULE, CAN_TONU, reasonLabel } from "@/lib/disruptions";
 import { toCentralLocal } from "@/lib/zoned";
@@ -36,7 +37,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   const detail = await getLoadDetail(id);
   if (!detail) notFound();
   const [{ byLoad }, feed, settled] = await Promise.all([getAlerts(), listLoadAudit(id), settlementOfLoad(id)]);
-  const { load, evaluation, flipped, driverView, drivers } = detail;
+  const { load, evaluation, flipped, driverView, drivers, trucks } = detail;
   const a = load.assignment;
   const alerts = byLoad.get(id) ?? [];
 
@@ -56,6 +57,8 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   const dt = detentionOfLoad(load, thresholds.detentionGraceMinutes);
   const fellThrough = load.status === "cancelled" || load.status === "tonu";
   const firstPickup = load.stops.map((s) => s.timeWindowEarliest).find((d): d is Date => d != null) ?? null;
+  // A load on the road, invoiced or on a statement is real; everything else can be taken off the desk if it was a slip.
+  const deleteBlocked = load.status === "in_progress" ? "A load on the road cannot be deleted." : load.paymentStatus ? "An invoiced load cannot be deleted." : settled ? "A load on a driver statement cannot be deleted." : null;
   const can = { cancel: CAN_CANCEL.includes(load.status), tonu: CAN_TONU.includes(load.status), reschedule: CAN_RESCHEDULE.includes(load.status) && firstPickup != null };
 
   // Editing, trip entry and billing. A load that has started keeps its stops where they are; the rest can still be corrected.
@@ -252,6 +255,13 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         </div>
       </section>
 
+      <section className="sec">
+        <h3>Delete</h3>
+        <div className="sec-box">
+          <DeleteLoadButton loadId={load.id} loadNumber={load.loadNumber ?? "This load"} driverName={a?.driver.name ?? null} blocked={deleteBlocked} />
+        </div>
+      </section>
+
       {can.cancel || can.tonu || can.reschedule ? (
         <section className="sec">
           <h3>Change of plans</h3>
@@ -291,7 +301,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         <div className="sec-box">
           {fellThrough ? null : (
             <div style={{ marginBottom: 10 }}>
-              <LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load)} scheduleLocked={scheduleLocked} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} />
+              <LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load)} scheduleLocked={scheduleLocked} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} trucks={trucks} dealLocked={load.paymentStatus ? "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." : settled ? "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." : null} />
             </div>
           )}
           <table className="tl-table">
@@ -461,12 +471,15 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         </form>
       ) : null}
       {a?.status === "dispatched" ? (
-        <form action={respondAction}>
-          <input type="hidden" name="loadId" value={load.id} />
-          <span className="tl-sub">Waiting on {a.driver.name}. Play the driver:</span>
-          <button name="response" value="accepted" type="submit" className="tl-btn primary sm">Driver accepts</button>
-          <button name="response" value="declined" type="submit" className="tl-btn sm">Driver declines</button>
-        </form>
+        <details className="demo-controls">
+          <summary>Demo controls</summary>
+          <form action={respondAction}>
+            <input type="hidden" name="loadId" value={load.id} />
+            <span className="tl-sub">Waiting on {a.driver.name}. The driver&apos;s phone is not connected in this demo, so answer for them:</span>
+            <button name="response" value="accepted" type="submit" className="tl-btn primary sm">Driver accepts</button>
+            <button name="response" value="declined" type="submit" className="tl-btn sm">Driver declines</button>
+          </form>
+        </details>
       ) : null}
       {load.status === "completed" && !load.paymentStatus ? (
         <InvoiceDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} defaults={{ number: defaultInvoiceNumber(load.loadNumber, load.id) }} context={invoiceContext} blockers={readiness.blockers} cautions={readiness.cautions} />

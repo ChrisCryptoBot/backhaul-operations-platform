@@ -1,4 +1,6 @@
 import { Prisma } from "@prisma/client";
+import type { Company } from "@/lib/company";
+import { toCompany } from "./company";
 import { prisma } from "@/lib/db";
 import type { AuditSnapshot } from "@/lib/audit-diff";
 import { rateConTotal, type PayKind } from "@/lib/pay";
@@ -209,6 +211,8 @@ export type SettlementView = {
   driver: { id: string; name: string };
   /** Who the statement is from: the workspace. */
   issuer: string;
+  /** The company's identity for the sheet's header. */
+  company: Company;
   start: string;
   end: string;
   periodLabel: string;
@@ -227,7 +231,7 @@ export type SettlementView = {
 export async function getSettlement(id: string, workspaceId = DEMO_WORKSPACE_ID): Promise<SettlementView | null> {
   const s = await prisma.settlement.findFirst({ where: { id, workspaceId }, include: { driver: true, workspace: true } });
   if (!s) return null;
-  const base = { id: s.id, number: s.number, issuer: s.workspace.name, driver: { id: s.driver.id, name: s.driver.name }, start: ymd(s.periodStart), end: ymd(s.periodEnd), periodLabel: periodText(ymd(s.periodStart), ymd(s.periodEnd)), finalizedAt: s.finalizedAt?.toISOString() ?? null, voidedAt: s.voidedAt?.toISOString() ?? null, voidReason: s.voidReason };
+  const base = { id: s.id, number: s.number, issuer: s.workspace.name, company: toCompany(s.workspace), driver: { id: s.driver.id, name: s.driver.name }, start: ymd(s.periodStart), end: ymd(s.periodEnd), periodLabel: periodText(ymd(s.periodStart), ymd(s.periodEnd)), finalizedAt: s.finalizedAt?.toISOString() ?? null, voidedAt: s.voidedAt?.toISOString() ?? null, voidReason: s.voidReason };
   if (s.status === "draft") {
     const hours = typedHours(s.hours);
     const adjustmentRows = typedAdjustments(s.adjustments);

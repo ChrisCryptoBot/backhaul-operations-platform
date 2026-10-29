@@ -13,7 +13,7 @@ const WEEK = 7 * 86_400_000;
 export default async function PlannerPage({ searchParams }: { searchParams?: { start?: string } }) {
   const now = Date.now();
   const from = (searchParams?.start ? parseCentralLocal(`${searchParams.start}T12:00`) : null) ?? now;
-  const { days, rows, tray, watchlist } = await getPlannerData(from, now, 7);
+  const { days, rows, tray, untimed, watchlist } = await getPlannerData(from, now, 7);
   // Noon, so a day with a clock change in it cannot tip the neighbour week's key onto the wrong date.
   const key = (weeks: number) => planDays(days[0]!.start + weeks * WEEK + 12 * 3_600_000, 1, now)[0]!.key;
   const trayCount = new Set(tray.flat().map((i) => i.loadId)).size;
@@ -49,6 +49,21 @@ export default async function PlannerPage({ searchParams }: { searchParams?: { s
         </span>
       </div>
       <PlannerGrid days={days} rows={rows} tray={tray} />
+      {untimed.length > 0 ? (
+        <Card title={`No times yet · ${untimed.length}`} className="tl-card">
+          <p className="tl-note" style={{ marginBottom: 10 }}>These loads have no pickup or delivery time, so they cannot sit on a day. Add the times from the load.</p>
+          <ul className="feed">
+            {untimed.map((u) => (
+              <li key={u.loadId}>
+                <Link href={`/loads/${u.loadId}`}>
+                  <b>{u.loadNumber ?? "Load"}</b> · {u.lane}
+                </Link>
+                <span className="tl-sub"> {u.driverName ? `${u.driverName}` : "needs a driver"}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
     </>
   );
 }

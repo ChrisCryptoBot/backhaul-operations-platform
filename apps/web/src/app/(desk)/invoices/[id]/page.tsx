@@ -5,6 +5,8 @@ import { getInvoice } from "@/server/tl/invoicing";
 import { CopyText } from "@/components/desk/copy-text";
 import { PrintButton } from "@/components/desk/kpi/print-button";
 import { reminderText } from "@/lib/invoicing";
+import { companyLine } from "@/lib/company";
+import { paidMethodLabel } from "@/lib/pay-method";
 import { dateTime, miles, shortDate, usd } from "@/lib/desk-format";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +33,11 @@ export default async function InvoicePage({ params }: { params: { id: string } }
       </div>
       <article className="rp">
         <h1>Invoice {inv.invoiceNumber}</h1>
-        <p className="rp-meta">From {inv.issuer}</p>
+        <p className="rp-meta">
+          From <b>{inv.company.name}</b>
+          {companyLine(inv.company) ? ` · ${companyLine(inv.company)}` : ""}
+        </p>
+        {inv.company.address ? <p className="rp-meta" style={{ whiteSpace: "pre-line" }}>{inv.company.address}</p> : null}
 
         <h2>Bill to</h2>
         <p>
@@ -125,9 +131,18 @@ export default async function InvoicePage({ params }: { params: { id: string } }
           <>
             <h2>Payment</h2>
             <p>
-              Paid {inv.paidAt ? shortDate(inv.paidAt) : ""}: <b>{usd(inv.paidAmount, 2)}</b>
+              Paid {inv.paidAt ? shortDate(inv.paidAt) : ""}
+              {inv.paidMethod ? ` by ${paidMethodLabel(inv.paidMethod).toLowerCase()}` : ""}: <b>{usd(inv.paidAmount, 2)}</b>
               {short > 0 ? <span className="rp-bad"> · {usd(short, 2)} short of the invoice</span> : short < 0 ? <span> · {usd(Math.abs(short), 2)} over the invoice</span> : <span className="rp-good"> · paid in full</span>}
             </p>
+          </>
+        ) : null}
+
+        {inv.status !== "paid" && (inv.company.remitTo || inv.company.paymentNote) ? (
+          <>
+            <h2>How to pay</h2>
+            {inv.company.remitTo ? <p style={{ whiteSpace: "pre-line" }}>Remit payment to: {inv.company.remitTo}</p> : null}
+            {inv.company.paymentNote ? <p className="rp-meta" style={{ whiteSpace: "pre-line" }}>{inv.company.paymentNote}</p> : null}
           </>
         ) : null}
 

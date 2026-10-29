@@ -5,11 +5,12 @@ import React from "react";
 import { completeTripAction, invoiceLoadAction, paidAction, saveExpensesAction, saveLoadDetailsAction, startTripAction } from "@/app/(desk)/actions";
 import { usd } from "@/lib/desk-format";
 import { validateInvoice, type InvoiceContext, type InvoiceForm } from "@/lib/invoicing";
-import { validateLoadEdit, type EditStopValues, type LoadEditValues } from "@/lib/load-edit";
+import { validateLoadEdit, type DealValues, type EditStopValues, type LoadEditValues } from "@/lib/load-edit";
 import { validateComplete, validateExpenses, validateStart, type CompleteValues, type ExpenseValues, type StartValues } from "@/lib/trip";
 import { toCentralLocal } from "@/lib/zoned";
 import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
 import { AddressInput } from "./address-input";
+import { PAID_METHODS } from "@/lib/pay-method";
 import { Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
 
@@ -40,7 +41,7 @@ const nowLocal = () => toCentralLocal(Date.now());
  * contact. A load that has started keeps its stops where they are (its details can still be corrected). A driver who already has it is asked to
  * confirm again if a place or time changes.
  */
-export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, driverName }: { loadId: string; loadNumber: string; initial: LoadEditValues; scheduleLocked: boolean; driverName: string | null }) {
+export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, driverName, trucks, dealLocked }: { loadId: string; loadNumber: string; initial: LoadEditValues; scheduleLocked: boolean; driverName: string | null; trucks: Array<{ id: string; name: string; ready: boolean }>; dealLocked: string | null }) {
   const router = useRouter();
   const toast = useToast();
   const [open, setOpen] = React.useState(false);
@@ -59,6 +60,12 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
 
   const set = (patch: Partial<LoadEditValues>) => setV((s) => ({ ...s, ...patch }));
   const setStop = (i: number, patch: Partial<EditStopValues>) => setV((s) => ({ ...s, stops: s.stops.map((x, k) => (k === i ? { ...x, ...patch } : x)) }));
+  const setDeal = (patch: Partial<DealValues>) => setV((s) => (s.deal ? { ...s, deal: { ...s.deal, ...patch } } : s));
+  const money = (key: keyof DealValues, label: string, opts: { hint?: string; unit?: string } = {}) => (
+    <Fld label={label} error={errors[`deal.${key}`]} hint={opts.hint}>
+      <input value={v.deal?.[key] ?? ""} inputMode="decimal" autoComplete="off" disabled={dealLocked != null} onChange={(e) => setDeal({ [key]: e.target.value } as Partial<DealValues>)} aria-invalid={errors[`deal.${key}`] ? true : undefined} />
+    </Fld>
+  );
   const text = (key: keyof LoadEditValues, label: string, opts: { hint?: string; inputMode?: "decimal" | "numeric" | "tel" | "email" } = {}) => (
     <Fld label={label} error={errors[key]} hint={opts.hint}>
       <input value={String(v[key] ?? "")} inputMode={opts.inputMode} autoComplete="off" onChange={(e) => set({ [key]: e.target.value } as Partial<LoadEditValues>)} aria-invalid={errors[key] ? true : undefined} />
@@ -109,6 +116,30 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
           </>
         }>
         <div className="le">
+          {v.deal ? (
+            <>
+              <h3 className="th-group">The deal</h3>
+              {dealLocked ? <p className="tl-note" style={{ marginBottom: 8 }}>{dealLocked}</p> : null}
+              <div className="rc-grid">
+                <Fld label="Truck" error={errors["deal.vehicleId"]} hint={!dealLocked && scheduleLocked ? "A load that has started keeps its truck." : undefined}>
+                  <select value={v.deal.vehicleId} disabled={dealLocked != null || scheduleLocked} onChange={(e) => setDeal({ vehicleId: e.target.value })}>
+                    {initial.deal?.vehicleId === "" ? <option value="">No truck yet</option> : null}
+                    {trucks.map((t) => (
+                      <option key={t.id} value={t.id} disabled={!t.ready && t.id !== initial.deal?.vehicleId}>
+                        {t.name}
+                        {t.ready ? "" : " (no cost profile)"}
+                      </option>
+                    ))}
+                  </select>
+                </Fld>
+                {money("rate", "Agreed rate ($)")}
+                {money("fuelSurcharge", "Fuel surcharge ($)", { hint: "Dollars on the load, if it is paid on top." })}
+                {money("loadedMiles", "Loaded miles")}
+                {money("emptyToPickup", "Empty to the pickup (mi)")}
+                {money("emptyHome", "Empty home (mi)")}
+              </div>
+            </>
+          ) : null}
           <h3 className="th-group">Who it is for</h3>
           <div className="rc-grid">
             {text("brokerName", "Broker")}
@@ -618,6 +649,8 @@ export function PaidDialog({ loadId, invoiceNumber, billed, size = "primary" }: 
   const toast = useToast();
   const [open, setOpen] = React.useState(false);
   const [amount, setAmount] = React.useState(billed.toFixed(2));
+  const [paidOn, setPaidOn] = React.useState(() => nowLocal().slice(0, 10));
+  const [method, setMethod] = React.useState("");
   const [message, setMessage] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const typed = Number(amount.replace(/,/g, ""));
@@ -625,7 +658,7 @@ export function PaidDialog({ loadId, invoiceNumber, billed, size = "primary" }: 
 
   async function pay() {
     setBusy(true);
-    const out = await paidAction(loadId, amount);
+    const out = await paidAction(loadId, amount, paidOn, method);
     setBusy(false);
     if (out.ok) {
       setOpen(false);
@@ -641,6 +674,8 @@ export function PaidDialog({ loadId, invoiceNumber, billed, size = "primary" }: 
         className={`tl-btn ${size === "sm" ? "sm" : "primary"}`}
         onClick={() => {
           setAmount(billed.toFixed(2));
+          setPaidOn(nowLocal().slice(0, 10));
+          setMethod("");
           setMessage(null);
           setOpen(true);
         }}>
@@ -665,6 +700,21 @@ export function PaidDialog({ loadId, invoiceNumber, billed, size = "primary" }: 
           <Fld label="Amount received ($)" error={message ?? undefined} hint={`The invoice is ${usd(billed, 2)}.`}>
             <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
           </Fld>
+          <div className="dlg-two">
+            <Fld label="Paid on" hint="Dallas date. Change it to enter an earlier payment.">
+              <input type="date" value={paidOn} max={nowLocal().slice(0, 10)} onChange={(e) => setPaidOn(e.target.value)} />
+            </Fld>
+            <Fld label="How" hint="Optional.">
+              <select value={method} onChange={(e) => setMethod(e.target.value)}>
+                <option value="">Not recorded</option>
+                {PAID_METHODS.map((m) => (
+                  <option key={m.key} value={m.key}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </Fld>
+          </div>
           {diff < 0 ? <p className="tl-note warn">That is {usd(Math.abs(diff), 2)} short of the invoice. It is recorded as a short payment, and the invoice shows it.</p> : diff > 0 ? <p className="tl-note">That is {usd(diff, 2)} more than the invoice.</p> : null}
         </div>
       </Modal>

@@ -35,6 +35,16 @@ model Workspace {
   alertSentHours        Int?     @map("alert_sent_hours")
   alertClearanceDays    Int?     @map("alert_clearance_days")
 
+  // The company as it appears on invoices and driver statements. All optional: a sheet prints only what is filled in.
+  mcNumber    String? @map("mc_number")
+  dotNumber   String? @map("dot_number")
+  address     String?
+  phone       String?
+  email       String?
+  /// Where a broker sends the payment (a bank, a factor, a lockbox), printed on the invoice.
+  remitTo     String? @map("remit_to")
+  paymentNote String? @map("payment_note")
+
   vehicles    Vehicle[]
   loads       Load[]
   drivers     Driver[]
@@ -190,6 +200,8 @@ model Load {
   invoicedAt                    DateTime? @map("invoiced_at")
   paidAt                        DateTime? @map("paid_at")
   paidAmount                    Decimal?  @map("paid_amount") @db.Decimal(12, 2)
+  /// How the payment came in: ach, check, wire, card, factoring or other.
+  paidMethod                    String?   @map("paid_method")
   // Cost snapshot frozen at accept (TrueLane v46-v48), so a later profile edit never rewrites a finished load.
   snapshotBaseFloorRpm          Decimal?  @map("snapshot_base_floor_rpm") @db.Decimal(8, 4)
   snapshotTotalInsuranceMonthly Decimal?  @map("snapshot_total_insurance_monthly") @db.Decimal(12, 2)

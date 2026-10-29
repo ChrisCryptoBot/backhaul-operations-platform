@@ -1,7 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { defaultInvoiceNumber, invoiceReadiness, validateInvoice, type InvoiceForm } from "@/lib/invoicing";
+import { isPaidMethod, paidMethodLabel } from "@/lib/pay-method";
+import { parseCentralLocal, toCentralLocal } from "@/lib/zoned";
 import { recordAudit } from "./audit";
+import { toCompany } from "./company";
 import { num, numOrNull } from "./convert";
 import { detentionOfLoad } from "./detention";
 import { getThresholds } from "./thresholds";
@@ -27,52 +30,75 @@ export async function invoiceLoad(loadId: string, opts: { includeDetention?: boo
   const check = validateInvoice(form, { rate: num(load.quotedRevenue), surcharge: num(load.fuelSurcharge), detention: billable, defaultTerms: load.payTermsDays ?? thresholds.defaultPayTermsDays });
   if (!check.ok) return { ok: false, detention: 0, errors: check.errors };
   const { number, terms, lines, total } = check.value;
-  const taken = await prisma.load.findFirst({ where: { workspaceId: load.workspaceId, invoiceNumber: number, id: { not: loadId } }, select: { loadNumber: true } });
-  if (taken) return { ok: false, detention: 0, errors: { number: `${number} is already on ${taken.loadNumber ?? "another load"}. Use another number.` } };
-
   const detention = lines.find((l) => l.label === "Detention")?.amount ?? 0;
   const extra = lines.filter((l) => l.label !== "Line haul" && l.label !== "Fuel surcharge");
-  await prisma.$transaction(async (tx) => {
-    await tx.load.update({ where: { id: loadId }, data: { paymentStatus: "invoiced", invoicedAt: now, invoicedAmount: total, invoiceNumber: number, payTermsDays: terms, invoiceLines: lines } });
-    await recordAudit(
-      {
-        entity: "invoice",
-        action: "invoiced",
-        loadId,
-        loadNumber: load.loadNumber,
-        summary: `${number} created for $${total.toFixed(2)}${extra.length > 0 ? `, with ${extra.map((l) => `$${l.amount.toFixed(2)} of ${l.label.toLowerCase()}`).join(" and ")}` : ""}`,
-        before: { Invoice: null, Amount: null },
-        after: { Invoice: number, Amount: `$${total.toFixed(2)}`, ...Object.fromEntries(extra.map((l) => [l.label, `$${l.amount.toFixed(2)}`])), Terms: `Net ${terms}` },
-        at: now
-      },
-      tx
-    );
-  });
+  const takenMessage = (on: string | null) => ({ ok: false as const, detention: 0, errors: { number: `${number} is already on ${on ?? "another load"}. Use another number.` } });
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Checked inside the transaction that writes it, and backed by a unique index, so two invoices saved at once cannot share a number.
+      const taken = await tx.load.findFirst({ where: { workspaceId: load.workspaceId, invoiceNumber: number, deletedAt: null, id: { not: loadId } }, select: { loadNumber: true } });
+      if (taken) throw new NumberTaken(taken.loadNumber);
+      await tx.load.update({ where: { id: loadId }, data: { paymentStatus: "invoiced", invoicedAt: now, invoicedAmount: total, invoiceNumber: number, payTermsDays: terms, invoiceLines: lines } });
+      await recordAudit(
+        {
+          entity: "invoice",
+          action: "invoiced",
+          loadId,
+          loadNumber: load.loadNumber,
+          summary: `${number} created for $${total.toFixed(2)}${extra.length > 0 ? `, with ${extra.map((l) => `$${l.amount.toFixed(2)} of ${l.label.toLowerCase()}`).join(" and ")}` : ""}`,
+          before: { Invoice: null, Amount: null },
+          after: { Invoice: number, Amount: `$${total.toFixed(2)}`, ...Object.fromEntries(extra.map((l) => [l.label, `$${l.amount.toFixed(2)}`])), Terms: `Net ${terms}` },
+          at: now
+        },
+        tx
+      );
+    });
+  } catch (e) {
+    if (e instanceof NumberTaken) return takenMessage(e.on);
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return takenMessage(null);
+    throw e;
+  }
   return { ok: true, detention, total };
+}
+
+class NumberTaken extends Error {
+  constructor(readonly on: string | null) {
+    super("invoice number taken");
+  }
 }
 
 export type PaidOut = { ok: boolean; error?: string; difference?: number };
 
 /** Mark an invoice paid. With an amount, a payment that is not the invoice total is recorded as it came, and the audit entry says by how much. */
-export async function markLoadPaid(loadId: string, now = new Date(), opts: { amount?: number } = {}): Promise<PaidOut> {
+export async function markLoadPaid(loadId: string, now = new Date(), opts: { amount?: number; /** The day it came in, "2026-10-29" on the Dallas calendar; today when blank. */ paidOn?: string; method?: string } = {}): Promise<PaidOut> {
   const load = await prisma.load.findUniqueOrThrow({ where: { id: loadId } });
   if (load.paymentStatus !== "invoiced") return { ok: false };
   const billed = num(load.invoicedAmount ?? load.quotedRevenue);
   const amount = opts.amount ?? billed;
   if (!Number.isFinite(amount) || !(amount > 0) || amount > 1_000_000) return { ok: false, error: "Type the amount that came in, above zero." };
+  const method = (opts.method ?? "").trim();
+  if (method !== "" && !isPaidMethod(method)) return { ok: false, error: "Pick how it was paid from the list." };
+  // A payment can be entered late: the day it actually came in, never before the invoice and never in the future. Days-to-pay counts from it.
+  const day = (d: Date) => toCentralLocal(d.getTime()).slice(0, 10);
+  const today = day(now);
+  const paidOn = (opts.paidOn ?? "").trim() || today;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn) || parseCentralLocal(`${paidOn}T12:00`) == null) return { ok: false, error: "Type the day it was paid, like 2026-10-29." };
+  if (paidOn > today) return { ok: false, error: "A payment cannot come in on a day that has not happened." };
+  if (load.invoicedAt && paidOn < day(load.invoicedAt)) return { ok: false, error: `The invoice went out on ${day(load.invoicedAt)}, so it cannot be paid before that.` };
+  const paidAt = paidOn === today ? now : new Date(parseCentralLocal(`${paidOn}T12:00`)!);
   const diff = new Prisma.Decimal(amount).minus(billed).toDecimalPlaces(2).toNumber();
   const gap = new Prisma.Decimal(diff).abs().toFixed(2);
   await prisma.$transaction(async (tx) => {
-    await tx.load.update({ where: { id: loadId }, data: { paymentStatus: "paid", paidAt: now, paidAmount: amount } });
+    await tx.load.update({ where: { id: loadId }, data: { paymentStatus: "paid", paidAt, paidAmount: amount, paidMethod: method || null } });
     await recordAudit(
       {
         entity: "invoice",
         action: "paid",
         loadId,
         loadNumber: load.loadNumber,
-        summary: `${load.invoiceNumber ?? "Invoice"} paid, $${amount.toFixed(2)}${diff < 0 ? `, $${gap} short of $${billed.toFixed(2)}` : diff > 0 ? `, $${diff.toFixed(2)} over $${billed.toFixed(2)}` : ""}`,
+        summary: `${load.invoiceNumber ?? "Invoice"} paid${method ? ` by ${paidMethodLabel(method).toLowerCase()}` : ""}${paidOn !== today ? ` on ${paidOn}` : ""}, $${amount.toFixed(2)}${diff < 0 ? `, $${gap} short of $${billed.toFixed(2)}` : diff > 0 ? `, $${diff.toFixed(2)} over $${billed.toFixed(2)}` : ""}`,
         before: { Status: "Invoiced", Billed: `$${billed.toFixed(2)}` },
-        after: { Status: "Paid", Amount: `$${amount.toFixed(2)}`, ...(diff !== 0 ? { Difference: `${diff < 0 ? "-" : "+"}$${gap}` } : {}) },
+        after: { Status: "Paid", Amount: `$${amount.toFixed(2)}`, ...(method ? { Method: paidMethodLabel(method) } : {}), ...(paidOn !== today ? { "Paid on": paidOn } : {}), ...(diff !== 0 ? { Difference: `${diff < 0 ? "-" : "+"}$${gap}` } : {}) },
         at: now
       },
       tx
@@ -89,7 +115,7 @@ export async function undoPaid(loadId: string, reason: string, now = new Date())
   if (load.paymentStatus !== "paid") return { ok: false, error: "This invoice is not marked paid." };
   const was = numOrNull(load.paidAmount) ?? 0;
   await prisma.$transaction(async (tx) => {
-    await tx.load.update({ where: { id: loadId }, data: { paymentStatus: "invoiced", paidAt: null, paidAmount: null } });
+    await tx.load.update({ where: { id: loadId }, data: { paymentStatus: "invoiced", paidAt: null, paidAmount: null, paidMethod: null } });
     await recordAudit(
       {
         entity: "invoice",
@@ -118,6 +144,7 @@ export async function getInvoice(loadId: string, workspaceId = DEMO_WORKSPACE_ID
   return {
     id: l.id,
     issuer: l.workspace.name,
+    company: toCompany(l.workspace),
     invoiceNumber: l.invoiceNumber,
     sent: l.invoicedAt,
     due: new Date(l.invoicedAt.getTime() + terms * 86_400_000),
@@ -131,6 +158,7 @@ export async function getInvoice(loadId: string, workspaceId = DEMO_WORKSPACE_ID
     status: l.paymentStatus,
     paidAt: l.paidAt,
     paidAmount: numOrNull(l.paidAmount),
+    paidMethod: l.paidMethod,
     poNumber: l.poNumber
   };
 }

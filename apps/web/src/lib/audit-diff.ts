@@ -33,6 +33,8 @@ export type AuditAction =
   | "accepted"
   | "declined"
   | "cancelled"
+  | "deleted"
+  | "restored"
   | "tonu"
   | "rescheduled"
   | "invoiced"
@@ -49,6 +51,7 @@ export type AuditAction =
   | "statement_voided"
   | "statement_discarded"
   | "thresholds_changed"
+  | "company_changed"
   | "driver_added"
   | "driver_changed"
   | "driver_deactivated"
@@ -67,6 +70,8 @@ export const ACTION_LABEL: Record<string, string> = {
   accepted: "Driver accepted",
   declined: "Driver declined",
   cancelled: "Load cancelled",
+  deleted: "Load deleted",
+  restored: "Load restored",
   tonu: "TONU recorded",
   rescheduled: "Pickup rescheduled",
   invoiced: "Invoice created",
@@ -83,6 +88,7 @@ export const ACTION_LABEL: Record<string, string> = {
   statement_voided: "Statement voided",
   statement_discarded: "Statement discarded",
   thresholds_changed: "Thresholds changed",
+  company_changed: "Company details changed",
   driver_added: "Driver added",
   driver_changed: "Driver changed",
   driver_deactivated: "Driver deactivated",
@@ -102,6 +108,8 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   accepted: "ok",
   declined: "bad",
   cancelled: "bad",
+  deleted: "bad",
+  restored: "ok",
   tonu: "warn",
   rescheduled: "warn",
   invoiced: "info",
@@ -118,6 +126,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   statement_voided: "bad",
   statement_discarded: "muted",
   thresholds_changed: "muted",
+  company_changed: "muted",
   driver_added: "info",
   driver_changed: "muted",
   driver_deactivated: "bad",
@@ -131,9 +140,9 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
 
 /** The filter chips on the audit page: which actions belong to which group. */
 export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[] }> = [
-  { key: "dispatch", label: "Dispatch", actions: ["booked", "load_edited", "trip_started", "delivered", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "tonu", "rescheduled"] },
+  { key: "dispatch", label: "Dispatch", actions: ["booked", "load_edited", "trip_started", "delivered", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled"] },
   { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "paid", "payment_undone", "statement_started", "statement_finalized", "statement_voided", "statement_discarded"] },
   { key: "intake", label: "Intake", actions: ["rate_con_saved"] },
   { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_deactivated", "driver_reactivated", "truck_added", "truck_changed", "truck_archived", "truck_restored", "cost_profile_changed"] },
-  { key: "settings", label: "Settings", actions: ["thresholds_changed"] }
+  { key: "settings", label: "Settings", actions: ["thresholds_changed", "company_changed"] }
 ];

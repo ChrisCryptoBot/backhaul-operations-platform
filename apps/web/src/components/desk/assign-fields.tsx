@@ -20,9 +20,10 @@ export function AssignFields({ drivers, initial, rateConTotal }: { drivers: Opti
     const d = drivers.find((x) => x.id === id);
     return d?.payKind && d.payRate != null ? { kind: d.payKind, rate: d.payRate } : null;
   };
-  const first = initial.driverId ? { kind: initial.payKind ?? "cpm", rate: initial.rate ?? 0.65 } : (startsAt(driverId) ?? { kind: "cpm", rate: 0.65 });
+  // With no usual pay to start from the rate is left blank: the dispatcher types it, rather than the form guessing one.
+  const first: { kind: string; rate: number | null } = initial.driverId ? { kind: initial.payKind ?? "cpm", rate: initial.rate } : (startsAt(driverId) ?? { kind: "cpm", rate: null });
   const [kind, setKind] = React.useState(first.kind);
-  const [rate, setRate] = React.useState(String(first.rate));
+  const [rate, setRate] = React.useState(first.rate == null ? "" : String(first.rate));
   const usual = drivers.find((d) => d.id === driverId);
   const usualText = usual?.payKind ? payLabel(usual.payKind, usual.payRate) : null;
   const typed = Number(rate);
@@ -63,7 +64,7 @@ export function AssignFields({ drivers, initial, rateConTotal }: { drivers: Opti
       </label>
       <label className="tl-field">
         Rate ({UNIT[kind] ?? "$"})
-        <input name="rate" type="number" step="0.01" min="0.01" max={kind === "percent" ? PERCENT_MAX : undefined} value={rate} onChange={(e) => setRate(e.target.value)} required style={{ width: 110 }} />
+        <input name="rate" type="number" step="any" min="0.0001" max={kind === "percent" ? PERCENT_MAX : undefined} value={rate} onChange={(e) => setRate(e.target.value)} required style={{ width: 110 }} />
       </label>
       {kind === "percent" ? (
         <span className="tl-sub" style={{ flexBasis: "100%" }}>

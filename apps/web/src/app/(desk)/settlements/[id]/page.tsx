@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { companyLine } from "@/lib/company";
 import { notFound } from "next/navigation";
 import React from "react";
 import { getSettlement } from "@/server/tl/settlement";
@@ -38,7 +39,11 @@ export default async function StatementPage({ params }: { params: { id: string }
       </div>
       <article className="rp">
         <h1>Pay statement {s.number}</h1>
-        <p className="rp-meta">From {s.issuer}</p>
+        <p className="rp-meta">
+          From <b>{s.company.name}</b>
+          {companyLine(s.company) ? ` · ${companyLine(s.company)}` : ""}
+        </p>
+        {s.company.address ? <p className="rp-meta" style={{ whiteSpace: "pre-line" }}>{s.company.address}</p> : null}
         {s.status === "void" ? (
           <p className="rp-bad" role="status">
             <b>Void</b> · {s.voidedAt ? dateTime(s.voidedAt) : ""}

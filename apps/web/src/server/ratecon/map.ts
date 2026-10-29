@@ -37,7 +37,7 @@ export type RateConLoadDraft = {
     contactPhone: string | null;
     stopNotes: string | null;
   }>;
-  /** What else the document prints. Shown for checking; a load has nowhere to keep these yet. */
+  /** What else the document prints. Shown for checking. Weight, the notes and dock terms, and the detention terms are saved on the load; the commodity is shown only. */
   printed: {
     commodity: string | null;
     weightLbs: number | null;

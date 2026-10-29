@@ -15,6 +15,12 @@ export type QuoteStop = { role: QuoteStopRole; address: string; /** "2026-10-30T
 export type QuoteValues = {
   stops: QuoteStop[];
   broker: string;
+  /** The broker's paperwork, kept on the load when it is booked. All optional. */
+  brokerMc: string;
+  loadNumber: string;
+  poNumber: string;
+  brokerPhone: string;
+  brokerEmail: string;
   trailer: string;
   offer: string;
   fsc: string;
@@ -44,6 +50,11 @@ export const BLANK_QUOTE: QuoteValues = {
     { role: "delivery", address: "", appointment: "" }
   ],
   broker: "",
+  brokerMc: "",
+  loadNumber: "",
+  poNumber: "",
+  brokerPhone: "",
+  brokerEmail: "",
   trailer: "",
   offer: "",
   fsc: "",
@@ -63,6 +74,11 @@ export const BLANK_QUOTE: QuoteValues = {
 export type QuoteInput = {
   stops: Array<{ role: QuoteStopRole; address: string; appointment: number | null }>;
   broker: string | null;
+  brokerMc: string | null;
+  loadNumber: string | null;
+  poNumber: string | null;
+  brokerPhone: string | null;
+  brokerEmail: string | null;
   trailer: string | null;
   offer: number;
   fsc: number;
@@ -120,6 +136,11 @@ export function readQuote(values: QuoteValues): QuoteInput | null {
   return {
     stops: values.stops.map((s) => ({ role: s.role, address: str(s.address), appointment: s.appointment ? parseCentralLocal(s.appointment) : null })),
     broker: str(values.broker) || null,
+    brokerMc: str(values.brokerMc).replace(/^mc[\s-]*/i, "") || null,
+    loadNumber: str(values.loadNumber) || null,
+    poNumber: str(values.poNumber) || null,
+    brokerPhone: str(values.brokerPhone) || null,
+    brokerEmail: str(values.brokerEmail) || null,
     trailer: str(values.trailer) || null,
     offer,
     fsc,
@@ -150,6 +171,14 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
     if (str(s.address).length < 2) errors[`stop${i}`] = "Where is this stop? A city and state is enough.";
     if (s.appointment && parseCentralLocal(s.appointment) == null) errors[`stop${i}Time`] = "A real date and time.";
   });
+  const mc = str(values.brokerMc).replace(/^mc[\s-]*/i, "");
+  if (mc !== "" && !/^\d{3,8}$/.test(mc)) errors.brokerMc = "Digits only, for example 123456.";
+  if (str(values.loadNumber).length > 40) errors.loadNumber = "At most 40 characters.";
+  if (str(values.poNumber).length > 40) errors.poNumber = "At most 40 characters.";
+  const phone = str(values.brokerPhone);
+  if (phone !== "" && (phone.replace(/\D/g, "").length < 7 || phone.replace(/\D/g, "").length > 15 || /[^\d\s()+.\-x]/i.test(phone))) errors.brokerPhone = "A phone number, for example 555-0142.";
+  const email = str(values.brokerEmail);
+  if (email !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.brokerEmail = "An email address, for example name@example.com.";
   const offer = num(str(values.offer));
   if (offer == null || !(offer > 0)) errors.offer = "Type what the load pays.";
   else if (offer > 100000) errors.offer = "That is a lot for one load. Check it.";

@@ -278,6 +278,12 @@ function loadFields(input: QuoteInput, truckId: string | null) {
   const allMiles = emptyToPickup + input.loadedMiles + emptyHome;
   return {
     brokerName: input.broker,
+    brokerMcNumber: input.brokerMc,
+    poNumber: input.poNumber,
+    brokerPhone: input.brokerPhone,
+    brokerEmail: input.brokerEmail,
+    // The broker's own load number replaces the desk's QT- number when one was typed; otherwise the QT- number stays.
+    ...(input.loadNumber ? { loadNumber: input.loadNumber } : {}),
     originAddress: cityState(input.stops[0]!.address) ?? input.stops[0]!.address,
     destinationAddress: cityState(input.stops[input.stops.length - 1]!.address) ?? input.stops[input.stops.length - 1]!.address,
     trailerType: input.trailer,
@@ -351,6 +357,12 @@ export async function getQuote(id: string, workspaceId = DEMO_WORKSPACE_ID): Pro
     values: {
       stops: l.stops.map((s) => ({ role: s.stopRole === "delivery" ? "delivery" : "pickup", address: s.addressString, appointment: s.timeWindowEarliest ? toCentralLocal(s.timeWindowEarliest.getTime()) : "" })),
       broker: l.brokerName ?? "",
+      brokerMc: l.brokerMcNumber ?? "",
+      // A QT- number is the desk's own, not the broker's: it is not offered back as one to type over.
+      loadNumber: l.loadNumber && !/^QT-/.test(l.loadNumber) ? l.loadNumber : "",
+      poNumber: l.poNumber ?? "",
+      brokerPhone: l.brokerPhone ?? "",
+      brokerEmail: l.brokerEmail ?? "",
       trailer: l.trailerType ?? "",
       offer: dec(num(l.quotedRevenue), 2),
       fsc: dec(fsc, 4),

@@ -83,6 +83,7 @@ describe("toEditValues", () => {
   it("fills the form from a stored load, with times on the Dallas clock and blanks for what is not set", () => {
     const v = toEditValues({
       brokerName: "Acme",
+      quotedRevenue: "1000",
       brokerMcNumber: null,
       brokerPhone: null,
       brokerEmail: null,
@@ -108,6 +109,7 @@ describe("toEditValues", () => {
   it("a form filled from a stored load validates as it stands", () => {
     const v = toEditValues({
       brokerName: "Acme",
+      quotedRevenue: "1000",
       brokerMcNumber: "123456",
       brokerPhone: null,
       brokerEmail: null,

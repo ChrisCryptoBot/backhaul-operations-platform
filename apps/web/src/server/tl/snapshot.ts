@@ -9,11 +9,11 @@ import { driveHoursFor, profileMathInput, resolveLabour } from "./evaluate";
  * break-even floor, the insurance and miles it was spread over, the truck's type of cost model and mpg, whether a carrier's cut came off
  * fuel surcharge, and the detention terms (only when the profile had a rate: a blank is not a contract term). Each is written once, when
  * it is still empty, as the phone does at Accept. The driver pay and the carrier's cut, which depend on who is driving, are written at
- * every assignment until the load is on the road.
+ * every assignment until the load is on the road. `refresh` writes the once-only fields again, for a load whose truck was changed.
  *
  * Runs inside the caller's transaction. Returns false when there was nothing to freeze (no truck, or a truck with no cost profile).
  */
-export async function freezeLoadSnapshot(tx: Prisma.TransactionClient, loadId: string, opts: { labour: boolean }): Promise<boolean> {
+export async function freezeLoadSnapshot(tx: Prisma.TransactionClient, loadId: string, opts: { labour: boolean; refresh?: boolean }): Promise<boolean> {
   const l = await tx.load.findUnique({ where: { id: loadId }, include: { vehicle: { include: { costProfile: true } }, assignment: true } });
   const profile = l?.vehicle?.costProfile;
   if (!l || !profile) return false;
@@ -50,7 +50,7 @@ export async function freezeLoadSnapshot(tx: Prisma.TransactionClient, loadId: s
   };
   const row = l as unknown as Record<string, unknown>;
   const data: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(once)) if (row[k] == null && v != null) data[k] = v;
+  for (const [k, v] of Object.entries(once)) if ((opts.refresh || row[k] == null) && v != null) data[k] = v;
   if (opts.labour) {
     data.snapshotCarrierCutPct = trip.snapshotCarrierCutPct;
     data.snapshotLaborCpm = trip.snapshotLaborCpm;

@@ -206,7 +206,8 @@ describe.skipIf(!run)("cost profile, driver pay and the frozen snapshot on the d
     expect(row.snapshotBaseFloorRpm).not.toBeNull();
     expect(row.snapshotArchetype).toBe("hired_driver");
     expect(row.snapshotLaborCpm).toBeNull(); // nobody drives it yet, so no pay to freeze
-    const without = await saveReviewedDraft({ ...out.draft, confirmed: true });
+    // The same document again: the desk would ask first, and this is the answer.
+    const without = await saveReviewedDraft({ ...out.draft, confirmed: true, allowDuplicate: true });
     loadIds.push(without.id);
     expect((await prisma.load.findUniqueOrThrow({ where: { id: without.id } })).snapshotBaseFloorRpm).toBeNull(); // no truck, nothing to freeze
   });

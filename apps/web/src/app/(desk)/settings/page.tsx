@@ -8,18 +8,28 @@ import { DENSITIES, DENSITY_COOKIE, DENSITY_LABEL, THEMES, THEME_COOKIE, THEME_L
 import { THRESHOLD_FIELDS, type Thresholds } from "@/lib/thresholds";
 import { getDeskKpi } from "@/server/tl/kpi";
 import { getStoredThresholds } from "@/server/tl/thresholds";
+import { CompanyForm } from "@/components/desk/company-form";
+import { toCompanyValues } from "@/lib/company";
+import { getCompany } from "@/server/tl/company";
 
 /** Settings: appearance (theme, row density) and the thresholds the desk judges by. Appearance buttons save straight away. */
 export default async function SettingsPage() {
   const jar = cookies();
   const theme = asTheme(jar.get(THEME_COOKIE)?.value);
   const density = asDensity(jar.get(DENSITY_COOKIE)?.value);
-  const [row, kpi] = await Promise.all([getStoredThresholds(), getDeskKpi({ period: "4w", compare: false })]);
+  const [row, kpi, company] = await Promise.all([getStoredThresholds(), getDeskKpi({ period: "4w", compare: false }), getCompany()]);
   const stored = Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, row[f.key] ?? null])) as Record<keyof Thresholds, number | null>;
 
   return (
     <>
-      <PageHead title="Settings" sub="How the desk looks (saved in this browser, applied before the page paints) and the numbers it judges by." />
+      <PageHead title="Settings" sub="Your company on the paperwork, how the desk looks, and the numbers it judges by." />
+
+      <Card title="Company" className="tl-card">
+        <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
+          Printed at the top of every invoice and driver statement, with where a broker should send the payment. Only the name is required; a sheet prints just what is filled in.
+        </p>
+        <CompanyForm stored={toCompanyValues(company)} />
+      </Card>
 
       <Card title="Theme">
         <form action={setAppearanceAction} className="st-choices">

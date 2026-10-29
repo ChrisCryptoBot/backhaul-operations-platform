@@ -280,7 +280,7 @@ async function main() {
         brokerName: BROKERS[p.brokerIdx],
         originAddress: p.lane.from,
         destinationAddress: p.lane.to,
-        trailerType: vehicle.mpg > 9 ? "box_truck" : "dry_van",
+        trailerType: vehicle.mpg > 9 ? null : "dry_van", // a box truck carries its own box: there is no trailer to name
         pickupDeadheadMiles: p.pickupDh,
         loadedMiles: loaded,
         returnDeadheadMiles: returnDh,

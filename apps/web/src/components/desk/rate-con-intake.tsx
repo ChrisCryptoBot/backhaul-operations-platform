@@ -41,6 +41,7 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
   const [draft, setDraft] = React.useState<DraftDto | null>(null);
   const [source, setSource] = React.useState<"demo" | "live">("demo");
   const [fileName, setFileName] = React.useState("");
+  const [duplicateOf, setDuplicateOf] = React.useState<string | null>(null);
   const [message, setMessage] = React.useState<string | null>(null);
   const [confirmed, setConfirmed] = React.useState(false);
   // The stops box is ticked for one set of confirm-level checks; if the stops change so that the checks change, it clears itself.
@@ -122,23 +123,29 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
   const stopsSignature = checks.filter((c) => c.level === "confirm").map((c) => c.id).join(",");
   const stopsOk = !needsStopCheck(checks) || stopsTicked === stopsSignature;
 
-  async function save() {
+  async function save(allowDuplicate = false) {
     if (!draft || problems.length > 0 || !stopsOk) return;
     setSaving(true);
     setMessage(null);
+    setDuplicateOf(null);
     // The lane follows the stops, so a corrected address changes the load's from and to as well.
     const first = draft.stops[0];
     const last = draft.stops[draft.stops.length - 1];
     const out = await saveRateConAction(
       { ...draft, load: { ...draft.load, originAddress: cityState(first?.addressString ?? null) ?? draft.load.originAddress, destinationAddress: cityState(last?.addressString ?? null) ?? draft.load.destinationAddress, stopsCount: draft.stops.length } },
       confirmed,
-      vehicleId || null
+      vehicleId || null,
+      fileName || null,
+      allowDuplicate
     );
     setSaving(false);
     if (out.ok) {
       setSavedId(out.loadId);
       setStage("saved");
-    } else setMessage(out.error);
+    } else {
+      setMessage(out.error);
+      setDuplicateOf(out.duplicateOf ?? null);
+    }
   }
 
   const step = stage === "saved" ? 2 : stage === "check" ? 1 : 0;
@@ -214,7 +221,7 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
         </div>
       ) : null}
 
-      {message ? (
+      {message && !duplicateOf ? (
         <p className="tl-note warn rc-msg" role="alert">
           {message}
         </p>
@@ -285,7 +292,7 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                   </label>
                   <label className="tl-field">
                     Printed miles
-                    <input type="number" min="0" step="1" inputMode="numeric" value={draft.load.loadedMiles ?? ""} onChange={(e) => setLoad({ loadedMiles: e.target.value === "" ? null : Number(e.target.value) })} />
+                    <input type="number" min="0" step="0.1" inputMode="decimal" value={draft.load.loadedMiles ?? ""} onChange={(e) => setLoad({ loadedMiles: e.target.value === "" ? null : Number(e.target.value) })} />
                     <span className="rc-hint">
                       {draft.load.quotedRevenue != null && draft.load.quotedRevenue > 0 && draft.load.loadedMiles ? `The rate comes to ${perMile(draft.load.quotedRevenue / draft.load.loadedMiles)} on these miles.` : "Miles the document prints, if any."}
                     </span>
@@ -467,6 +474,14 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
               <button type="button" className="tl-btn primary" disabled={saving || !confirmed || problems.length > 0 || !stopsOk} aria-busy={saving || undefined} onClick={() => void save()}>
                 {saving ? "Saving…" : "Save as a draft load"}
               </button>
+              {duplicateOf ? (
+                <p className="tl-note warn" role="alert">
+                  {message} <Link href={`/loads/${duplicateOf}`} target="_blank">Open the existing load</Link>
+                  <button type="button" className="tl-btn sm" style={{ marginLeft: 8 }} disabled={saving} onClick={() => void save(true)}>
+                    Save anyway
+                  </button>
+                </p>
+              ) : null}
               <p className="tl-note">It lands on the Dispatch queue as needing a driver. No verdict is shown: this load is already agreed.</p>
             </aside>
           </div>

@@ -10,6 +10,8 @@ import { cancelLoad, recordTonu, rescheduleLoad } from "@/server/tl/disruptions"
 import { invoiceLoad, markLoadPaid } from "@/server/tl/invoicing";
 import { parseCentralLocal } from "@/lib/zoned";
 import { saveThresholds } from "@/server/tl/thresholds";
+import { saveCompany } from "@/server/tl/company";
+import type { CompanyValues } from "@/lib/company";
 import { saveCostProfile, saveDriver, saveTruck, setDriverActive, setTruckArchived, type ActResult, type SaveResult } from "@/server/tl/fleet";
 import type { DriverValues, ProfileKey, TruckValues } from "@/lib/fleet-forms";
 import type { Thresholds } from "@/lib/thresholds";
@@ -20,11 +22,12 @@ import type { LoadEditValues } from "@/lib/load-edit";
 import type { InvoiceForm } from "@/lib/invoicing";
 import type { CompleteValues, ExpenseValues, StartValues } from "@/lib/trip";
 import { saveLoadDetails, type EditResult } from "@/server/tl/edit";
+import { deleteLoad, restoreLoad, type RemoveResult } from "@/server/tl/remove";
 import { completeTrip, saveExpenses, startTrip, type TripResult } from "@/server/tl/execution";
 import { undoPaid, type InvoiceOut, type PaidOut } from "@/server/tl/invoicing";
 import { discardSettlement, finalizeSettlement, saveDraft, startSettlement, voidSettlement, type Draft, type SettleResult } from "@/server/tl/settlement";
 import { readRateCon } from "@/server/ratecon/reader";
-import { saveReviewedDraft, type ReviewedDraft } from "@/server/ratecon/save";
+import { DuplicateLoadError, saveReviewedDraft, type ReviewedDraft } from "@/server/ratecon/save";
 import type { RateConLoadDraft } from "@/server/ratecon/map";
 
 /**
@@ -122,24 +125,6 @@ export async function rescheduleAction(formData: FormData) {
   });
 }
 
-export async function invoiceAction(formData: FormData) {
-  await invoiceLoad(String(formData.get("loadId")), { includeDetention: formData.get("detention") === "on" });
-  revalidatePath("/invoices");
-  revalidatePath("/audit");
-  revalidatePath("/alerts");
-  revalidatePath("/kpi");
-  redirect("/invoices");
-}
-
-export async function markPaidAction(formData: FormData) {
-  await markLoadPaid(String(formData.get("loadId")));
-  revalidatePath("/invoices");
-  revalidatePath("/audit");
-  revalidatePath("/alerts");
-  revalidatePath("/kpi");
-  redirect("/invoices");
-}
-
 // ── Rate confirmations ─────────────────────────────────────────────────────────────────────────
 
 /** A draft with its dates as ISO strings, so it can cross the server-action boundary. */
@@ -170,12 +155,14 @@ export async function readUploadedRateConAction(formData: FormData): Promise<Rea
   return out.ok ? { ok: true, source: out.source, fileName: file.name, draft: toDto(out.draft) } : { ok: false, reason: out.reason };
 }
 
-export async function saveRateConAction(dto: DraftDto, confirmed: boolean, vehicleId: string | null = null): Promise<{ ok: true; loadId: string } | { ok: false; error: string }> {
+export async function saveRateConAction(dto: DraftDto, confirmed: boolean, vehicleId: string | null = null, fileName: string | null = null, allowDuplicate = false): Promise<{ ok: true; loadId: string } | { ok: false; error: string; duplicateOf?: string }> {
   try {
     const draft: ReviewedDraft = {
       ...dto,
       confirmed,
       vehicleId,
+      fileName,
+      allowDuplicate,
       stops: dto.stops.map((s) => ({ ...s, timeWindowEarliest: s.timeWindowEarliest ? new Date(s.timeWindowEarliest) : null, timeWindowLatest: s.timeWindowLatest ? new Date(s.timeWindowLatest) : null }))
     };
     const load = await saveReviewedDraft(draft);
@@ -186,6 +173,7 @@ export async function saveRateConAction(dto: DraftDto, confirmed: boolean, vehic
     revalidatePath("/planner");
     return { ok: true, loadId: load.id };
   } catch (e) {
+    if (e instanceof DuplicateLoadError) return { ok: false, error: e.message, duplicateOf: e.loadId };
     return { ok: false, error: e instanceof Error ? e.message : "Could not save." };
   }
 }
@@ -231,6 +219,14 @@ export async function saveCostProfileAction(vehicleId: string, values: Record<st
 /** Checks and saves the thresholds the form sent. Everything that reads them (alerts, the KPI lines, invoice terms) refreshes. */
 export async function saveThresholdsAction(values: Record<string, string>): Promise<{ ok: true; changed: boolean } | { ok: false; errors: Partial<Record<keyof Thresholds, string>> }> {
   const out = await saveThresholds(values);
+  if (!out.ok) return { ok: false, errors: out.errors };
+  revalidatePath("/", "layout");
+  return { ok: true, changed: out.changed ?? false };
+}
+
+/** The company on invoices and statements. Both sheets read it, so they refresh with the layout. */
+export async function saveCompanyAction(values: CompanyValues): Promise<{ ok: true; changed: boolean } | { ok: false; errors: Partial<Record<keyof CompanyValues, string>> }> {
+  const out = await saveCompany(values);
   if (!out.ok) return { ok: false, errors: out.errors };
   revalidatePath("/", "layout");
   return { ok: true, changed: out.changed ?? false };
@@ -297,6 +293,18 @@ export async function saveLoadDetailsAction(loadId: string, values: LoadEditValu
   return out;
 }
 
+export async function deleteLoadAction(loadId: string, reason: string, note: string): Promise<RemoveResult> {
+  const out = await deleteLoad({ loadId, reason, note });
+  if (out.ok) refreshLoads();
+  return out;
+}
+
+export async function restoreLoadAction(loadId: string): Promise<RemoveResult> {
+  const out = await restoreLoad(loadId);
+  if (out.ok) refreshLoads();
+  return out;
+}
+
 export async function startTripAction(loadId: string, values: StartValues): Promise<TripResult> {
   const out = await startTrip(loadId, values);
   if (out.ok) refreshLoads();
@@ -322,10 +330,10 @@ export async function invoiceLoadAction(loadId: string, form: InvoiceForm): Prom
 }
 
 /** Mark an invoice paid with the amount that came in; blank means the invoice total. */
-export async function paidAction(loadId: string, amount: string): Promise<PaidOut> {
+export async function paidAction(loadId: string, amount: string, paidOn = "", method = ""): Promise<PaidOut> {
   const text = amount.trim().replace(/,/g, "");
   const typed = text === "" ? undefined : Number(text);
-  const out = await markLoadPaid(loadId, new Date(), { amount: typed });
+  const out = await markLoadPaid(loadId, new Date(), { amount: typed, paidOn, method });
   if (out.ok) refreshLoads();
   return out;
 }

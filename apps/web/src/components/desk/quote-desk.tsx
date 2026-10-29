@@ -289,6 +289,29 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                 </datalist>
               </label>
               <label className="tl-field">
+                Broker MC
+                <input value={values.brokerMc} onChange={(e) => set({ brokerMc: e.target.value })} inputMode="numeric" autoComplete="off" aria-invalid={err("brokerMc") ? true : undefined} />
+                {err("brokerMc") ? <span className="th-err" role="alert">{err("brokerMc")}</span> : null}
+              </label>
+              <label className="tl-field">
+                Broker&apos;s load number
+                <input value={values.loadNumber} onChange={(e) => set({ loadNumber: e.target.value })} autoComplete="off" />
+              </label>
+              <label className="tl-field">
+                PO number
+                <input value={values.poNumber} onChange={(e) => set({ poNumber: e.target.value })} autoComplete="off" />
+              </label>
+              <label className="tl-field">
+                Broker phone
+                <input value={values.brokerPhone} onChange={(e) => set({ brokerPhone: e.target.value })} inputMode="tel" autoComplete="off" aria-invalid={err("brokerPhone") ? true : undefined} />
+                {err("brokerPhone") ? <span className="th-err" role="alert">{err("brokerPhone")}</span> : null}
+              </label>
+              <label className="tl-field">
+                Broker email
+                <input value={values.brokerEmail} onChange={(e) => set({ brokerEmail: e.target.value })} inputMode="email" autoComplete="off" aria-invalid={err("brokerEmail") ? true : undefined} />
+                {err("brokerEmail") ? <span className="th-err" role="alert">{err("brokerEmail")}</span> : null}
+              </label>
+              <label className="tl-field">
                 Trailer
                 <select value={values.trailer} onChange={(e) => set({ trailer: e.target.value })}>
                   <option value="">Not stated</option>

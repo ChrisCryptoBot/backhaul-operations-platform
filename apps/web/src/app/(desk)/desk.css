@@ -684,3 +684,9 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .ai-opt { padding: var(--db-2) var(--db-3); border-radius: var(--db-r-field); color: var(--db-fg); font-size: var(--db-text-base); cursor: pointer; }
 .ai-opt[aria-selected="true"] { background: var(--db-bg-elev-3); }
 
+
+/* Buttons that stand in for the driver's phone, kept out of the way of the real actions. */
+.demo-controls { font-size: var(--db-text-sm); }
+.demo-controls > summary { cursor: pointer; color: var(--db-fg-dim); padding: var(--db-1) 0; }
+.demo-controls[open] > summary { margin-bottom: var(--db-2); }
+.demo-controls form { display: flex; flex-wrap: wrap; align-items: center; gap: var(--db-2); }

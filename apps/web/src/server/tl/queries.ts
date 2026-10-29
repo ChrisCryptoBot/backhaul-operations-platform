@@ -88,6 +88,7 @@ export async function getLoadDetail(id: string, workspaceId = DEMO_WORKSPACE_ID)
   // The same offer with the way home flipped: the clip's "what if a load covers the trip back".
   const flipped = profile ? evaluateTlLoad({ ...l, isBackhaul: !l.isBackhaul }, profile, l.vehicle) : null;
   const drivers = await prisma.driver.findMany({ where: { workspaceId, active: true }, orderBy: { name: "asc" } });
+  const fleet = await prisma.vehicle.findMany({ where: { workspaceId, archivedAt: null }, include: { costProfile: { select: { id: true } } }, orderBy: { name: "asc" } });
   let driverView: LoadSummary | null = null;
   if (l.assignment) {
     driverView = projectLoadToSummary(
@@ -120,6 +121,8 @@ export async function getLoadDetail(id: string, workspaceId = DEMO_WORKSPACE_ID)
     /** Where the driver pay in the verdict came from (this assignment, or the truck's profile), in a sentence. */
     labourNote: profile && evaluation ? resolveLabour(profile, l.assignment, evaluation.totalMiles, rateConTotal(num(l.quotedRevenue), num(l.fuelSurcharge))).note : null,
     driverView,
+    /** The trucks a load can be moved to. A truck with no cost profile has no floor to judge the load against. */
+    trucks: fleet.map((t) => ({ id: t.id, name: t.name ?? "Unnamed truck", ready: t.costProfile != null })),
     // Who can take this load: a lapsed card blocks outright; being on another load at the same time is a note the dispatcher can override with a reason.
     drivers: await Promise.all(drivers.map(async (d) => ({ id: d.id, name: d.name, blocker: driverBlocker(d), busy: await driverClashNote(d.id, l.id, l.stops), payKind: d.defaultPayKind, payRate: numOrNull(d.defaultPayRate) })))
   };

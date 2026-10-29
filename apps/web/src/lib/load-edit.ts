@@ -20,6 +20,19 @@ export type EditStopValues = {
   notes: string;
 };
 
+/** The money and the truck: what the load pays, how far it runs, and which truck has it. Optional so a caller that only fixes details can leave it out. */
+export type DealValues = {
+  /** The truck's id, or blank for none. */
+  vehicleId: string;
+  /** The agreed rate in dollars. */
+  rate: string;
+  /** Fuel surcharge in dollars on the load, or blank. */
+  fuelSurcharge: string;
+  loadedMiles: string;
+  emptyToPickup: string;
+  emptyHome: string;
+};
+
 export type LoadEditValues = {
   brokerName: string;
   brokerMc: string;
@@ -39,7 +52,10 @@ export type LoadEditValues = {
   payTermsDays: string;
   notes: string;
   stops: EditStopValues[];
+  deal?: DealValues;
 };
+
+export type DealInput = { vehicleId: string | null; rate: number; fuelSurcharge: number | null; loadedMiles: number; emptyToPickup: number; emptyHome: number };
 
 export type LoadEditInput = {
   brokerName: string | null;
@@ -60,6 +76,7 @@ export type LoadEditInput = {
   payTermsDays: number | null;
   notes: string | null;
   stops: Array<{ id: string; address: string; facility: string | null; earliest: Date | null; latest: Date | null; refs: string[]; contactName: string | null; contactPhone: string | null; notes: string | null }>;
+  deal: DealInput | null;
 };
 
 export type LoadEditCheck = { ok: true; value: LoadEditInput } | { ok: false; errors: Record<string, string> };
@@ -110,6 +127,19 @@ export function validateLoadEdit(v: LoadEditValues): LoadEditCheck {
   const payTermsDays = num("payTermsDays", v.payTermsDays, "Pay terms", 0, 120, true);
   len("notes", v.notes, "Notes", 1000);
 
+  let deal: DealInput | null = null;
+  if (v.deal) {
+    const d = v.deal;
+    // Zero is allowed so a load that was saved with no rate can still have its other details corrected; a blank is a slip.
+    const rate = num("deal.rate", d.rate, "The rate", 0, 1_000_000);
+    if (rate == null && !errors["deal.rate"]) errors["deal.rate"] = "Type the agreed rate.";
+    const fuelSurcharge = num("deal.fuelSurcharge", d.fuelSurcharge, "The fuel surcharge", 0, 100_000);
+    const loadedMiles = num("deal.loadedMiles", d.loadedMiles, "Loaded miles", 0, 5000);
+    const emptyToPickup = num("deal.emptyToPickup", d.emptyToPickup, "Empty miles to the pickup", 0, 5000);
+    const emptyHome = num("deal.emptyHome", d.emptyHome, "Empty miles home", 0, 5000);
+    deal = { vehicleId: orNull(t(d.vehicleId)), rate: rate ?? 0, fuelSurcharge, loadedMiles: loadedMiles ?? 0, emptyToPickup: emptyToPickup ?? 0, emptyHome: emptyHome ?? 0 };
+  }
+
   const stops = v.stops.map((s, i) => {
     const key = (f: string) => `stop${i}.${f}`;
     if (t(s.address).length < 2) errors[key("address")] = "Where is this stop? A city and state is enough.";
@@ -159,12 +189,19 @@ export function validateLoadEdit(v: LoadEditValues): LoadEditCheck {
       palletJack: v.palletJack === true,
       payTermsDays,
       notes: orNull(t(v.notes)),
-      stops
+      stops,
+      deal
     }
   };
 }
 
 type StoredLoad = {
+  vehicleId?: string | null;
+  quotedRevenue?: unknown;
+  fuelSurcharge?: unknown;
+  loadedMiles?: unknown;
+  pickupDeadheadMiles?: unknown;
+  returnDeadheadMiles?: unknown;
   brokerName: string | null;
   brokerMcNumber: string | null;
   brokerPhone: string | null;
@@ -189,6 +226,12 @@ type StoredLoad = {
 export function toEditValues(load: StoredLoad): LoadEditValues {
   const s = (v: unknown) => (v == null ? "" : String(v));
   const local = (d: Date | null) => (d ? toCentralLocal(d.getTime()) : "");
+  /** A stored decimal as the figure to show: no trailing zeros, blank when there is none or it is zero. */
+  const money = (v: unknown) => {
+    if (v == null) return "";
+    const n = Number(String(v));
+    return Number.isFinite(n) && n !== 0 ? String(n) : "";
+  };
   return {
     brokerName: s(load.brokerName),
     brokerMc: s(load.brokerMcNumber),
@@ -207,6 +250,14 @@ export function toEditValues(load: StoredLoad): LoadEditValues {
     palletJack: load.requiresPalletJack === true,
     payTermsDays: s(load.payTermsDays),
     notes: s(load.notes),
+    deal: {
+      vehicleId: s(load.vehicleId),
+      rate: load.quotedRevenue == null ? "" : String(Number(String(load.quotedRevenue))),
+      fuelSurcharge: money(load.fuelSurcharge),
+      loadedMiles: money(load.loadedMiles),
+      emptyToPickup: money(load.pickupDeadheadMiles),
+      emptyHome: money(load.returnDeadheadMiles)
+    },
     stops: load.stops.map((x) => ({
       id: x.id,
       role: (x.stopRole ?? x.stopType) === "delivery" ? "delivery" : "pickup",
