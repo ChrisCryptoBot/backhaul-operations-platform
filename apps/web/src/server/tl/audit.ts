@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AUDIT_GROUPS, type AuditAction, type AuditSnapshot } from "@/lib/audit-diff";
+import { auditRange } from "@/lib/audit-range";
 import { DEMO_WORKSPACE_ID } from "./workspace";
 
 /**
@@ -62,17 +63,19 @@ function toRow(e: { id: string; loadId: string | null; loadNumber: string | null
   return { ...e, before: snap(e.before), after: snap(e.after) };
 }
 
-export type AuditFilter = { q?: string; group?: string; page?: number; pageSize?: number };
+export type AuditFilter = { q?: string; group?: string; from?: string; to?: string; page?: number; pageSize?: number };
 
-/** Newest first, with the filters the audit page offers. `total` counts the matches, not just this page. */
+/** Newest first, with the filters the audit page offers (search, area, From and To day). `total` counts the matches, not just this page. */
 export async function listAudit(f: AuditFilter = {}, workspaceId = DEMO_WORKSPACE_ID) {
   const pageSize = f.pageSize ?? 50;
   const page = f.page && f.page > 0 ? f.page : 1;
   const group = AUDIT_GROUPS.find((g) => g.key === f.group);
   const q = f.q?.trim();
+  const range = auditRange(f.from, f.to);
   const where: Prisma.AuditEventWhereInput = {
     workspaceId,
     ...(group ? { action: { in: group.actions } } : {}),
+    ...(range.gte || range.lt ? { createdAt: range } : {}),
     ...(q
       ? {
           OR: [

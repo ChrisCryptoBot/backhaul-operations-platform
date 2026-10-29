@@ -14,10 +14,14 @@ export function KpiMatrix({ k }: { k: DeskKpi }) {
   const p = k.prior;
   const zone = emptyZone(c.emptyShare, k.thresholds);
   const grace = k.thresholds.detentionGraceMinutes;
+  const hero: Cell = {
+    label: "Gross revenue",
+    value: usd(c.gross),
+    sub: `${c.loads} finished ${c.loads === 1 ? "load" : "loads"}${c.tonuLoads > 0 ? ` (${c.tonuLoads} TONU)` : ""}${p ? `, ${p.loads} in the period before` : ""} · ${usd(c.netEstimate)} after tracked costs`,
+    delta: deltaOf(c.gross, p?.gross, { kind: "pct" })
+  };
   const cells: Cell[] = [
-    { label: "Gross revenue", value: usd(c.gross), sub: `${c.loads} finished ${c.loads === 1 ? "load" : "loads"} · ${usd(c.netEstimate)} after tracked costs`, delta: deltaOf(c.gross, p?.gross, { kind: "pct" }) },
     { label: "Per revenue mile", value: perMile(c.rpm), sub: `on ${miles(c.totalMiles)} driven`, delta: deltaOf(c.rpm, p?.rpm, { kind: "pct" }) },
-    { label: "Loads finished", value: String(c.loads), sub: `${p ? `${p.loads} in the previous period` : "in this period"}${c.tonuLoads > 0 ? ` · ${c.tonuLoads} TONU` : ""}`, delta: deltaOf(c.loads, p?.loads, { kind: "pct" }) },
     {
       label: "Empty miles",
       value: pct(c.emptyShare, 1),
@@ -37,8 +41,17 @@ export function KpiMatrix({ k }: { k: DeskKpi }) {
     }
   ];
 
+  const chip = <DeltaChip delta={hero.delta} title={k.previous ? `Against ${windowLabel(k.previous)}` : undefined} />;
   return (
     <section aria-label="Headline numbers">
+      <div className="km-hero">
+        <div className="km-label">{hero.label}</div>
+        <div className="km-herorow">
+          <span className="km-big">{hero.value}</span>
+          {chip}
+        </div>
+        <div className="km-sub">{hero.sub}</div>
+      </div>
       <div className="km">
         {cells.map((cell) => (
           <div className="km-cell" key={cell.label}>
@@ -51,12 +64,15 @@ export function KpiMatrix({ k }: { k: DeskKpi }) {
           </div>
         ))}
       </div>
-      <p className="kc-formula">
-        {k.previous ? `Changes are against ${windowLabel(k.previous)}. ` : "Nothing to compare against for this period. "}
-        Gross is the line-haul plus fuel surcharge and layover, as on the phone. Per revenue mile is gross over the miles the pay covers.
-        Empty miles are deadhead over every mile driven. Cleared the floor: pay after tracked fuel, tolls and other costs, per mile driven, at or above the truck&apos;s floor
-        frozen when the load was accepted. Days to pay and paid within terms use paid invoices only. Wait at a stop is the recorded wait, against the free time in Settings.
-      </p>
+      <details className="kc-how">
+        <summary>How these are worked out</summary>
+        <p>
+          {k.previous ? `Changes are against ${windowLabel(k.previous)}. ` : "Nothing to compare against for this period. "}
+          Gross is the line-haul plus fuel surcharge and layover, as on the phone. Per revenue mile is gross over the miles the pay covers.
+          Empty miles are deadhead over every mile driven. Cleared the floor: pay after tracked fuel, tolls and other costs, per mile driven, at or above the truck&apos;s floor
+          frozen when the load was accepted. Days to pay and paid within terms use paid invoices only. Wait at a stop is the recorded wait, against the free time in Settings.
+        </p>
+      </details>
     </section>
   );
 }

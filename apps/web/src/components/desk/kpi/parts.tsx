@@ -2,8 +2,8 @@ import React from "react";
 import type { Delta } from "@/lib/kpi-view";
 
 /**
- * The frame every KPI chart sits in: a title with its unit, the chart, a one-line "so what" caption, and a footer saying how
- * the number is worked out. A chart with nothing to show says so in words instead of drawing an empty axis.
+ * The frame every KPI chart sits in: a title with its unit, the chart, a one-line "so what" caption, and a folded
+ * "how this is worked out". A chart with nothing to show says so in words instead of drawing an empty axis.
  */
 export function ChartFrame({ title, unit, caption, formula, empty, children, className }: { title: string; unit?: string; caption?: React.ReactNode; formula?: string; empty?: React.ReactNode; children?: React.ReactNode; className?: string }) {
   return (
@@ -14,7 +14,12 @@ export function ChartFrame({ title, unit, caption, formula, empty, children, cla
       </header>
       {empty ? <div className="kc-empty">{empty}</div> : <div className="kc-body">{children}</div>}
       {caption && !empty ? <p className="kc-cap">{caption}</p> : null}
-      {formula ? <p className="kc-formula">{formula}</p> : null}
+      {formula ? (
+        <details className="kc-how">
+          <summary>How this is worked out</summary>
+          <p>{formula}</p>
+        </details>
+      ) : null}
     </section>
   );
 }

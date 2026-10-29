@@ -81,10 +81,10 @@ export function ThresholdsForm({ stored, fleetEmptyShare }: { stored: Record<key
                       aria-describedby={`${id}-hint`}
                       onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
                     />
-                    <span>{f.unit}</span>
+                    <span>{f.unit}{(values[key] ?? "").trim() !== "" ? ` · default ${THRESHOLD_DEFAULTS[key]}` : ""}</span>
                   </div>
                   <span className="th-hint" id={`${id}-hint`}>
-                    {f.hint} Default {THRESHOLD_DEFAULTS[key]}.
+                    {f.hint}
                   </span>
                   {shown[key] ? (
                     <span className="th-err" role="alert">
@@ -126,7 +126,7 @@ export function ThresholdsForm({ stored, fleetEmptyShare }: { stored: Record<key
         <button type="button" className="tl-btn ghost" disabled={pending || !dirtyDefaults} onClick={() => setValues(Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, ""])))}>
           Use all the defaults
         </button>
-        {unchanged ? <span className="tl-sub">Saved. Blank fields use the default.</span> : null}
+        {unchanged ? <span className="tl-sub">Saved.</span> : null}
       </div>
     </form>
   );

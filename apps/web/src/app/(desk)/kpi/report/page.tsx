@@ -1,6 +1,8 @@
 import Link from "next/link";
 import React from "react";
 import { getDeskKpi } from "@/server/tl/kpi";
+import { getCompany } from "@/server/tl/company";
+import { DocHead } from "@/components/desk/doc-head";
 import { PrintButton } from "@/components/desk/kpi/print-button";
 import { shortLane } from "@/components/desk/kpi/parts";
 import { hasFilters, kpiHref, parseKpiParams } from "@/lib/kpi-params";
@@ -15,7 +17,7 @@ const PERIOD_NAME = { "4w": "Last four weeks", month: "This month", ytd: "Year t
 export default async function KpiReportPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const params = parseKpiParams(searchParams);
   const now = new Date();
-  const k = await getDeskKpi({ period: params.period, compare: params.compare, filters: params.filters }, now);
+  const [k, company] = await Promise.all([getDeskKpi({ period: params.period, compare: params.compare, filters: params.filters }, now), getCompany()]);
   const c = k.current;
   const p = k.prior;
 
@@ -39,11 +41,14 @@ export default async function KpiReportPage({ searchParams }: { searchParams?: R
         <PrintButton />
       </div>
       <article className="rp">
-        <h1>Management report</h1>
-        <p className="rp-meta">
-          {PERIOD_NAME[params.period]}: {windowLabel(k.window)}
-          {k.previous ? ` · compared with ${windowLabel(k.previous)}` : ""}
-        </p>
+        <DocHead
+          kicker={`${PERIOD_NAME[params.period]} · ${windowLabel(k.window)}`}
+          number="Management report"
+          company={company}
+          heroLabel="Gross revenue"
+          hero={usd(c.gross)}
+          sub={`${c.loads} finished ${c.loads === 1 ? "load" : "loads"}${k.previous ? ` · compared with ${windowLabel(k.previous)}` : ""}`}
+        />
         {hasFilters(params.filters) ? (
           <p className="rp-meta">Filtered to {Object.entries(params.filters).map(([f, v]) => `${FILTER_LABEL[f as keyof typeof FILTER_LABEL].toLowerCase()} ${v}`).join(", ")}</p>
         ) : null}

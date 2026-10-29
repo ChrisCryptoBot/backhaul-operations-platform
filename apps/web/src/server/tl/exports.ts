@@ -4,7 +4,9 @@ import { filterBoard } from "@/lib/board-filter";
 import { asHistoryFilter, asHistorySort, historyRows, isHistory, isOpen } from "@/lib/loads-history";
 import { prisma } from "@/lib/db";
 import { parseKpiParams } from "@/lib/kpi-params";
-import { DESK_TZ } from "@/lib/zoned";
+import { ACTION_LABEL } from "@/lib/audit-diff";
+import { DESK_TZ, toCentralLocal } from "@/lib/zoned";
+import { listAudit } from "./audit";
 import { getDeskKpi } from "./kpi";
 import { listBoardRows, listInvoiceRows } from "./queries";
 
@@ -12,7 +14,7 @@ import { listBoardRows, listInvoiceRows } from "./queries";
  * The CSV files the desk offers. Each is built from the same functions the screen uses (the Loads filter, the KPI engine),
  * so a file always matches what was on screen when it was asked for. Dates are the Central calendar date.
  */
-export const EXPORT_KINDS = ["loads", "invoices", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks"] as const;
+export const EXPORT_KINDS = ["loads", "invoices", "audit", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks"] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
 type Query = Record<string, string | string[] | undefined>;
@@ -102,6 +104,18 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
           two(r.amount),
           r.status ?? "not invoiced"
         ])
+      )
+    };
+  }
+
+  if (kind === "audit") {
+    // The audit page's own filters (search, area, From and To day), every match rather than one page, newest first, capped so one click cannot build a huge file.
+    const { rows } = await listAudit({ q: first(query.q), group: first(query.group), from: first(query.from), to: first(query.to), page: 1, pageSize: 5000 });
+    return {
+      filename: name("audit-log"),
+      csv: toCsv(
+        ["When (Central)", "Load", "What", "Detail", "Reason", "By"],
+        rows.map((e): CsvCell[] => [toCentralLocal(e.createdAt.getTime()).replace("T", " "), e.loadNumber, ACTION_LABEL[e.action] ?? e.action, e.summary, e.reason, e.actor])
       )
     };
   }
