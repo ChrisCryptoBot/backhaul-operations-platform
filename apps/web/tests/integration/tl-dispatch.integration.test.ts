@@ -66,7 +66,7 @@ describe.skipIf(!run)("dispatcher flow on the TrueLane-shaped tables", () => {
 
   test("analytics and aging compute from the tables with TrueLane's math", async () => {
     const a = await analyticsFor("all");
-    expect(a.summary.loadCount).toBe(30);
+    expect(a.summary.loadCount).toBe(31); // 30 delivered and 1 TONU: TrueLane counts the fee as a finished load
     expect(a.summary.avgRpm).toBeGreaterThan(0);
     const aging = await agingFor();
     expect(aging.count).toBeGreaterThan(0);

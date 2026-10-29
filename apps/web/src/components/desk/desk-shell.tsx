@@ -19,6 +19,7 @@ const NAV: Array<{ label: string; items: Item[] }> = [
     items: [
       { href: "/loads", label: "Loads", icon: "loads" },
       { href: "/dispatch", label: "Dispatch queue", icon: "dispatch", pill: (c) => (c.needsDriver > 0 ? { n: c.needsDriver, tone: "warn" } : null) },
+      { href: "/planner", label: "Planner", icon: "calendar" },
       { href: "/alerts", label: "Alerts", icon: "bell", pill: (c) => (c.alertsBlock > 0 ? { n: c.alertsBlock + c.alertsWarn, tone: "alert" } : c.alertsWarn > 0 ? { n: c.alertsWarn, tone: "warn" } : null) },
       { href: "/rate-cons", label: "Rate confirmations", icon: "document" }
     ]
@@ -28,6 +29,13 @@ const NAV: Array<{ label: string; items: Item[] }> = [
     items: [
       { href: "/drivers", label: "Drivers", icon: "drivers" },
       { href: "/fleet", label: "Trucks", icon: "trucks" }
+    ]
+  },
+  {
+    label: "Market",
+    items: [
+      { href: "/brokers", label: "Brokers", icon: "building" },
+      { href: "/lanes", label: "Lanes", icon: "route" }
     ]
   },
   {
@@ -49,6 +57,9 @@ const NAV: Array<{ label: string; items: Item[] }> = [
 const TITLES: Array<[string, string]> = [
   ["/loads", "Loads"],
   ["/dispatch", "Dispatch queue"],
+  ["/planner", "Planner"],
+  ["/brokers", "Brokers"],
+  ["/lanes", "Lanes"],
   ["/alerts", "Alerts"],
   ["/audit", "Audit log"],
   ["/rate-cons", "Rate confirmations"],

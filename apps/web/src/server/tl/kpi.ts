@@ -10,6 +10,7 @@ import { DAY_MS, inWindow, periodWindow, previousWindow, weekBuckets, type KpiPe
 import type { KpiFilters } from "@/lib/kpi-params";
 import { THRESHOLD_DEFAULTS, type Thresholds } from "@/lib/thresholds";
 import type { Verdict } from "@/lib/desk-format";
+import { reasonLabel } from "@/lib/disruptions";
 import { evaluateTlLoad } from "./evaluate";
 import { ms, num, numOrNull, toAgingView, toAnalyticsInput, toMarketVarianceLoad, type LoadRow } from "./convert";
 import { getThresholds } from "./thresholds";
@@ -27,12 +28,14 @@ export type KpiLoadRow = LoadRow & {
   createdAt: Date;
   scheduledDate: Date | null;
   paidAt: Date | null;
+  /** Why a cancelled load or a TONU fell through (a key from lib/disruptions.ts). */
+  cancelReason: string | null;
   /** The truck's break-even floor ($/mi, before fuel) frozen when the load was accepted. */
   snapshotBaseFloorRpm: Prisma.Decimal | number | string | null;
   vehicleName: string | null;
   /** Verdict on the truck's own floor, for loads that are not finished yet. */
   verdict: Verdict | null;
-  stops: Array<{ waitMinutes: number | null }>;
+  stops: Array<{ waitMinutes: number | null; arrivedAt?: Date | null; timeWindowLatest?: Date | null }>;
   assignment: { driverName: string; payKind: string; payEstimate: number | null; status: string } | null;
 };
 
@@ -40,7 +43,10 @@ export type { KpiFilters };
 export type KpiOptions = { period: KpiPeriod; compare: boolean; filters: KpiFilters };
 
 export type PeriodStats = {
+  /** Loads that finished and earned money: delivered freight plus any TONU fees. */
   loads: number;
+  /** How many of `loads` were a TONU (the truck went and there was nothing to haul). */
+  tonuLoads: number;
   gross: number;
   expenses: number;
   /** Gross minus the tracked fuel, tolls and other expenses. */
@@ -58,6 +64,9 @@ export type PeriodStats = {
   paidWithinTerms: number | null;
   paidLoads: number;
   avgDaysToPay: number | null;
+  /** Share of stops the driver reached by the time the window closed, over stops that have both times. */
+  onTimeArrivals: number | null;
+  arrivalStops: number;
   /** Average recorded wait at a stop, minutes. */
   avgWaitMinutes: number | null;
   waitStops: number;
@@ -80,6 +89,36 @@ export type LaneKpi = {
   marketVariancePct: number | null;
   status: LaneStatus;
 };
+export type ReliabilityKpi = {
+  cancelled: number;
+  tonu: number;
+  lost: number;
+  /** Delivered freight loads in the same window. */
+  delivered: number;
+  /** Lost loads over loads that were meant to run (delivered + lost), 0 to 1; null with neither. */
+  rate: number | null;
+  /** Why they fell through, most common first. */
+  reasons: Array<{ key: string; label: string; count: number }>;
+  priorLost: number | null;
+  priorRate: number | null;
+};
+
+export type BrokerKpi = {
+  name: string;
+  loads: number;
+  gross: number;
+  rpm: number | null;
+  /** How far above (+) or below (-) the market rate this broker paid, as a fraction, over loads that carry one. */
+  marketVariancePct: number | null;
+  benchmarked: number;
+  paidLoads: number;
+  avgDaysToPay: number | null;
+  avgWaitMinutes: number | null;
+  waitStops: number;
+  /** Loads this broker cancelled or turned into a TONU. */
+  lost: number;
+};
+
 export type TrendWeek = {
   label: string;
   end: number;
@@ -109,6 +148,8 @@ export type DeskKpi = {
   trend: TrendWeek[];
   drivers: DriverKpi[];
   lanes: LaneKpi[];
+  brokers: BrokerKpi[];
+  reliability: ReliabilityKpi;
   /** Each finished freight load's rate against its market rate (a fraction), null where none was captured. */
   variance: Array<number | null>;
   pipeline: { needsDriver: number; sent: number; onTheRoad: number };
@@ -139,6 +180,8 @@ type Fact = {
   paidWithinTerms: boolean | null;
   market: { pay: number; benchmarkTotal: number; variancePct: number } | null;
   waits: number[];
+  /** For each stop with an arrival and a window: was the driver there by the time the window closed. */
+  arrivals: boolean[];
 };
 
 const money = (l: KpiLoadRow) => ({
@@ -197,7 +240,8 @@ function factOf(l: KpiLoadRow, t: Thresholds): Fact {
     daysToPay,
     paidWithinTerms: daysToPay == null ? null : daysToPay <= (l.payTermsDays ?? t.defaultPayTermsDays),
     market: mv ? { pay: mv.pay, benchmarkTotal: mv.benchmarkTotal, variancePct: mv.variancePct } : null,
-    waits: l.stops.map((s) => s.waitMinutes).filter((n): n is number => n != null)
+    waits: l.stops.map((s) => s.waitMinutes).filter((n): n is number => n != null),
+    arrivals: l.stops.filter((s) => s.arrivedAt != null && s.timeWindowLatest != null).map((s) => s.arrivedAt!.getTime() <= s.timeWindowLatest!.getTime())
   };
 }
 
@@ -207,8 +251,10 @@ function statsOf(facts: Fact[], now: Date): PeriodStats {
   const judged = facts.filter((f) => f.clearedFloor != null);
   const paid = facts.filter((f) => f.paidWithinTerms != null);
   const waits = facts.flatMap((f) => f.waits);
+  const arrivals = facts.flatMap((f) => f.arrivals);
   return {
     loads: a.loadCount,
+    tonuLoads: facts.filter((f) => f.row.status === "tonu").length,
     gross: a.grossRevenue,
     expenses: a.totalExpenses,
     netEstimate: a.netEstimate,
@@ -221,6 +267,8 @@ function statsOf(facts: Fact[], now: Date): PeriodStats {
     paidWithinTerms: paid.length > 0 ? paid.filter((f) => f.paidWithinTerms).length / paid.length : null,
     paidLoads: paid.length,
     avgDaysToPay: mean(paid.map((f) => f.daysToPay!)),
+    onTimeArrivals: arrivals.length > 0 ? arrivals.filter(Boolean).length / arrivals.length : null,
+    arrivalStops: arrivals.length,
     avgWaitMinutes: mean(waits),
     waitStops: waits.length
   };
@@ -308,6 +356,57 @@ export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: T
     })
     .sort((a, b) => b.loads - a.loads || b.gross - a.gross);
 
+  const lostIn = (w: TimeWindow) => {
+    const cancelled = kept.filter((l) => l.status === "cancelled" && l.cancelledAt != null && inWindow(l.cancelledAt.getTime(), w));
+    const tonu = facts.filter((f) => f.row.status === "tonu" && inWindow(f.doneAt, w)).map((f) => f.row);
+    const delivered = facts.filter((f) => f.row.status !== "tonu" && inWindow(f.doneAt, w)).length;
+    return { cancelled, tonu, delivered, lost: cancelled.length + tonu.length };
+  };
+  const now0 = lostIn(window);
+  const was = previous ? lostIn(previous) : null;
+  const rateOf = (x: { lost: number; delivered: number }) => (x.lost + x.delivered > 0 ? x.lost / (x.lost + x.delivered) : null);
+  const reasonCounts = new Map<string, number>();
+  for (const l of [...now0.cancelled, ...now0.tonu]) reasonCounts.set(l.cancelReason ?? "none", (reasonCounts.get(l.cancelReason ?? "none") ?? 0) + 1);
+  const reliability: ReliabilityKpi = {
+    cancelled: now0.cancelled.length,
+    tonu: now0.tonu.length,
+    lost: now0.lost,
+    delivered: now0.delivered,
+    rate: rateOf(now0),
+    reasons: [...reasonCounts.entries()].map(([key, count]) => ({ key, label: key === "none" ? "No reason given" : reasonLabel(key), count })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
+    priorLost: was ? was.lost : null,
+    priorRate: was ? rateOf(was) : null
+  };
+
+  const brokerName = (b: string | null) => b ?? "No broker";
+  const byBroker = new Map<string, Fact[]>();
+  for (const f of scoped) byBroker.set(brokerName(f.broker), [...(byBroker.get(brokerName(f.broker)) ?? []), f]);
+  for (const l of now0.cancelled) if (!byBroker.has(brokerName(l.brokerName))) byBroker.set(brokerName(l.brokerName), []);
+  const brokers: BrokerKpi[] = [...byBroker.entries()]
+    .map(([name, fs]) => {
+      const gross = fs.reduce((s, f) => s + f.gross, 0);
+      const mi = fs.reduce((s, f) => s + f.revenueMiles, 0);
+      const marked = fs.filter((f) => f.market);
+      const bench = marked.reduce((s, f) => s + f.market!.benchmarkTotal, 0);
+      const paid = fs.filter((f) => f.daysToPay != null);
+      const waits = fs.flatMap((f) => f.waits);
+      const lost = now0.cancelled.filter((l) => brokerName(l.brokerName) === name).length + fs.filter((f) => f.row.status === "tonu").length;
+      return {
+        name,
+        loads: fs.length,
+        gross,
+        rpm: mi > 0 ? gross / mi : null,
+        marketVariancePct: bench > 0 ? (marked.reduce((s, f) => s + f.market!.pay, 0) - bench) / bench : null,
+        benchmarked: marked.length,
+        paidLoads: paid.length,
+        avgDaysToPay: mean(paid.map((f) => f.daysToPay!)),
+        avgWaitMinutes: mean(waits),
+        waitStops: waits.length,
+        lost
+      };
+    })
+    .sort((a, b) => b.gross - a.gross || a.name.localeCompare(b.name));
+
   const open = kept.filter((l) => l.status === "draft" || l.status === "accepted" || l.status === "in_progress");
   const pipeline = {
     needsDriver: kept.filter((l) => l.status === "draft" && (!l.assignment || l.assignment.status === "draft" || l.assignment.status === "declined")).length,
@@ -340,6 +439,8 @@ export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: T
     trend,
     drivers,
     lanes,
+    brokers,
+    reliability,
     variance: scoped.filter((f) => f.row.status !== "tonu").map((f) => f.market?.variancePct ?? null),
     pipeline,
     verdictMix,
@@ -352,7 +453,7 @@ export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: T
 export async function getKpiRows(workspaceId = DEMO_WORKSPACE_ID): Promise<KpiLoadRow[]> {
   const loads = await prisma.load.findMany({
     where: { workspaceId, deletedAt: null },
-    include: { vehicle: { include: { costProfile: true } }, assignment: { include: { driver: true } }, stops: { select: { waitMinutes: true } } }
+    include: { vehicle: { include: { costProfile: true } }, assignment: { include: { driver: true } }, stops: { select: { waitMinutes: true, arrivedAt: true, timeWindowLatest: true } } }
   });
   return loads.map((l) => {
     const profile = l.vehicle?.costProfile ?? null;

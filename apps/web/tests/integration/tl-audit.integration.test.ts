@@ -120,8 +120,8 @@ describe.skipIf(!run)("audit trail, unassign and the double-booking guard", () =
 
   test("invoicing and payment leave events, and the audit list filters by group and text", async () => {
     const l = await makeLoad("AUD-6", base + 40 * D, base + 41 * D, { status: "completed", completedAt: new Date(), actualRevenue: 700, payTermsDays: 30 });
-    expect(await invoiceLoad(l.id)).toEqual({ ok: true });
-    expect(await invoiceLoad(l.id)).toEqual({ ok: false }); // already invoiced
+    expect(await invoiceLoad(l.id)).toMatchObject({ ok: true });
+    expect(await invoiceLoad(l.id)).toMatchObject({ ok: false }); // already invoiced
     expect(await markLoadPaid(l.id)).toEqual({ ok: true });
     expect((await listLoadAudit(l.id)).map((e) => e.action)).toEqual(["paid", "invoiced"]);
 

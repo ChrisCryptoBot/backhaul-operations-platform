@@ -6,8 +6,12 @@ import { DENSITY_COOKIE, THEME_COOKIE, asDensity, asTheme } from "@/lib/appearan
 import { redirect, RedirectType } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
+import { cancelLoad, recordTonu, rescheduleLoad } from "@/server/tl/disruptions";
 import { invoiceLoad, markLoadPaid } from "@/server/tl/invoicing";
+import { parseCentralLocal } from "@/lib/zoned";
 import { saveThresholds } from "@/server/tl/thresholds";
+import { saveCostProfile, saveDriver, saveTruck, setDriverActive, setTruckArchived, type ActResult, type SaveResult } from "@/server/tl/fleet";
+import type { DriverValues, ProfileKey, TruckValues } from "@/lib/fleet-forms";
 import type { Thresholds } from "@/lib/thresholds";
 import type { PayKind } from "@/server/tl/projector";
 import { readRateCon } from "@/server/ratecon/reader";
@@ -35,6 +39,7 @@ async function attempt(loadId: string, fn: () => Promise<string>): Promise<never
   revalidatePath("/dispatch");
   revalidatePath("/alerts");
   revalidatePath("/audit");
+  revalidatePath("/planner");
   revalidatePath("/kpi");
   return back(loadId, "note", note);
 }
@@ -78,8 +83,38 @@ export async function respondAction(formData: FormData) {
   });
 }
 
+// ── When a load falls through or moves ────────────────────────────────────────────────────────
+
+const text = (formData: FormData, key: string) => String(formData.get(key) ?? "");
+
+export async function cancelAction(formData: FormData) {
+  const loadId = text(formData, "loadId");
+  await attempt(loadId, async () => {
+    await cancelLoad({ loadId, reason: text(formData, "reason"), note: text(formData, "note") });
+    return "Load cancelled. The reason is in the audit log.";
+  });
+}
+
+export async function tonuAction(formData: FormData) {
+  const loadId = text(formData, "loadId");
+  await attempt(loadId, async () => {
+    await recordTonu({ loadId, reason: text(formData, "reason"), note: text(formData, "note"), fee: Number(text(formData, "fee")) });
+    return "TONU recorded. The fee counts as revenue on the load.";
+  });
+}
+
+export async function rescheduleAction(formData: FormData) {
+  const loadId = text(formData, "loadId");
+  await attempt(loadId, async () => {
+    const at = parseCentralLocal(text(formData, "pickup"));
+    if (at == null) throw new DispatchError("bad_time", "Pick a date and time for the new pickup.");
+    await rescheduleLoad({ loadId, newPickup: new Date(at), reason: text(formData, "reason"), note: text(formData, "note") });
+    return "Pickup rescheduled. Every stop moved with it.";
+  });
+}
+
 export async function invoiceAction(formData: FormData) {
-  await invoiceLoad(String(formData.get("loadId")));
+  await invoiceLoad(String(formData.get("loadId")), { includeDetention: formData.get("detention") === "on" });
   revalidatePath("/invoices");
   revalidatePath("/audit");
   revalidatePath("/alerts");
@@ -126,6 +161,42 @@ export async function saveRateConAction(dto: DraftDto, confirmed: boolean): Prom
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not save." };
   }
+}
+
+// ── Drivers and trucks ─────────────────────────────────────────────────────────────────────────
+
+// Called from the forms and buttons on Drivers and Trucks. Every one returns what happened (field errors, or a plain message) rather
+// than redirecting, so the form can stay open and say what is wrong.
+const refreshFleet = () => revalidatePath("/", "layout");
+
+export async function saveDriverAction(values: Record<string, string>, id: string | null): Promise<SaveResult<keyof DriverValues>> {
+  const out = await saveDriver(values, id);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function setDriverActiveAction(id: string, active: boolean): Promise<ActResult> {
+  const out = await setDriverActive(id, active);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function saveTruckAction(values: Record<string, string>, id: string | null): Promise<SaveResult<keyof TruckValues>> {
+  const out = await saveTruck(values, id);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function setTruckArchivedAction(id: string, archived: boolean): Promise<ActResult> {
+  const out = await setTruckArchived(id, archived);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function saveCostProfileAction(vehicleId: string, values: Record<string, string>): Promise<SaveResult<ProfileKey> & { floors?: { breakEven: number; survival: number } }> {
+  const out = await saveCostProfile(vehicleId, values);
+  if (out.ok) refreshFleet();
+  return out;
 }
 
 // ── Thresholds (Settings) ──────────────────────────────────────────────────────────────────────

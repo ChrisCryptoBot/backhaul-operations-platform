@@ -30,6 +30,7 @@ export function LaneScorecard({ k }: { k: DeskKpi }) {
     const s = STATUS[l.status];
     return {
       id: l.key,
+      search: l.key,
       cells: {
         lane: (
           <>

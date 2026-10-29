@@ -17,7 +17,7 @@ export function KpiMatrix({ k }: { k: DeskKpi }) {
   const cells: Cell[] = [
     { label: "Gross revenue", value: usd(c.gross), sub: `${c.loads} finished ${c.loads === 1 ? "load" : "loads"} · ${usd(c.netEstimate)} after tracked costs`, delta: deltaOf(c.gross, p?.gross, { kind: "pct" }) },
     { label: "Per revenue mile", value: perMile(c.rpm), sub: `on ${miles(c.totalMiles)} driven`, delta: deltaOf(c.rpm, p?.rpm, { kind: "pct" }) },
-    { label: "Loads delivered", value: String(c.loads), sub: p ? `${p.loads} in the previous period` : "in this period", delta: deltaOf(c.loads, p?.loads, { kind: "pct" }) },
+    { label: "Loads finished", value: String(c.loads), sub: `${p ? `${p.loads} in the previous period` : "in this period"}${c.tonuLoads > 0 ? ` · ${c.tonuLoads} TONU` : ""}`, delta: deltaOf(c.loads, p?.loads, { kind: "pct" }) },
     {
       label: "Empty miles",
       value: pct(c.emptyShare, 1),

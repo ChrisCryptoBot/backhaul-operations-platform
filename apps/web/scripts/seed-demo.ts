@@ -7,6 +7,7 @@
  */
 import { PrismaClient, Prisma } from "@prisma/client";
 import { computeBreakEvenRpm, computeSurvivalFloorRpm } from "../src/truelane/lib/domain/calculators";
+import { reasonLabel } from "../src/lib/disruptions";
 
 const prisma = new PrismaClient();
 const WORKSPACE_ID = "demo-workspace";
@@ -49,7 +50,10 @@ const profileBase = {
   maintenanceReservePerMile: 0.15,
   tireReservePerMile: 0.04,
   driverHourlyTarget: 30,
-  lastFuelPricePerGallon: 3.9
+  lastFuelPricePerGallon: 3.9,
+  // What the broker pays for time at a dock beyond the free time (TrueLane's detention terms on a cost profile).
+  detentionHourlyRate: 65,
+  freeGraceMinutes: 120
 };
 
 async function main() {
@@ -93,6 +97,8 @@ async function main() {
             tireReservePerMile: input.tireReservePerMile,
             driverHourlyTarget: input.driverHourlyTarget,
             lastFuelPricePerGallon: input.lastFuelPricePerGallon,
+            detentionHourlyRate: input.detentionHourlyRate,
+            freeGraceMinutes: input.freeGraceMinutes,
             truckReplacementMonthly: input.truckReplacementMonthly,
             annualFixedCosts: input.annualFixedCosts,
             archetype: "solo_owner",
@@ -139,7 +145,7 @@ async function main() {
   };
 
   type Plan = {
-    status: "draft" | "accepted" | "in_progress" | "completed";
+    status: "draft" | "accepted" | "in_progress" | "completed" | "cancelled" | "tonu";
     lane: (typeof LANES)[number];
     offer: number;
     pickupDh: number;
@@ -150,6 +156,14 @@ async function main() {
     invoiced?: boolean;
     /** For a load that was sent and is waiting: how long ago, so the "no answer yet" alert has a real wait to measure. */
     sentHoursAgo?: number;
+    /** Hours from now for the pickup window (start, end) and the delivery window (start, end), for loads that are on the road. */
+    windows?: [number, number, number, number];
+    /** Whether the driver reached the pickup on time or late, for loads on the road. */
+    pickupArrival?: "ontime" | "late";
+    /** A load that fell through: why, and when (hours from the pickup window's start; negative is before it). */
+    cancelReason?: string;
+    cancelAtHours?: number;
+    tonuFee?: number;
   };
   const plans: Plan[] = [demoLoad as Plan];
   // 4 more unassigned drafts. The first picks up in about 20 hours, so the "pickup is close and no driver" alert has one to show.
@@ -162,6 +176,14 @@ async function main() {
   // is what the "double-booked" alert and the assignment guard are shown against.
   const SENT_DAYS = [-4, -5, -0.5];
   const SENT_HOURS_AGO = [2, 5, 9];
+  // The four on the road, as hours from now: one on time and due today, one whose pickup ran late and whose delivery is now
+  // overdue, and two with a delivery tomorrow. The last overlaps the third sent load above.
+  const ROAD: Array<{ windows: [number, number, number, number]; pickupArrival: "ontime" | "late" }> = [
+    { windows: [-20, -17, 2, 6], pickupArrival: "ontime" },
+    { windows: [-30, -27, -3, -1], pickupArrival: "late" },
+    { windows: [-10, -7, 14, 18], pickupArrival: "ontime" },
+    { windows: [-5, -2, 20, 26], pickupArrival: "ontime" }
+  ];
   for (let i = 0; i < 7; i++) {
     const lane = pick(LANES);
     plans.push({
@@ -172,7 +194,9 @@ async function main() {
       returnDh: round(between(40, 220), 0),
       daysAgo: i < 3 ? SENT_DAYS[i] : 0,
       brokerIdx: i % BROKERS.length,
-      sentHoursAgo: i < 3 ? SENT_HOURS_AGO[i] : undefined
+      sentHoursAgo: i < 3 ? SENT_HOURS_AGO[i] : undefined,
+      windows: i < 3 ? undefined : ROAD[i - 3]!.windows,
+      pickupArrival: i < 3 ? undefined : ROAD[i - 3]!.pickupArrival
     });
   }
   // 30 finished over 12 weeks; the newest are invoiced and unpaid, the rest paid.
@@ -191,7 +215,17 @@ async function main() {
       paid: daysAgo > 35 || i % 4 === 0
     });
   }
+  // Loads that fell through: two cancelled before the pickup, and one TONU (the driver got there and the shipper was not ready).
+  for (const [daysAgo, status, reason, atHours, fee] of [
+    [9, "cancelled", "broker_cancelled", -20, undefined],
+    [20, "cancelled", "weather_road", -3, undefined],
+    [14, "tonu", "shipper_not_ready", 3, 175]
+  ] as const) {
+    const lane = pick(LANES);
+    plans.push({ status, lane, offer: round(lane.miles * lane.rpm, 0), pickupDh: round(between(15, 70), 0), returnDh: 0, daysAgo, brokerIdx: daysAgo % BROKERS.length, cancelReason: reason, cancelAtHours: atHours, tonuFee: fee });
+  }
 
+  const arrivalRng = rng(7711); // its own sequence, so adding arrivals leaves every other number in the seed as it was
   let drvCursor = 0;
   const audits: Prisma.AuditEventCreateManyInput[] = [];
   for (const p of plans) {
@@ -199,6 +233,19 @@ async function main() {
     // The deadhead-trap load always runs on Unit 101 so its floor is the one the site clips describe.
     const vehicle = p === (demoLoad as Plan) ? vehicles[0] : vehicles[seq % vehicles.length];
     const when = new Date(now - p.daysAgo * DAY);
+    const HOUR = 3_600_000;
+    // The pickup and delivery windows: spelled out for loads on the road, otherwise 8-11 am on the day and 8 am-noon the next.
+    const pk0 = p.windows ? now + p.windows[0] * HOUR : when.getTime() + 8 * HOUR;
+    const pk1 = p.windows ? now + p.windows[1] * HOUR : when.getTime() + 11 * HOUR;
+    const dl0 = p.windows ? now + p.windows[2] * HOUR : when.getTime() + DAY + 8 * HOUR;
+    const dl1 = p.windows ? now + p.windows[3] * HOUR : when.getTime() + DAY + 12 * HOUR;
+    // When the driver reached a stop: usually a little early or on time, sometimes 25 to 90 minutes after the window closed.
+    const arrive = (earliest: number, latest: number, late: boolean) =>
+      late ? new Date(latest + (25 + Math.floor(arrivalRng() * 65)) * 60_000) : new Date(Math.min(latest, earliest + (Math.floor(arrivalRng() * 45) - 15) * 60_000));
+    const finished = p.status === "completed";
+    const pickupArrived = finished ? arrive(pk0, pk1, arrivalRng() < 0.2) : p.status === "in_progress" || p.status === "tonu" ? arrive(pk0, pk1, p.pickupArrival === "late") : null;
+    const deliveryArrived = finished ? arrive(dl0, dl1, arrivalRng() < 0.15) : null;
+    const cancelledAt = p.cancelAtHours != null ? new Date(pk0 + p.cancelAtHours * HOUR) : null;
     const loaded = p.lane.miles;
     const covered = p.status === "completed" && rand() < 0.45; // some finished loads had a load back
     const returnDh = covered ? 0 : p.returnDh;
@@ -228,8 +275,11 @@ async function main() {
         expenseFuelActual: fuel,
         expenseTolls: tolls,
         status: p.status,
-        scheduledDate: when,
+        scheduledDate: p.windows ? new Date(pk0) : when,
         completedAt: p.status === "completed" ? new Date(when.getTime() + 1 * DAY) : null,
+        cancelledAt,
+        cancelReason: p.cancelReason ?? null,
+        tonuRevenue: p.tonuFee ?? null,
         isBackhaul: covered,
         stopsCount: 2,
         payTermsDays: 30,
@@ -245,13 +295,36 @@ async function main() {
         invoicedAt,
         paidAt,
         paidAmount: paidAt ? p.offer : null,
-        snapshotBaseFloorRpm: p.status === "draft" ? null : round(vehicle.breakEven, 4),
-        snapshotArchetype: p.status === "draft" ? null : "solo_owner",
-        snapshotMpg: p.status === "draft" ? null : vehicle.mpg,
+        snapshotBaseFloorRpm: p.status === "draft" || p.status === "cancelled" ? null : round(vehicle.breakEven, 4),
+        snapshotArchetype: p.status === "draft" || p.status === "cancelled" ? null : "solo_owner",
+        snapshotMpg: p.status === "draft" || p.status === "cancelled" ? null : vehicle.mpg,
         stops: {
           create: [
-            { stopSequence: 1, stopType: "pickup", stopRole: "pickup", addressString: p.lane.from, facilityName: `${p.lane.from.split(",")[0]} Distribution`, timeWindowEarliest: new Date(when.getTime() + 8 * 3600_000), timeWindowLatest: new Date(when.getTime() + 11 * 3600_000), referenceNumbers: [`PU-${seq}`], waitMinutes: p.status === "completed" ? Math.floor(between(0, 150)) : null },
-            { stopSequence: 2, stopType: "delivery", stopRole: "delivery", addressString: p.lane.to, facilityName: `${p.lane.to.split(",")[0]} Receiving`, timeWindowEarliest: new Date(when.getTime() + 1 * DAY + 8 * 3600_000), timeWindowLatest: new Date(when.getTime() + 1 * DAY + 12 * 3600_000), referenceNumbers: [`DEL-${seq}`], stopNotes: "Check in at the gate", waitMinutes: p.status === "completed" ? Math.floor(between(0, 120)) : null }
+            {
+              stopSequence: 1,
+              stopType: "pickup",
+              stopRole: "pickup",
+              addressString: p.lane.from,
+              facilityName: `${p.lane.from.split(",")[0]} Distribution`,
+              timeWindowEarliest: new Date(pk0),
+              timeWindowLatest: new Date(pk1),
+              arrivedAt: pickupArrived,
+              referenceNumbers: [`PU-${seq}`],
+              waitMinutes: p.status === "completed" ? Math.floor(between(0, 210)) : p.status === "tonu" ? 180 : p.status === "in_progress" ? Math.floor(arrivalRng() * 140) : null
+            },
+            {
+              stopSequence: 2,
+              stopType: "delivery",
+              stopRole: "delivery",
+              addressString: p.lane.to,
+              facilityName: `${p.lane.to.split(",")[0]} Receiving`,
+              timeWindowEarliest: new Date(dl0),
+              timeWindowLatest: new Date(dl1),
+              arrivedAt: deliveryArrived,
+              referenceNumbers: [`DEL-${seq}`],
+              stopNotes: "Check in at the gate",
+              waitMinutes: p.status === "completed" ? Math.floor(between(0, 150)) : null
+            }
           ]
         },
         segments:
@@ -266,7 +339,11 @@ async function main() {
             : undefined
       }
     });
-    if (p.status !== "draft") {
+    if (p.status === "cancelled") {
+      const label = reasonLabel(p.cancelReason);
+      audits.push({ workspaceId: WORKSPACE_ID, loadId: load.id, loadNumber: load.loadNumber, actor: "Dispatcher", entity: "load", action: "cancelled", summary: `Cancelled: ${label}`, before: { Status: "Needs a driver", Driver: null }, after: { Status: "Cancelled", Reason: label }, createdAt: cancelledAt! });
+    }
+    if (p.status !== "draft" && p.status !== "cancelled") {
       const driver = drivers[drvCursor++ % drivers.length];
       const kind = drvCursor % 3 === 0 ? "flat" : "cpm";
       const rate = kind === "flat" ? round(p.offer * 0.7, 0) : 0.68;
@@ -280,7 +357,7 @@ async function main() {
           payKind: kind,
           payRate: new Prisma.Decimal(rate),
           payEstimate: est,
-          status: p.status === "accepted" ? "dispatched" : p.status === "in_progress" ? "in_progress" : "completed",
+          status: p.status === "accepted" ? "dispatched" : p.status === "in_progress" ? "in_progress" : "completed", // a TONU's driver did the trip to the pickup
           dispatchedAt,
           respondedAt
         }
@@ -292,6 +369,10 @@ async function main() {
       audits.push({ ...base, entity: "assignment", action: "assigned", summary: `${driver.name} assigned at ${payText}`, before: Prisma.JsonNull, after: { Driver: driver.name, Pay: payText, Estimate: `$${est.toFixed(2)}` }, createdAt: new Date(dispatchedAt.getTime() - 3_600_000) });
       audits.push({ ...base, entity: "assignment", action: "sent", summary: `Sent to ${driver.name}`, before: { Status: "Assigned, not sent" }, after: { Status: "Sent, waiting" }, createdAt: dispatchedAt });
       if (respondedAt) audits.push({ ...base, entity: "assignment", action: "accepted", summary: `${driver.name} accepted`, before: { Status: "Sent, waiting" }, after: { Status: "Driver accepted" }, createdAt: respondedAt });
+      if (p.status === "tonu") {
+        const label = reasonLabel(p.cancelReason);
+        audits.push({ ...base, entity: "load", action: "tonu", summary: `TONU, $${p.tonuFee!.toFixed(2)}: ${label}`, before: { Status: "Driver accepted" }, after: { Status: "TONU", Reason: label, Fee: `$${p.tonuFee!.toFixed(2)}` }, createdAt: cancelledAt! });
+      }
       if (invoicedAt) audits.push({ ...base, entity: "invoice", action: "invoiced", summary: `INV-${seq} created for $${p.offer.toFixed(2)}`, before: { Invoice: null, Amount: null }, after: { Invoice: `INV-${seq}`, Amount: `$${p.offer.toFixed(2)}`, Terms: "Net 30" }, createdAt: invoicedAt });
       if (paidAt) audits.push({ ...base, entity: "invoice", action: "paid", summary: `INV-${seq} paid, $${p.offer.toFixed(2)}`, before: { Status: "Invoiced" }, after: { Status: "Paid", Amount: `$${p.offer.toFixed(2)}` }, createdAt: paidAt });
     }

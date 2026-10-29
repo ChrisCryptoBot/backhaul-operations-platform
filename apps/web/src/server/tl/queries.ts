@@ -124,7 +124,10 @@ export async function listDrivers(workspaceId = DEMO_WORKSPACE_ID) {
     truck: d.assignedVehicle?.name ?? null,
     active: d.active,
     current: d.assignments.filter((a) => ["dispatched", "accepted", "in_progress"].includes(a.status)).map((a) => ({ loadId: a.loadId, loadNumber: a.load.loadNumber, status: a.status })),
-    delivered: d.assignments.filter((a) => a.status === "completed").length
+    delivered: d.assignments.filter((a) => a.status === "completed").length,
+    truckId: d.assignedVehicleId,
+    /** Open loads this driver holds (assigned, sent, accepted or on the road): what stops them being taken out of service. */
+    openLoadNumbers: d.assignments.filter((a) => ["draft", "dispatched", "accepted", "in_progress"].includes(a.status) && ["draft", "accepted", "in_progress"].includes(a.load.status)).map((a) => a.load.loadNumber ?? "a load")
   }));
 }
 
@@ -140,6 +143,10 @@ export async function listTrucks(workspaceId = DEMO_WORKSPACE_ID) {
     survivalFloorRpm: numOrNull(t.costProfile?.survivalFloorRpm),
     monthlyMiles: numOrNull(t.costProfile?.estimatedMonthlyMiles),
     archetype: t.costProfile?.archetype ?? null,
+    archived: t.archivedAt != null,
+    homeBase: t.homeBaseAddress,
+    fuelType: t.fuelType,
+    detentionRate: numOrNull(t.costProfile?.detentionHourlyRate),
     loads: t.loads.length,
     open: t.loads.filter((l) => ["draft", "accepted", "in_progress"].includes(l.status)).length
   }));

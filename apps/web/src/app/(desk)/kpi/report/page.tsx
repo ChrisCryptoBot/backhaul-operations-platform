@@ -23,7 +23,7 @@ export default async function KpiReportPage({ searchParams }: { searchParams?: R
     { label: "Gross revenue", now: usd(c.gross), before: p ? usd(p.gross) : "—", delta: deltaOf(c.gross, p?.gross, { kind: "pct" }) },
     { label: "Gross after tracked fuel, tolls and other costs", now: usd(c.netEstimate), before: p ? usd(p.netEstimate) : "—", delta: deltaOf(c.netEstimate, p?.netEstimate, { kind: "pct" }) },
     { label: "Per revenue mile", now: perMile(c.rpm), before: p ? perMile(p.rpm) : "—", delta: deltaOf(c.rpm, p?.rpm, { kind: "pct" }) },
-    { label: "Loads delivered", now: String(c.loads), before: p ? String(p.loads) : "—", delta: deltaOf(c.loads, p?.loads, { kind: "pct" }) },
+    { label: "Loads finished (a TONU counts)", now: String(c.loads), before: p ? String(p.loads) : "—", delta: deltaOf(c.loads, p?.loads, { kind: "pct" }) },
     { label: "Miles driven", now: miles(c.totalMiles), before: p ? miles(p.totalMiles) : "—", delta: null },
     { label: "Empty miles, share of miles driven", now: pct(c.emptyShare, 1), before: p ? pct(p.emptyShare, 1) : "—", delta: deltaOf(c.emptyShare, p?.emptyShare, { kind: "pts", lowerIsBetter: true }) },
     { label: "Loads that cleared the truck's floor", now: pct(c.clearedFloor), before: p ? pct(p.clearedFloor) : "—", delta: deltaOf(c.clearedFloor, p?.clearedFloor, { kind: "pts" }) },

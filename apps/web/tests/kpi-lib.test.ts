@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { centralMidnight, centralParts } from "../src/lib/zoned";
+import { centralInstant, centralMidnight, centralParts, parseCentralLocal, toCentralLocal } from "../src/lib/zoned";
 import { asKpiPeriod, DAY_MS, inWindow, periodWindow, previousWindow, weekBuckets, WEEK_MS, windowLabel } from "../src/lib/kpi-periods";
 import { emptyZone, resolveThresholds, THRESHOLD_DEFAULTS, validateThresholds, alertThresholds } from "../src/lib/thresholds";
 import { csvCell, toCsv } from "../src/lib/csv";
@@ -25,6 +25,16 @@ describe("Central-time calendar", () => {
   test("months and days may overflow into the next one", () => {
     expect(centralMidnight(2026, 12, 1)).toBe(utc("2027-01-01T06:00:00Z"));
     expect(centralMidnight(2026, 1, 29)).toBe(centralMidnight(2026, 2, 1)); // 29 Feb 2026 does not exist
+  });
+
+  test("a form time is read as Dallas time wherever the server runs, and written back the same", () => {
+    expect(centralInstant(2026, 9, 30, 8, 0)).toBe(utc("2026-10-30T13:00:00Z")); // 08:00 daylight time
+    expect(centralInstant(2026, 10, 3, 8, 0)).toBe(utc("2026-11-03T14:00:00Z")); // 08:00 standard time, after the change
+    expect(parseCentralLocal("2026-10-30T08:00")).toBe(utc("2026-10-30T13:00:00Z"));
+    expect(parseCentralLocal("2026-10-30 08:00")).toBe(utc("2026-10-30T13:00:00Z"));
+    expect(toCentralLocal(utc("2026-10-30T13:00:00Z"))).toBe("2026-10-30T08:00");
+    expect(toCentralLocal(parseCentralLocal("2026-12-05T17:45")!)).toBe("2026-12-05T17:45");
+    for (const bad of ["", "tomorrow", "2026-02-31T08:00", "2026-13-01T08:00", "2026-10-30T25:00", "2026-10-30"]) expect(parseCentralLocal(bad)).toBeNull();
   });
 
   test("an instant reads as the Central date, not the UTC one", () => {

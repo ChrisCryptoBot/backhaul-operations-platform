@@ -9,6 +9,7 @@ import { Bullets } from "@/components/desk/kpi/bullets";
 import { DeadheadBars, VarianceHistogram } from "@/components/desk/kpi/distribution";
 import { GrowthColumns, MonthlyBars, SmallMultiples } from "@/components/desk/kpi/trends";
 import { LaneScorecard } from "@/components/desk/kpi/lanes";
+import { ReasonsCard } from "@/components/desk/kpi/reasons";
 import { hasFilters, kpiHref, parseKpiParams } from "@/lib/kpi-params";
 import { KPI_PERIODS, windowLabel } from "@/lib/kpi-periods";
 import { shortDate, usd } from "@/lib/desk-format";
@@ -80,10 +81,7 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
 
           <div className="tl-grid cols-2">
             <SmallMultiples k={k} />
-            <div className="kstack">
-              <GrowthColumns k={k} />
-              <MonthlyBars k={k} />
-            </div>
+            <GrowthColumns k={k} />
           </div>
 
           <div className="tl-grid cols-2">
@@ -94,6 +92,11 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
           <div className="tl-grid cols-2">
             <VarianceHistogram k={k} />
             <DeadheadBars k={k} />
+          </div>
+
+          <div className="tl-grid cols-2">
+            <ReasonsCard k={k} />
+            <MonthlyBars k={k} />
           </div>
 
           <LaneScorecard k={k} />

@@ -82,7 +82,7 @@ describe.skipIf(!run)("thresholds, KPI totals and exports on the demo database",
       data: { workspaceId: WS, loadNumber: "W3-INV", status: "completed", completedAt: new Date(), actualRevenue: 800, quotedRevenue: 800, payTermsDays: null }
     });
     loadIds.push(load.id);
-    expect(await invoiceLoad(load.id)).toEqual({ ok: true });
+    expect(await invoiceLoad(load.id)).toMatchObject({ ok: true });
     expect((await prisma.load.findUniqueOrThrow({ where: { id: load.id } })).payTermsDays).toBe(45);
   });
 

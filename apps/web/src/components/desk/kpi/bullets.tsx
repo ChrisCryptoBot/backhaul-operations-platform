@@ -42,14 +42,23 @@ export function Bullets({ k }: { k: DeskKpi }) {
   const p = k.prior;
   const grace = k.thresholds.detentionGraceMinutes;
   const waitMax = Math.max(grace * 1.6, (c.avgWaitMinutes ?? 0) * 1.2, 60);
-  const none = c.judgedLoads === 0 && c.paidLoads === 0 && c.waitStops === 0;
+  const none = c.judgedLoads === 0 && c.paidLoads === 0 && c.waitStops === 0 && c.arrivalStops === 0;
   return (
     <ChartFrame
-      title="Floor, payment and dock time"
-      unit="share of loads and invoices · minutes"
+      title="On time, floor, payment and dock time"
+      unit="share of stops, loads and invoices · minutes"
       empty={none ? "No finished loads in this period have a floor, a payment or a recorded wait yet." : undefined}
       caption="Each bar is measured against one marker: the previous period for the two shares, your free time for the wait. Amber means the wait is over the free time."
-      formula="Cleared the floor and paid within terms are shares of the loads that can be judged (a floor on file, a paid invoice). Wait is the mean recorded wait over stops that have one.">
+      formula="Arrived on time: stops reached by the time their window closed, over stops with both an arrival and a window. Cleared the floor and paid within terms are shares of the loads that can be judged (a floor on file, a paid invoice). Wait is the mean recorded wait over stops that have one.">
+      <Bullet
+        label="Arrived on time"
+        text={pct(c.onTimeArrivals)}
+        value={c.onTimeArrivals == null ? null : c.onTimeArrivals * 100}
+        max={100}
+        mark={p?.onTimeArrivals == null ? null : p.onTimeArrivals * 100}
+        markLabel={`previous ${pct(p?.onTimeArrivals)}`}
+        note={c.arrivalStops > 0 ? `${c.arrivalStops} stops with an arrival` : "no arrivals recorded"}
+      />
       <Bullet
         label="Cleared the floor"
         text={pct(c.clearedFloor)}

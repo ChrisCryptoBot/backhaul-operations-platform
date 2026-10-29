@@ -142,3 +142,38 @@ driver is sent), `/dispatch` (needs a driver, sent and waiting, moving), `/drive
   every export, the report page.
 - Not done: the browser's print dialog was not exercised (the report page and its print stylesheet were), a production build of this
   wave, and a keyboard-only walk (Wave 5).
+
+## Desk rework, Wave 4 (done): planner, disruptions, detention, fleet editing, broker and lane scorecards
+- **Planner** (`/planner`; `lib/planner.ts`, `server/tl/planner.ts`). Seven days, one row per driver and a "Needs a driver" tray; a load
+  is a bar from its first pickup window to its last delivery window, coloured by state (assigned and not sent, sent or accepted, on the
+  road, delivered) and marked red when the driver is double-booked. Above it, a "Due now" list of stops that are past due, due today,
+  coming up or already reached, read from the stop windows and the recorded arrivals. Days are Dallas days (`lib/zoned.ts`).
+- **Change of plans** on a load (`lib/disruptions.ts`, `server/tl/disruptions.ts`, `components/desk/disruption-dialogs.tsx`). Move the
+  pickup (every stop shifts by the same amount; a driver who already has the load is asked to confirm again; a new double-booking is
+  refused), cancel (the driver comes off), or record a TONU (the fee counts as revenue and the load closes). Each takes a reason from a
+  short list, and "Other" needs a note. Each writes an audit event in the same transaction. Reasons are counted on the KPI page.
+- **Detention** (`lib/detention.ts`, `server/tl/detention.ts`). The recorded wait at each stop against the free time (the truck's, else the
+  one in Settings) and the truck's detention rate gives what can be billed. The load view shows it under "Waiting at the docks"; the
+  invoice dialog has a checkbox that adds it to the invoice as an extra charge, using TrueLane's own invoice total; the Invoices page
+  lists what is billable and what was billed; an info alert says when money is still unbilled.
+- **Fleet editing** (`lib/fleet-forms.ts`, `server/tl/fleet.ts`, `components/desk/fleet-forms.tsx`). Add, edit, take out of service and
+  bring back drivers (a driver on an open load cannot be taken out); add, edit, archive and restore trucks (same rule). A truck's page
+  edits its cost profile with the break-even floor redrawn as you type; saving recomputes the floors on the server, tells you how many
+  open loads will now be judged on the new floor (finished loads keep the floor they were accepted at), and writes an audit event.
+  A blank form says nothing until a field is changed; pressing the button then shows every message.
+- **Brokers and Lanes** (`/brokers`, `/lanes`; `kpi-brokers` export). Scorecards over finished loads in the chosen period: loads, gross,
+  per mile, against market, days to pay, wait at a stop and how many fell through (brokers); empty miles split before and after, and
+  against market (lanes). Each broker links to the KPI page filtered to it.
+- **KPI additions.** "Why loads fell through" (cancelled loads and TONUs by reason, with the share of loads meant to run), "Arrived on
+  time" among the bullets, and "Loads finished" saying how many were TONUs.
+- **Seed.** Stops carry arrival times and waits; two cancelled loads and one TONU; detention terms on the cost profiles ($65 an hour after
+  two hours free). Load windows are set relative to the moment the seed runs, so re-run the seed before a demo to put "today" back
+  where it belongs.
+- Verified: `tsc` and eslint clean; vitest 17 files / 224 tests pass including the database tests (`RUN_DB_INTEGRATION=true`); the demo
+  database left as seeded (45 loads, 163 events). In the browser at 1440 wide: planner and due list, reschedule and cancel from the load
+  drawer (including the refusal for "Other" with no note), the detention section and invoice, drivers (add, edit with a lapsed card,
+  take out of service with Undo, the blocked state), a truck's cost profile (live floor, save, audit entry), brokers (period tabs,
+  search, export link), lanes, the KPI reasons card; the planner and a truck page in Day. At 1024 wide: no page-level overflow on the
+  planner, drivers, brokers, lanes, KPI and invoices pages; the planner's week scrolls inside its frame with the driver column pinned.
+- Not done: recording a TONU and reactivating a driver were exercised by the database tests, not in the browser; a TONU fee cannot be
+  invoiced yet; detention is not added to the KPI gross; a production build, a keyboard-only walk and the print dialog (Wave 5).

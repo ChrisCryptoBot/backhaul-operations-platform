@@ -1,15 +1,26 @@
 import Link from "next/link";
 import React from "react";
 import { agingFor, listInvoiceRows } from "@/server/tl/queries";
+import { getDetentionRecovery } from "@/server/tl/detention";
 import { invoiceAction, markPaidAction } from "../actions";
 import { PageHead, Stat } from "@/components/desk/ui";
 import { DataTable, type Column, type Row } from "@/components/desk/data-table";
 import { DataTableTools } from "@/components/desk/data-table-tools";
 import { EmptyState } from "@/components/desk/kit/states";
 import { shortDate, usd } from "@/lib/desk-format";
+import { spanText } from "@/lib/planner";
 
 type Inv = Awaited<ReturnType<typeof listInvoiceRows>>[number];
 
+const DETENTION: Column[] = [
+  { key: "load", label: "Load", sticky: true, width: 150 },
+  { key: "broker", label: "Broker" },
+  { key: "done", label: "Delivered" },
+  { key: "waited", label: "Waited", align: "num" },
+  { key: "billable", label: "Past free time", align: "num" },
+  { key: "status", label: "Where it stands" },
+  { key: "amount", label: "Still owed", align: "num" }
+];
 const READY: Column[] = [
   { key: "load", label: "Load", sticky: true, width: 150 },
   { key: "lane", label: "Lane" },
@@ -43,12 +54,28 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 export default async function InvoicesPage() {
-  const [all, aging] = await Promise.all([listInvoiceRows(), agingFor()]);
+  const [all, aging, detention] = await Promise.all([listInvoiceRows(), agingFor(), getDetentionRecovery()]);
   const toInvoice = all.filter((r) => !r.status);
   const open = all.filter((r) => r.status === "invoiced");
   const paid = all.filter((r) => r.status === "paid");
   const dueOf = (r: Inv) => (r.invoicedAt ? new Date(r.invoicedAt.getTime() + (r.payTermsDays ?? 0) * 86_400_000) : null);
 
+  const detentionRows: Row[] = detention.rows
+    .filter((r) => r.unbilled > 0 || r.noRate)
+    .map((r) => ({
+      id: r.loadId,
+      href: `/loads/${r.loadId}`,
+      search: [r.loadNumber, r.broker].filter(Boolean).join(" "),
+      cells: {
+        load: (<><Link href={`/loads/${r.loadId}`}>{r.loadNumber}</Link><span className="sub">{r.lane}</span></>),
+        broker: r.broker,
+        done: shortDate(r.completedAt),
+        waited: spanText(r.totalWaitMinutes),
+        billable: spanText(r.billableMinutes),
+        status: r.noRate ? <span className="tl-chip muted">No detention rate on this truck</span> : r.invoiced ? <span className="tl-chip warn">Left off the invoice</span> : <span className="tl-chip info">Not invoiced yet</span>,
+        amount: r.noRate ? <span className="dim">—</span> : usd(r.unbilled, 2)
+      }
+    }));
   const readyRows: Row[] = toInvoice.map((r) => ({
     id: r.id,
     href: `/loads/${r.id}`,
@@ -98,6 +125,16 @@ export default async function InvoicesPage() {
         <Stat label="Paid" value={String(paid.length)} />
       </div>
 
+      <Section title={`Detention not yet billed · ${detention.unbilledLoads} ${detention.unbilledLoads === 1 ? "load" : "loads"} · ${usd(detention.totalUnbilled, 2)}`}>
+        <DataTable
+          id="inv-detention"
+          label="Detention not yet billed"
+          columns={DETENTION}
+          rows={detentionRows}
+          empty={<EmptyState icon="check" title="No detention is waiting to be billed">When a driver waits past the free time at a dock, it shows here until it is on an invoice.</EmptyState>}
+        />
+        {detention.totalBilled > 0 ? <p className="tl-note" style={{ marginTop: 8 }}>{usd(detention.totalBilled, 2)} of detention has already gone out on invoices.</p> : null}
+      </Section>
       <Section title={`Ready to invoice · ${toInvoice.length}`}>
         <DataTable id="inv-ready" label="Ready to invoice" columns={READY} rows={readyRows} empty={<EmptyState icon="check" title="Every delivered load has an invoice" />} />
       </Section>

@@ -35,7 +35,11 @@ export class DispatchError extends Error {
       | "not_sent"
       | "double_booked"
       | "reason_required"
-      | "not_unassignable",
+      | "not_unassignable"
+      | "not_allowed"
+      | "bad_reason"
+      | "bad_fee"
+      | "bad_time",
     message: string
   ) {
     super(message);

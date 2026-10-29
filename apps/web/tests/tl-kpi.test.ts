@@ -40,6 +40,7 @@ function row(over: Partial<KpiLoadRow> & { id: string }): KpiLoadRow {
     createdAt: ago(8),
     scheduledDate: ago(6),
     paidAt: null,
+    cancelReason: null,
     snapshotBaseFloorRpm: null,
     vehicleName: "Unit 101",
     verdict: null,
@@ -231,5 +232,86 @@ describe("filters, drivers and lanes", () => {
     expect(k.variance).toHaveLength(4);
     expect(k.variance.filter((v) => v == null)).toHaveLength(1);
     expect(k.variance[0]).toBeCloseTo((1000 - 1200) / 1200, 6);
+  });
+});
+
+describe("loads that fell through, and brokers", () => {
+  const cancelled = (id: string, brokerName: string, reason: string, daysAgo: number) =>
+    row({ id, status: "cancelled", brokerName, completedAt: null, actualRevenue: null, cancelledAt: ago(daysAgo), updatedAt: ago(daysAgo), cancelReason: reason });
+  const tonu = (id: string, brokerName: string, reason: string, daysAgo: number) =>
+    row({ id, status: "tonu", brokerName, completedAt: null, actualRevenue: null, tonuRevenue: 150, cancelledAt: ago(daysAgo), updatedAt: ago(daysAgo), cancelReason: reason });
+  const rows = [
+    row({ id: "d1", brokerName: "Northline" }),
+    row({ id: "d2", brokerName: "Northline", completedAt: ago(6), updatedAt: ago(6) }),
+    row({ id: "d3", brokerName: "Blue Mesa", completedAt: ago(7), updatedAt: ago(7) }),
+    cancelled("c1", "Blue Mesa", "broker_cancelled", 3),
+    cancelled("c2", "Blue Mesa", "broker_cancelled", 9),
+    tonu("t1", "Northline", "shipper_not_ready", 4)
+  ];
+
+  it("counts cancelled loads and TONUs apart from delivered ones, with the reasons most common first", () => {
+    const k = buildDeskKpi(rows, all, THRESHOLD_DEFAULTS, now);
+    expect(k.reliability).toMatchObject({ cancelled: 2, tonu: 1, lost: 3, delivered: 3 });
+    expect(k.reliability.rate).toBeCloseTo(3 / 6, 6);
+    expect(k.reliability.reasons).toEqual([
+      { key: "broker_cancelled", label: "Broker cancelled", count: 2 },
+      { key: "shipper_not_ready", label: "Shipper not ready", count: 1 }
+    ]);
+  });
+
+  it("a TONU earns its fee and counts as a finished load, but is not called delivered", () => {
+    const k = buildDeskKpi(rows, all, THRESHOLD_DEFAULTS, now);
+    expect(k.current.loads).toBe(4); // three delivered and the TONU
+    expect(k.current.tonuLoads).toBe(1);
+    expect(k.current.gross).toBe(3000 + 150);
+    expect(k.reliability.delivered).toBe(3);
+  });
+
+  it("only what happened inside the window counts, and the earlier window is kept for comparison", () => {
+    const k = buildDeskKpi(rows, { period: "4w", compare: true, filters: {} }, THRESHOLD_DEFAULTS, now);
+    // c2 was nine days ago and is inside four weeks; make one older than that
+    const older = buildDeskKpi([...rows, cancelled("c3", "Northline", "rate_dispute", 40)], { period: "4w", compare: true, filters: {} }, THRESHOLD_DEFAULTS, now);
+    expect(k.reliability.lost).toBe(3);
+    expect(older.reliability.lost).toBe(3);
+    expect(older.reliability.priorLost).toBe(1);
+    expect(older.reliability.reasons.some((r) => r.key === "rate_dispute")).toBe(false);
+    expect(buildDeskKpi(rows, all, THRESHOLD_DEFAULTS, now).reliability.priorLost).toBeNull();
+  });
+
+  it("a period with nothing in it has no rate rather than 0 per cent", () => {
+    const k = buildDeskKpi([], all, THRESHOLD_DEFAULTS, now);
+    expect(k.reliability).toMatchObject({ lost: 0, delivered: 0, rate: null, reasons: [] });
+  });
+
+  it("brokers roll up their loads, their money, and how many they let fall through", () => {
+    const k = buildDeskKpi(rows, all, THRESHOLD_DEFAULTS, now);
+    const north = k.brokers.find((b) => b.name === "Northline")!;
+    const mesa = k.brokers.find((b) => b.name === "Blue Mesa")!;
+    expect(north).toMatchObject({ loads: 3, lost: 1 }); // two delivered and a TONU
+    expect(mesa).toMatchObject({ loads: 1, lost: 2 });
+    expect(north.gross).toBe(2000 + 150);
+    expect(k.brokers[0]!.name).toBe("Northline"); // biggest first
+  });
+
+  it("a broker with only cancelled loads still shows, with nothing earned", () => {
+    const k = buildDeskKpi([cancelled("c9", "Ghost Freight", "pulled", 2)], all, THRESHOLD_DEFAULTS, now);
+    expect(k.brokers).toEqual([expect.objectContaining({ name: "Ghost Freight", loads: 0, gross: 0, lost: 1, rpm: null })]);
+  });
+
+  it("broker market rate, days to pay and waits are ratios over that broker's own loads", () => {
+    const k = buildDeskKpi(
+      [
+        row({ id: "m1", brokerName: "Northline", marketBenchmark: 2.0, paymentStatus: "paid", invoicedAt: ago(40), paidAt: ago(20), stops: [{ waitMinutes: 60 }] }), // pay 1000 vs 1000: at market, 20 days to pay
+        row({ id: "m2", brokerName: "Northline", marketBenchmark: 1.0, paymentStatus: "paid", invoicedAt: ago(50), paidAt: ago(10), stops: [{ waitMinutes: 120 }] }) // pay 1000 vs 500: 100% over, 40 days
+      ],
+      all,
+      THRESHOLD_DEFAULTS,
+      now
+    );
+    const b = k.brokers[0]!;
+    expect(b.marketVariancePct).toBeCloseTo((2000 - 1500) / 1500, 6);
+    expect(b.avgDaysToPay).toBeCloseTo(30, 6);
+    expect(b.avgWaitMinutes).toBe(90);
+    expect(b.benchmarked).toBe(2);
   });
 });

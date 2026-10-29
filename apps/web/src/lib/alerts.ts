@@ -18,7 +18,8 @@ export type AlertCode =
   | "BELOW_COST_UNASSIGNED"
   | "INVOICE_OVERDUE"
   | "MISSING_REFERENCE"
-  | "READY_TO_INVOICE";
+  | "READY_TO_INVOICE"
+  | "DETENTION_UNBILLED";
 
 /** The thresholds the rules use. Fixed for now; the settings screen will own them. */
 export type AlertThresholds = { pickupHours: number; sentNoAnswerHours: number; clearanceDays: number };
@@ -89,6 +90,13 @@ export const RULES: RuleDef[] = [
     title: "Delivered and not invoiced",
     appliesTo: "Delivered loads",
     trigger: () => "The load is delivered and no invoice has been created."
+  },
+  {
+    code: "DETENTION_UNBILLED",
+    level: "info",
+    title: "Detention that was never billed",
+    appliesTo: "Delivered loads",
+    trigger: () => "A stop waited past the truck's free time and the invoice (or no invoice yet) does not carry the detention."
   }
 ];
 
@@ -102,6 +110,8 @@ export type AlertLoad = {
   invoiceNumber: string | null;
   invoicedAt: Date | null;
   payTermsDays: number | null;
+  /** Detention that is owed on a delivered load and not on any invoice, in dollars (0 or absent when none). */
+  detentionUnbilled?: number;
   verdict: "accept" | "caution" | "reject" | "needs_fuel" | null;
   stops: Array<{ timeWindowEarliest: Date | null; timeWindowLatest: Date | null; referenceNumbers: unknown }>;
   assignment: null | {
@@ -165,6 +175,7 @@ export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds =
     }
 
     if (l.status === "completed" && !l.paymentStatus) add(l, "READY_TO_INVOICE", "info", "Delivered and not invoiced yet.");
+    if (l.status === "completed" && (l.detentionUnbilled ?? 0) > 0) add(l, "DETENTION_UNBILLED", "info", `$${l.detentionUnbilled!.toFixed(2)} of detention can still be billed.`);
   }
 
   // Double booking: one driver on two open loads whose windows overlap. Reported on both loads, naming the other.

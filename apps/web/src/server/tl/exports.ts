@@ -10,7 +10,7 @@ import { listBoardRows, listInvoiceRows } from "./queries";
  * The CSV files the desk offers. Each is built from the same functions the screen uses (the Loads filter, the KPI engine),
  * so a file always matches what was on screen when it was asked for. Dates are the Central calendar date.
  */
-export const EXPORT_KINDS = ["loads", "invoices", "kpi-drivers", "kpi-lanes", "kpi-weeks"] as const;
+export const EXPORT_KINDS = ["loads", "invoices", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks"] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
 type Query = Record<string, string | string[] | undefined>;
@@ -58,7 +58,7 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
     };
   }
 
-  if (kind === "kpi-drivers" || kind === "kpi-lanes" || kind === "kpi-weeks") {
+  if (kind === "kpi-drivers" || kind === "kpi-lanes" || kind === "kpi-brokers" || kind === "kpi-weeks") {
     const p = parseKpiParams(query);
     const k = await getDeskKpi({ period: p.period, compare: false, filters: p.filters }, now);
     const tag = `${p.period}-${day}`;
@@ -77,6 +77,15 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
         csv: toCsv(
           ["Lane", "Loads", "Gross", "Per revenue mile", "Empty miles (%)", "Avg empty before pickup", "Avg empty after delivery", "Loads with a market rate", "Against market (%)", "Status"],
           k.lanes.map((l): CsvCell[] => [l.key, l.loads, two(l.gross), two(l.rpm), pctOf(l.emptyShare), two(l.avgPickupEmpty), two(l.avgReturnEmpty), l.benchmarked, pctOf(l.marketVariancePct), l.status === "above" ? "above market" : l.status === "below" ? "below market" : "no market rate"])
+        )
+      };
+    }
+    if (kind === "kpi-brokers") {
+      return {
+        filename: `truelane-desk-kpi-brokers-${tag}.csv`,
+        csv: toCsv(
+          ["Broker", "Loads", "Gross", "Per revenue mile", "Against market (%)", "Loads with a market rate", "Paid invoices", "Days to pay", "Average wait at a stop (min)", "Cancelled or TONU"],
+          k.brokers.map((b): CsvCell[] => [b.name, b.loads, two(b.gross), two(b.rpm), pctOf(b.marketVariancePct), b.benchmarked, b.paidLoads, two(b.avgDaysToPay), two(b.avgWaitMinutes), b.lost])
         )
       };
     }
