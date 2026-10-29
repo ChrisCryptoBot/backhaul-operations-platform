@@ -95,6 +95,9 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
   return (
     <ToastProvider>
       <div className="tl-app" data-collapsed={collapsed ? "true" : "false"}>
+        <a className="skip-link" href="#main">
+          Skip to content
+        </a>
         <aside className="tl-side" aria-label="Primary">
           <div className="tl-brand">
             <span className="tl-mark" aria-hidden="true" />
@@ -141,7 +144,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
               <div className="tl-total"><b>{pct(t.emptyShare)}</b><span>Empty miles</span></div>
             </div>
           </header>
-          <main className="tl-main" id="main">
+          <main className="tl-main" id="main" tabIndex={-1}>
             {children}
           </main>
         </div>

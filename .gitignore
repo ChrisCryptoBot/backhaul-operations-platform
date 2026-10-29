@@ -20,3 +20,4 @@ test-results/
 
 # local dev server logs
 apps/web/.dev*.log
+.next-*/

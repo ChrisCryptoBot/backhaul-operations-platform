@@ -96,6 +96,7 @@ Do not write a new one of these.
 
 - Every interactive element has an accessible name; icon-only buttons carry `aria-label`.
 - One `h1` per page, headings do not skip levels, one `main`, tables have a name (`aria-label`) and `scope` on header cells.
+- The first Tab stop on every page is a "Skip to content" link to `<main id="main" tabindex="-1">`, so a keyboard user does not tab through the whole sidebar each time.
 - Focus is always visible (the accent ring; `:focus-visible`), never removed. Tab order follows reading order; nothing has a positive `tabindex`. Whole-row click is a convenience; the link in the first cell is the keyboard path.
 - Modals hold focus, return it to what opened them, and close on Escape. The menu popovers are `<details>` and work with Enter and Space.
 - Colour is never the only signal: every dot has its word, every delta has an arrow and an `aria-label`, every sorted column has an arrow and `aria-sort`.

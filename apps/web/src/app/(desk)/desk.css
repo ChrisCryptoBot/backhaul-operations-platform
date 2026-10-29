@@ -964,3 +964,11 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
   .tl-grid.cols-4 > .tl-card.tl-stat:nth-child(odd) { padding-left: 0; border-left: 0; }
   .tl-grid.cols-3 > .tl-card.tl-stat, .tl-grid.cols-2 > .tl-card.tl-stat { padding-left: 0; border-left: 0; }
 }
+
+/* Skip link: the first Tab stop on every page. Off-screen until it has focus, then a glass pill at the top left. */
+.skip-link { position: fixed; left: var(--db-4); top: -64px; z-index: 300; padding: var(--db-2) var(--db-4); border-radius: var(--db-r-md); text-decoration: none; font-weight: 700; color: var(--db-accent-fg);
+  background: var(--db-glass-sheen), var(--db-glass-bg-strong); -webkit-backdrop-filter: blur(var(--db-glass-blur)); backdrop-filter: blur(var(--db-glass-blur));
+  border: 1px solid var(--db-glass-edge); border-top-color: var(--db-glass-rim); transition: top var(--db-dur-fast) var(--db-ease); }
+.skip-link:focus { top: var(--db-3); outline: 2px solid var(--db-accent); outline-offset: 2px; }
+.tl-main:focus { outline: none; }
+@media print { .skip-link { display: none; } }

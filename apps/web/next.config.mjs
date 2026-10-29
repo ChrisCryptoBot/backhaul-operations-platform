@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // A production build can go to its own folder (NEXT_DIST_DIR=.next-prod) so checking it never disturbs the dev server's .next.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // The Brokers page is the Customers page now (a broker is one kind of customer); old links and bookmarks still land on it, query and all.
   async redirects() {
     return [
