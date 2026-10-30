@@ -29,6 +29,7 @@ import { DrawerFrame } from "./drawer-frame";
 import { ConfirmForm } from "./kit/confirm-form";
 import { DisruptionButtons } from "./disruption-dialogs";
 import { Icon } from "./kit/icons";
+import { Tip, type TipData } from "./kit/tooltip";
 import { dateTime, miles, PAY_KIND_LABEL, payLabel, perMile, signedPct, usd } from "@/lib/desk-format";
 import { rateConTotal } from "@/lib/pay";
 
@@ -118,10 +119,37 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   const bar = (value: number | null, floor: number | null, max: number, verdict: string | undefined) => (
     <div className="mb-track">
       {value != null ? <div className={`mb-fill ${TONE[verdict ?? ""] ?? ""}`} style={{ width: `${Math.min(100, (value / max) * 100)}%` }} /> : null}
-      {floor != null ? <div className="mb-floor" style={{ left: `${Math.min(100, (floor / max) * 100)}%` }} title={`Floor ${perMile(floor)}`} /> : null}
+      {floor != null ? <div className="mb-floor" style={{ left: `${Math.min(100, (floor / max) * 100)}%` }} /> : null}
     </div>
   );
   const flippedAllIn = flipped && flipped.totalMiles > 0 ? flipped.effectiveGross / flipped.totalMiles : null;
+
+  // "Count every mile": what each bar means, in plain words, for the tooltip on it. Every figure is one the evaluation already worked out; nothing is recomputed here
+  // except the two plain differences the sentence needs (pay per mile against the floor).
+  const pickupMi = num(load.pickupDeadheadMiles);
+  const homeMi = num(load.returnDeadheadMiles);
+  const VERDICT_WORDS: Record<string, string> = { accept: "Covers your cost", caution: "Barely covers your cost", reject: "Below your cost" };
+  const gapText = (perMi: number | null, floor: number) => {
+    if (perMi == null) return "—";
+    const gap = perMi - floor;
+    return `$${Math.abs(gap).toFixed(2)} a mile ${gap >= 0 ? "over" : "short of"} your floor`;
+  };
+  const milesTip = (ev: NonNullable<typeof evaluation>, homeCounted: boolean, perMi: number | null, title: string, sub: string, note: string): TipData => ({
+    title,
+    sub,
+    rows: [
+      ["What the load pays", usd(ev.effectiveGross, 0)],
+      ["Empty to the pickup", miles(pickupMi)],
+      ["Loaded miles", miles(loadedMiles)],
+      ["Empty way home", homeCounted ? miles(homeMi) : `${miles(homeMi)}, not counted`],
+      ["Miles it has to cover", miles(ev.totalMiles)],
+      ["Pay per mile", perMi == null ? "—" : `${usd(ev.effectiveGross, 0)} ÷ ${miles(ev.totalMiles)} = ${perMile(perMi)}`],
+      ["Your floor", perMile(ev.verdictFloorRpm)],
+      ["Against your floor", gapText(perMi, ev.verdictFloorRpm)],
+      ["Verdict", VERDICT_WORDS[ev.finalDecision] ?? "—"]
+    ],
+    note
+  });
   const barMax = Math.max(allIn ?? 0, flippedAllIn ?? 0, evaluation?.verdictFloorRpm ?? 0, flipped?.verdictFloorRpm ?? 0, 0.01) * 1.15;
 
   // ── The sections, each built once ─────────────────────────────────────────────────────────────
@@ -197,24 +225,56 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
       <section className="sec">
         <h3>Count every mile</h3>
         <div className="sec-box">
+          <p className="tl-note" style={{ margin: "0 0 12px" }}>
+            <b>The pay is the same either way. The miles it has to cover are not.</b> The same money spread over more miles pays less for each one. Point at a bar to see how it is worked out.
+          </p>
           <div className="mb">
-            <div className="mb-row">
+            <Tip
+              as="div"
+              focusable
+              className="mb-row"
+              tip={milesTip(
+                evaluation,
+                !load.isBackhaul,
+                allIn,
+                wayHome,
+                load.isBackhaul ? "Another load is lined up for the trip back, so those miles are paid by that load." : "Nothing is lined up for the trip back, so you drive home with no load.",
+                `This is how the load is set now. ${load.isBackhaul ? "The empty miles home are left out, so the same pay goes further per mile." : "The empty miles home are charged to this load, so it has more miles to cover."}`
+              )}>
               <span>{wayHome}</span>
               {bar(allIn, evaluation.verdictFloorRpm, barMax, evaluation.finalDecision)}
               <b>{perMile(allIn)}</b>
-            </div>
-            <div className="mb-row">
+            </Tip>
+            <Tip
+              as="div"
+              focusable
+              className="mb-row"
+              tip={milesTip(
+                flipped,
+                load.isBackhaul,
+                flippedAllIn,
+                otherWayHome,
+                load.isBackhaul ? "Nothing is lined up for the trip back, so you drive home with no load." : "Another load is lined up for the trip back, so those miles are paid by that load.",
+                `What it would look like if the way home were set the other way. ${load.isBackhaul ? "The empty miles home are charged to this load, so it has more miles to cover." : "The empty miles home are left out, so the same pay goes further per mile."}`
+              )}>
               <span>{otherWayHome}</span>
               {bar(flippedAllIn, flipped.verdictFloorRpm, barMax, flipped.finalDecision)}
               <b>{perMile(flippedAllIn)}</b>
-            </div>
+            </Tip>
             <div className="mb-key">
-              <i /> your floor on that many miles
+              <i /> Your floor: what a mile costs you to run. A bar that reaches the line covers it.
+            </div>
+            <div className="mb-legend" aria-label="Colours">
+              <span><i className="ok" /> Covers your cost</span>
+              <span><i className="warn" /> Barely covers it</span>
+              <span><i className="bad" /> Below your cost</span>
             </div>
           </div>
           <p className="tl-note" style={{ marginTop: 10 }}>
-            Same offer, different miles: {miles(evaluation.totalMiles)} against {miles(flipped.totalMiles)}. One number, and it says which miles it is per.
-            {evaluation.marketVariancePct != null ? ` Against the market rate on this load: ${signedPct(evaluation.marketVariancePct)}.` : ""}
+            {evaluation.totalMiles === flipped.totalMiles
+              ? `Both come to ${miles(evaluation.totalMiles)}, because no empty way home is recorded on this load.`
+              : `${miles(evaluation.totalMiles)} to cover if ${load.isBackhaul ? "another load brings you home" : "you drive home empty"}, ${miles(flipped.totalMiles)} if ${load.isBackhaul ? "you drive home empty" : "another load brings you home"}.`}
+            {evaluation.marketVariancePct != null ? ` Against the market rate for this lane, the offer is ${Math.abs(evaluation.marketVariancePct * 100).toFixed(1)}% ${evaluation.marketVariancePct < 0 ? "below" : "above"} it.` : ""}
           </p>
         </div>
       </section>

@@ -1168,3 +1168,14 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .qt-side:not([data-tone])::before { opacity: 0.32; }
 .qt-side:not([data-tone])::after { opacity: 0.16; }
 .ms-composer-foot .tl-btn { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; white-space: nowrap; }
+
+/* Count every mile: each bar is a tooltip target; the legend says what the colours mean. */
+.mb-row { padding: 4px 6px; margin: 0 -6px; border-radius: var(--db-r-md); transition: background var(--db-dur-fast) var(--db-ease); cursor: help; }
+.mb-row:hover { background: var(--db-bg-elev-1); }
+.mb-row:focus-visible { outline: 2px solid var(--db-accent); outline-offset: 1px; }
+.mb-key { align-items: flex-start; line-height: 1.4; }
+.mb-key i { flex: none; margin-top: 1px; }
+.mb-legend { display: flex; flex-wrap: wrap; gap: var(--db-2) var(--db-4); font-size: var(--db-text-xs); color: var(--db-fg-dim); }
+.mb-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.mb-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--db-info-fill); }
+.mb-legend i.ok { background: var(--db-pos-fill); } .mb-legend i.warn { background: var(--db-warn-fill); } .mb-legend i.bad { background: var(--db-neg-fill); }
