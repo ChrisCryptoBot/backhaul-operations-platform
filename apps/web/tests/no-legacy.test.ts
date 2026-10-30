@@ -57,7 +57,7 @@ describe("the old app and its employer are gone", () => {
     const models = [...schema.matchAll(/^model (\w+) \{/gm)].map((m) => m[1]).sort();
     // The models that are not TrueLane's are the desk's own: AuditEvent, its record of what it did and why (Wave 2), and Settlement and
     // SettlementLoad, the driver pay statements and the one-row-per-load tie that stops a load being paid twice (Wave 7b), and Customer, the profile
-    // attached to the name a load carries (Wave C3), and Trailer, the trailer registry (Wave E2).
-    expect(models).toEqual(["Assignment", "AuditEvent", "CostProfile", "Customer", "Driver", "Load", "LoadDecision", "Settlement", "SettlementLoad", "Stop", "Trailer", "TripSegment", "Vehicle", "Workspace"]);
+    // attached to the name a load carries (Wave C3), and Trailer, the trailer registry (Wave E2), and PartnerConnection, which company a workspace has connected for each partner capability (Wave E4).
+    expect(models).toEqual(["Assignment", "AuditEvent", "CostProfile", "Customer", "Driver", "Load", "LoadDecision", "PartnerConnection", "Settlement", "SettlementLoad", "Stop", "Trailer", "TripSegment", "Vehicle", "Workspace"]);
   });
 });

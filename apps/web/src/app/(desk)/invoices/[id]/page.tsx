@@ -2,6 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import React from "react";
 import { getInvoice } from "@/server/tl/invoicing";
+import { factoringLabel, getFactoringView } from "@/server/partners/factoring";
+import { FactorPanel } from "@/components/desk/partner-actions";
 import { CopyText } from "@/components/desk/copy-text";
 import { PrintButton } from "@/components/desk/kpi/print-button";
 import { reminderText } from "@/lib/invoicing";
@@ -19,6 +21,7 @@ export const dynamic = "force-dynamic";
 export default async function InvoicePage({ params }: { params: { id: string } }) {
   const inv = await getInvoice(params.id);
   if (!inv) notFound();
+  const factoring = await getFactoringView(params.id);
   const now = new Date();
   const overdue = inv.status === "invoiced" && inv.due.getTime() < now.getTime();
   const short = inv.status === "paid" && inv.paidAmount != null ? Math.round((inv.total - inv.paidAmount) * 100) / 100 : 0;
@@ -31,6 +34,7 @@ export default async function InvoicePage({ params }: { params: { id: string } }
         <PrintButton />
         {overdue ? <CopyText size="md" label="Copy reminder" text={reminderText({ broker: inv.billTo.name, invoiceNumber: inv.invoiceNumber, loadNumber: inv.load.number, poNumber: inv.poNumber, amount: inv.total, sent: inv.sent, due: inv.due, now, origin: inv.load.origin, destination: inv.load.destination })} /> : null}
       </div>
+      {factoring ? <FactorPanel info={{ loadId: factoring.loadId, status: factoring.status, statusLabel: factoringLabel(factoring.status), referenceId: factoring.referenceId, manifest: factoring.manifest, missingOptional: factoring.missingOptional.length, blocked: factoring.blocked }} /> : null}
       <article className="rp">
         <DocHead
           kicker="Invoice"

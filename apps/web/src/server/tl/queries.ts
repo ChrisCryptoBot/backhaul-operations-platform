@@ -200,6 +200,7 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
       lane: `${l.originAddress ?? "?"} → ${l.destinationAddress ?? "?"}`,
       completedAt: l.completedAt,
       invoiceNumber: l.invoiceNumber,
+      factoringStatus: l.factoringStatus,
       invoicedAt: l.invoicedAt,
       paidAt: l.paidAt,
       payTermsDays: l.payTermsDays,

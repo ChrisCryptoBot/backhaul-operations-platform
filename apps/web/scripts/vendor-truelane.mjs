@@ -56,7 +56,11 @@ export const FILES = [
 ];
 
 // Files whose path inside TrueLane differs from where they live here: [source, destination under src/truelane].
-export const MOVED = [["supabase/functions/rate-con-extract/core.ts", "rate-con/core.ts"]];
+export const MOVED = [
+  ["supabase/functions/rate-con-extract/core.ts", "rate-con/core.ts"],
+  // The partner-API contract (capabilities, secret names, status words, the factoring packet, hosCaution). Pure, no imports.
+  ["supabase/functions/_shared/partners/contract.ts", "partners/contract.ts"]
+];
 
 const sha = execFileSync("git", ["-C", root, "rev-parse", "HEAD"]).toString().trim();
 

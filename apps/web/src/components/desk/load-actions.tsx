@@ -14,6 +14,7 @@ import { AddressInput } from "./address-input";
 import { PAID_METHODS } from "@/lib/pay-method";
 import { AuthorityStatus, useAuthorityLookup } from "./customer-authority";
 import { Modal } from "./kit/modal";
+import { FuelImport } from "./partner-actions";
 import { useToast } from "./kit/toast";
 import { DateInput } from "./date-input";
 
@@ -475,6 +476,7 @@ export function TripEntry({
           <div className="rc-grid">
             <Fld label="Fuel ($)" error={errors.fuel}>
               <input inputMode="decimal" value={done.fuel} onChange={(e) => setDone({ ...done, fuel: e.target.value })} />
+              <FuelImport loadId={loadId} current={done.fuel} onFill={(v) => setDone((d) => ({ ...d, fuel: d.fuel.trim() === "" ? v : d.fuel }))} />
             </Fld>
             <Fld label="Tolls ($)" error={errors.tolls}>
               <input inputMode="decimal" value={done.tolls} onChange={(e) => setDone({ ...done, tolls: e.target.value })} />
@@ -513,6 +515,7 @@ export function TripEntry({
         <div className="dlg-form">
           <Fld label="Fuel ($)" error={errors.fuel}>
             <input inputMode="decimal" value={spent.fuel} onChange={(e) => setSpent({ ...spent, fuel: e.target.value })} />
+            <FuelImport loadId={loadId} current={spent.fuel} onFill={(v) => setSpent((s) => ({ ...s, fuel: s.fuel.trim() === "" ? v : s.fuel }))} />
           </Fld>
           <Fld label="Tolls ($)" error={errors.tolls}>
             <input inputMode="decimal" value={spent.tolls} onChange={(e) => setSpent({ ...spent, tolls: e.target.value })} />

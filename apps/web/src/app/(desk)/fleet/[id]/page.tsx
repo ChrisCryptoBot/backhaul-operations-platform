@@ -8,6 +8,7 @@ import { CostProfileForm, TruckForm, TruckRowActions } from "@/components/desk/f
 import { ACTION_LABEL } from "@/lib/audit-diff";
 import { dateTime, miles, perMile, shortDate } from "@/lib/desk-format";
 import { num } from "@/server/tl/convert";
+import { FuelCardForm } from "@/components/desk/partner-actions";
 
 /** One truck: its details, its cost profile with the floor it produces, what is on it now, and what has been changed. */
 export default async function TruckPage({ params }: { params: { id: string } }) {
@@ -78,6 +79,13 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
         </p>
         <CostProfileForm vehicleId={t.id} vehicleType={t.type} mpg={t.mpg == null ? null : num(t.mpg)} numbers={d.numbers} choices={d.choices} base={d.base} stored={d.stored ? { breakEven: d.stored.breakEven, survival: d.stored.survival } : null} openLoads={open} fuelType={t.fuelType} homeBase={t.homeBaseAddress} />
       </Card>
+
+      {d.vehicle.costProfile ? (
+        <Card title="Fuel card" className="tl-card">
+          <p className="tl-note" style={{ marginBottom: 10, maxWidth: "72ch" }}>The card this truck buys fuel on. When a card company is connected, a trip&apos;s fuel can be filled in from the card&apos;s purchases (it only fills an empty box).</p>
+          <FuelCardForm vehicleId={t.id} provider={d.vehicle.costProfile.fuelCardProvider} accountId={d.vehicle.costProfile.fuelCardAccountId} />
+        </Card>
+      ) : null}
 
       <div className="tl-grid cols-2" style={{ marginTop: 14 }}>
         <Card title={`On this truck now · ${open}`}>

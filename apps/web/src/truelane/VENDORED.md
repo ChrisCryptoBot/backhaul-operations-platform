@@ -44,3 +44,4 @@ The golden tests in `tests/truelane-domain.test.ts` pin the figures on the TrueL
 - `constants/vehicleData.ts`
 - `utils/calculateHelpers.ts`
 - `supabase/functions/rate-con-extract/core.ts` (as `rate-con/core.ts`)
+- `supabase/functions/_shared/partners/contract.ts` (as `partners/contract.ts`; vendored alone in Wave E4 from the phone's working tree, the other files were not refreshed)

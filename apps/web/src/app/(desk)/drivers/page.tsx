@@ -11,6 +11,9 @@ import { EmptyState } from "@/components/desk/kit/states";
 import { ymdOf } from "@/lib/fleet-forms";
 import { payLabel, shortDate } from "@/lib/desk-format";
 import { currentTerminal } from "@/server/tl/terminal";
+import { partnerState } from "@/server/partners/call";
+import { vetLabel } from "@/server/partners/vetting";
+import { VetButton } from "@/components/desk/partner-actions";
 
 const COLUMNS: Column[] = [
   { key: "driver", sortable: true, label: "Driver", group: "Driver", sticky: true, width: 220 },
@@ -20,6 +23,7 @@ const COLUMNS: Column[] = [
   { key: "cdl", label: "CDL", group: "Compliance" },
   { key: "medical", label: "Medical card", group: "Compliance" },
   { key: "clearance", label: "Clearance", group: "Compliance" },
+  { key: "carrier", label: "Carrier insurance", group: "Compliance" },
   { key: "now", label: "On now", group: "Work" },
   { key: "delivered", label: "Delivered", group: "Work", align: "num" },
   { key: "act", label: "", group: "" }
@@ -27,6 +31,7 @@ const COLUMNS: Column[] = [
 
 export default async function DriversPage({ searchParams }: { searchParams?: { q?: string; sort?: string; page?: string } }) {
   const terminal = await currentTerminal();
+  const vetState = await partnerState("vetting");
   const pageData = await listDriversPage({ q: searchParams?.q, sort: searchParams?.sort, page: asPage(searchParams?.page), terminal });
   const drivers = pageData.rows;
   const sortParam = searchParams?.sort ? { key: pageData.sort.key as string, dir: pageData.sort.dir } : null;
@@ -53,6 +58,10 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
       payKind: d.payKind ?? "",
       payRate: d.payRate == null ? "" : String(d.payRate),
       terminal: d.terminal ?? "",
+      carrierMc: d.carrierMc ?? "",
+      carrierDot: d.carrierDot ?? "",
+      payrollWorkerType: d.payrollWorkerType ?? "",
+      payrollEmployeeId: d.payrollEmployeeId ?? "",
       active: d.active,
       onLoads: d.openLoadNumbers.length,
       onLoadNumbers: d.openLoadNumbers
@@ -70,6 +79,16 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
         ),
         truck: d.truck ?? "—",
         terminal: d.terminal ?? <span className="dim">—</span>,
+        carrier:
+          d.carrierMc || d.carrierDot ? (
+            <>
+              <span className={`tl-chip ${d.vetStatus === "clear" ? "ok" : d.vetStatus === "unchecked" ? "muted" : "warn"}`}>{vetLabel(d.vetStatus)}</span>
+              <span className="sub">{[d.carrierMc ? `MC ${d.carrierMc}` : null, d.carrierDot ? `DOT ${d.carrierDot}` : null].filter(Boolean).join(" · ")}{d.coiExpiresAt ? ` · insured to ${shortDate(d.coiExpiresAt)}` : ""}</span>
+              <VetButton driverId={d.id} reason={vetState.reason} />
+            </>
+          ) : (
+            <span className="dim">—</span>
+          ),
         pay: payLabel(d.payKind, d.payRate),
         cdl: <>Class {d.cdlClass ?? "?"} · to {shortDate(d.cdlExpiry)}</>,
         medical: <>to {shortDate(d.medicalCardExpiry)}</>,

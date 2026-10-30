@@ -47,6 +47,7 @@ const NAV: Array<{ label: string; items: Item[] }> = [
     items: [
       { href: "/invoices", label: "Invoices", icon: "invoices", pill: (c) => (c.overdue > 0 ? { n: c.overdue, tone: "alert" } : c.readyToInvoice > 0 ? { n: c.readyToInvoice } : null) },
       { href: "/settlements", label: "Settlements", icon: "wallet" },
+      { href: "/payroll", label: "Payroll", icon: "invoices" },
       { href: "/kpi", label: "KPI dashboard", icon: "chart" }
     ]
   },

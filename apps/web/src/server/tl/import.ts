@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { IMPORT_MAX_ROWS, checkDriverRows, checkTrailerRows, checkTruckRows, driverKey, parseCsv, type ImportCheck, type ImportKind, type ProblemRow, type TrailerImport, type TruckImport, type DriverImport } from "@/lib/import-csv";
 import { saveTruckHomeCoordinates } from "@/server/geo/persist";
 import { recordAudit } from "./audit";
+import { truckRoom } from "./plan";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -71,6 +72,11 @@ export async function commitImport(kind: ImportKind, text: string, fileName: str
   const refused = NOT_USABLE(check);
   if (refused) return { ok: false, error: refused };
   if (check.good.length === 0) return { ok: false, error: "No row in that file can be imported. Fix the problems listed and load it again." };
+  // A plan holds only so many trucks: a file that would take the fleet past it is refused whole (not partly written), with the number it would be over by.
+  if (kind === "trucks") {
+    const room = await truckRoom(check.good.length, workspaceId);
+    if (!room.ok) return { ok: false, error: `${room.message} This file has ${check.good.length.toLocaleString("en-US")} to add.` };
+  }
   const skipped = check.problemCount;
   const file = fileName.trim().slice(0, 120) || `${kind}.csv`;
   await prisma.$transaction(

@@ -64,6 +64,14 @@ export type AuditAction =
   | "truck_archived"
   | "truck_restored"
   | "import_completed"
+  | "factoring_requested"
+  | "factoring_updated"
+  | "eld_linked"
+  | "hos_synced"
+  | "fuel_imported"
+  | "carrier_vetted"
+  | "payroll_sent"
+  | "partner_connected"
   | "trailer_added"
   | "trailer_changed"
   | "trailer_archived"
@@ -112,6 +120,14 @@ export const ACTION_LABEL: Record<string, string> = {
   truck_archived: "Truck archived",
   truck_restored: "Truck restored",
   import_completed: "Fleet imported from a file",
+  factoring_requested: "Invoice sent to a factor",
+  factoring_updated: "Factoring updated",
+  eld_linked: "Tractor linked to an ELD",
+  hos_synced: "Hours of service synced",
+  fuel_imported: "Fuel imported from a card",
+  carrier_vetted: "Carrier checked",
+  payroll_sent: "Sent to payroll",
+  partner_connected: "Company connected",
   trailer_added: "Trailer added",
   trailer_changed: "Trailer changed",
   trailer_archived: "Trailer archived",
@@ -161,6 +177,14 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   truck_archived: "bad",
   truck_restored: "ok",
   import_completed: "info",
+  factoring_requested: "info",
+  factoring_updated: "muted",
+  eld_linked: "info",
+  hos_synced: "muted",
+  fuel_imported: "info",
+  carrier_vetted: "info",
+  payroll_sent: "ok",
+  partner_connected: "info",
   trailer_added: "info",
   trailer_changed: "muted",
   trailer_archived: "bad",
@@ -178,5 +202,6 @@ export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[]
   { key: "intake", label: "Intake", actions: ["rate_con_saved"] },
   { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_deactivated", "driver_reactivated", "truck_added", "truck_changed", "truck_archived", "truck_restored", "import_completed", "cost_profile_changed", "trailer_added", "trailer_changed", "trailer_archived", "trailer_restored", "trailer_hooked", "trailer_unhooked", "trailer_assigned"] },
   { key: "customers", label: "Customers", actions: ["customer_added", "customer_changed"] },
+  { key: "partners", label: "Partners", actions: ["factoring_requested", "factoring_updated", "eld_linked", "hos_synced", "fuel_imported", "carrier_vetted", "payroll_sent", "partner_connected"] },
   { key: "settings", label: "Settings", actions: ["thresholds_changed", "company_changed"] }
 ];

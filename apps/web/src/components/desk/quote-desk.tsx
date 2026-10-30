@@ -18,6 +18,12 @@ import { Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
 import { DateInput } from "./date-input";
 
+/** How long ago an ISO time was, in the unit that reads best: "3 min ago", "2 h ago", "1 d ago". */
+const ago = (iso: string) => {
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
+  return min < 90 ? `${min} min ago` : min < 60 * 36 ? `${Math.round(min / 60)} h ago` : `${Math.round(min / 1440)} d ago`;
+};
+
 type Initial = { id: string | null; values: QuoteValues; vehicleId: string | null } | null;
 
 /**
@@ -568,6 +574,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                       <td>
                         <b>{r.truckName}</b>
                         <span className="sub">{r.driverName ? `${r.driverName} · ${shortLabour(r)}` : "No driver set on this truck"}</span>
+                        {r.hos.availableHours != null ? <span className="sub">Hours left now: {r.hos.availableHours} h{r.hos.syncedAt ? ` · read ${ago(r.hos.syncedAt)}` : ""}</span> : null}
                         {r.blocked ? <span className="sub neg">{r.blocked}</span> : null}
                         {r.warnings.map((w) => (
                           <span key={w} className="sub warn">

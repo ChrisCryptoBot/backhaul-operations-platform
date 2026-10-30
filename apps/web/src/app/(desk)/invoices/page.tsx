@@ -4,6 +4,7 @@ import { agingFor, countInvoices, listInvoiceRows } from "@/server/tl/queries";
 import { Pager } from "@/components/desk/pager";
 import { asPage } from "@/lib/paging";
 import { getDetentionRecovery } from "@/server/tl/detention";
+import { factoringLabel } from "@/server/partners/factoring";
 import { InvoiceDialog, PaidDialog } from "@/components/desk/load-actions";
 import { Card, PageHead, Stat } from "@/components/desk/ui";
 import { DataTable, type Column, type Row } from "@/components/desk/data-table";
@@ -122,7 +123,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: { 
         invoice: (
           <>
             <Link href={`/invoices/${r.id}`}>{r.invoiceNumber}</Link>
-            <span className="sub">{r.loadNumber}</span>
+            <span className="sub">{r.loadNumber}{r.factoringStatus !== "none" ? <> · <span className="tl-chip info">{factoringLabel(r.factoringStatus)}</span></> : null}</span>
           </>
         ),
         broker: r.broker,

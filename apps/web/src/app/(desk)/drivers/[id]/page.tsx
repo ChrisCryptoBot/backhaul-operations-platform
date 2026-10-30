@@ -35,6 +35,10 @@ export default async function DriverPage({ params }: { params: { id: string } })
     payKind: p.defaultPayKind ?? "",
     payRate: p.defaultPayRate == null ? "" : String(numOrNull(p.defaultPayRate)),
     terminal: p.terminal ?? "",
+    carrierMc: p.carrierMcNumber ?? "",
+    carrierDot: p.carrierDotNumber ?? "",
+    payrollWorkerType: p.payrollWorkerType ?? "",
+    payrollEmployeeId: p.payrollEmployeeId ?? "",
     active: p.active,
     onLoads: d.open.length,
     onLoadNumbers: d.open.map((o) => o.loadNumber ?? "a load")

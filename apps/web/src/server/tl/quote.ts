@@ -20,6 +20,7 @@ import { evaluateTlLoad, resolveLabour, type EvaluateLoadRow } from "./evaluate"
 import { freezeLoadSnapshot } from "./snapshot";
 import { currentWorkspaceId } from "./workspace";
 import { countTrailersAvailable } from "./trailers";
+import { hosCaution, type HosCaution } from "@/truelane/partners/contract";
 
 /**
  * The Calculate tab for a dispatcher. An offer is priced with TrueLane's own verdict (evaluateTlLoad) against every truck that has a cost
@@ -72,8 +73,10 @@ export type FitRow = {
   leftOver: number | null;
   /** A reason this truck or driver cannot take it: a load over the truck's limits, a lapsed card, or another load at that time. */
   blocked: string | null;
-  /** Things to know that do not stop it: equipment the truck is not marked as carrying, oversize freight, hazmat. */
+  /** Things to know that do not stop it: equipment the truck is not marked as carrying, oversize freight, hazmat, hours left on the clock. */
   warnings: string[];
+  /** The hours the truck's driver has left on the clock as the ELD last said (null when no ELD is linked), when that was, and how the trip compares. A caution only: nothing in the verdict reads it. */
+  hos: { availableHours: number | null; syncedAt: string | null; caution: HosCaution };
   detail: FitDetail;
 };
 
@@ -160,6 +163,9 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
   const labour = resolveLabour(profile as never, row.assignment, e.totalMiles, num(row.quotedRevenue) + num(row.fuelSurcharge));
   const margin = e.result.verdictMarginPerMi;
   const forLoad = truckFit(input.specs, truckLimits(truck));
+  // Hours left on the clock are a note beside the verdict, never an input to it (the vendored rules and the verdict are untouched).
+  const available = numOrNull(truck.hosAvailableHours);
+  const hos = { availableHours: available, syncedAt: truck.hosSyncedAt ? truck.hosSyncedAt.toISOString() : null, caution: hosCaution(e.tripHours, available) };
   return {
     key: `${truck.id}:${driver?.id ?? "none"}`,
     truckId: truck.id,
@@ -178,7 +184,8 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
     marginPerMile: margin,
     leftOver: margin == null ? null : margin * e.totalMiles,
     blocked: blocked ?? forLoad.blocker,
-    warnings: forLoad.warnings,
+    warnings: hos.caution.message ? [...forLoad.warnings, hos.caution.message] : forLoad.warnings,
+    hos,
     detail: {
       effectiveGross: e.effectiveGross,
       surcharge: e.fuelSurchargeDollars,

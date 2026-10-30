@@ -10,6 +10,8 @@ import { AddTruck, TruckRowActions } from "@/components/desk/fleet-forms";
 import { EmptyState } from "@/components/desk/kit/states";
 import { miles, perMile } from "@/lib/desk-format";
 import { currentTerminal } from "@/server/tl/terminal";
+import { partnerState } from "@/server/partners/call";
+import { SyncEldButton } from "@/components/desk/partner-actions";
 
 const COLUMNS: Column[] = [
   { key: "truck", sortable: true, label: "Truck", group: "Truck", sticky: true, width: 200 },
@@ -29,6 +31,7 @@ const COLUMNS: Column[] = [
 export default async function FleetPage({ searchParams }: { searchParams?: { q?: string; sort?: string; page?: string } }) {
   // Read a page at a time: the database searches, sorts and counts, so a fleet of thousands opens as fast as a fleet of three.
   const terminal = await currentTerminal();
+  const eld = await partnerState("eld");
   const pageData = await listTrucksPage({ q: searchParams?.q, sort: searchParams?.sort, page: asPage(searchParams?.page), terminal });
   const trucks = pageData.rows;
   const sortParam = searchParams?.sort ? { key: pageData.sort.key as string, dir: pageData.sort.dir } : null;
@@ -72,6 +75,7 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
   return (
     <>
       <PageHead title="Trucks" sub={`${terminal ? `${terminal} terminal. ` : ""}Each truck's break-even floor, from its own cost profile. Every verdict on the Loads screen is measured against it. Open a truck to change its costs and see the floor move.`}>
+        <SyncEldButton reason={eld.reason} />
         <Link href="/fleet/import" className="tl-btn">Import from a file</Link>
         <AddTruck />
       </PageHead>

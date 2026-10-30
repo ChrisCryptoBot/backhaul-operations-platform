@@ -45,13 +45,16 @@ model Workspace {
   remitTo     String? @map("remit_to")
   paymentNote String? @map("payment_note")
 
-  vehicles    Vehicle[]
-  trailers    Trailer[]
-  loads       Load[]
-  drivers     Driver[]
-  auditEvents AuditEvent[]
-  settlements Settlement[]
-  customers   Customer[]
+  /// The plan the workspace is on (starter | growth | pro | enterprise), or none chosen yet: then the price follows the fleet's size and nothing is limited.
+  plan               String?
+  partnerConnections PartnerConnection[]
+  vehicles           Vehicle[]
+  trailers           Trailer[]
+  loads              Load[]
+  drivers            Driver[]
+  auditEvents        AuditEvent[]
+  settlements        Settlement[]
+  customers          Customer[]
 
   @@map("workspaces")
 }
@@ -81,33 +84,38 @@ model Customer {
 }
 
 model Vehicle {
-  id              String    @id @default(cuid())
-  workspaceId     String    @map("workspace_id")
-  name            String?
-  make            String?
-  model           String?
-  year            Int?
-  type            String?
-  mpg             Decimal?  @db.Decimal(8, 3)
-  fuelType        String?   @map("fuel_type")
-  homeBaseAddress String?   @map("home_base_address")
+  id                String    @id @default(cuid())
+  workspaceId       String    @map("workspace_id")
+  name              String?
+  make              String?
+  model             String?
+  year              Int?
+  type              String?
+  mpg               Decimal?  @db.Decimal(8, 3)
+  fuelType          String?   @map("fuel_type")
+  homeBaseAddress   String?   @map("home_base_address")
   /// Where the home base is, found once (permanent geocoding) so measuring a quote does not look the address up each time. Blank until it is found.
-  homeBaseLat     Decimal?  @map("home_base_lat") @db.Decimal(9, 6)
-  homeBaseLng     Decimal?  @map("home_base_lng") @db.Decimal(9, 6)
-  payloadLbs      Int?      @map("payload_lbs")
-  maxLengthFt     Decimal?  @map("max_length_ft") @db.Decimal(8, 2)
-  maxWidthFt      Decimal?  @map("max_width_ft") @db.Decimal(8, 2)
-  maxHeightIn     Decimal?  @map("max_height_in") @db.Decimal(8, 2)
+  homeBaseLat       Decimal?  @map("home_base_lat") @db.Decimal(9, 6)
+  homeBaseLng       Decimal?  @map("home_base_lng") @db.Decimal(9, 6)
+  payloadLbs        Int?      @map("payload_lbs")
+  maxLengthFt       Decimal?  @map("max_length_ft") @db.Decimal(8, 2)
+  maxWidthFt        Decimal?  @map("max_width_ft") @db.Decimal(8, 2)
+  maxHeightIn       Decimal?  @map("max_height_in") @db.Decimal(8, 2)
   /// What the truck carries for loads that need it. Unticked reads as "not equipped", as on the phone.
-  hasLiftgate     Boolean   @default(false) @map("has_liftgate")
-  hasRamp         Boolean   @default(false) @map("has_ramp")
-  hasPalletJack   Boolean   @default(false) @map("has_pallet_jack")
+  hasLiftgate       Boolean   @default(false) @map("has_liftgate")
+  hasRamp           Boolean   @default(false) @map("has_ramp")
+  hasPalletJack     Boolean   @default(false) @map("has_pallet_jack")
   /// Which terminal (yard, branch, region) runs this truck. Free text; the terminals offered are the distinct values in use. Blank = unassigned.
-  terminal        String?
-  active          Boolean   @default(true)
-  archivedAt      DateTime? @map("archived_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  terminal          String?
+  /// The ELD the tractor is linked to and the hours left on the driver's clock as it last reported them (a caution on the Quote, never a rule).
+  eldProvider       String    @default("none") @map("eld_provider")
+  eldVehicleId      String?   @map("eld_vehicle_id")
+  hosAvailableHours Decimal?  @map("hos_available_hours") @db.Decimal(5, 2)
+  hosSyncedAt       DateTime? @map("hos_synced_at")
+  active            Boolean   @default(true)
+  archivedAt        DateTime? @map("archived_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
 
   workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   costProfile CostProfile?
@@ -164,7 +172,10 @@ model CostProfile {
   createdAt                        DateTime  @default(now()) @map("created_at")
   updatedAt                        DateTime  @updatedAt @map("updated_at")
 
-  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  vehicle           Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  /// The fuel card a truck buys its fuel on, and the account on it (a partner connection; blank until one is set up).
+  fuelCardProvider  String? @map("fuel_card_provider")
+  fuelCardAccountId String? @map("fuel_card_account_id")
 
   @@map("cost_profiles")
 }
@@ -255,6 +266,10 @@ model Load {
   deletedAt                     DateTime? @map("deleted_at")
   /// The trailer unit pulling this load (a record in the trailer registry). `trailerType` stays the kind of equipment the load needs.
   trailerId                     String?   @map("trailer_id")
+  /// Where the invoice stands with a factor: none | requested | submitted | funded | rejected | paid.
+  factoringStatus               String    @default("none") @map("factoring_status")
+  factoringReferenceId          String?   @map("factoring_reference_id")
+  factoringUpdatedAt            DateTime? @map("factoring_updated_at")
 
   workspace  Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   vehicle    Vehicle?        @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
@@ -360,6 +375,16 @@ model Driver {
   defaultPayRate    Decimal?  @map("default_pay_rate") @db.Decimal(12, 4)
   /// Which terminal (yard, branch, region) this driver works out of; the same free-text values as a truck's. Blank = unassigned.
   terminal          String?
+  /// Payroll: the id the payroll company knows them by, whether they are an employee or a contractor, and whether they have been set up there (none | ready | sent | failed).
+  payrollEmployeeId String?   @map("payroll_employee_id")
+  payrollStatus     String    @default("none") @map("payroll_status")
+  payrollWorkerType String?   @map("payroll_worker_type")
+  /// The carrier authority the driver (or their company) runs under, and what the last insurance check found.
+  carrierMcNumber   String?   @map("carrier_mc_number")
+  carrierDotNumber  String?   @map("carrier_dot_number")
+  vetStatus         String    @default("unchecked") @map("vet_status")
+  coiExpiresAt      DateTime? @map("coi_expires_at")
+  vetCheckedAt      DateTime? @map("vet_checked_at")
   active            Boolean   @default(true)
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
@@ -454,9 +479,12 @@ model Settlement {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  driver    Driver           @relation(fields: [driverId], references: [id], onDelete: Restrict)
-  loads     SettlementLoad[]
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  driver           Driver           @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  loads            SettlementLoad[]
+  /// When the statement was sent to payroll, and the reference payroll gave it. Blank until sent.
+  payrollSentAt    DateTime?        @map("payroll_sent_at")
+  payrollReference String?          @map("payroll_reference")
 
   @@unique([workspaceId, number])
   @@index([workspaceId, status])
@@ -517,4 +545,24 @@ model Trailer {
   @@index([workspaceId, status])
   @@index([currentVehicleId])
   @@map("trailers")
+}
+
+/// Which company a workspace has connected for a capability (factoring, eld, fuel_card, tracking, vetting, payroll, ifta). No credential is stored here:
+/// the company's keys are server secrets, and this row only says the connection was made and its state.
+model PartnerConnection {
+  id           String    @id @default(cuid())
+  workspaceId  String    @map("workspace_id")
+  capability   String
+  provider     String
+  status       String    @default("connected")
+  accountLabel String?   @map("account_label")
+  lastError    String?   @map("last_error")
+  connectedAt  DateTime? @map("connected_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, capability, provider])
+  @@map("partner_connections")
 }

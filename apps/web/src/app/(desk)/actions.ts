@@ -27,6 +27,12 @@ import { saveLoadDetails, type EditResult } from "@/server/tl/edit";
 import { assignFromQueue, assignOptions, type AssignOptions, type AssignOutcome } from "@/server/tl/suggest";
 import { currentTerminal } from "@/server/tl/terminal";
 import { assignTrailerToLoad, hookTrailer, saveTrailer, setTrailerArchived, type AssignTrailerResult, type SaveResult as TrailerSaveResult } from "@/server/tl/trailers";
+import { connectPartner, disconnectPartner, type ConnectResult } from "@/server/partners/connections";
+import { factorInvoice, type FactorResult } from "@/server/partners/factoring";
+import { syncEld, type SyncResult } from "@/server/partners/eld";
+import { importFuelForLoad, saveFuelCard, type FuelCardResult, type SaveFuelCard } from "@/server/partners/fuel-card";
+import { vetDriverCarrier, type VetResult } from "@/server/partners/vetting";
+import { sendToPayroll, type SendResult } from "@/server/partners/payroll";
 import { commitImport, locateHomeBases, previewImport, type ImportPreview, type ImportResult, type LocateResult } from "@/server/tl/import";
 import type { ImportKind } from "@/lib/import-csv";
 import { deleteLoad, restoreLoad, type RemoveResult } from "@/server/tl/remove";
@@ -482,3 +488,56 @@ export async function locateHomeBasesAction(after: string | null): Promise<Locat
   if (out.located > 0) revalidatePath("/fleet");
   return out;
 }
+
+// ── Partner companies (factoring, ELD, fuel cards, carrier vetting, payroll) ───────────────────
+
+export async function factorInvoiceAction(loadId: string, sendAnyway: boolean): Promise<FactorResult> {
+  const out = await factorInvoice(loadId, { sendAnyway: sendAnyway === true });
+  if (out.ok) {
+    revalidatePath("/invoices", "layout");
+    revalidatePath("/audit");
+  }
+  return out;
+}
+
+export async function syncEldAction(): Promise<SyncResult> {
+  const out = await syncEld();
+  if (out.ok) revalidatePath("/", "layout");
+  return out;
+}
+
+/** Reads a trip's fuel from the truck's card. Writes nothing to the load: the screen decides whether to put the total in the box. */
+export async function importFuelAction(loadId: string): Promise<FuelCardResult> {
+  return importFuelForLoad(loadId);
+}
+
+export async function saveFuelCardAction(vehicleId: string, provider: string, accountId: string): Promise<SaveFuelCard> {
+  const out = await saveFuelCard(vehicleId, String(provider ?? ""), String(accountId ?? ""));
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function vetCarrierAction(driverId: string): Promise<VetResult> {
+  const out = await vetDriverCarrier(driverId);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function sendToPayrollAction(statementIds: string[]): Promise<SendResult> {
+  const out = await sendToPayroll(Array.isArray(statementIds) ? statementIds.filter((i) => typeof i === "string") : []);
+  if (out.ok) revalidatePath("/payroll", "layout");
+  return out;
+}
+
+export async function connectPartnerAction(capability: string, provider: string, accountLabel: string | null): Promise<ConnectResult> {
+  const out = await connectPartner(String(capability), String(provider), accountLabel);
+  if (out.ok) revalidatePath("/", "layout");
+  return out;
+}
+
+export async function disconnectPartnerAction(capability: string, provider: string): Promise<ConnectResult> {
+  const out = await disconnectPartner(String(capability), String(provider));
+  if (out.ok) revalidatePath("/", "layout");
+  return out;
+}
+

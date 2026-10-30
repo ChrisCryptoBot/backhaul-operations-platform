@@ -11,7 +11,7 @@ import { currentWorkspaceId } from "./workspace";
 export type AuditDb = PrismaClient | Prisma.TransactionClient;
 
 export type AuditInput = {
-  entity: "assignment" | "load" | "invoice" | "intake" | "settings" | "fleet" | "settlement" | "customer" | "trailer";
+  entity: "assignment" | "load" | "invoice" | "intake" | "settings" | "fleet" | "settlement" | "customer" | "trailer" | "partner";
   /** The record the event is about (a trailer's id), so its history is found by id. */
   entityId?: string | null;
   action: AuditAction;

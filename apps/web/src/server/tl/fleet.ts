@@ -7,6 +7,7 @@ import { COST_ARCHETYPES, normalizeArchetype, normalizeFscCutAnswer } from "@/tr
 import { categoriesCarrySplit, resolveWizardInsurance } from "@/truelane/lib/insuranceFields";
 import type { AuditSnapshot } from "@/lib/audit-diff";
 import { recordAudit } from "./audit";
+import { truckRoom } from "./plan";
 import { num, numOrNull } from "./convert";
 import { profileMathInput } from "./evaluate";
 import { currentWorkspace, currentWorkspaceId } from "./workspace";
@@ -38,7 +39,7 @@ function payText(kind: string, rate: string): string | null {
 }
 
 function driverSnapshot(v: DriverValues, truckName: string | null): AuditSnapshot {
-  return { Name: v.name, Phone: v.phone || null, Email: v.email || null, "CDL class": v.cdlClass || null, "CDL good through": v.cdlExpiry || null, "Medical card good through": v.medicalCardExpiry || null, Truck: truckName, "Usual pay": payText(v.payKind, v.payRate), Terminal: v.terminal || null };
+  return { Name: v.name, Phone: v.phone || null, Email: v.email || null, "CDL class": v.cdlClass || null, "CDL good through": v.cdlExpiry || null, "Medical card good through": v.medicalCardExpiry || null, Truck: truckName, "Usual pay": payText(v.payKind, v.payRate), Terminal: v.terminal || null, "Carrier MC": v.carrierMc || null, "Carrier DOT": v.carrierDot || null, "Worker type": v.payrollWorkerType || null, "Payroll id": v.payrollEmployeeId || null };
 }
 
 export async function saveDriver(raw: Record<string, unknown>, id: string | null, now = new Date()): Promise<SaveResult<keyof DriverValues>> {
@@ -48,7 +49,7 @@ export async function saveDriver(raw: Record<string, unknown>, id: string | null
   const v = check.value;
   const truck = v.assignedVehicleId ? await prisma.vehicle.findFirst({ where: { id: v.assignedVehicleId, workspaceId: ws.id, archivedAt: null } }) : null;
   if (v.assignedVehicleId && !truck) return { ok: false, errors: { assignedVehicleId: "That truck is not available." } };
-  const data = { name: v.name, phone: v.phone || null, email: v.email || null, cdlClass: v.cdlClass || null, cdlExpiry: check.cdlExpiry, medicalCardExpiry: check.medicalCardExpiry, assignedVehicleId: truck?.id ?? null, defaultPayKind: v.payKind || null, defaultPayRate: check.payRate, terminal: v.terminal || null };
+  const data = { name: v.name, phone: v.phone || null, email: v.email || null, cdlClass: v.cdlClass || null, cdlExpiry: check.cdlExpiry, medicalCardExpiry: check.medicalCardExpiry, assignedVehicleId: truck?.id ?? null, defaultPayKind: v.payKind || null, defaultPayRate: check.payRate, terminal: v.terminal || null, carrierMcNumber: v.carrierMc || null, carrierDotNumber: v.carrierDot || null, payrollWorkerType: v.payrollWorkerType || null, payrollEmployeeId: v.payrollEmployeeId || null };
   const after = driverSnapshot(v, truck?.name ?? null);
 
   if (id == null) {
@@ -63,7 +64,7 @@ export async function saveDriver(raw: Record<string, unknown>, id: string | null
   const prev = await prisma.driver.findFirst({ where: { id, workspaceId: ws.id }, include: { assignedVehicle: true } });
   if (!prev) return { ok: false, error: "That driver does not exist." };
   const before = driverSnapshot(
-    { name: prev.name, phone: prev.phone ?? "", email: prev.email ?? "", cdlClass: prev.cdlClass ?? "", cdlExpiry: ymdOf(prev.cdlExpiry), medicalCardExpiry: ymdOf(prev.medicalCardExpiry), assignedVehicleId: prev.assignedVehicleId ?? "", payKind: prev.defaultPayKind ?? "", payRate: prev.defaultPayRate == null ? "" : String(num(prev.defaultPayRate)), terminal: prev.terminal ?? "" },
+    { name: prev.name, phone: prev.phone ?? "", email: prev.email ?? "", cdlClass: prev.cdlClass ?? "", cdlExpiry: ymdOf(prev.cdlExpiry), medicalCardExpiry: ymdOf(prev.medicalCardExpiry), assignedVehicleId: prev.assignedVehicleId ?? "", payKind: prev.defaultPayKind ?? "", payRate: prev.defaultPayRate == null ? "" : String(num(prev.defaultPayRate)), terminal: prev.terminal ?? "", carrierMc: prev.carrierMcNumber ?? "", carrierDot: prev.carrierDotNumber ?? "", payrollWorkerType: prev.payrollWorkerType ?? "", payrollEmployeeId: prev.payrollEmployeeId ?? "" },
     prev.assignedVehicle?.name ?? null
   );
   const moved = Object.keys(after).filter((k) => (before[k] ?? null) !== (after[k] ?? null));
@@ -127,6 +128,11 @@ export async function saveTruck(raw: Record<string, unknown>, id: string | null,
   const v = check.value;
   const clash = await prisma.vehicle.findFirst({ where: { workspaceId: ws.id, archivedAt: null, name: { equals: v.name, mode: "insensitive" }, ...(id ? { id: { not: id } } : {}) } });
   if (clash) return { ok: false, errors: { name: "A truck with that name already exists." } };
+  // A workspace on a plan may hold only that plan's number of trucks.
+  if (id == null) {
+    const room = await truckRoom(1, ws.id);
+    if (!room.ok) return { ok: false, error: room.message };
+  }
   const data = {
     name: v.name,
     type: v.type || null,

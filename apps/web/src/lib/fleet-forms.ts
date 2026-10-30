@@ -33,6 +33,12 @@ export type DriverValues = {
   payRate: string;
   /** The yard, branch or region they work out of (free text, up to 40 characters; blank = none). A big fleet is read one terminal at a time. */
   terminal: string;
+  /** The carrier authority the driver (or their company) runs under: digits, for the insurance check. Blank when they drive under yours. */
+  carrierMc: string;
+  carrierDot: string;
+  /** Payroll: "employee" or "contractor", and the id the payroll company knows them by. */
+  payrollWorkerType: string;
+  payrollEmployeeId: string;
 };
 
 export const PAY_KINDS = [
@@ -77,9 +83,17 @@ export function validateDriver(input: Raw): DriverCheck {
     assignedVehicleId: str(input.assignedVehicleId),
     payKind: str(input.payKind),
     payRate: str(input.payRate),
-    terminal: str(input.terminal).replace(/\s+/g, " ")
+    terminal: str(input.terminal).replace(/\s+/g, " "),
+    carrierMc: str(input.carrierMc).replace(/^mc[\s-]*/i, ""),
+    carrierDot: str(input.carrierDot).replace(/^dot[\s-]*/i, ""),
+    payrollWorkerType: str(input.payrollWorkerType),
+    payrollEmployeeId: str(input.payrollEmployeeId)
   };
   const errors: Partial<Record<keyof DriverValues, string>> = {};
+  if (v.carrierMc && !/^\d{3,8}$/.test(v.carrierMc)) errors.carrierMc = "Digits only, for example 123456.";
+  if (v.carrierDot && !/^\d{3,8}$/.test(v.carrierDot)) errors.carrierDot = "Digits only, for example 1234567.";
+  if (v.payrollWorkerType && v.payrollWorkerType !== "employee" && v.payrollWorkerType !== "contractor") errors.payrollWorkerType = "Employee or contractor.";
+  if (v.payrollEmployeeId.length > 60) errors.payrollEmployeeId = "That id is too long.";
   if (v.terminal.length > TERMINAL_MAX_LENGTH) errors.terminal = "That terminal name is too long.";
   if (v.name.length < 2) errors.name = "Type the driver's name.";
   else if (v.name.length > 80) errors.name = "That name is too long.";

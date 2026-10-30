@@ -145,6 +145,13 @@ export async function listDriversPage(query: DriverPageQuery = {}, workspaceId =
       payKind: d.defaultPayKind,
       payRate: numOrNull(d.defaultPayRate),
       terminal: d.terminal,
+      carrierMc: d.carrierMcNumber,
+      carrierDot: d.carrierDotNumber,
+      payrollWorkerType: d.payrollWorkerType,
+      payrollEmployeeId: d.payrollEmployeeId,
+      vetStatus: d.vetStatus,
+      coiExpiresAt: d.coiExpiresAt,
+      vetCheckedAt: d.vetCheckedAt,
       openLoadNumbers: mine.map((a) => a.load.loadNumber ?? "a load")
     };
   });

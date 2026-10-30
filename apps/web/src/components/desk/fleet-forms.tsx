@@ -61,14 +61,14 @@ function useShownErrors<K extends string>() {
 
 // ── Drivers ────────────────────────────────────────────────────────────────────────────────────
 
-export type DriverRow = { id: string; name: string; phone: string | null; email: string | null; cdlClass: string | null; cdlExpiry: string; medicalCardExpiry: string; truckId: string | null; truckName: string | null; payKind: string; payRate: string; terminal: string; active: boolean; onLoads: number; onLoadNumbers: string[] };
+export type DriverRow = { id: string; name: string; phone: string | null; email: string | null; cdlClass: string | null; cdlExpiry: string; medicalCardExpiry: string; truckId: string | null; truckName: string | null; payKind: string; payRate: string; terminal: string; carrierMc: string; carrierDot: string; payrollWorkerType: string; payrollEmployeeId: string; active: boolean; onLoads: number; onLoadNumbers: string[] };
 
 function DriverDialog({ open, onClose, driver }: { open: boolean; onClose: () => void; driver?: DriverRow }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
-  const blank: Record<keyof DriverValues, string> = { name: "", phone: "", email: "", cdlClass: "A", cdlExpiry: "", medicalCardExpiry: "", assignedVehicleId: "", payKind: "", payRate: "", terminal: "" };
-  const initial = driver ? { name: driver.name, phone: driver.phone ?? "", email: driver.email ?? "", cdlClass: driver.cdlClass ?? "", cdlExpiry: driver.cdlExpiry, medicalCardExpiry: driver.medicalCardExpiry, assignedVehicleId: driver.truckId ?? "", payKind: driver.payKind, payRate: driver.payRate, terminal: driver.terminal } : blank;
+  const blank: Record<keyof DriverValues, string> = { name: "", phone: "", email: "", cdlClass: "A", cdlExpiry: "", medicalCardExpiry: "", assignedVehicleId: "", payKind: "", payRate: "", terminal: "", carrierMc: "", carrierDot: "", payrollWorkerType: "", payrollEmployeeId: "" };
+  const initial = driver ? { name: driver.name, phone: driver.phone ?? "", email: driver.email ?? "", cdlClass: driver.cdlClass ?? "", cdlExpiry: driver.cdlExpiry, medicalCardExpiry: driver.medicalCardExpiry, assignedVehicleId: driver.truckId ?? "", payKind: driver.payKind, payRate: driver.payRate, terminal: driver.terminal, carrierMc: driver.carrierMc, carrierDot: driver.carrierDot, payrollWorkerType: driver.payrollWorkerType, payrollEmployeeId: driver.payrollEmployeeId } : blank;
   const [values, setValues] = React.useState<Record<keyof DriverValues, string>>(initial);
   const [serverErrors, setServerErrors] = React.useState<Partial<Record<keyof DriverValues, string>>>({});
   const [message, setMessage] = React.useState("");
@@ -170,6 +170,24 @@ function DriverDialog({ open, onClose, driver }: { open: boolean; onClose: () =>
         <Field label="Terminal" error={errors.terminal} hint="The yard or branch they work out of. Pick one already in use or type a new one.">
           <input value={values.terminal} onChange={set("terminal")} list={TERMINAL_LIST_ID} maxLength={TERMINAL_MAX_LENGTH} autoComplete="off" />
         </Field>
+        <div className="dlg-two">
+          <Field label="Carrier MC" error={errors.carrierMc} hint="Only if they drive under their own authority.">
+            <input value={values.carrierMc} onChange={set("carrierMc")} inputMode="numeric" autoComplete="off" />
+          </Field>
+          <Field label="Carrier DOT" error={errors.carrierDot}>
+            <input value={values.carrierDot} onChange={set("carrierDot")} inputMode="numeric" autoComplete="off" />
+          </Field>
+          <Field label="Worker type" error={errors.payrollWorkerType} hint="For payroll.">
+            <select value={values.payrollWorkerType} onChange={set("payrollWorkerType")}>
+              <option value="">Not set</option>
+              <option value="employee">Employee</option>
+              <option value="contractor">Contractor</option>
+            </select>
+          </Field>
+          <Field label="Payroll id" error={errors.payrollEmployeeId} hint="What the payroll company calls them.">
+            <input value={values.payrollEmployeeId} onChange={set("payrollEmployeeId")} autoComplete="off" maxLength={60} />
+          </Field>
+        </div>
         {message ? (
           <p className="tl-note warn" role="alert">
             {message}
