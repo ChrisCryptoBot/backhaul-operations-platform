@@ -101,6 +101,8 @@ model Vehicle {
   hasLiftgate     Boolean   @default(false) @map("has_liftgate")
   hasRamp         Boolean   @default(false) @map("has_ramp")
   hasPalletJack   Boolean   @default(false) @map("has_pallet_jack")
+  /// Which terminal (yard, branch, region) runs this truck. Free text; the terminals offered are the distinct values in use. Blank = unassigned.
+  terminal        String?
   active          Boolean   @default(true)
   archivedAt      DateTime? @map("archived_at")
   createdAt       DateTime  @default(now()) @map("created_at")
@@ -111,7 +113,8 @@ model Vehicle {
   loads       Load[]
   drivers     Driver[]
 
-  @@index([workspaceId])
+  @@index([workspaceId, archivedAt, name])
+  @@index([workspaceId, terminal])
   @@map("vehicles")
 }
 
@@ -257,9 +260,15 @@ model Load {
   assignment Assignment?
   settlement SettlementLoad?
 
-  @@index([workspaceId, status])
-  @@index([vehicleId])
-  @@index([completedAt])
+  // The lists a big fleet reads: by state, by day, by money, by customer, by number, and a truck's own loads. Trigram (search) indexes are in the
+  // 20261106100000 migration only; Prisma cannot express them.
+  @@index([workspaceId, deletedAt, status])
+  @@index([workspaceId, scheduledDate])
+  @@index([workspaceId, completedAt])
+  @@index([workspaceId, paymentStatus])
+  @@index([workspaceId, brokerName])
+  @@index([workspaceId, loadNumber])
+  @@index([vehicleId, status])
   @@map("loads")
 }
 
@@ -343,6 +352,8 @@ model Driver {
   /// What this driver is usually paid: cpm | hourly | flat, and the rate. An assignment starts from it; the assignment's own pay wins.
   defaultPayKind    String?   @map("default_pay_kind")
   defaultPayRate    Decimal?  @map("default_pay_rate") @db.Decimal(12, 4)
+  /// Which terminal (yard, branch, region) this driver works out of; the same free-text values as a truck's. Blank = unassigned.
+  terminal          String?
   active            Boolean   @default(true)
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
@@ -352,7 +363,9 @@ model Driver {
   assignments     Assignment[]
   settlements     Settlement[]
 
-  @@index([workspaceId])
+  @@index([workspaceId, active, name])
+  @@index([workspaceId, terminal])
+  @@index([assignedVehicleId])
   @@map("drivers")
 }
 
@@ -378,6 +391,7 @@ model Assignment {
   driver Driver @relation(fields: [driverId], references: [id], onDelete: Restrict)
 
   @@index([driverId, status])
+  @@index([status])
   @@map("assignments")
 }
 
@@ -401,6 +415,7 @@ model AuditEvent {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, createdAt])
+  @@index([workspaceId, action, createdAt])
   @@index([loadId, createdAt])
   @@map("audit_events")
 }

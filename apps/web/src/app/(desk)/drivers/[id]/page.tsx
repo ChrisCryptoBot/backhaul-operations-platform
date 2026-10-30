@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import React from "react";
 import { getDriverDetail } from "@/server/tl/driver-detail";
 import { listAudit } from "@/server/tl/audit";
-import { listTrucks } from "@/server/tl/queries";
 import { AssignmentChip, Card, PageHead, Stat } from "@/components/desk/ui";
 import { DriverRowActions, type DriverRow } from "@/components/desk/fleet-forms";
 import { ACTION_LABEL } from "@/lib/audit-diff";
@@ -20,7 +19,7 @@ const late = (m: number | null) => (m == null ? null : m >= 120 ? `${Math.round(
 export default async function DriverPage({ params }: { params: { id: string } }) {
   const d = await getDriverDetail(params.id);
   if (!d) notFound();
-  const [trucks, history] = await Promise.all([listTrucks(), listAudit({ group: "fleet", q: d.driver.name, pageSize: 8 })]);
+  const history = await listAudit({ group: "fleet", q: d.driver.name, pageSize: 8 });
   const p = d.driver;
   const s = d.scorecard;
   const row: DriverRow = {
@@ -32,8 +31,10 @@ export default async function DriverPage({ params }: { params: { id: string } })
     cdlExpiry: ymdOf(p.cdlExpiry),
     medicalCardExpiry: ymdOf(p.medicalCardExpiry),
     truckId: p.assignedVehicleId,
+    truckName: p.assignedVehicle?.name ?? null,
     payKind: p.defaultPayKind ?? "",
     payRate: p.defaultPayRate == null ? "" : String(numOrNull(p.defaultPayRate)),
+    terminal: p.terminal ?? "",
     active: p.active,
     onLoads: d.open.length,
     onLoadNumbers: d.open.map((o) => o.loadNumber ?? "a load")
@@ -43,7 +44,7 @@ export default async function DriverPage({ params }: { params: { id: string } })
     <>
       <PageHead title={p.name} sub={`${p.active ? "Active" : "Out of service"}${p.assignedVehicle ? ` · drives ${p.assignedVehicle.name}` : ""} · ${d.open.length} open ${d.open.length === 1 ? "load" : "loads"}`}>
         <Link href="/drivers" className="tl-btn">All drivers</Link>
-        <DriverRowActions driver={row} trucks={trucks.filter((t) => !t.archived).map((t) => ({ id: t.id, name: t.name }))} />
+        <DriverRowActions driver={row} />
       </PageHead>
 
       {p.active && d.blocker ? <p className="tl-note warn" role="alert" style={{ marginBottom: 14 }}>{d.blocker}. This driver cannot be assigned a load until it is fixed.</p> : null}

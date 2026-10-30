@@ -5,7 +5,8 @@ import { getAlerts } from "@/server/tl/alerts";
 import { saveCostProfile, saveDriver, saveTruck } from "@/server/tl/fleet";
 import { getKpiRows } from "@/server/tl/kpi";
 import { getPlannerData } from "@/server/tl/planner";
-import { getLoadDetail, listBoardRows, listTrucks } from "@/server/tl/queries";
+import { getLoadDetail, listBoardRows } from "@/server/tl/queries";
+import { listTrucksPage } from "@/server/tl/fleet-list";
 import { bookQuote, discardQuote, fitQuote, getQuote, listQuotes, quoteContext, saveQuote } from "@/server/tl/quote";
 import { searchDesk } from "@/server/tl/search";
 import { getShellData } from "@/server/tl/shell";
@@ -149,7 +150,7 @@ describe.skipIf(!run)("quoting a load on the demo database", () => {
     const planner = await getPlannerData(Date.parse("2027-02-09T12:00:00Z"), Date.now(), 3);
     expect([...planner.tray.flat(), ...planner.rows.flatMap((r) => r.cells.flat())].some((i) => i.loadId === saved.id)).toBe(false);
     expect((await searchDesk("W6 Broker")).some((h) => h.kind === "broker")).toBe(false);
-    const truck = (await listTrucks()).find((t) => t.id === truckId)!;
+    const truck = (await listTrucksPage({ q: "W6", pageSize: 200 })).rows.find((t) => t.id === truckId)!;
     expect(truck.loads).toBe(0);
     expect(truck.open).toBe(0);
   });

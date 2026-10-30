@@ -9,7 +9,7 @@ import type { AuditSnapshot } from "@/lib/audit-diff";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { profileMathInput } from "./evaluate";
-import { currentWorkspace, DEMO_WORKSPACE_ID } from "./workspace";
+import { currentWorkspace, currentWorkspaceId } from "./workspace";
 
 /**
  * Who drives and what they drive: adding, changing, deactivating and archiving drivers and trucks, and a truck's cost profile.
@@ -38,7 +38,7 @@ function payText(kind: string, rate: string): string | null {
 }
 
 function driverSnapshot(v: DriverValues, truckName: string | null): AuditSnapshot {
-  return { Name: v.name, Phone: v.phone || null, Email: v.email || null, "CDL class": v.cdlClass || null, "CDL good through": v.cdlExpiry || null, "Medical card good through": v.medicalCardExpiry || null, Truck: truckName, "Usual pay": payText(v.payKind, v.payRate) };
+  return { Name: v.name, Phone: v.phone || null, Email: v.email || null, "CDL class": v.cdlClass || null, "CDL good through": v.cdlExpiry || null, "Medical card good through": v.medicalCardExpiry || null, Truck: truckName, "Usual pay": payText(v.payKind, v.payRate), Terminal: v.terminal || null };
 }
 
 export async function saveDriver(raw: Record<string, unknown>, id: string | null, now = new Date()): Promise<SaveResult<keyof DriverValues>> {
@@ -48,7 +48,7 @@ export async function saveDriver(raw: Record<string, unknown>, id: string | null
   const v = check.value;
   const truck = v.assignedVehicleId ? await prisma.vehicle.findFirst({ where: { id: v.assignedVehicleId, workspaceId: ws.id, archivedAt: null } }) : null;
   if (v.assignedVehicleId && !truck) return { ok: false, errors: { assignedVehicleId: "That truck is not available." } };
-  const data = { name: v.name, phone: v.phone || null, email: v.email || null, cdlClass: v.cdlClass || null, cdlExpiry: check.cdlExpiry, medicalCardExpiry: check.medicalCardExpiry, assignedVehicleId: truck?.id ?? null, defaultPayKind: v.payKind || null, defaultPayRate: check.payRate };
+  const data = { name: v.name, phone: v.phone || null, email: v.email || null, cdlClass: v.cdlClass || null, cdlExpiry: check.cdlExpiry, medicalCardExpiry: check.medicalCardExpiry, assignedVehicleId: truck?.id ?? null, defaultPayKind: v.payKind || null, defaultPayRate: check.payRate, terminal: v.terminal || null };
   const after = driverSnapshot(v, truck?.name ?? null);
 
   if (id == null) {
@@ -63,7 +63,7 @@ export async function saveDriver(raw: Record<string, unknown>, id: string | null
   const prev = await prisma.driver.findFirst({ where: { id, workspaceId: ws.id }, include: { assignedVehicle: true } });
   if (!prev) return { ok: false, error: "That driver does not exist." };
   const before = driverSnapshot(
-    { name: prev.name, phone: prev.phone ?? "", email: prev.email ?? "", cdlClass: prev.cdlClass ?? "", cdlExpiry: ymdOf(prev.cdlExpiry), medicalCardExpiry: ymdOf(prev.medicalCardExpiry), assignedVehicleId: prev.assignedVehicleId ?? "", payKind: prev.defaultPayKind ?? "", payRate: prev.defaultPayRate == null ? "" : String(num(prev.defaultPayRate)) },
+    { name: prev.name, phone: prev.phone ?? "", email: prev.email ?? "", cdlClass: prev.cdlClass ?? "", cdlExpiry: ymdOf(prev.cdlExpiry), medicalCardExpiry: ymdOf(prev.medicalCardExpiry), assignedVehicleId: prev.assignedVehicleId ?? "", payKind: prev.defaultPayKind ?? "", payRate: prev.defaultPayRate == null ? "" : String(num(prev.defaultPayRate)), terminal: prev.terminal ?? "" },
     prev.assignedVehicle?.name ?? null
   );
   const moved = Object.keys(after).filter((k) => (before[k] ?? null) !== (after[k] ?? null));
@@ -77,7 +77,7 @@ export async function saveDriver(raw: Record<string, unknown>, id: string | null
 
 /** Take a driver out of service, or bring them back. A driver on an open load cannot be taken out until they are off it. */
 export async function setDriverActive(id: string, active: boolean, now = new Date()): Promise<ActResult> {
-  const d = await prisma.driver.findFirst({ where: { id, workspaceId: DEMO_WORKSPACE_ID }, include: { assignments: { where: { status: { in: OPEN_ASSIGNMENT }, load: { deletedAt: null, status: { in: OPEN_LOAD } } }, include: { load: true } } } });
+  const d = await prisma.driver.findFirst({ where: { id, workspaceId: currentWorkspaceId() }, include: { assignments: { where: { status: { in: OPEN_ASSIGNMENT }, load: { deletedAt: null, status: { in: OPEN_LOAD } } }, include: { load: true } } } });
   if (!d) return { ok: false, error: "That driver does not exist." };
   if (d.active === active) return { ok: true };
   if (!active && d.assignments.length > 0) {
@@ -109,7 +109,8 @@ function truckSnapshot(v: TruckValues): AuditSnapshot {
     Liftgate: v.hasLiftgate === "yes" ? "Yes" : null,
     Ramp: v.hasRamp === "yes" ? "Yes" : null,
     "Pallet jack": v.hasPalletJack === "yes" ? "Yes" : null,
-    "Home base": v.homeBaseAddress || null
+    "Home base": v.homeBaseAddress || null,
+    Terminal: v.terminal || null
   };
 }
 
@@ -132,6 +133,7 @@ export async function saveTruck(raw: Record<string, unknown>, id: string | null,
     mpg: check.mpg,
     fuelType: v.fuelType || null,
     homeBaseAddress: v.homeBaseAddress || null,
+    terminal: v.terminal || null,
     make: v.make || null,
     model: v.model || null,
     year: check.specs.year,
@@ -164,6 +166,7 @@ export async function saveTruck(raw: Record<string, unknown>, id: string | null,
     mpg: stored(prev.mpg),
     fuelType: prev.fuelType ?? "",
     homeBaseAddress: prev.homeBaseAddress ?? "",
+    terminal: prev.terminal ?? "",
     make: prev.make ?? "",
     model: prev.model ?? "",
     year: prev.year == null ? "" : String(prev.year),
@@ -189,7 +192,7 @@ export async function saveTruck(raw: Record<string, unknown>, id: string | null,
 
 /** Archive a truck (hide it from new work, keep its history), or restore it. A truck with an open load cannot be archived. */
 export async function setTruckArchived(id: string, archived: boolean, now = new Date()): Promise<ActResult> {
-  const t = await prisma.vehicle.findFirst({ where: { id, workspaceId: DEMO_WORKSPACE_ID }, include: { loads: { where: { deletedAt: null, status: { in: OPEN_LOAD } } }, drivers: { where: { active: true } } } });
+  const t = await prisma.vehicle.findFirst({ where: { id, workspaceId: currentWorkspaceId() }, include: { loads: { where: { deletedAt: null, status: { in: OPEN_LOAD } } }, drivers: { where: { active: true } } } });
   if (!t) return { ok: false, error: "That truck does not exist." };
   const isArchived = t.archivedAt != null;
   if (isArchived === archived) return { ok: true };
@@ -314,7 +317,7 @@ function profileFlat(numbers: ProfileNumbers, choices: ProfileChoices): Record<s
 export async function saveCostProfile(vehicleId: string, raw: Record<string, unknown>, now = new Date()): Promise<SaveResult<ProfileErrorKey> & { floors?: { breakEven: number; survival: number } }> {
   const check = validateProfile(raw);
   if (!check.ok) return { ok: false, errors: check.errors };
-  const vehicle = await prisma.vehicle.findFirst({ where: { id: vehicleId, workspaceId: DEMO_WORKSPACE_ID }, include: { costProfile: true } });
+  const vehicle = await prisma.vehicle.findFirst({ where: { id: vehicleId, workspaceId: currentWorkspaceId() }, include: { costProfile: true } });
   if (!vehicle) return { ok: false, error: "That truck does not exist." };
 
   const prev = vehicle.costProfile;
@@ -350,7 +353,7 @@ export async function saveCostProfile(vehicleId: string, raw: Record<string, unk
 }
 
 /** One truck with its cost profile as form numbers and answers, the part of the profile the form does not edit, and what is on it now. */
-export async function getTruckDetail(id: string, workspaceId = DEMO_WORKSPACE_ID) {
+export async function getTruckDetail(id: string, workspaceId = currentWorkspaceId()) {
   const t = await prisma.vehicle.findFirst({
     where: { id, workspaceId },
     include: { costProfile: true, drivers: { where: { active: true }, orderBy: { name: "asc" } }, loads: { where: { deletedAt: null, status: { in: OPEN_LOAD } }, orderBy: { scheduledDate: "asc" } } }

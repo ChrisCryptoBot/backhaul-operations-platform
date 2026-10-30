@@ -1,3 +1,4 @@
+import Link from "next/link";
 import React from "react";
 
 /**
@@ -36,7 +37,13 @@ export type Row = {
   cells: Record<string, React.ReactNode>;
 };
 
-export function DataTable({ id, columns, rows, empty, label }: { id: string; columns: Column[]; rows: Row[]; empty?: React.ReactNode; label: string }) {
+/**
+ * Server sorting: a list read a page at a time cannot sort in the browser (it would sort only the page), so its sortable headers are links that ask for the
+ * order. `sortHref` says where a column's header goes, and which way that column is sorted now.
+ */
+export type SortHref = (key: string) => { href: string; dir: "asc" | "desc" | "none" };
+
+export function DataTable({ id, columns, rows, empty, label, sortHref }: { id: string; columns: Column[]; rows: Row[]; empty?: React.ReactNode; label: string; sortHref?: SortHref }) {
   // Left offsets of the sticky columns, from their widths.
   const left: Record<string, number> = {};
   let acc = 0;
@@ -84,8 +91,12 @@ export function DataTable({ id, columns, rows, empty, label }: { id: string; col
           ) : null}
           <tr className="dt-cols">
             {columns.map((c) => (
-              <th key={c.key} className={cls(c)} style={{ ...style(c), ...(hasBands ? {} : { top: 0 }) }} scope="col" aria-sort={c.sortable ? "none" : undefined}>
-                {c.sortable ? (
+              <th key={c.key} className={cls(c)} style={{ ...style(c), ...(hasBands ? {} : { top: 0 }) }} scope="col" aria-sort={c.sortable ? (sortHref ? (({ asc: "ascending", desc: "descending", none: "none" }) as const)[sortHref(c.key).dir] : "none") : undefined}>
+                {c.sortable && sortHref ? (
+                  <Link className="dt-sortbtn" href={sortHref(c.key).href} replace scroll={false}>
+                    {c.label}
+                  </Link>
+                ) : c.sortable ? (
                   <button type="button" className="dt-sortbtn" data-sort-col={c.key} data-sort-kind={c.align === "num" ? "num" : "text"}>
                     {c.label}
                   </button>

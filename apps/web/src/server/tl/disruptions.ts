@@ -7,6 +7,7 @@ import { loadWindow } from "@/lib/schedule";
 import { DispatchError, findDriverClash } from "./dispatch";
 import { recordAudit } from "./audit";
 import { num } from "./convert";
+import { currentWorkspaceId } from "./workspace";
 
 /**
  * When a load falls through or moves. Cancelling and a TONU keep the reason the dispatcher picked (so it can be counted), and
@@ -22,15 +23,15 @@ function checkWhy(w: Why, valid: (k: string) => boolean): string {
 
 const statusLabel = (s: string) => LOAD_STATUS[s]?.label ?? s;
 
-async function loadWithDriver(loadId: string) {
-  const load = await prisma.load.findUnique({ where: { id: loadId }, include: { assignment: { include: { driver: true } }, stops: { orderBy: { stopSequence: "asc" } } } });
+async function loadWithDriver(loadId: string, workspaceId: string) {
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId }, include: { assignment: { include: { driver: true } }, stops: { orderBy: { stopSequence: "asc" } } } });
   if (!load || load.deletedAt) throw new DispatchError("load_not_found", "That load does not exist.");
   return load;
 }
 
 /** Cancel a load that has not finished. Any driver on it is taken off; the reason is kept on the load and in the audit log. */
-export async function cancelLoad(input: Why & { loadId: string }, now = new Date()) {
-  const load = await loadWithDriver(input.loadId);
+export async function cancelLoad(input: Why & { loadId: string }, now = new Date(), workspaceId = currentWorkspaceId()) {
+  const load = await loadWithDriver(input.loadId, workspaceId);
   if (!CAN_CANCEL.includes(load.status)) throw new DispatchError("not_allowed", `A ${statusLabel(load.status).toLowerCase()} load cannot be cancelled.`);
   const label = checkWhy(input, isCancelReason);
   const a = load.assignment;
@@ -47,7 +48,7 @@ export async function cancelLoad(input: Why & { loadId: string }, now = new Date
         reason: input.note,
         before: { Status: statusLabel(load.status), Driver: a?.driver.name ?? null },
         after: { Status: "Cancelled", Reason: label, Driver: null },
-        at: now
+        at: now, workspaceId
       },
       tx
     );
@@ -55,8 +56,8 @@ export async function cancelLoad(input: Why & { loadId: string }, now = new Date
 }
 
 /** The driver reached the pickup and there was nothing to haul: record the truck-ordered-not-used fee and close the load. */
-export async function recordTonu(input: Why & { loadId: string; fee: number }, now = new Date()) {
-  const load = await loadWithDriver(input.loadId);
+export async function recordTonu(input: Why & { loadId: string; fee: number }, now = new Date(), workspaceId = currentWorkspaceId()) {
+  const load = await loadWithDriver(input.loadId, workspaceId);
   if (!CAN_TONU.includes(load.status)) throw new DispatchError("not_allowed", "A TONU is for a load whose driver has accepted it or is on the way.");
   if (!Number.isFinite(input.fee) || input.fee <= 0) throw new DispatchError("bad_fee", "Type the TONU fee the customer owes, above zero.");
   const label = checkWhy(input, isCancelReason);
@@ -75,7 +76,7 @@ export async function recordTonu(input: Why & { loadId: string; fee: number }, n
         reason: input.note,
         before: { Status: statusLabel(load.status), Fee: null },
         after: { Status: "TONU", Reason: label, Fee: `$${fee}` },
-        at: now
+        at: now, workspaceId
       },
       tx
     );
@@ -86,8 +87,8 @@ export async function recordTonu(input: Why & { loadId: string; fee: number }, n
  * Move the pickup to a new time; every other stop moves by the same amount. A driver who would then be on another load at the
  * same time blocks it. A driver who already had the load is asked to confirm again.
  */
-export async function rescheduleLoad(input: Why & { loadId: string; newPickup: Date }, now = new Date()) {
-  const load = await loadWithDriver(input.loadId);
+export async function rescheduleLoad(input: Why & { loadId: string; newPickup: Date }, now = new Date(), workspaceId = currentWorkspaceId()) {
+  const load = await loadWithDriver(input.loadId, workspaceId);
   if (!CAN_RESCHEDULE.includes(load.status)) throw new DispatchError("not_allowed", "Only a load that has not started can be rescheduled.");
   const label = checkWhy(input, isRescheduleReason);
   const first = load.stops.find((s) => s.timeWindowEarliest ?? s.timeWindowLatest);
@@ -126,7 +127,7 @@ export async function rescheduleLoad(input: Why & { loadId: string; newPickup: D
         reason: input.note,
         before: { Pickup: dateTime(oldWindow.start), "Last stop by": dateTime(oldWindow.end), Driver: a ? `${a.driver.name} (${describePay(a.payKind, num(a.payRate))})` : null },
         after: { Pickup: dateTime(newWindow.start), "Last stop by": dateTime(newWindow.end), Driver: a ? `${a.driver.name}${reconfirm ? ", confirm again" : ""}` : null },
-        at: now
+        at: now, workspaceId
       },
       tx
     );

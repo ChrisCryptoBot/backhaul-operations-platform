@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import React from "react";
 import { getDeskKpi } from "@/server/tl/kpi";
 import { listBoardRows } from "@/server/tl/queries";
+import { listHistory } from "@/server/tl/history";
 import { Card, PageHead, Stat, StatusChip } from "@/components/desk/ui";
 import { shortLane } from "@/components/desk/kpi/parts";
 import { emptyZone } from "@/lib/thresholds";
@@ -16,9 +17,10 @@ const MARKET = { above: "above the market", below: "below the market", unknown: 
 export default async function LanePage({ searchParams }: { searchParams?: { lane?: string } }) {
   const lane = (searchParams?.lane ?? "").trim();
   if (!lane) notFound();
-  const [k, board] = await Promise.all([getDeskKpi({ period: "all", compare: false, filters: { lane } }), listBoardRows()]);
+  // The lane's open loads from the board and its latest finished ones from History (a lane can have thousands of finished loads).
+  const [k, board, finished] = await Promise.all([getDeskKpi({ period: "all", compare: false, filters: { lane } }), listBoardRows(), listHistory({ lane, pageSize: 25 })]);
   const row = k.lanes.find((l) => l.key === lane) ?? null;
-  const loads = board.filter((r) => `${r.origin ?? "?"} → ${r.destination ?? "?"}` === lane).sort((a, b) => (b.scheduledDate?.getTime() ?? 0) - (a.scheduledDate?.getTime() ?? 0));
+  const loads = [...board.filter((r) => `${r.origin ?? "?"} → ${r.destination ?? "?"}` === lane), ...finished.rows].sort((a, b) => (b.scheduledDate?.getTime() ?? 0) - (a.scheduledDate?.getTime() ?? 0));
   if (!row && loads.length === 0) notFound();
   const zone = row ? emptyZone(row.emptyShare, k.thresholds) : null;
 

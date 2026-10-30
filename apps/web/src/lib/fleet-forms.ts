@@ -7,6 +7,7 @@ import { costBuildUp, costProfileHeroMetrics } from "@/truelane/lib/costProfileH
 import { profileFuelPerMile } from "@/truelane/lib/fuelPriceForRates";
 import { ALL_VEHICLE_CATEGORIES, getCostProfileIndustryHydrationStrings, getVehicleCategoryPreset, type VehicleCategory } from "@/truelane/constants/vehicleData";
 import { centralInstant, centralParts } from "./zoned";
+import { TERMINAL_MAX_LENGTH } from "./terminal";
 
 /**
  * The forms that change who drives and what they drive: a driver, a truck, and a truck's cost profile. Checked here (and again on
@@ -30,6 +31,8 @@ export type DriverValues = {
   /** How they are usually paid: "cpm", "hourly", "flat" (a set amount) or "percent" (of the rate), or blank. A load's assignment starts from it. */
   payKind: string;
   payRate: string;
+  /** The yard, branch or region they work out of (free text, up to 40 characters; blank = none). A big fleet is read one terminal at a time. */
+  terminal: string;
 };
 
 export const PAY_KINDS = [
@@ -73,15 +76,18 @@ export function validateDriver(input: Raw): DriverCheck {
     medicalCardExpiry: str(input.medicalCardExpiry),
     assignedVehicleId: str(input.assignedVehicleId),
     payKind: str(input.payKind),
-    payRate: str(input.payRate)
+    payRate: str(input.payRate),
+    terminal: str(input.terminal).replace(/\s+/g, " ")
   };
   const errors: Partial<Record<keyof DriverValues, string>> = {};
+  if (v.terminal.length > TERMINAL_MAX_LENGTH) errors.terminal = "That terminal name is too long.";
   if (v.name.length < 2) errors.name = "Type the driver's name.";
   else if (v.name.length > 80) errors.name = "That name is too long.";
   const digits = v.phone.replace(/\D/g, "");
   if (v.phone && (digits.length < 7 || digits.length > 15 || /[^\d\s()+.\-x]/i.test(v.phone))) errors.phone = "A phone number, for example 555-0142.";
   if (v.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.email)) errors.email = "An email address, for example name@example.com.";
   if (v.cdlClass && !CDL_CLASSES.includes(v.cdlClass)) errors.cdlClass = "Class A, B or C.";
+  if (v.assignedVehicleId === "?") errors.assignedVehicleId = "Pick a truck from the list, or clear the box.";
   const cdl = v.cdlExpiry ? endOfCentralDay(v.cdlExpiry) : null;
   if (v.cdlExpiry && !cdl) errors.cdlExpiry = "A real date.";
   const med = v.medicalCardExpiry ? endOfCentralDay(v.medicalCardExpiry) : null;
@@ -107,6 +113,8 @@ export type TruckValues = {
   mpg: string;
   fuelType: string;
   homeBaseAddress: string;
+  /** The yard, branch or region that runs the truck (free text, up to 40 characters; blank = none). */
+  terminal: string;
   /** What the truck is, picked from the phone's own list so its specs fill in: make, model, year, payload and cargo size. */
   make: string;
   model: string;
@@ -120,7 +128,7 @@ export type TruckValues = {
   hasRamp: string;
   hasPalletJack: string;
 };
-export const BLANK_TRUCK: TruckValues = { name: "", type: "", mpg: "", fuelType: "", homeBaseAddress: "", make: "", model: "", year: "", payloadLbs: "", maxLengthFt: "", maxWidthFt: "", maxHeightIn: "", hasLiftgate: "", hasRamp: "", hasPalletJack: "" };
+export const BLANK_TRUCK: TruckValues = { name: "", type: "", mpg: "", fuelType: "", homeBaseAddress: "", terminal: "", make: "", model: "", year: "", payloadLbs: "", maxLengthFt: "", maxWidthFt: "", maxHeightIn: "", hasLiftgate: "", hasRamp: "", hasPalletJack: "" };
 
 /** The numbers a truck's specs come to once checked. */
 export type TruckSpecs = { year: number | null; payloadLbs: number | null; maxLengthFt: number | null; maxWidthFt: number | null; maxHeightIn: number | null };
@@ -154,6 +162,7 @@ export function validateTruck(input: Raw): TruckCheck {
     mpg: str(input.mpg),
     fuelType: str(input.fuelType) === "gas" ? "gasoline" : str(input.fuelType),
     homeBaseAddress: str(input.homeBaseAddress),
+    terminal: str(input.terminal).replace(/\s+/g, " "),
     make: str(input.make),
     model: str(input.model),
     year: str(input.year),
@@ -176,6 +185,7 @@ export function validateTruck(input: Raw): TruckCheck {
     if (!Number.isFinite(n) || n < 2 || n > 40) errors.mpg = "Miles per gallon between 2 and 40.";
     else mpg = n;
   }
+  if (v.terminal.length > TERMINAL_MAX_LENGTH) errors.terminal = "That terminal name is too long.";
   if (v.make.length > 60) errors.make = "That make is too long.";
   if (v.model.length > 60) errors.model = "That model is too long.";
   const spec = (key: "year" | "payloadLbs" | "maxLengthFt" | "maxWidthFt" | "maxHeightIn", min: number, max: number, whole: boolean, message: string): number | null => {

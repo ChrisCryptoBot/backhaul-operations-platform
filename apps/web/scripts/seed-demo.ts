@@ -70,7 +70,7 @@ async function main() {
     { name: "Unit 102", type: "heavy_duty", mpg: 6.5, insurance: 1380, loan: 0, miles: 7000, base: "Houston, TX", payload: 44000, length: 53, width: 8.5, height: 162, liftgate: false, ramp: false, jack: false },
     { name: "Unit 103", type: "box_truck", mpg: 9.2, insurance: 1100, loan: 1250, miles: 6000, base: "Oklahoma City, OK", payload: 9500, length: 26, width: 8, height: 96, liftgate: true, ramp: false, jack: true }
   ];
-  const vehicles: Array<{ id: string; mpg: number; breakEven: number }> = [];
+  const vehicles: Array<{ id: string; mpg: number; breakEven: number; terminal: string }> = [];
   for (const t of trucks) {
     const input = {
       ...profileBase,
@@ -90,6 +90,7 @@ async function main() {
         mpg: t.mpg,
         fuelType: "diesel",
         homeBaseAddress: t.base,
+        terminal: t.base.split(",")[0],
         payloadLbs: t.payload,
         maxLengthFt: t.length,
         maxWidthFt: t.width,
@@ -119,7 +120,7 @@ async function main() {
         }
       }
     });
-    vehicles.push({ id: v.id, mpg: t.mpg, breakEven });
+    vehicles.push({ id: v.id, mpg: t.mpg, breakEven, terminal: t.base.split(",")[0]! });
   }
 
   // Mostly per mile, one hourly: the two pay models the phone's verdict knows.
@@ -143,6 +144,7 @@ async function main() {
           // The last driver's medical card lapses in 20 days, so the "lapses soon" alert has something to show.
           medicalCardExpiry: new Date(Date.now() + (i === DRIVERS.length - 1 ? 20 : 150 + i * 60) * DAY),
           assignedVehicleId: vehicles[i % vehicles.length].id,
+          terminal: vehicles[i % vehicles.length].terminal,
           // What each is usually paid, so an assignment starts from it (the Drivers page and the assign form show it).
           defaultPayKind: USUAL_PAY[i % USUAL_PAY.length]!.kind,
           defaultPayRate: USUAL_PAY[i % USUAL_PAY.length]!.rate

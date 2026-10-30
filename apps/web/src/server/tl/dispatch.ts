@@ -9,6 +9,7 @@ import { assertDriverSafe, driverFacingPay, payEstimate, projectLoadToSummary, t
 import { num, numOrNull } from "./convert";
 import { recordAudit } from "./audit";
 import { freezeLoadSnapshot } from "./snapshot";
+import { currentWorkspaceId } from "./workspace";
 
 export { driverBlocker };
 
@@ -80,18 +81,44 @@ export async function driverClashNote(driverId: string, exceptLoadId: string, st
   return clash ? `already on ${clash.loadNumber ?? "another load"}` : null;
 }
 
+/**
+ * The same note for many drivers at once, in one query: who is already on another open load at the time of this one. A fleet has thousands of drivers and
+ * only hundreds of open loads, so asking per driver (a query each) is what made a list of drivers slow; this reads the open assignments of the drivers asked about.
+ */
+export async function driverClashNotes(driverIds: string[], exceptLoadId: string, stops: StopWindow[]): Promise<Map<string, string>> {
+  const found = await driverClashesIn(driverIds, exceptLoadId, loadWindow(stops));
+  return new Map([...found].map(([id, loadNumber]) => [id, `already on ${loadNumber ?? "another load"}`]));
+}
+
+/** For each of these drivers, the number of another open load they hold whose window overlaps `win` (null when it has no number). One query for all of them. */
+export async function driverClashesIn(driverIds: string[], exceptLoadId: string, win: Window | null): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  if (!win || driverIds.length === 0) return out;
+  const others = await prisma.assignment.findMany({
+    where: { driverId: { in: driverIds }, loadId: { not: exceptLoadId }, status: { in: OPEN_ASSIGNMENT }, load: { deletedAt: null, status: { in: OPEN_LOAD } } },
+    select: { driverId: true, load: { select: { loadNumber: true, stops: { select: { timeWindowEarliest: true, timeWindowLatest: true } } } } }
+  });
+  for (const o of others) {
+    if (out.has(o.driverId)) continue;
+    const w = loadWindow(o.load.stops);
+    if (w && windowsOverlap(win, w)) out.set(o.driverId, o.load.loadNumber);
+  }
+  return out;
+}
+
 const money = (n: number) => `$${n.toFixed(2)}`;
 
 /**
  * Create or replace the draft assignment for a load. A load that was already sent keeps its row and bumps the version.
  * A driver who is already on another open load at the same time is refused unless the dispatcher gives a reason.
  */
-export async function assignDriver(input: { loadId: string; driverId: string; pay: AssignmentPay; estimatedHours?: number | null; overrideReason?: string | null }, now = new Date()) {
+export async function assignDriver(input: { loadId: string; driverId: string; pay: AssignmentPay; estimatedHours?: number | null; overrideReason?: string | null }, now = new Date(), workspaceId = currentWorkspaceId()) {
   assertPay(input.pay);
-  const load = await prisma.load.findUnique({ where: { id: input.loadId }, include: { assignment: { include: { driver: true } }, stops: true } });
+  // Both ids are looked up inside the workspace: another workspace's load or driver is "not found", never acted on.
+  const load = await prisma.load.findFirst({ where: { id: input.loadId, workspaceId }, include: { assignment: { include: { driver: true } }, stops: true } });
   if (!load || load.deletedAt) throw new DispatchError("load_not_found", "That load does not exist.");
   if (!SENDABLE_LOAD_STATUSES.includes(load.status)) throw new DispatchError("load_not_assignable", `A ${load.status} load cannot be assigned.`);
-  const driver = await prisma.driver.findUnique({ where: { id: input.driverId } });
+  const driver = await prisma.driver.findFirst({ where: { id: input.driverId, workspaceId } });
   if (!driver || !driver.active) throw new DispatchError("driver_not_found", "That driver is not available.");
   const blocker = driverBlocker(driver, now);
   if (blocker) throw new DispatchError("driver_not_cleared", `${driver.name}: ${blocker}.`);
@@ -140,7 +167,7 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
         reason: override,
         before: prev ? { Driver: prev.driver.name, Pay: describePay(prev.payKind, num(prev.payRate)), Estimate: money(num(prev.payEstimate)) } : null,
         after: { Driver: driver.name, Pay: payText, Estimate: money(num(estimate)) },
-        at: now
+        at: now, workspaceId
       },
       tx
     );
@@ -152,8 +179,8 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
  * Take the driver off a load. A load that was sent or accepted needs a reason, which goes in the audit trail.
  * An accepted load goes back to the board as a draft. A load already on the road or delivered cannot be unassigned.
  */
-export async function unassignLoad(loadId: string, reason: string | null, now = new Date()) {
-  const load = await prisma.load.findUnique({ where: { id: loadId }, include: { assignment: { include: { driver: true } } } });
+export async function unassignLoad(loadId: string, reason: string | null, now = new Date(), workspaceId = currentWorkspaceId()) {
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId }, include: { assignment: { include: { driver: true } } } });
   if (!load || load.deletedAt) throw new DispatchError("load_not_found", "That load does not exist.");
   const a = load.assignment;
   if (!a) throw new DispatchError("not_assigned", "There is no driver on this load.");
@@ -177,7 +204,7 @@ export async function unassignLoad(loadId: string, reason: string | null, now = 
         reason: why || null,
         before: { Driver: a.driver.name, Pay: describePay(a.payKind, num(a.payRate)), Status: a.status === "dispatched" ? "Sent, waiting" : a.status === "accepted" ? "Driver accepted" : a.status === "declined" ? "Driver declined" : "Assigned, not sent" },
         after: { Driver: null, Pay: null, Status: "Needs a driver" },
-        at: now
+        at: now, workspaceId
       },
       tx
     );
@@ -185,8 +212,8 @@ export async function unassignLoad(loadId: string, reason: string | null, now = 
 }
 
 /** What the driver is sent: the driver-safe summary, checked against the confidentiality gate before it goes anywhere. */
-export async function driverSummaryFor(loadId: string): Promise<LoadSummary> {
-  const load = await prisma.load.findUnique({ where: { id: loadId }, include: { stops: true, assignment: true } });
+export async function driverSummaryFor(loadId: string, workspaceId = currentWorkspaceId()): Promise<LoadSummary> {
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId }, include: { stops: true, assignment: true } });
   if (!load || load.deletedAt) throw new DispatchError("load_not_found", "That load does not exist.");
   if (!load.assignment) throw new DispatchError("not_assigned", "Assign a driver first.");
   const pay = driverFacingPay({ kind: load.assignment.payKind as PayKind, rate: num(load.assignment.payRate) }, rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge)));
@@ -220,9 +247,9 @@ export async function driverSummaryFor(loadId: string): Promise<LoadSummary> {
 }
 
 /** Send the assignment to the driver: status becomes dispatched and the version is bumped. */
-export async function dispatchLoad(loadId: string, now = new Date(), opts: { sentWithout?: string } = {}) {
-  const summary = await driverSummaryFor(loadId); // throws if not assigned or if anything would leak
-  const a = await prisma.assignment.findUniqueOrThrow({ where: { loadId }, include: { driver: true, load: true } });
+export async function dispatchLoad(loadId: string, now = new Date(), opts: { sentWithout?: string } = {}, workspaceId = currentWorkspaceId()) {
+  const summary = await driverSummaryFor(loadId, workspaceId); // throws if not assigned, not in this workspace, or if anything would leak
+  const a = await prisma.assignment.findFirstOrThrow({ where: { loadId, load: { workspaceId } }, include: { driver: true, load: true } });
   if (a.status !== "draft") throw new DispatchError("already_sent", "This load was already sent to the driver.");
   const updated = await prisma.$transaction(async (tx) => {
     const next = await tx.assignment.update({
@@ -238,7 +265,7 @@ export async function dispatchLoad(loadId: string, now = new Date(), opts: { sen
         summary: `Sent to ${a.driver.name}${opts.sentWithout ? `, without ${opts.sentWithout}` : ""}`,
         before: { Status: "Assigned, not sent" },
         after: { Status: "Sent, waiting" },
-        at: now
+        at: now, workspaceId
       },
       tx
     );
@@ -251,8 +278,8 @@ export async function dispatchLoad(loadId: string, now = new Date(), opts: { sen
  * The driver's answer, as the phone would write it back (respond_to_dispatch). Accepting moves the load to accepted;
  * declining returns the load to the board unassigned-able. The desktop never writes the driver's execution fields.
  */
-export async function recordDriverResponse(loadId: string, response: "accepted" | "declined", now = new Date(), note?: string) {
-  const a = await prisma.assignment.findUnique({ where: { loadId }, include: { driver: true, load: true } });
+export async function recordDriverResponse(loadId: string, response: "accepted" | "declined", now = new Date(), note?: string, workspaceId = currentWorkspaceId()) {
+  const a = await prisma.assignment.findFirst({ where: { loadId, load: { workspaceId } }, include: { driver: true, load: true } });
   if (!a) throw new DispatchError("not_assigned", "Assign a driver first.");
   if (a.status !== "dispatched") throw new DispatchError("not_sent", "Send the load to the driver before recording an answer.");
   return prisma.$transaction(async (tx) => {
@@ -271,7 +298,7 @@ export async function recordDriverResponse(loadId: string, response: "accepted" 
         reason: note ?? null,
         before: { Status: "Sent, waiting" },
         after: { Status: response === "accepted" ? "Driver accepted" : "Driver declined" },
-        at: now
+        at: now, workspaceId
       },
       tx
     );

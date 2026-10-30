@@ -7,7 +7,7 @@ import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { getDeskKpi } from "./kpi";
 import { getThresholds } from "./thresholds";
-import { DEMO_WORKSPACE_ID } from "./workspace";
+import { currentWorkspaceId } from "./workspace";
 
 /**
  * Customers as records. A load keeps its customer's name as text, so a record is the profile attached to that name: its kind, MC, billing
@@ -23,15 +23,15 @@ const LABEL = { name: "Name", kind: "Kind", mcNumber: "MC number", contactName: 
 type Row = { name: string; kind: string; mcNumber: string | null; contactName: string | null; contactEmail: string | null; contactPhone: string | null; defaultPayTermsDays: number | null; notes: string | null };
 const snapshot = (c: Row): AuditSnapshot => ({ [LABEL.name]: c.name, [LABEL.kind]: kindLabel(c.kind), [LABEL.mcNumber]: c.mcNumber, [LABEL.contactName]: c.contactName, [LABEL.contactEmail]: c.contactEmail, [LABEL.contactPhone]: c.contactPhone, [LABEL.defaultPayTermsDays]: c.defaultPayTermsDays == null ? null : String(c.defaultPayTermsDays), [LABEL.notes]: c.notes });
 
-export const listCustomerRecords = (workspaceId = DEMO_WORKSPACE_ID) => prisma.customer.findMany({ where: { workspaceId }, orderBy: { name: "asc" } });
+export const listCustomerRecords = (workspaceId = currentWorkspaceId()) => prisma.customer.findMany({ where: { workspaceId }, orderBy: { name: "asc" } });
 
 /** Each customer's usual terms by lower-cased name, for an invoice to a customer whose load names none. */
-export async function customerTermsMap(workspaceId = DEMO_WORKSPACE_ID): Promise<Map<string, number>> {
+export async function customerTermsMap(workspaceId = currentWorkspaceId()): Promise<Map<string, number>> {
   const rows = await prisma.customer.findMany({ where: { workspaceId, defaultPayTermsDays: { not: null } }, select: { name: true, defaultPayTermsDays: true } });
   return new Map(rows.map((r) => [lc(r.name), r.defaultPayTermsDays!]));
 }
 
-export async function saveCustomer(values: CustomerValues, id: string | null, now = new Date(), workspaceId = DEMO_WORKSPACE_ID): Promise<SaveCustomerResult> {
+export async function saveCustomer(values: CustomerValues, id: string | null, now = new Date(), workspaceId = currentWorkspaceId()): Promise<SaveCustomerResult> {
   const check = validateCustomer(values);
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
@@ -69,7 +69,7 @@ const RECENT = 12;
  * One customer's page: its record (when there is one), the scorecard the finished loads give (the KPI's row, plus how it pays against its terms),
  * what is still out, and its latest loads. `key` is a record's id, or a name that appears on loads and has no record yet.
  */
-export async function getCustomerDetail(key: { id?: string; name?: string }, now = new Date(), workspaceId = DEMO_WORKSPACE_ID) {
+export async function getCustomerDetail(key: { id?: string; name?: string }, now = new Date(), workspaceId = currentWorkspaceId()) {
   const record = key.id ? await prisma.customer.findFirst({ where: { id: key.id, workspaceId } }) : key.name ? await prisma.customer.findFirst({ where: { workspaceId, name: { equals: key.name.trim(), mode: "insensitive" } } }) : null;
   if (key.id && !record) return null;
   const name = (record?.name ?? key.name ?? "").trim();

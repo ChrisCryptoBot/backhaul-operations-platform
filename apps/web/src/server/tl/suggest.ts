@@ -2,12 +2,14 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { rateConTotal } from "@/lib/pay";
 import { notQuote } from "@/lib/quote-status";
-import { num, numOrNull } from "./convert";
-import { assignDriver, DispatchError, driverBlocker, driverClashNote } from "./dispatch";
-import { evaluateTlLoad } from "./evaluate";
+import { num } from "./convert";
+import { assignDriver, DispatchError } from "./dispatch";
+import { pickerOptions, rankDrivers, type AssignDriverOption, type Suggestion } from "./driver-rank";
+export type { AssignDriverOption, Suggestion } from "./driver-rank";
 import type { PayKind } from "./projector";
 import { loadInclude } from "./queries";
-import { DEMO_WORKSPACE_ID } from "./workspace";
+import { currentTerminal } from "./terminal";
+import { currentWorkspaceId } from "./workspace";
 
 /**
  * Who could take a load, for the Assign window on the dispatch queue and the planner. Every active driver is listed with what stops them
@@ -15,20 +17,6 @@ import { DEMO_WORKSPACE_ID } from "./workspace";
  * floor at that driver's usual pay: the load's own truck if it has one, else the truck the driver usually drives. Nothing here changes
  * anything; assigning is `assignDriver`, with the same checks as from the load page.
  */
-export type AssignDriverOption = { id: string; name: string; blocker: string | null; busy: string | null; payKind: string | null; payRate: number | null };
-
-export type Suggestion = {
-  driverId: string;
-  name: string;
-  /** Dollars the load leaves over the floor on every mile at this driver's usual pay (negative: short by that much); null when it cannot be priced. */
-  leftOver: number | null;
-  payKind: string | null;
-  payRate: number | null;
-  /** The truck the price is on, and whether it is the load's own. */
-  truckName: string | null;
-  onLoadsTruck: boolean;
-};
-
 export type AssignOptions = {
   loadNumber: string | null;
   lane: string;
@@ -41,42 +29,17 @@ export type AssignOptions = {
 
 const MAX_SUGGESTIONS = 3;
 
-export async function assignOptions(loadId: string, workspaceId = DEMO_WORKSPACE_ID, opts: { limit?: number } = {}): Promise<AssignOptions | null> {
+export async function assignOptions(loadId: string, workspaceId = currentWorkspaceId(), opts: { limit?: number } = {}): Promise<AssignOptions | null> {
   const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...notQuote }, include: loadInclude });
   if (!load) return null;
-  const drivers = await prisma.driver.findMany({ where: { workspaceId, active: true }, include: { assignedVehicle: { include: { costProfile: true } } }, orderBy: { name: "asc" } });
-
-  const options: AssignDriverOption[] = [];
-  const fits: Suggestion[] = [];
-  for (const d of drivers) {
-    const blocker = driverBlocker(d);
-    const busy = await driverClashNote(d.id, load.id, load.stops);
-    const payKind = d.defaultPayKind;
-    const payRate = numOrNull(d.defaultPayRate);
-    options.push({ id: d.id, name: d.name, blocker, busy, payKind, payRate });
-    if (blocker || busy) continue;
-
-    const truck = load.vehicle ?? d.assignedVehicle;
-    const profile = truck?.costProfile ?? null;
-    let leftOver: number | null = null;
-    if (profile && truck) {
-      const e = evaluateTlLoad({ ...load, assignment: payKind && payRate != null ? { payKind, payRate } : null }, profile, truck);
-      const margin = e.result.verdictMarginPerMi;
-      leftOver = margin == null ? null : margin * e.totalMiles;
-    }
-    fits.push({ driverId: d.id, name: d.name, leftOver, payKind, payRate, truckName: truck?.name ?? null, onLoadsTruck: load.vehicleId != null && d.assignedVehicleId === load.vehicleId });
-  }
-
-  // Best first: what the load leaves over the floor, then a driver who usually drives the load's truck, then name. A fit that cannot be priced goes last.
-  const key = (f: Suggestion) => f.leftOver ?? -Infinity;
-  fits.sort((a, b) => key(b) - key(a) || (b.onLoadsTruck ? 1 : 0) - (a.onLoadsTruck ? 1 : 0) || a.name.localeCompare(b.name));
+  const { options, fits } = await rankDrivers(load, workspaceId, await currentTerminal(workspaceId));
 
   return {
     loadNumber: load.loadNumber,
     lane: `${load.originAddress ?? "?"} → ${load.destinationAddress ?? "?"}`,
     rateConTotal: rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge)),
     hasTruck: load.vehicleId != null,
-    drivers: options,
+    drivers: pickerOptions(options),
     suggestions: fits.slice(0, opts.limit ?? MAX_SUGGESTIONS)
   };
 }

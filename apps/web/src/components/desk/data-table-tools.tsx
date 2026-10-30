@@ -14,9 +14,10 @@ const tablesOf = (tableId: string) => Array.from(document.querySelectorAll<HTMLE
  * The toolbar above a <DataTable>: search, the filter chips passed in as children, a row count and the density control.
  * It also makes whole rows clickable (any row with a data-href) without making them focusable: the link in the first cell stays the one tab stop.
  */
-export function DataTableTools({ tableId, placeholder = "Search…", children, total }: { tableId: string; placeholder?: string; children?: React.ReactNode; total: number }) {
+export function DataTableTools({ tableId, placeholder = "Search…", children, total, server }: { tableId: string; placeholder?: string; children?: React.ReactNode; total: number; server?: { path: string; q: string; keep?: Record<string, string> } }) {
   const router = useRouter();
-  const [q, setQ] = React.useState("");
+  const serverMode = server != null;
+  const [q, setQ] = React.useState(server?.q ?? "");
   const [density, setDensity] = React.useState<Density>("comfortable");
   const [shown, setShown] = React.useState(total);
   const [sortNote, setSortNote] = React.useState("");
@@ -26,7 +27,22 @@ export function DataTableTools({ tableId, placeholder = "Search…", children, t
   }, []);
 
   // Search: hide rows whose text does not match. Done on the DOM so the table stays server-rendered.
+  // A server-read list searches on the server: typing swaps the address (a moment after you stop), keeping the sort and filters but starting at page one.
+  const typed = React.useRef(false);
   React.useEffect(() => {
+    if (!server || !typed.current) return;
+    const t = setTimeout(() => {
+      const p = new URLSearchParams(server.keep ?? {});
+      if (q.trim()) p.set("q", q.trim());
+      const s = p.toString();
+      router.replace(s ? `${server.path}?${s}` : server.path, { scroll: false });
+    }, 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
+
+  React.useEffect(() => {
+    if (serverMode) return;
     const tables = tablesOf(tableId);
     if (tables.length === 0) return;
     const needle = q.trim().toLowerCase();
@@ -39,7 +55,7 @@ export function DataTableTools({ tableId, placeholder = "Search…", children, t
       });
     }
     setShown(needle === "" ? total : visible);
-  }, [q, tableId, total]);
+  }, [q, tableId, total, serverMode]);
 
   // Row clicks: a click on a row (not on a link, button or field inside it) opens the row's href.
   React.useEffect(() => {
@@ -100,11 +116,11 @@ export function DataTableTools({ tableId, placeholder = "Search…", children, t
       <label className="dt-search">
         <Icon name="search" />
         <span className="db-sr-only">Search this table</span>
-        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={placeholder} autoComplete="off" />
+        <input type="search" value={q} onChange={(e) => { typed.current = true; setQ(e.target.value); }} placeholder={placeholder} autoComplete="off" />
       </label>
       {children}
       <span className="dt-spacer" />
-      <span className="dt-count" aria-live="polite">{q.trim() === "" ? `${total} rows` : `${shown} of ${total}`}</span>
+      <span className="dt-count" aria-live="polite">{server || q.trim() === "" ? `${total} rows` : `${shown} of ${total}`}</span>
       <span className="db-sr-only" role="status">{sortNote}</span>
       <div className="tl-seg" role="group" aria-label="Row density">
         <button type="button" aria-pressed={density === "comfortable"} onClick={() => pick("comfortable")}>Comfortable</button>

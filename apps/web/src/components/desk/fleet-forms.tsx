@@ -1,5 +1,6 @@
 "use client";
 
+import { TruckPicker } from "./truck-picker";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React from "react";
@@ -18,6 +19,7 @@ import { fuelKindOf } from "@/lib/eia";
 import { useToast } from "./kit/toast";
 import { LiveFuelPrice } from "./live-fuel-price";
 import { DateInput } from "./date-input";
+import { TERMINAL_LIST_ID, TERMINAL_MAX_LENGTH } from "@/lib/terminal";
 
 // ── Small pieces ───────────────────────────────────────────────────────────────────────────────
 
@@ -57,18 +59,16 @@ function useShownErrors<K extends string>() {
   };
 }
 
-type Truck = { id: string; name: string | null };
-
 // ── Drivers ────────────────────────────────────────────────────────────────────────────────────
 
-export type DriverRow = { id: string; name: string; phone: string | null; email: string | null; cdlClass: string | null; cdlExpiry: string; medicalCardExpiry: string; truckId: string | null; payKind: string; payRate: string; active: boolean; onLoads: number; onLoadNumbers: string[] };
+export type DriverRow = { id: string; name: string; phone: string | null; email: string | null; cdlClass: string | null; cdlExpiry: string; medicalCardExpiry: string; truckId: string | null; truckName: string | null; payKind: string; payRate: string; terminal: string; active: boolean; onLoads: number; onLoadNumbers: string[] };
 
-function DriverDialog({ open, onClose, trucks, driver }: { open: boolean; onClose: () => void; trucks: Truck[]; driver?: DriverRow }) {
+function DriverDialog({ open, onClose, driver }: { open: boolean; onClose: () => void; driver?: DriverRow }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
-  const blank: Record<keyof DriverValues, string> = { name: "", phone: "", email: "", cdlClass: "A", cdlExpiry: "", medicalCardExpiry: "", assignedVehicleId: "", payKind: "", payRate: "" };
-  const initial = driver ? { name: driver.name, phone: driver.phone ?? "", email: driver.email ?? "", cdlClass: driver.cdlClass ?? "", cdlExpiry: driver.cdlExpiry, medicalCardExpiry: driver.medicalCardExpiry, assignedVehicleId: driver.truckId ?? "", payKind: driver.payKind, payRate: driver.payRate } : blank;
+  const blank: Record<keyof DriverValues, string> = { name: "", phone: "", email: "", cdlClass: "A", cdlExpiry: "", medicalCardExpiry: "", assignedVehicleId: "", payKind: "", payRate: "", terminal: "" };
+  const initial = driver ? { name: driver.name, phone: driver.phone ?? "", email: driver.email ?? "", cdlClass: driver.cdlClass ?? "", cdlExpiry: driver.cdlExpiry, medicalCardExpiry: driver.medicalCardExpiry, assignedVehicleId: driver.truckId ?? "", payKind: driver.payKind, payRate: driver.payRate, terminal: driver.terminal } : blank;
   const [values, setValues] = React.useState<Record<keyof DriverValues, string>>(initial);
   const [serverErrors, setServerErrors] = React.useState<Partial<Record<keyof DriverValues, string>>>({});
   const [message, setMessage] = React.useState("");
@@ -133,14 +133,15 @@ function DriverDialog({ open, onClose, trucks, driver }: { open: boolean; onClos
             </select>
           </Field>
           <Field label="Drives" error={errors.assignedVehicleId}>
-            <select value={values.assignedVehicleId} onChange={set("assignedVehicleId")}>
-              <option value="">No set truck</option>
-              {trucks.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+            <TruckPicker
+              id={values.assignedVehicleId}
+              name={driver?.truckName ?? ""}
+              invalid={values.assignedVehicleId === "?"}
+              onPick={(id) => {
+                shown.touch("assignedVehicleId");
+                setValues((v) => ({ ...v, assignedVehicleId: id }));
+              }}
+            />
           </Field>
         </div>
         <div className="dlg-two">
@@ -166,6 +167,9 @@ function DriverDialog({ open, onClose, trucks, driver }: { open: boolean; onClos
             <DateInput type="date" value={values.medicalCardExpiry} onChange={set("medicalCardExpiry")} />
           </Field>
         </div>
+        <Field label="Terminal" error={errors.terminal} hint="The yard or branch they work out of. Pick one already in use or type a new one.">
+          <input value={values.terminal} onChange={set("terminal")} list={TERMINAL_LIST_ID} maxLength={TERMINAL_MAX_LENGTH} autoComplete="off" />
+        </Field>
         {message ? (
           <p className="tl-note warn" role="alert">
             {message}
@@ -184,20 +188,20 @@ function DriverDialog({ open, onClose, trucks, driver }: { open: boolean; onClos
   );
 }
 
-export function AddDriver({ trucks }: { trucks: Truck[] }) {
+export function AddDriver() {
   const [open, setOpen] = React.useState(false);
   return (
     <>
       <button type="button" className="tl-btn primary" onClick={() => setOpen(true)}>
         Add a driver
       </button>
-      <DriverDialog open={open} onClose={() => setOpen(false)} trucks={trucks} />
+      <DriverDialog open={open} onClose={() => setOpen(false)} />
     </>
   );
 }
 
 /** Edit, and take out of service or bring back. A driver on an open load shows that and cannot be taken out until they are off it. */
-export function DriverRowActions({ driver, trucks }: { driver: DriverRow; trucks: Truck[] }) {
+export function DriverRowActions({ driver }: { driver: DriverRow }) {
   const router = useRouter();
   const toast = useToast();
   const [open, setOpen] = React.useState(false);
@@ -242,7 +246,7 @@ export function DriverRowActions({ driver, trucks }: { driver: DriverRow; trucks
           Reactivate
         </button>
       )}
-      <DriverDialog open={open} onClose={() => setOpen(false)} trucks={trucks} driver={driver} />
+      <DriverDialog open={open} onClose={() => setOpen(false)} driver={driver} />
     </div>
   );
 }
@@ -414,6 +418,9 @@ function TruckFields({ values, set, errors, onMake, onModel }: { values: Record<
       <Field label="Home base" error={errors.homeBaseAddress}>
         <AddressInput label="Home base" value={values.homeBaseAddress} placeholder="Dallas, TX" onChange={(text) => set("homeBaseAddress")({ target: { value: text } } as React.ChangeEvent<HTMLInputElement>)} />
       </Field>
+      <Field label="Terminal" error={errors.terminal} hint="The yard or branch that runs this truck. Pick one already in use or type a new one.">
+        <input value={values.terminal} onChange={set("terminal")} list={TERMINAL_LIST_ID} maxLength={TERMINAL_MAX_LENGTH} autoComplete="off" />
+      </Field>
     </>
   );
 }
@@ -425,6 +432,7 @@ export type TruckInfo = {
   mpg: number | null;
   fuelType: string | null;
   homeBase: string | null;
+  terminal?: string | null;
   make?: string | null;
   model?: string | null;
   year?: number | null;
@@ -444,6 +452,7 @@ const truckValues = (t?: TruckInfo): Record<keyof TruckValues, string> => ({
   mpg: text(t?.mpg),
   fuelType: t?.fuelType ?? "",
   homeBaseAddress: t?.homeBase ?? "",
+  terminal: t?.terminal ?? "",
   make: t?.make ?? "",
   model: t?.model ?? "",
   year: text(t?.year),

@@ -63,6 +63,7 @@ export type AuditAction =
   | "truck_changed"
   | "truck_archived"
   | "truck_restored"
+  | "import_completed"
   | "cost_profile_changed";
 
 export const ACTION_LABEL: Record<string, string> = {
@@ -103,6 +104,7 @@ export const ACTION_LABEL: Record<string, string> = {
   truck_changed: "Truck changed",
   truck_archived: "Truck archived",
   truck_restored: "Truck restored",
+  import_completed: "Fleet imported from a file",
   cost_profile_changed: "Cost profile changed"
 };
 
@@ -144,6 +146,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   truck_changed: "muted",
   truck_archived: "bad",
   truck_restored: "ok",
+  import_completed: "info",
   cost_profile_changed: "warn"
 };
 
@@ -152,7 +155,7 @@ export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[]
   { key: "dispatch", label: "Dispatch", actions: ["booked", "quote_passed", "load_edited", "trip_started", "delivered", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled"] },
   { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "paid", "payment_undone", "statement_started", "statement_finalized", "statement_voided", "statement_discarded"] },
   { key: "intake", label: "Intake", actions: ["rate_con_saved"] },
-  { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_deactivated", "driver_reactivated", "truck_added", "truck_changed", "truck_archived", "truck_restored", "cost_profile_changed"] },
+  { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_deactivated", "driver_reactivated", "truck_added", "truck_changed", "truck_archived", "truck_restored", "import_completed", "cost_profile_changed"] },
   { key: "customers", label: "Customers", actions: ["customer_added", "customer_changed"] },
   { key: "settings", label: "Settings", actions: ["thresholds_changed", "company_changed"] }
 ];

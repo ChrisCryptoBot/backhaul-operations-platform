@@ -137,6 +137,7 @@ export function validateLoadEdit(v: LoadEditValues): LoadEditCheck {
     const loadedMiles = num("deal.loadedMiles", d.loadedMiles, "Loaded miles", 0, 5000);
     const emptyToPickup = num("deal.emptyToPickup", d.emptyToPickup, "Empty miles to the pickup", 0, 5000);
     const emptyHome = num("deal.emptyHome", d.emptyHome, "Empty miles home", 0, 5000);
+    if (t(d.vehicleId) === "?") errors["deal.vehicleId"] = "Pick a truck from the list.";
     deal = { vehicleId: orNull(t(d.vehicleId)), rate: rate ?? 0, fuelSurcharge, loadedMiles: loadedMiles ?? 0, emptyToPickup: emptyToPickup ?? 0, emptyHome: emptyHome ?? 0 };
   }
 

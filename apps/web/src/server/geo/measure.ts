@@ -1,4 +1,4 @@
-import { loadedLegHours, roundMiles, splitRouteMiles, METERS_TO_MILES, type Place, type StopRole } from "@/lib/geo";
+import { loadedLegHours, nearestHomes, roundMiles, splitRouteMiles, METERS_TO_MILES, type Place, type StopRole } from "@/lib/geo";
 import { drive, geocode, mapboxConfigured } from "./mapbox";
 
 /**
@@ -25,6 +25,7 @@ export type Measured =
     }
   | { ok: false; error: string };
 
+const MEASURE_AT_ONCE = 8;
 const miles = (meters: number) => roundMiles(meters * METERS_TO_MILES);
 
 async function legMiles(from: Place | null, to: Place | null): Promise<number | null> {
@@ -48,14 +49,18 @@ export async function measureQuote(input: MeasureInput): Promise<Measured> {
   const first = points[0]!;
   const last = points[points.length - 1]!;
   const perTruck: Record<string, TruckMiles> = {};
-  await Promise.all(
-    input.homes.map(async (h) => {
-      if (h.address.trim() === "") return;
-      const base = h.point ?? (await geocode(h.address));
-      const [toPickup, home] = await Promise.all([legMiles(base, first), legMiles(last, base)]);
-      perTruck[h.id] = { toPickup, home };
-    })
-  );
+  // The nearest bases only, a few at a time: each one costs two map requests, and a big fleet has thousands of bases.
+  const chosen = nearestHomes(input.homes, first);
+  for (let i = 0; i < chosen.length; i += MEASURE_AT_ONCE) {
+    await Promise.all(
+      chosen.slice(i, i + MEASURE_AT_ONCE).map(async (h) => {
+        if (h.address.trim() === "") return;
+        const base = h.point ?? (await geocode(h.address));
+        const [toPickup, home] = await Promise.all([legMiles(base, first), legMiles(last, base)]);
+        perTruck[h.id] = { toPickup, home };
+      })
+    );
+  }
 
   return {
     ok: true,

@@ -1,12 +1,13 @@
 import { prisma } from "@/lib/db";
+import { currentWorkspaceId } from "./workspace";
 import { refList, sendReadiness, type SendGap } from "@/lib/send-readiness";
 
 /**
  * What a stored load still lacks before it goes to its driver (see lib/send-readiness.ts). Read from the database so the server decides,
  * whatever the page showed.
  */
-export async function loadSendGaps(loadId: string): Promise<SendGap[]> {
-  const l = await prisma.load.findUnique({ where: { id: loadId }, include: { vehicle: true, stops: { orderBy: { stopSequence: "asc" } } } });
+export async function loadSendGaps(loadId: string, workspaceId = currentWorkspaceId()): Promise<SendGap[]> {
+  const l = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null }, include: { vehicle: true, stops: { orderBy: { stopSequence: "asc" } } } });
   if (!l) return [];
   const first = l.stops[0];
   const last = l.stops[l.stops.length - 1];

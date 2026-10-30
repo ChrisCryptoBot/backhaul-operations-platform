@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { DEMO_WORKSPACE_ID } from "@/server/tl/workspace";
+import { currentWorkspaceId } from "@/server/tl/workspace";
 import { num } from "@/server/tl/convert";
 import { measureQuote, type Measured, type MeasureInput } from "./measure";
 import { saveTruckHomeCoordinates } from "./persist";
@@ -11,11 +11,12 @@ const select = { id: true, homeBaseAddress: true, homeBaseLat: true, homeBaseLng
  * a truck that has an address but no point yet (it was saved before points were kept, or with no map key) is found once here and kept, so the
  * next measure does not look it up again. A screen that only wants the road miles (a rate confirmation's review) skips the trucks entirely.
  */
-export async function measureForDesk(stops: MeasureInput["stops"], workspaceId = DEMO_WORKSPACE_ID, opts: { homes?: boolean } = {}): Promise<Measured> {
+export async function measureForDesk(stops: MeasureInput["stops"], workspaceId = currentWorkspaceId(), opts: { homes?: boolean; terminal?: string | null } = {}): Promise<Measured> {
   if (opts.homes === false) return measureQuote({ stops, homes: [] });
-  const where = { workspaceId, archivedAt: null, homeBaseAddress: { not: null } };
+  const where = { workspaceId, archivedAt: null, homeBaseAddress: { not: null }, ...(opts.terminal ? { terminal: opts.terminal } : {}) };
   let trucks = await prisma.vehicle.findMany({ where, select });
-  const missing = trucks.filter((t) => (t.homeBaseAddress ?? "").trim() !== "" && (t.homeBaseLat == null || t.homeBaseLng == null));
+  // A few unlocated bases are found (and kept) each time, so a fleet whose points were never stored fills in over its next quotes without a burst of map requests.
+  const missing = trucks.filter((t) => (t.homeBaseAddress ?? "").trim() !== "" && (t.homeBaseLat == null || t.homeBaseLng == null)).slice(0, 8);
   if (missing.length > 0) {
     const found = await Promise.all(missing.map((t) => saveTruckHomeCoordinates(t.id)));
     if (found.some(Boolean)) trucks = await prisma.vehicle.findMany({ where, select });

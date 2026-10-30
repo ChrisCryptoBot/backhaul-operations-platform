@@ -13,12 +13,12 @@ import { fuelSurchargePercentFromDollars, fuelSurchargePerMileFromDollars } from
 import { cityState } from "@/lib/city-state";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
-import { assignDriver, DispatchError, findDriverClash } from "./dispatch";
+import { assignDriver, DispatchError, driverClashesIn } from "./dispatch";
 import type { PayKind } from "@/lib/pay";
 import { saveStopCoordinates } from "@/server/geo/persist";
 import { evaluateTlLoad, resolveLabour, type EvaluateLoadRow } from "./evaluate";
 import { freezeLoadSnapshot } from "./snapshot";
-import { DEMO_WORKSPACE_ID } from "./workspace";
+import { currentWorkspaceId } from "./workspace";
 
 /**
  * The Calculate tab for a dispatcher. An offer is priced with TrueLane's own verdict (evaluateTlLoad) against every truck that has a cost
@@ -76,7 +76,9 @@ export type FitRow = {
   detail: FitDetail;
 };
 
-export type FitResult = { rows: FitRow[]; skipped: Array<{ truck: string; why: string }> };
+/** `rows` are the best ways to run it (at most MAX_FIT_ROWS); `total` is how many there are in all. */
+export type FitResult = { rows: FitRow[]; total: number; skipped: Array<{ truck: string; why: string }> };
+export const MAX_FIT_ROWS = 50;
 
 const D = 86_400_000;
 
@@ -198,15 +200,18 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
 }
 
 /** The offer priced for each truck and each driver who runs it, best first. A truck with no cost profile has no floor and is listed apart. */
-export async function fitQuote(input: QuoteInput, workspaceId = DEMO_WORKSPACE_ID, now = new Date()): Promise<FitResult> {
+/** `terminal`: price only that terminal's trucks (the dispatcher's slice); null prices the whole fleet. */
+export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspaceId(), now = new Date(), terminal: string | null = null): Promise<FitResult> {
   const trucks = await prisma.vehicle.findMany({
-    where: { workspaceId, archivedAt: null },
+    where: { workspaceId, archivedAt: null, ...(terminal ? { terminal } : {}) },
     include: { costProfile: true, drivers: { where: { active: true }, orderBy: { name: "asc" } } },
     orderBy: { name: "asc" }
   });
   const win = windowOf(input);
   const rows: FitRow[] = [];
   const skipped: FitResult["skipped"] = [];
+  // Who is already on another load at that time, for every driver at once (one query), not one query per driver.
+  const clashes = await driverClashesIn(trucks.flatMap((t) => t.drivers.map((d) => d.id)), "", win);
   for (const t of trucks) {
     if (!t.costProfile) {
       skipped.push({ truck: t.name ?? "Truck", why: "No cost profile, so no floor to price against." });
@@ -217,17 +222,14 @@ export async function fitQuote(input: QuoteInput, workspaceId = DEMO_WORKSPACE_I
       let blocked: string | null = null;
       if (d) {
         blocked = driverBlocker(d, now);
-        if (!blocked) {
-          const clash = await findDriverClash(d.id, "", win);
-          if (clash) blocked = `Already on ${clash.loadNumber ?? "another load"} at that time`;
-        }
+        if (!blocked && clashes.has(d.id)) blocked = `Already on ${clashes.get(d.id) ?? "another load"} at that time`;
       }
       const r = fitFor(input, t, d, blocked);
       if (r) rows.push(r);
     }
   }
   rows.sort((a, b) => (a.blocked ? 1 : 0) - (b.blocked ? 1 : 0) || (b.marginPerMile ?? -Infinity) - (a.marginPerMile ?? -Infinity));
-  return { rows, skipped };
+  return { rows: rows.slice(0, MAX_FIT_ROWS), total: rows.length, skipped };
 }
 
 // ── What the desk already knows about this lane and this broker ───────────────────────────────
@@ -239,7 +241,7 @@ export type QuoteContext = {
 
 const cityOf = (address: string | undefined) => (cityState(address ?? "") ?? "").split(",")[0]!.trim();
 
-export async function quoteContext(input: QuoteInput, workspaceId = DEMO_WORKSPACE_ID): Promise<QuoteContext> {
+export async function quoteContext(input: QuoteInput, workspaceId = currentWorkspaceId()): Promise<QuoteContext> {
   const from = cityOf(input.stops[0]?.address);
   const to = cityOf(input.stops[input.stops.length - 1]?.address);
   let lane: QuoteContext["lane"] = null;
@@ -336,7 +338,7 @@ const quoteNumber = (now: Date) => `QT-${new Prisma.Decimal(now.getTime()).div(1
 export type QuoteSave = { ok: true; id: string } | { ok: false; errors?: QuoteErrors; error?: string };
 
 /** Save the form as a quote (or update the one it came from). It is not a load anyone can see on the board until it is booked. */
-export async function saveQuote(values: QuoteValues, quoteId: string | null, vehicleId: string | null, workspaceId = DEMO_WORKSPACE_ID, now = new Date()): Promise<QuoteSave> {
+export async function saveQuote(values: QuoteValues, quoteId: string | null, vehicleId: string | null, workspaceId = currentWorkspaceId(), now = new Date()): Promise<QuoteSave> {
   const check = validateQuote(values);
   if (!check.ok) return { ok: false, errors: check.errors };
   const input = check.input;
@@ -356,14 +358,14 @@ export async function saveQuote(values: QuoteValues, quoteId: string | null, veh
 }
 
 /** The brokers the desk has loads with, for the form's suggestions. */
-export async function brokerNames(workspaceId = DEMO_WORKSPACE_ID): Promise<string[]> {
+export async function brokerNames(workspaceId = currentWorkspaceId()): Promise<string[]> {
   const rows = await prisma.load.groupBy({ by: ["brokerName"], where: { workspaceId, deletedAt: null, ...notQuote, brokerName: { not: null } }, orderBy: { brokerName: "asc" } });
   return rows.map((r) => r.brokerName).filter((b): b is string => !!b);
 }
 
 export type QuoteListRow = { id: string; lane: string; broker: string | null; offer: number; loadedMiles: number; savedAt: Date; truck: string | null; /** Why it was passed on, or null while it is still open. */ passedFor: string | null };
 
-export async function listQuotes(workspaceId = DEMO_WORKSPACE_ID): Promise<QuoteListRow[]> {
+export async function listQuotes(workspaceId = currentWorkspaceId()): Promise<QuoteListRow[]> {
   const rows = await prisma.load.findMany({ where: { workspaceId, status: QUOTE_STATUS, deletedAt: null }, include: { vehicle: true, decisions: { orderBy: { decidedAt: "desc" }, take: 1 } }, orderBy: { updatedAt: "desc" }, take: 12 });
   return rows.map((l) => ({
     id: l.id,
@@ -427,7 +429,7 @@ export function quoteValuesFromLoad(l: LoadWithStops): QuoteValues {
 }
 
 /** A saved quote as the form's values, to reopen it. */
-export async function getQuote(id: string, workspaceId = DEMO_WORKSPACE_ID): Promise<{ values: QuoteValues; vehicleId: string | null } | null> {
+export async function getQuote(id: string, workspaceId = currentWorkspaceId()): Promise<{ values: QuoteValues; vehicleId: string | null } | null> {
   const l = await prisma.load.findFirst({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null }, include: { stops: { orderBy: { stopSequence: "asc" } } } });
   if (!l) return null;
   return { vehicleId: l.vehicleId, values: quoteValuesFromLoad(l) };
@@ -437,7 +439,7 @@ export async function getQuote(id: string, workspaceId = DEMO_WORKSPACE_ID): Pro
  * "Quote like this": any load (booked, finished or a saved quote) as the start of a new quote. The lane, broker, trailer, size and miles carry over;
  * the load number, PO and both times do not, because they belong to that one load. Nothing is written until the new quote is saved or booked.
  */
-export async function getQuoteLike(id: string, workspaceId = DEMO_WORKSPACE_ID): Promise<QuoteValues | null> {
+export async function getQuoteLike(id: string, workspaceId = currentWorkspaceId()): Promise<QuoteValues | null> {
   const l = await prisma.load.findFirst({ where: { id, workspaceId, deletedAt: null }, include: { stops: { orderBy: { stopSequence: "asc" } } } });
   if (!l || l.stops.length < 2) return null;
   const v = quoteValuesFromLoad(l);
@@ -449,7 +451,7 @@ export async function getQuoteLike(id: string, workspaceId = DEMO_WORKSPACE_ID):
 /** A pass is a decision on the quote; the quote stays a quote, so it stays out of every list of loads. */
 export const PASSED = "passed";
 
-export async function passQuote(id: string, reason: string, notes: string, workspaceId = DEMO_WORKSPACE_ID, now = new Date()): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function passQuote(id: string, reason: string, notes: string, workspaceId = currentWorkspaceId(), now = new Date()): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!(PASS_REASONS as readonly string[]).includes(reason)) return { ok: false, error: "Pick a reason." };
   if (reason === "Other" && notes.trim().length < 3) return { ok: false, error: "Say what the reason is when you pick Other." };
   const l = await prisma.load.findFirst({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null }, include: { decisions: { orderBy: { decidedAt: "desc" }, take: 1 } } });
@@ -478,7 +480,7 @@ export async function passQuote(id: string, reason: string, notes: string, works
   return { ok: true };
 }
 
-export async function discardQuote(id: string, workspaceId = DEMO_WORKSPACE_ID, now = new Date()): Promise<boolean> {
+export async function discardQuote(id: string, workspaceId = currentWorkspaceId(), now = new Date()): Promise<boolean> {
   const out = await prisma.load.updateMany({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null }, data: { deletedAt: now } });
   return out.count > 0;
 }
@@ -501,7 +503,7 @@ export async function bookQuote(
   pick: { vehicleId: string; driverId: string | null },
   override: Override | null,
   quoteId: string | null,
-  workspaceId = DEMO_WORKSPACE_ID,
+  workspaceId = currentWorkspaceId(),
   now = new Date()
 ): Promise<BookResult> {
   const check = validateQuote(values);

@@ -12,7 +12,7 @@ import { rateConTotal } from "@/lib/pay";
 import { freezeLoadSnapshot } from "./snapshot";
 import { num, numOrNull } from "./convert";
 import { findDriverClash } from "./dispatch";
-import { DEMO_WORKSPACE_ID } from "./workspace";
+import { currentWorkspaceId } from "./workspace";
 
 /**
  * Change what a booked load says. Anything can be corrected while the load is open; once it is on the road or delivered its details (who it is
@@ -26,7 +26,7 @@ const CLOSED = ["cancelled", "tonu"];
 const text = (v: unknown) => (v == null || v === "" ? null : String(v));
 const yesNo = (v: boolean | null | undefined) => (v === true ? "Yes" : "No");
 
-export async function saveLoadDetails(loadId: string, values: LoadEditValues, now = new Date(), workspaceId = DEMO_WORKSPACE_ID): Promise<EditResult> {
+export async function saveLoadDetails(loadId: string, values: LoadEditValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<EditResult> {
   const check = validateLoadEdit(values);
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
@@ -197,7 +197,7 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
         summary: `Details changed: ${names.slice(0, 4).join(", ")}${names.length > 4 ? ` and ${names.length - 4} more` : ""}${reconfirm ? `. ${a!.driver.name} has to confirm again` : ""}`,
         before,
         after,
-        at: now
+        at: now, workspaceId
       },
       tx
     );

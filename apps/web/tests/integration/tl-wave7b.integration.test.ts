@@ -224,7 +224,7 @@ describe.skipIf(!run)("percent pay and driver statements on the demo database", 
   });
 
   test("a delivered load paid on a statement still reads as delivered on the board", async () => {
-    const row = (await listBoardRows()).find((r) => r.loadNumber === "W7B-1");
+    const row = (await listBoardRows(undefined, "all")).find((r) => r.loadNumber === "W7B-1");
     expect(row).toMatchObject({ status: "completed", paymentStatus: "paid" });
   });
 });

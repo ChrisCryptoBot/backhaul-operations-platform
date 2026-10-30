@@ -7,7 +7,7 @@ import { rateConTotal, type PayKind } from "@/lib/pay";
 import { computeStatement, linePay, periodBounds, periodCovering, periodText, statementOf, validatePeriod, type Adjustment, type AdjustmentInput, type SettlementLoad, type Statement, type StatementLine } from "@/lib/settlement";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
-import { DEMO_WORKSPACE_ID } from "./workspace";
+import { currentWorkspaceId } from "./workspace";
 
 /**
  * Driver pay statements. A draft is a driver, a period (two Dallas dates) and whatever the dispatcher has typed so far; the loads on it are
@@ -29,11 +29,15 @@ function brokerStatus(s: string | null): SettlementLoad["brokerStatus"] {
   return s === "paid" ? "paid" : s === "invoiced" ? "invoiced" : "not_invoiced";
 }
 
+/** Hourly pay on an assignment can have been sent with an estimate of the hours; the statement starts from it and the dispatcher can type over it. */
+function hoursFromEstimate(payKind: string, rate: number, estimate: unknown): number | null {
+  return payKind === "hourly" && rate > 0 && estimate != null && num(estimate as never) > 0 ? new Prisma.Decimal(estimate as never).div(rate).toDecimalPlaces(2).toNumber() : null;
+}
+
 function toSettlementLoad(l: LoadWithAssignment): SettlementLoad {
   const a = l.assignment!;
   const rate = num(a.payRate);
-  // Hourly pay on an assignment can have been sent with an estimate of the hours; the statement starts from it and the dispatcher can type over it.
-  const assignedHours = a.payKind === "hourly" && rate > 0 && a.payEstimate != null && num(a.payEstimate) > 0 ? new Prisma.Decimal(a.payEstimate).div(rate).toDecimalPlaces(2).toNumber() : null;
+  const assignedHours = hoursFromEstimate(a.payKind, rate, a.payEstimate);
   return {
     loadId: l.id,
     loadNumber: l.loadNumber,
@@ -50,7 +54,7 @@ function toSettlementLoad(l: LoadWithAssignment): SettlementLoad {
 }
 
 /** Loads a driver delivered between two Dallas dates that are not on a final statement. */
-export async function eligibleLoads(driverId: string, start: string, end: string, workspaceId = DEMO_WORKSPACE_ID, db: Db = prisma): Promise<SettlementLoad[]> {
+export async function eligibleLoads(driverId: string, start: string, end: string, workspaceId = currentWorkspaceId(), db: Db = prisma): Promise<SettlementLoad[]> {
   const bounds = periodBounds(start, end);
   if (!bounds) return [];
   const loads = await db.load.findMany({
@@ -86,7 +90,7 @@ const typedAdjustments = (rows: unknown): AdjustmentInput[] =>
 
 // ── Start, save, finalize, void, discard ───────────────────────────────────────────────────────
 
-export async function startSettlement(input: { driverId: string; start: string; end: string }, now = new Date(), workspaceId = DEMO_WORKSPACE_ID): Promise<SettleResult> {
+export async function startSettlement(input: { driverId: string; start: string; end: string }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<SettleResult> {
   const period = validatePeriod(input.start, input.end);
   if (!period.ok) return { ok: false, errors: period.errors };
   const driver = await prisma.driver.findFirst({ where: { id: input.driverId, workspaceId } });
@@ -120,7 +124,7 @@ async function draftStatement(s: Prisma.SettlementGetPayload<object>, draft: Dra
 }
 
 /** Keep what has been typed. Hours and lines can be saved unfinished; only what is plainly wrong (a bad number) is refused. */
-export async function saveDraft(id: string, draft: Draft, workspaceId = DEMO_WORKSPACE_ID): Promise<SettleResult> {
+export async function saveDraft(id: string, draft: Draft, workspaceId = currentWorkspaceId()): Promise<SettleResult> {
   const s = await prisma.settlement.findFirst({ where: { id, workspaceId } });
   if (!s) return { ok: false, error: "That statement does not exist." };
   if (s.status !== "draft") return { ok: false, error: "A finalized statement cannot be changed." };
@@ -134,7 +138,7 @@ export async function saveDraft(id: string, draft: Draft, workspaceId = DEMO_WOR
   return { ok: true, id };
 }
 
-export async function finalizeSettlement(id: string, draft: Draft, now = new Date(), workspaceId = DEMO_WORKSPACE_ID): Promise<SettleResult> {
+export async function finalizeSettlement(id: string, draft: Draft, now = new Date(), workspaceId = currentWorkspaceId()): Promise<SettleResult> {
   const s = await prisma.settlement.findFirst({ where: { id, workspaceId }, include: { driver: true } });
   if (!s) return { ok: false, error: "That statement does not exist." };
   if (s.status !== "draft") return { ok: false, error: s.status === "final" ? "This statement is already finalized." : "A voided statement cannot be finalized. Start a new one." };
@@ -173,7 +177,7 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
 }
 
 /** Take a final statement back: it stays on record as void, and its loads can go on another statement. */
-export async function voidSettlement(id: string, reason: string, now = new Date(), workspaceId = DEMO_WORKSPACE_ID): Promise<SettleResult> {
+export async function voidSettlement(id: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<SettleResult> {
   const why = reason.trim();
   if (why.length < 3) return { ok: false, error: "Say why the statement is being voided." };
   const s = await prisma.settlement.findFirst({ where: { id, workspaceId }, include: { driver: true } });
@@ -191,7 +195,7 @@ export async function voidSettlement(id: string, reason: string, now = new Date(
   return { ok: true, id };
 }
 
-export async function discardSettlement(id: string, now = new Date(), workspaceId = DEMO_WORKSPACE_ID): Promise<SettleResult> {
+export async function discardSettlement(id: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<SettleResult> {
   const s = await prisma.settlement.findFirst({ where: { id, workspaceId }, include: { driver: true } });
   if (!s) return { ok: false, error: "That statement does not exist." };
   if (s.status !== "draft") return { ok: false, error: "Only a draft can be discarded. A finalized statement is voided." };
@@ -228,7 +232,7 @@ export type SettlementView = {
   voidReason: string | null;
 };
 
-export async function getSettlement(id: string, workspaceId = DEMO_WORKSPACE_ID): Promise<SettlementView | null> {
+export async function getSettlement(id: string, workspaceId = currentWorkspaceId()): Promise<SettlementView | null> {
   const s = await prisma.settlement.findFirst({ where: { id, workspaceId }, include: { driver: true, workspace: true } });
   if (!s) return null;
   const base = { id: s.id, number: s.number, issuer: s.workspace.name, company: toCompany(s.workspace), driver: { id: s.driver.id, name: s.driver.name }, start: ymd(s.periodStart), end: ymd(s.periodEnd), periodLabel: periodText(ymd(s.periodStart), ymd(s.periodEnd)), finalizedAt: s.finalizedAt?.toISOString() ?? null, voidedAt: s.voidedAt?.toISOString() ?? null, voidReason: s.voidReason };
@@ -245,8 +249,18 @@ export async function getSettlement(id: string, workspaceId = DEMO_WORKSPACE_ID)
 
 export type SettlementRow = { id: string; number: string; status: string; driverId: string; driverName: string; periodLabel: string; loads: number; total: number | null; finalizedAt: Date | null; voidedAt: Date | null; createdAt: Date };
 
-export async function listSettlements(workspaceId = DEMO_WORKSPACE_ID): Promise<SettlementRow[]> {
-  const rows = await prisma.settlement.findMany({ where: { workspaceId }, include: { driver: true }, orderBy: [{ createdAt: "desc" }] });
+export const STATEMENTS_PAGE = 50;
+
+/** How many statements there are in each state, and what the finalized ones come to. */
+export async function settlementCounts(workspaceId = currentWorkspaceId()) {
+  const groups = await prisma.settlement.groupBy({ by: ["status"], where: { workspaceId }, _count: { _all: true }, _sum: { total: true } });
+  const of = (status: string) => groups.find((g) => g.status === status);
+  return { draft: of("draft")?._count._all ?? 0, final: of("final")?._count._all ?? 0, void: of("void")?._count._all ?? 0, finalTotal: numOrNull(of("final")?._sum.total) ?? 0 };
+}
+
+/** Statements, newest first, a page at a time (a big fleet settles every driver every week). */
+export async function listSettlements(workspaceId = currentWorkspaceId(), opts: { skip?: number; take?: number; status?: string } = {}): Promise<SettlementRow[]> {
+  const rows = await prisma.settlement.findMany({ where: { workspaceId, ...(opts.status ? { status: opts.status } : {}) }, include: { driver: true }, orderBy: [{ createdAt: "desc" }], skip: opts.skip ?? 0, take: opts.take ?? STATEMENTS_PAGE });
   return Promise.all(
     rows.map(async (s) => {
       const label = periodText(ymd(s.periodStart), ymd(s.periodEnd));
@@ -263,31 +277,36 @@ export async function listSettlements(workspaceId = DEMO_WORKSPACE_ID): Promise<
 
 export type Unsettled = { driverId: string; driverName: string; loads: number; amount: number; hourlyWithoutHours: number; oldest: Date; newest: Date; start: string; end: string };
 
-/** Per driver, the delivered loads not on any final statement, what they come to, and a period that would cover them. */
-export async function unsettledByDriver(workspaceId = DEMO_WORKSPACE_ID): Promise<Unsettled[]> {
-  const loads = await prisma.load.findMany({
-    where: { workspaceId, deletedAt: null, status: "completed", completedAt: { not: null }, settlement: { is: null }, assignment: { is: { status: "completed" } } },
-    include: { assignment: { include: { driver: true } } }
-  });
-  const byDriver = new Map<string, { name: string; loads: LoadWithAssignment[] }>();
+/** The unsettled list looks back this far: a statement can still be started for any date, but a year of unsettled freight is not a list a dispatcher works down. */
+export const UNSETTLED_DAYS = 120;
+
+/** Per driver, the delivered loads of the last 120 days not on any final statement, what they come to, and a period that would cover them. */
+export async function unsettledByDriver(workspaceId = currentWorkspaceId(), now = new Date()): Promise<Unsettled[]> {
+  // Read as the nine plain columns the pay is worked out from (a whole load, with its assignment and driver, is a hundred): a fleet has thousands of these.
+  const since = new Date(now.getTime() - UNSETTLED_DAYS * 86_400_000);
+  const loads = await prisma.$queryRaw<
+    Array<{ driverId: string; driverName: string; completedAt: Date; loadedMiles: number; quotedRevenue: number; fuelSurcharge: number | null; payKind: string; payRate: number; payEstimate: number | null }>
+  >`
+    select a.driver_id as "driverId", d.name as "driverName", l.completed_at as "completedAt", l.loaded_miles::float8 as "loadedMiles", l.quoted_revenue::float8 as "quotedRevenue",
+      l.fuel_surcharge::float8 as "fuelSurcharge", a.pay_kind as "payKind", a.pay_rate::float8 as "payRate", a.pay_estimate::float8 as "payEstimate"
+    from loads l join assignments a on a.load_id = l.id and a.status = 'completed' join drivers d on d.id = a.driver_id
+    where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status = 'completed' and l.completed_at >= ${since}
+      and not exists (select 1 from settlement_loads sl where sl.load_id = l.id)`;
+  const byDriver = new Map<string, { name: string; loads: typeof loads }>();
   for (const l of loads) {
-    const d = l.assignment!.driver;
-    const group = byDriver.get(d.id) ?? { name: d.name, loads: [] };
+    const group = byDriver.get(l.driverId) ?? { name: l.driverName, loads: [] };
     group.loads.push(l);
-    byDriver.set(d.id, group);
+    byDriver.set(l.driverId, group);
   }
   const out: Unsettled[] = [];
   for (const [driverId, g] of byDriver) {
-    const lines = g.loads.map((l) => {
-      const s = toSettlementLoad(l);
-      return { s, amount: linePay(s.payKind, s.payRate, s.loadedMiles, s.assignedHours, s.rateConTotal) };
-    });
-    const dates = g.loads.map((l) => l.completedAt!);
+    const lines = g.loads.map((l) => linePay(l.payKind as PayKind, l.payRate, l.loadedMiles, hoursFromEstimate(l.payKind, l.payRate, l.payEstimate), rateConTotal(l.quotedRevenue, l.fuelSurcharge ?? 0)));
+    const dates = g.loads.map((l) => l.completedAt);
     const sorted = [...dates].sort((a, b) => a.getTime() - b.getTime());
     const period = periodCovering(dates);
     if (!period) continue;
-    const cents = lines.reduce((sum, x) => sum.plus(new Prisma.Decimal(x.amount ?? 0)), new Prisma.Decimal(0));
-    out.push({ driverId, driverName: g.name, loads: g.loads.length, amount: cents.toNumber(), hourlyWithoutHours: lines.filter((x) => x.amount == null).length, oldest: sorted[0]!, newest: sorted[sorted.length - 1]!, start: period.start, end: period.end });
+    const cents = lines.reduce((sum, amount) => sum.plus(new Prisma.Decimal(amount ?? 0)), new Prisma.Decimal(0));
+    out.push({ driverId, driverName: g.name, loads: g.loads.length, amount: cents.toNumber(), hourlyWithoutHours: lines.filter((amount) => amount == null).length, oldest: sorted[0]!, newest: sorted[sorted.length - 1]!, start: period.start, end: period.end });
   }
   return out.sort((a, b) => a.driverName.localeCompare(b.driverName));
 }

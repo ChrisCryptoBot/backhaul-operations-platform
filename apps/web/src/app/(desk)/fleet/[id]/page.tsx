@@ -57,6 +57,7 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
             mpg: t.mpg == null ? null : num(t.mpg),
             fuelType: t.fuelType,
             homeBase: t.homeBaseAddress,
+            terminal: t.terminal,
             make: t.make,
             model: t.model,
             year: t.year,

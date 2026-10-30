@@ -42,6 +42,15 @@
 .tl-total b { font-size: var(--db-text-md); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tl-total span { font-size: var(--db-text-xs); color: var(--db-fg-dim); text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; }
 .tl-total.alert b { color: var(--db-neg); }
+/* The terminal scope: a labelled select in the header; gold label while a terminal (not all of them) is chosen. */
+.tl-scope { display: flex; flex-direction: column; justify-content: center; gap: 1px; flex: none; line-height: 1.15; }
+.tl-scope span { font-size: var(--db-text-xs); color: var(--db-fg-dim); text-transform: uppercase; letter-spacing: 0.08em; }
+.tl-scope select { min-height: 28px; max-width: 190px; padding: 0 var(--db-2); background: var(--db-bg-input); color: var(--db-fg); border: 1px solid var(--db-border-strong); border-radius: var(--db-r-md); font-size: var(--db-text-base); }
+.tl-scope select:hover { border-color: var(--db-fg-dim); }
+.tl-scope select:focus-visible { outline: none; border-color: var(--db-accent); box-shadow: 0 0 0 3px var(--db-accent-ring); }
+.tl-scope[data-active="true"] span { color: var(--db-accent-fg); }
+.tl-scope[data-active="true"] select { border-color: var(--db-accent); }
+@media (max-width: 1100px) { .tl-scope select { max-width: 140px; } }
 .tl-main { padding: var(--db-6) var(--db-6) var(--db-12); min-width: 0; }
 
 /* ───────────────────────────── page ───────────────────────────── */

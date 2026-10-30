@@ -1,7 +1,9 @@
 import Link from "next/link";
 import React from "react";
 import { listBoardRows, type BoardRow } from "@/server/tl/queries";
+import { currentTerminal } from "@/server/tl/terminal";
 import { getAlerts } from "@/server/tl/alerts";
+import { currentWorkspaceId } from "@/server/tl/workspace";
 import { topLevel, type Alert } from "@/lib/alerts";
 import { Card, PageHead, VerdictChip } from "@/components/desk/ui";
 import { AlertList } from "@/components/desk/alert-bits";
@@ -46,12 +48,28 @@ function Row({ r, alerts, assign }: { r: BoardRow; alerts: Alert[] | undefined; 
 
 const soonest = (a: BoardRow, b: BoardRow) => (a.scheduledDate?.getTime() ?? Infinity) - (b.scheduledDate?.getTime() ?? Infinity);
 
-export default async function DispatchPage() {
-  const [rows, { alerts, byLoad }] = await Promise.all([listBoardRows(), getAlerts()]);
+/** Loads shown in each column at a time; a big fleet has hundreds waiting. "Show more" adds this many (the soonest pickups are first, so what matters is on top). */
+const COLUMN_STEP = 30;
+
+export default async function DispatchPage({ searchParams }: { searchParams?: { needs?: string; sent?: string; road?: string } }) {
+  const [rows, { alerts, byLoad }] = await Promise.all([listBoardRows(currentWorkspaceId(), "open", await currentTerminal()), getAlerts(new Date(), currentWorkspaceId(), "shell")]);
   const needs = rows.filter((r) => r.status === "draft" && (!r.assignmentStatus || r.assignmentStatus === "draft" || r.assignmentStatus === "declined")).sort(soonest);
   const sent = rows.filter((r) => r.assignmentStatus === "dispatched").sort(soonest);
   const road = rows.filter((r) => r.status === "accepted" || r.status === "in_progress").filter((r) => r.assignmentStatus !== "dispatched").sort(soonest);
   const urgent = alerts.filter((a) => a.level !== "info");
+  const shownOf = (param: string | undefined) => Math.max(COLUMN_STEP, Math.min(Number.parseInt(param ?? "", 10) || COLUMN_STEP, 5_000));
+  const limits = { needs: shownOf(searchParams?.needs), sent: shownOf(searchParams?.sent), road: shownOf(searchParams?.road) };
+  const moreHref = (column: keyof typeof limits) => {
+    const u = new URLSearchParams();
+    for (const [k, v] of Object.entries({ ...limits, [column]: limits[column] + COLUMN_STEP })) if (v > COLUMN_STEP) u.set(k, String(v));
+    return `/dispatch?${u.toString()}`;
+  };
+  const More = ({ column, total }: { column: keyof typeof limits; total: number }) =>
+    total > limits[column] ? (
+      <p className="tl-note" style={{ marginTop: 10 }}>
+        The soonest {limits[column]} of {total}. <Link href={moreHref(column)} scroll={false}>Show {Math.min(COLUMN_STEP, total - limits[column])} more</Link>
+      </p>
+    ) : null;
 
   return (
     <>
@@ -76,33 +94,36 @@ export default async function DispatchPage() {
             <EmptyState icon="check" title="Nothing waiting">Every load has a driver.</EmptyState>
           ) : (
             <ul className="dq">
-              {needs.map((r) => (
+              {needs.slice(0, limits.needs).map((r) => (
                 <Row key={r.id} r={r} alerts={byLoad.get(r.id)} assign />
               ))}
             </ul>
           )}
+          <More column="needs" total={needs.length} />
         </Card>
         <Card title={`Sent, waiting · ${sent.length}`}>
           {sent.length === 0 ? (
             <EmptyState icon="dispatch" title="Nothing out for an answer">Loads you send appear here until the driver answers.</EmptyState>
           ) : (
             <ul className="dq">
-              {sent.map((r) => (
+              {sent.slice(0, limits.sent).map((r) => (
                 <Row key={r.id} r={r} alerts={byLoad.get(r.id)} />
               ))}
             </ul>
           )}
+          <More column="sent" total={sent.length} />
         </Card>
         <Card title={`Accepted and moving · ${road.length}`}>
           {road.length === 0 ? (
             <EmptyState icon="trucks" title="Nothing on the road">Accepted loads show here until they are delivered.</EmptyState>
           ) : (
             <ul className="dq">
-              {road.map((r) => (
+              {road.slice(0, limits.road).map((r) => (
                 <Row key={r.id} r={r} alerts={byLoad.get(r.id)} />
               ))}
             </ul>
           )}
+          <More column="road" total={road.length} />
         </Card>
       </div>
     </>

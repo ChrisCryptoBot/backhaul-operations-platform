@@ -9,7 +9,7 @@ import { toCompany } from "./company";
 import { num, numOrNull } from "./convert";
 import { detentionOfLoad } from "./detention";
 import { getThresholds } from "./thresholds";
-import { DEMO_WORKSPACE_ID } from "./workspace";
+import { currentWorkspaceId } from "./workspace";
 
 /**
  * Invoice a delivered load, mark an invoice paid (in full or short), and take a payment back. Each writes its audit event with the change.
@@ -19,8 +19,8 @@ import { DEMO_WORKSPACE_ID } from "./workspace";
  */
 export type InvoiceOut = { ok: boolean; detention: number; total?: number; error?: string; errors?: Record<string, string> };
 
-export async function invoiceLoad(loadId: string, opts: { includeDetention?: boolean; form?: InvoiceForm } = {}, now = new Date()): Promise<InvoiceOut> {
-  const load = await prisma.load.findUniqueOrThrow({ where: { id: loadId }, include: { stops: true, vehicle: { include: { costProfile: true } } } });
+export async function invoiceLoad(loadId: string, opts: { includeDetention?: boolean; form?: InvoiceForm } = {}, now = new Date(), workspaceId = currentWorkspaceId()): Promise<InvoiceOut> {
+  const load = await prisma.load.findFirstOrThrow({ where: { id: loadId, workspaceId, deletedAt: null }, include: { stops: true, vehicle: { include: { costProfile: true } } } });
   if (load.status !== "completed" || load.paymentStatus) return { ok: false, detention: 0 };
   const ready = invoiceReadiness({ ...load, quotedRevenue: num(load.quotedRevenue) });
   if (ready.blockers.length > 0) return { ok: false, detention: 0, error: ready.blockers[0] };
@@ -49,7 +49,7 @@ export async function invoiceLoad(loadId: string, opts: { includeDetention?: boo
           summary: `${number} created for $${total.toFixed(2)}${extra.length > 0 ? `, with ${extra.map((l) => `$${l.amount.toFixed(2)} of ${l.label.toLowerCase()}`).join(" and ")}` : ""}`,
           before: { Invoice: null, Amount: null },
           after: { Invoice: number, Amount: `$${total.toFixed(2)}`, ...Object.fromEntries(extra.map((l) => [l.label, `$${l.amount.toFixed(2)}`])), Terms: `Net ${terms}` },
-          at: now
+          at: now, workspaceId
         },
         tx
       );
@@ -71,8 +71,8 @@ class NumberTaken extends Error {
 export type PaidOut = { ok: boolean; error?: string; difference?: number };
 
 /** Mark an invoice paid. With an amount, a payment that is not the invoice total is recorded as it came, and the audit entry says by how much. */
-export async function markLoadPaid(loadId: string, now = new Date(), opts: { amount?: number; /** The day it came in, "2026-10-29" on the Dallas calendar; today when blank. */ paidOn?: string; method?: string } = {}): Promise<PaidOut> {
-  const load = await prisma.load.findUniqueOrThrow({ where: { id: loadId } });
+export async function markLoadPaid(loadId: string, now = new Date(), opts: { amount?: number; /** The day it came in, "2026-10-29" on the Dallas calendar; today when blank. */ paidOn?: string; method?: string } = {}, workspaceId = currentWorkspaceId()): Promise<PaidOut> {
+  const load = await prisma.load.findFirstOrThrow({ where: { id: loadId, workspaceId, deletedAt: null } });
   if (load.paymentStatus !== "invoiced") return { ok: false };
   const billed = num(load.invoicedAmount ?? load.quotedRevenue);
   const amount = opts.amount ?? billed;
@@ -100,7 +100,7 @@ export async function markLoadPaid(loadId: string, now = new Date(), opts: { amo
         summary: `${load.invoiceNumber ?? "Invoice"} paid${method ? ` by ${paidMethodLabel(method).toLowerCase()}` : ""}${paidOn !== today ? ` on ${paidOn}` : ""}, $${amount.toFixed(2)}${diff < 0 ? `, $${gap} short of $${billed.toFixed(2)}` : diff > 0 ? `, $${diff.toFixed(2)} over $${billed.toFixed(2)}` : ""}`,
         before: { Status: "Invoiced", Billed: `$${billed.toFixed(2)}` },
         after: { Status: "Paid", Amount: `$${amount.toFixed(2)}`, ...(method ? { Method: paidMethodLabel(method) } : {}), ...(paidOn !== today ? { "Paid on": paidOn } : {}), ...(diff !== 0 ? { Difference: `${diff < 0 ? "-" : "+"}$${gap}` } : {}) },
-        at: now
+        at: now, workspaceId
       },
       tx
     );
@@ -109,10 +109,10 @@ export async function markLoadPaid(loadId: string, now = new Date(), opts: { amo
 }
 
 /** Take a payment back: a payment entered against the wrong invoice, or one that bounced. The invoice is out again, and the reason is kept. */
-export async function undoPaid(loadId: string, reason: string, now = new Date()): Promise<PaidOut> {
+export async function undoPaid(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<PaidOut> {
   const why = reason.trim();
   if (why.length < 3) return { ok: false, error: "Say why the payment is being taken back." };
-  const load = await prisma.load.findUniqueOrThrow({ where: { id: loadId } });
+  const load = await prisma.load.findFirstOrThrow({ where: { id: loadId, workspaceId, deletedAt: null } });
   if (load.paymentStatus !== "paid") return { ok: false, error: "This invoice is not marked paid." };
   const was = numOrNull(load.paidAmount) ?? 0;
   await prisma.$transaction(async (tx) => {
@@ -127,7 +127,7 @@ export async function undoPaid(loadId: string, reason: string, now = new Date())
         reason: why,
         before: { Status: "Paid", Amount: `$${was.toFixed(2)}` },
         after: { Status: "Invoiced", Amount: null },
-        at: now
+        at: now, workspaceId
       },
       tx
     );
@@ -136,7 +136,7 @@ export async function undoPaid(loadId: string, reason: string, now = new Date())
 }
 
 /** The invoice as billed, for printing: its lines, who it is for, and the load it came from. */
-export async function getInvoice(loadId: string, workspaceId = DEMO_WORKSPACE_ID) {
+export async function getInvoice(loadId: string, workspaceId = currentWorkspaceId()) {
   const l = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, paymentStatus: { not: null } }, include: { stops: { orderBy: { stopSequence: "asc" } }, workspace: true } });
   if (!l || !l.invoicedAt) return null;
   const lines = Array.isArray(l.invoiceLines) ? (l.invoiceLines as Array<{ label: string; amount: number }>) : null;

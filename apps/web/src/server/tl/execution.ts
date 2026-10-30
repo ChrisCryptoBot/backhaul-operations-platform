@@ -3,7 +3,7 @@ import { dateTime } from "@/lib/desk-format";
 import { validateComplete, validateExpenses, validateStart, type CompleteValues, type ExpenseValues, type StartValues, type TripErrors } from "@/lib/trip";
 import { recordAudit } from "./audit";
 import { num } from "./convert";
-import { DEMO_WORKSPACE_ID } from "./workspace";
+import { currentWorkspaceId } from "./workspace";
 
 /**
  * Entering a trip for a driver who is not entering it on the phone. It is the same record the phone writes: arrival and wait at each stop, the
@@ -20,7 +20,7 @@ async function loadFor(loadId: string, workspaceId: string) {
 }
 
 /** The driver picked up: they arrived at the first stop, waited, and sealed the trailer. The load is on the road. */
-export async function startTrip(loadId: string, values: StartValues, now = new Date(), workspaceId = DEMO_WORKSPACE_ID): Promise<TripResult> {
+export async function startTrip(loadId: string, values: StartValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult> {
   const check = validateStart(values, now.getTime());
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
@@ -44,7 +44,7 @@ export async function startTrip(loadId: string, values: StartValues, now = new D
         summary: `${a.driver.name} picked up, entered by the desk: arrived ${dateTime(v.arrivedAt)}${v.waitMinutes != null ? `, waited ${v.waitMinutes} min` : ""}${v.seal ? `, seal ${v.seal}` : ""}`,
         before: { Status: "Accepted" },
         after: { Status: "On the road", Arrived: dateTime(v.arrivedAt), Waited: v.waitMinutes != null ? `${v.waitMinutes} min` : null, Seal: v.seal },
-        at: now
+        at: now, workspaceId
       },
       tx
     );
@@ -57,7 +57,7 @@ export async function startTrip(loadId: string, values: StartValues, now = new D
  * either there (with a note on what and where) or its absence is explained; and what the trip cost is recorded. The rate confirmation's
  * rate becomes the load's actual revenue, as the phone does, and the waits add up to the dock wait the verdict reads.
  */
-export async function completeTrip(loadId: string, values: CompleteValues, now = new Date(), workspaceId = DEMO_WORKSPACE_ID): Promise<TripResult> {
+export async function completeTrip(loadId: string, values: CompleteValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult> {
   const check = validateComplete(values, now.getTime());
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
@@ -105,7 +105,7 @@ export async function completeTrip(loadId: string, values: CompleteValues, now =
         reason: v.pod === "none" ? v.podNote : null,
         before: { Status: "On the road" },
         after: { Status: "Delivered", Delivered: dateTime(v.deliveredAt), "Proof of delivery": v.pod === "received" ? (v.podNote ?? "Received") : "None", "Dock wait": `${dockWait} min`, Expenses: spent > 0 ? money(spent) : null },
-        at: now
+        at: now, workspaceId
       },
       tx
     );
@@ -114,7 +114,7 @@ export async function completeTrip(loadId: string, values: CompleteValues, now =
 }
 
 /** What the trip cost, entered or corrected. A load that is on the road or delivered can be changed; a cancelled one has no trip. */
-export async function saveExpenses(loadId: string, values: ExpenseValues, now = new Date(), workspaceId = DEMO_WORKSPACE_ID): Promise<TripResult & { changed?: boolean }> {
+export async function saveExpenses(loadId: string, values: ExpenseValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult & { changed?: boolean }> {
   const check = validateExpenses(values);
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
@@ -134,7 +134,7 @@ export async function saveExpenses(loadId: string, values: ExpenseValues, now = 
         summary: `Expenses ${money(was.fuel + was.tolls + was.misc)} to ${money(v.fuel + v.tolls + v.misc)}`,
         before: { Fuel: money(was.fuel), Tolls: money(was.tolls), Other: money(was.misc) },
         after: { Fuel: money(v.fuel), Tolls: money(v.tolls), Other: money(v.misc) },
-        at: now
+        at: now, workspaceId
       },
       tx
     );

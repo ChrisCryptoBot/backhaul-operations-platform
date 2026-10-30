@@ -109,3 +109,22 @@ export function loadedLegHours(routeSeconds: number, routeMiles: number, loadedM
 
 /** A stop is worth looking up once it has enough typed to be a place (the form does not ask the map about "d"). */
 export const addressReady = (address: string): boolean => address.trim().length >= 3;
+
+/** Straight-line miles between two points (great circle). For ranking which trucks are near a pickup, never for pricing a mile. */
+export function haversineMiles(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 3958.7613 * 2 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/**
+ * Which truck bases to measure by road: the nearest ones to the pickup that have a stored point, then a few without (found by address). A fleet of thousands cannot be
+ * measured truck by truck on every keystroke, and a base hundreds of miles away is not the one the dispatcher will pick.
+ */
+export function nearestHomes<T extends { point?: { lat: number; lng: number } | null; address: string }>(homes: readonly T[], from: { lat: number; lng: number }, nearest = 40, unlocated = 5): T[] {
+  const withPoint = homes.filter((h) => h.point).sort((a, b) => haversineMiles(a.point!, from) - haversineMiles(b.point!, from));
+  const without = homes.filter((h) => !h.point && h.address.trim() !== "");
+  return [...withPoint.slice(0, nearest), ...without.slice(0, unlocated)];
+}

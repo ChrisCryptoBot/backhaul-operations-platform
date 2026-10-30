@@ -222,8 +222,8 @@ describe.skipIf(!run)("wave C1: what a truck can carry, passing on a quote, quot
     const open = await buildExport("loads", { view: "open" });
     const history = await buildExport("loads", { view: "history" });
     const lines = (r: { csv: string } | null) => r!.csv.replace(/^﻿/, "").trim().split(/\r?\n/);
-    const rows = await listBoardRows();
-    const isOpen = (s: string) => ["draft", "accepted", "in_progress"].includes(s);
+    const rows = await listBoardRows(undefined, "all");
+    const isOpen =(s: string) => ["draft", "accepted", "in_progress"].includes(s);
     expect(lines(open).length - 1).toBe(rows.filter((r) => isOpen(r.status)).length);
     expect(lines(history).length - 1).toBe(rows.filter((r) => !isOpen(r.status)).length);
     expect(lines(all).length - 1).toBe(rows.length);

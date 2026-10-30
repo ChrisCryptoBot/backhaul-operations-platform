@@ -9,6 +9,7 @@ import { computeStatement, MAX_ADJUSTMENTS, validatePeriod, type AdjustmentInput
 import { ConfirmDialog, Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
 import { DateInput } from "./date-input";
+import { DriverPicker } from "./driver-picker";
 
 function Fld({ label, error, hint, children }: { label: string; error?: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -29,10 +30,10 @@ function Fld({ label, error, hint, children }: { label: string; error?: string; 
 // ── Start a statement ──────────────────────────────────────────────────────────────────────────
 
 /** Pick a driver and a period (or one of the usual ones); the statement opens as a draft with every delivered load in it that is not already paid. */
-export function StartStatement({ drivers, presets, initial, label = "Start a statement", primary = true }: { drivers: Array<{ id: string; name: string }>; presets: PeriodPreset[]; initial?: { driverId?: string; start?: string; end?: string }; label?: string; primary?: boolean }) {
+export function StartStatement({ presets, initial, label = "Start a statement", primary = true }: { presets: PeriodPreset[]; initial?: { driverId?: string; driverName?: string; start?: string; end?: string }; label?: string; primary?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
-  const [driverId, setDriverId] = React.useState(initial?.driverId ?? drivers[0]?.id ?? "");
+  const [driverId, setDriverId] = React.useState(initial?.driverId ?? "");
   const [start, setStart] = React.useState(initial?.start ?? presets[0]?.start ?? "");
   const [end, setEnd] = React.useState(initial?.end ?? presets[0]?.end ?? "");
   const [errors, setErrors] = React.useState<Record<string, string>>({});
@@ -43,6 +44,10 @@ export function StartStatement({ drivers, presets, initial, label = "Start a sta
     const p = validatePeriod(start, end);
     if (!p.ok) {
       setErrors(p.errors);
+      return;
+    }
+    if (driverId === "" || driverId === "?") {
+      setErrors({ driverId: "Pick a driver from the list." });
       return;
     }
     setBusy(true);
@@ -80,7 +85,7 @@ export function StartStatement({ drivers, presets, initial, label = "Start a sta
             <button type="button" className="tl-btn" onClick={() => setOpen(false)}>
               Cancel
             </button>
-            <button type="button" className="tl-btn primary" disabled={busy || drivers.length === 0} aria-busy={busy || undefined} onClick={() => void go()}>
+            <button type="button" className="tl-btn primary" disabled={busy} aria-busy={busy || undefined} onClick={() => void go()}>
               {busy ? "Starting…" : "Start the statement"}
             </button>
           </>
@@ -88,13 +93,16 @@ export function StartStatement({ drivers, presets, initial, label = "Start a sta
         <div className="dlg-form">
           <p className="tl-note">It lists the loads the driver delivered in the period that are not already paid on another statement. You add hours, deductions and extras before you finalize it.</p>
           <Fld label="Driver" error={errors.driverId}>
-            <select value={driverId} onChange={(e) => setDriverId(e.target.value)}>
-              {drivers.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
+            <DriverPicker
+              id={driverId}
+              name={initial?.driverName ?? ""}
+              includeInactive
+              invalid={driverId === "?"}
+              onPick={(id) => {
+                setDriverId(id);
+                setErrors({});
+              }}
+            />
           </Fld>
           <div className="dlg-row" role="group" aria-label="Usual periods">
             {presets.map((p) => (

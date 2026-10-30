@@ -97,13 +97,20 @@ export function buildPlanner(loads: PlannerLoad[], drivers: Array<{ id: string; 
   }
 
   const driverOf = (r: Raw) => (r.l.driverId && r.l.assignmentStatus !== "declined" ? r.l.driverId : null);
+  // Grouped by driver once (insertion order is the order each driver first appears), so a fleet of thousands is not compared load against load.
+  const byDriver = new Map<string, Raw[]>();
+  for (const r of raws) {
+    const id = driverOf(r);
+    if (!id) continue;
+    const list = byDriver.get(id);
+    if (list) list.push(r);
+    else byDriver.set(id, [r]);
+  }
+  // Two open loads of one driver conflict when their windows overlap (back to back is fine, as windowsOverlap says).
   const conflicting = new Set<string>();
-  for (const a of raws) {
-    if (!OPEN.includes(a.l.status) || !driverOf(a)) continue;
-    for (const b of raws) {
-      if (a === b || !OPEN.includes(b.l.status) || driverOf(b) !== driverOf(a)) continue;
-      if (windowsOverlap({ start: new Date(a.start), end: new Date(a.end) }, { start: new Date(b.start), end: new Date(b.end) })) conflicting.add(a.l.id);
-    }
+  for (const list of byDriver.values()) {
+    const open = list.filter((r) => OPEN.includes(r.l.status));
+    for (const a of open) for (const b of open) if (a !== b && a.start < b.end && b.start < a.end) conflicting.add(a.l.id);
   }
 
   const item = (r: Raw, day: DayCol): PlannerItem => ({
@@ -123,14 +130,12 @@ export function buildPlanner(loads: PlannerLoad[], drivers: Array<{ id: string; 
   const cellsFor = (rs: Raw[]) => days.map((d) => rs.filter((r) => r.start <= d.end && r.end >= d.start).sort((a, b) => a.start - b.start).map((r) => item(r, d)));
 
   const known = new Set(drivers.map((d) => d.id));
-  const rows: PlannerRow[] = drivers.map((d) => ({ driverId: d.id, name: d.name, cells: cellsFor(raws.filter((r) => driverOf(r) === d.id)) }));
+  const rows: PlannerRow[] = drivers.map((d) => ({ driverId: d.id, name: d.name, cells: cellsFor(byDriver.get(d.id) ?? []) }));
   // A driver who is no longer in the list but still holds a load must not vanish from the board.
-  for (const r of raws) {
-    const id = driverOf(r);
-    if (id && !known.has(id)) {
-      known.add(id);
-      rows.push({ driverId: id, name: r.l.driverName ?? "Former driver", cells: cellsFor(raws.filter((x) => driverOf(x) === id)) });
-    }
+  for (const [id, list] of byDriver) {
+    if (known.has(id)) continue;
+    known.add(id);
+    rows.push({ driverId: id, name: list[0]!.l.driverName ?? "Former driver", cells: cellsFor(list) });
   }
   const tray = cellsFor(raws.filter((r) => !driverOf(r) && OPEN.includes(r.l.status)));
   return { rows, tray, untimed };

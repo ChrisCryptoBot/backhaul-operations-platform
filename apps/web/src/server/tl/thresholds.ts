@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { resolveThresholds, THRESHOLD_FIELDS, validateThresholds, type ThresholdCheck, type ThresholdRow, type Thresholds } from "@/lib/thresholds";
 import { recordAudit } from "./audit";
 import { numOrNull } from "./convert";
-import { currentWorkspace, DEMO_WORKSPACE_ID } from "./workspace";
+import { currentWorkspace, currentWorkspaceId } from "./workspace";
 
 type StoredColumns = {
   emptyAmberPct: Prisma.Decimal | null;
@@ -29,12 +29,12 @@ function toRow(ws: StoredColumns): ThresholdRow {
 }
 
 /** What is stored, with null for "use the default" (the Settings form shows blanks for these). */
-export async function getStoredThresholds(workspaceId = DEMO_WORKSPACE_ID): Promise<ThresholdRow> {
+export async function getStoredThresholds(workspaceId = currentWorkspaceId()): Promise<ThresholdRow> {
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
   return ws ? toRow(ws) : {};
 }
 
-export async function getThresholds(workspaceId = DEMO_WORKSPACE_ID): Promise<Thresholds> {
+export async function getThresholds(workspaceId = currentWorkspaceId()): Promise<Thresholds> {
   return resolveThresholds(await getStoredThresholds(workspaceId));
 }
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { measureForDesk } from "@/server/geo/desk";
+import { currentTerminal } from "@/server/tl/terminal";
 
 export const dynamic = "force-dynamic";
 
@@ -20,5 +21,5 @@ export async function POST(request: Request) {
   const stops = raw.map((s) => ({ address: typeof s.address === "string" ? s.address.slice(0, 200) : "", role: s.role === "delivery" ? ("delivery" as const) : ("pickup" as const) }));
   // `homes: false` asks for the road miles alone (the rate-confirmation review has no trucks to measure from).
   const homes = (body as { homes?: unknown } | null)?.homes !== false;
-  return NextResponse.json(await measureForDesk(stops, undefined, { homes }));
+  return NextResponse.json(await measureForDesk(stops, undefined, { homes, terminal: await currentTerminal() }));
 }

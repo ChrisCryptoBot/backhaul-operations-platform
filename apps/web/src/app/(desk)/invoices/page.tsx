@@ -1,6 +1,8 @@
 import Link from "next/link";
 import React from "react";
-import { agingFor, listInvoiceRows } from "@/server/tl/queries";
+import { agingFor, countInvoices, listInvoiceRows } from "@/server/tl/queries";
+import { Pager } from "@/components/desk/pager";
+import { asPage } from "@/lib/paging";
 import { getDetentionRecovery } from "@/server/tl/detention";
 import { InvoiceDialog, PaidDialog } from "@/components/desk/load-actions";
 import { Card, PageHead, Stat } from "@/components/desk/ui";
@@ -29,11 +31,11 @@ const READY: Column[] = [
   { key: "act", label: "", align: "num" }
 ];
 const OUT: Column[] = [
-  { key: "invoice", sortable: true, label: "Invoice", sticky: true, width: 150 },
-  { key: "broker", sortable: true, label: "Customer" },
-  { key: "sent", sortable: true, label: "Sent" },
-  { key: "due", sortable: true, label: "Due" },
-  { key: "amount", sortable: true, label: "Amount", align: "num" },
+  { key: "invoice", label: "Invoice", sticky: true, width: 150 },
+  { key: "broker", label: "Customer" },
+  { key: "sent", label: "Sent" },
+  { key: "due", label: "Due" },
+  { key: "amount", label: "Amount", align: "num" },
   { key: "act", label: "", align: "num" }
 ];
 const PAID: Column[] = [
@@ -44,15 +46,42 @@ const PAID: Column[] = [
   { key: "amount", label: "Received", align: "num" }
 ];
 
-export default async function InvoicesPage() {
-  const [all, aging, detention] = await Promise.all([listInvoiceRows(), agingFor(), getDetentionRecovery()]);
-  const toInvoice = all.filter((r) => !r.status);
-  const open = all.filter((r) => r.status === "invoiced");
-  const paid = all.filter((r) => r.status === "paid");
+const READY_PAGE = 25;
+const OUT_PAGE = 50;
+const PAID_PAGE = 50;
+/** The detention card lists the largest amounts still owed; the total above it is for all of them. */
+const DETENTION_SHOWN = 25;
+
+export default async function InvoicesPage({ searchParams }: { searchParams?: { ready?: string; out?: string; paid?: string; q?: string } }) {
+  // Each list is read on its own and a page at a time, because a fleet can have thousands waiting to be invoiced, out, or paid: the oldest first for what still needs
+  // work, the newest first for what is paid. The search looks through what is out.
+  const q = (searchParams?.q ?? "").trim();
+  const [readyTotal, outTotal, paidTotal] = await Promise.all([countInvoices("ready"), countInvoices("out", undefined, q), countInvoices("paid")]);
+  const pageOf = (param: string | undefined, total: number, size: number) => Math.min(asPage(param), Math.max(1, Math.ceil(total / size)));
+  const readyPage = pageOf(searchParams?.ready, readyTotal, READY_PAGE);
+  const outPage = pageOf(searchParams?.out, outTotal, OUT_PAGE);
+  const paidPage = pageOf(searchParams?.paid, paidTotal, PAID_PAGE);
+  const [toInvoice, open, paid, aging, detention] = await Promise.all([
+    listInvoiceRows(undefined, { scope: "ready", skip: (readyPage - 1) * READY_PAGE, take: READY_PAGE }),
+    listInvoiceRows(undefined, { scope: "out", q, skip: (outPage - 1) * OUT_PAGE, take: OUT_PAGE }),
+    listInvoiceRows(undefined, { scope: "paid", skip: (paidPage - 1) * PAID_PAGE, take: PAID_PAGE }),
+    agingFor(),
+    getDetentionRecovery()
+  ]);
+  const href = (over: { ready?: number; out?: number; paid?: number }) => {
+    const u = new URLSearchParams();
+    const pages = { ready: readyPage, out: outPage, paid: paidPage, ...over };
+    for (const [k, v] of Object.entries(pages)) if (v > 1) u.set(k, String(v));
+    if (q) u.set("q", q);
+    const s = u.toString();
+    return s ? `/invoices?${s}` : "/invoices";
+  };
   const dueOf = (r: Inv) => (r.invoicedAt ? new Date(r.invoicedAt.getTime() + (r.payTermsDays ?? 0) * 86_400_000) : null);
 
-  const detentionRows: Row[] = detention.rows
-    .filter((r) => r.unbilled > 0 || r.noRate)
+  const detentionOwed = detention.rows.filter((r) => r.unbilled > 0 || r.noRate);
+  const detentionRows: Row[] = [...detentionOwed]
+    .sort((a, b) => b.unbilled - a.unbilled)
+    .slice(0, DETENTION_SHOWN)
     .map((r) => ({
       id: r.loadId,
       href: `/loads/${r.loadId}`,
@@ -131,11 +160,11 @@ export default async function InvoicesPage() {
       <div className="tl-grid cols-4">
         <Stat label="Outstanding" value={usd(aging.totalOutstanding)} sub={`${aging.count} ${aging.count === 1 ? "invoice" : "invoices"}`} />
         <Stat label="Overdue" value={String(aging.overdueCount)} tone={aging.overdueCount > 0 ? "bad" : undefined} sub={aging.oldestDaysOverdue != null ? `oldest ${aging.oldestDaysOverdue} days` : "none"} />
-        <Stat label="Ready to invoice" value={String(toInvoice.length)} sub="delivered, not invoiced" />
-        <Stat label="Paid" value={String(paid.length)} />
+        <Stat label="Ready to invoice" value={String(readyTotal)} sub="delivered, not invoiced" />
+        <Stat label="Paid" value={String(paidTotal)} />
       </div>
 
-      <Card title={`Detention not yet billed · ${detention.unbilledLoads} ${detention.unbilledLoads === 1 ? "load" : "loads"} · ${usd(detention.totalUnbilled, 2)}`}>
+      <Card title={`Detention not yet billed, last 90 days · ${detention.unbilledLoads} ${detention.unbilledLoads === 1 ? "load" : "loads"} · ${usd(detention.totalUnbilled, 2)}`}>
         <DataTable
           id="inv-detention"
           label="Detention not yet billed"
@@ -143,17 +172,21 @@ export default async function InvoicesPage() {
           rows={detentionRows}
           empty={<EmptyState icon="check" title="No detention is waiting to be billed">When a driver waits past the free time at a dock, it shows here until it is on an invoice.</EmptyState>}
         />
+        {detentionOwed.length > detentionRows.length ? <p className="tl-note" style={{ marginTop: 8 }}>The {detentionRows.length} largest of {detentionOwed.length} loads are shown.</p> : null}
         {detention.totalBilled > 0 ? <p className="tl-note" style={{ marginTop: 8 }}>{usd(detention.totalBilled, 2)} of detention has already gone out on invoices.</p> : null}
       </Card>
-      <Card title={`Ready to invoice · ${toInvoice.length}`}>
+      <Card title={`Ready to invoice · ${readyTotal}`}>
         <DataTable id="inv-ready" label="Ready to invoice" columns={READY} rows={readyRows} empty={<EmptyState icon="check" title="Every delivered load has an invoice" />} />
+        <Pager page={readyPage} pageSize={READY_PAGE} total={readyTotal} hrefFor={(n) => href({ ready: n })} newer="Newer" older="Older" />
       </Card>
-      <Card title={`Out and waiting · ${open.length}`}>
-        <DataTableTools tableId="inv-out" total={outRows.length} placeholder="Search invoice, load, PO or customer…" />
-        <DataTable id="inv-out" label="Out and waiting" columns={OUT} rows={outRows} empty={<EmptyState icon="invoices" title="Nothing waiting on payment" />} />
+      <Card title={`Out and waiting · ${outTotal}${q ? " matching" : ""}`}>
+        <DataTableTools tableId="inv-out" total={outTotal} placeholder="Search invoice, load, PO or customer…" server={{ path: "/invoices", q }} />
+        <DataTable id="inv-out" label="Out and waiting" columns={OUT} rows={outRows} empty={<EmptyState icon="invoices" title={q ? "Nothing matches that" : "Nothing waiting on payment"} />} />
+        <Pager page={outPage} pageSize={OUT_PAGE} total={outTotal} hrefFor={(n) => href({ out: n })} newer="Newer" older="Older" />
       </Card>
-      <Card title={`Paid · ${paid.length}`}>
+      <Card title={`Paid · ${paidTotal}`}>
         <DataTable id="inv-paid" label="Paid" columns={PAID} rows={paidRows} empty={<EmptyState icon="invoices" title="No paid invoices yet" />} />
+        <Pager page={paidPage} pageSize={PAID_PAGE} total={paidTotal} hrefFor={(n) => href({ paid: n })} newer="Newer" older="Older" />
       </Card>
     </>
   );

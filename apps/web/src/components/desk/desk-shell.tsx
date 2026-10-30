@@ -6,6 +6,8 @@ import React from "react";
 import { Icon, type IconName } from "./kit/icons";
 import { ToastProvider } from "./kit/toast";
 import { GlobalSearch } from "./global-search";
+import { TerminalScope } from "./terminal-scope";
+import { TERMINAL_LIST_ID } from "@/lib/terminal";
 import { useUnderlay } from "./underlay";
 import { perMile, pct, usd } from "@/lib/desk-format";
 import type { ShellData } from "@/server/tl/shell";
@@ -136,6 +138,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
         <div className="tl-col">
           <header className="tl-header">
             <GlobalSearch />
+            <TerminalScope terminals={data.terminals} terminal={data.terminal} />
             <div className="tl-totals" aria-label="Fleet totals">
               <div className="tl-total"><b>{t.open}</b><span>Open loads</span></div>
               <div className={`tl-total${t.needsDriver > 0 ? " alert" : ""}`}><b>{t.needsDriver}</b><span>Need a driver</span></div>
@@ -149,6 +152,12 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
           </main>
         </div>
       </div>
+      {/* The terminals in use, offered by every Terminal box in the desk (a truck's, a driver's). */}
+      <datalist id={TERMINAL_LIST_ID}>
+        {data.terminals.map((t) => (
+          <option key={t} value={t} />
+        ))}
+      </datalist>
       {drawer}
     </ToastProvider>
   );

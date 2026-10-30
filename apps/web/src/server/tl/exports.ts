@@ -1,14 +1,15 @@
 import { Prisma } from "@prisma/client";
 import { toCsv, type CsvCell } from "@/lib/csv";
 import { filterBoard } from "@/lib/board-filter";
-import { asHistoryFilter, asHistorySort, historyRows, isHistory, isOpen } from "@/lib/loads-history";
+import { asHistoryFilter, asHistorySort } from "@/lib/loads-history";
 import { prisma } from "@/lib/db";
 import { parseKpiParams } from "@/lib/kpi-params";
 import { ACTION_LABEL } from "@/lib/audit-diff";
 import { DESK_TZ, toCentralLocal } from "@/lib/zoned";
 import { listAudit } from "./audit";
 import { getDeskKpi } from "./kpi";
-import { listBoardRows, listInvoiceRows } from "./queries";
+import { listHistory } from "./history";
+import { listBoardRows, listInvoiceRows, type BoardRow } from "./queries";
 
 /**
  * The CSV files the desk offers. Each is built from the same functions the screen uses (the Loads filter, the KPI engine),
@@ -31,13 +32,21 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
   if (kind === "loads") {
     // Asked from Loads, the file is the list on screen: the Open board with its status tab, below-cost flag and search, or History with its filter,
     // sort and search. Asked with no view (an old link), it is every load.
-    const all = await listBoardRows();
     const view = first(query.view);
     const q = first(query.q);
+    // History is read in pages of a thousand (it can be tens of thousands of loads); the Open board is small.
+    const history = async (): Promise<BoardRow[]> => {
+      const out: BoardRow[] = [];
+      for (let page = 1; ; page++) {
+        const got = await listHistory({ filter: asHistoryFilter(first(query.filter)), sort: asHistorySort(first(query.sort)), q, page, pageSize: 1000 });
+        out.push(...got.rows);
+        if (page >= got.pages) return out;
+      }
+    };
     const rows =
       view === "history"
-        ? historyRows(all.filter((r) => isHistory(r.status)), { filter: asHistoryFilter(first(query.filter)), sort: asHistorySort(first(query.sort)), q })
-        : filterBoard(view === "open" ? all.filter((r) => isOpen(r.status)) : all, { status: first(query.status), flag: first(query.flag), q });
+        ? await history()
+        : filterBoard(view === "open" ? await listBoardRows() : (await listBoardRows()).concat(await history()), { status: first(query.status), flag: first(query.flag), q });
     // What the board does not carry: the money a load cost to run and what its driver is owed.
     const extra = await prisma.load.findMany({
       where: { id: { in: rows.map((r) => r.id) } },

@@ -6,7 +6,7 @@ import { deadheadMilesOf, deadheadPct, drivenMiles, loadCompletedAtMs, loadGross
 import { effectiveMiles } from "@/truelane/lib/domain/quotedMiles";
 import { loadMarketVariance } from "@/truelane/lib/domain/marketVariance";
 import { calendarDaysBetween } from "@/truelane/lib/domain/calendarDays";
-import { DAY_MS, inWindow, periodWindow, previousWindow, weekBuckets, type KpiPeriod, type TimeWindow } from "@/lib/kpi-periods";
+import { DAY_MS, WEEK_MS, inWindow, periodWindow, previousWindow, weekBuckets, type KpiPeriod, type TimeWindow } from "@/lib/kpi-periods";
 import type { KpiFilters } from "@/lib/kpi-params";
 import { THRESHOLD_DEFAULTS, type Thresholds } from "@/lib/thresholds";
 import type { Verdict } from "@/lib/desk-format";
@@ -15,7 +15,8 @@ import { evaluateTlLoad } from "./evaluate";
 import { notQuote } from "@/lib/quote-status";
 import { ms, num, numOrNull, toAgingView, toAnalyticsInput, toMarketVarianceLoad, type LoadRow } from "./convert";
 import { getThresholds } from "./thresholds";
-import { DEMO_WORKSPACE_ID } from "./workspace";
+import { currentWorkspaceId } from "./workspace";
+import { answerCache, clockBucket } from "./answer-cache";
 
 /**
  * The KPI dashboard's numbers, computed from the TrueLane-shaped tables with TrueLane's own functions (analytics, load
@@ -451,26 +452,95 @@ export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: T
   };
 }
 
-export async function getKpiRows(workspaceId = DEMO_WORKSPACE_ID): Promise<KpiLoadRow[]> {
-  const loads = await prisma.load.findMany({
-    where: { workspaceId, deletedAt: null, ...notQuote },
-    include: { vehicle: { include: { costProfile: true } }, assignment: { include: { driver: true } }, stops: { select: { waitMinutes: true, arrivedAt: true, timeWindowLatest: true } } }
-  });
-  return loads.map((l) => {
-    const profile = l.vehicle?.costProfile ?? null;
-    const open = l.status === "draft" || l.status === "accepted" || l.status === "in_progress";
-    return {
-      ...l,
-      vehicleName: l.vehicle?.name ?? null,
-      verdict: open && profile ? evaluateTlLoad(l, profile, l.vehicle).finalDecision : null,
-      assignment: l.assignment
-        ? { driverName: l.assignment.driver.name, payKind: l.assignment.payKind, payEstimate: numOrNull(l.assignment.payEstimate), status: l.assignment.status }
-        : null
-    };
-  });
+/** "All time" reads this far back (the fleet's last three years). A big fleet has far more finished loads than one screen can add up. */
+export const ALL_TIME_DAYS = 1095;
+
+/**
+ * How far back the rows must reach for this period: the window itself, the one before it (for the comparison), the twelve-week trend and the six-month chart.
+ * Open loads and invoices still out are read whatever their age (the pipeline and the aging use them).
+ */
+export function rowsSince(period: KpiPeriod, nowMs: number): number {
+  const w = periodWindow(period, nowMs);
+  const prev = previousWindow(period, nowMs);
+  const starts = [w.start ?? nowMs - ALL_TIME_DAYS * DAY_MS, prev?.start ?? null, nowMs - 13 * WEEK_MS, nowMs - 190 * DAY_MS];
+  return starts.filter((x): x is number => x != null).reduce((lo, x) => (x < lo ? x : lo), nowMs);
 }
 
-export async function getDeskKpi(opts: { period: KpiPeriod; compare?: boolean; filters?: KpiFilters }, now = new Date(), workspaceId = DEMO_WORKSPACE_ID): Promise<DeskKpi> {
-  const [rows, thresholds] = await Promise.all([getKpiRows(workspaceId), getThresholds(workspaceId)]);
-  return buildDeskKpi(rows, { period: opts.period, compare: opts.compare ?? true, filters: opts.filters ?? {} }, thresholds, now);
+/** Where the dock waits are needed from: the window and the one before it (the older months are only for the charts). "All time" needs them all. */
+function stopsStart(period: KpiPeriod, nowMs: number, floor: number): number {
+  const w = periodWindow(period, nowMs);
+  const prev = previousWindow(period, nowMs);
+  const start = w.start == null ? floor : (prev?.start ?? w.start);
+  return start < floor ? floor : start;
+}
+
+type KpiRaw = Omit<KpiLoadRow, "vehicleName" | "verdict" | "stops" | "assignment"> & { vehicleName: string | null; asStatus: string | null; asPayKind: string | null; asPayEstimate: number | null; asDriver: string | null };
+
+export async function getKpiRows(workspaceId = currentWorkspaceId(), opts: { since?: Date | null; lane?: string; stopsSince?: Date | null } = {}): Promise<KpiLoadRow[]> {
+  const [origin, destination] = opts.lane ? opts.lane.split(" → ") : [null, null];
+  const since = opts.since ?? null;
+  const OPEN = ["draft", "accepted", "in_progress"];
+  const laneSql = opts.lane
+    ? Prisma.sql` and l.origin_address ${origin === "?" ? Prisma.sql`is null` : Prisma.sql`= ${origin}`} and l.destination_address ${destination === "?" ? Prisma.sql`is null` : Prisma.sql`= ${destination}`}`
+    : Prisma.empty;
+  const sinceSql = since
+    ? Prisma.sql` and (l.status in ('draft', 'accepted', 'in_progress') or l.payment_status = 'invoiced' or l.completed_at >= ${since} or l.cancelled_at >= ${since} or (l.completed_at is null and l.cancelled_at is null))`
+    : Prisma.empty;
+  // One query for the rows, with plain numbers (no Decimal objects) and the truck and driver names joined in. The truck's cost profile is read only for open loads below
+  // (it prices their verdict); reading one for every finished load is what made this slow.
+  const loads = await prisma.$queryRaw<KpiRaw[]>`
+    select l.id, l.load_number as "loadNumber", l.created_at as "createdAt", l.updated_at as "updatedAt", l.scheduled_date as "scheduledDate", l.completed_at as "completedAt", l.cancelled_at as "cancelledAt", l.paid_at as "paidAt",
+      l.cancel_reason as "cancelReason", l.snapshot_base_floor_rpm::float8 as "snapshotBaseFloorRpm", l.status,
+      l.actual_revenue::float8 as "actualRevenue", l.quoted_revenue::float8 as "quotedRevenue", l.fuel_surcharge::float8 as "fuelSurcharge", l.layover_pay::float8 as "layoverPay", l.tonu_revenue::float8 as "tonuRevenue",
+      l.expense_fuel_actual::float8 as "expenseFuelActual", l.expense_tolls::float8 as "expenseTolls", l.expense_misc::float8 as "expenseMisc",
+      l.pickup_deadhead_miles::float8 as "pickupDeadheadMiles", l.loaded_miles::float8 as "loadedMiles", l.return_deadhead_miles::float8 as "returnDeadheadMiles",
+      l.quoted_pickup_dh_miles::float8 as "quotedPickupDhMiles", l.quoted_loaded_miles::float8 as "quotedLoadedMiles", l.quoted_return_dh_miles::float8 as "quotedReturnDhMiles", l.is_backhaul as "isBackhaul",
+      l.broker_name as "brokerName", l.origin_address as "originAddress", l.destination_address as "destinationAddress", l.market_benchmark::float8 as "marketBenchmark",
+      l.payment_status as "paymentStatus", l.invoiced_at as "invoicedAt", l.pay_terms_days as "payTermsDays", l.invoiced_amount::float8 as "invoicedAmount",
+      v.name as "vehicleName", a.status as "asStatus", a.pay_kind as "asPayKind", a.pay_estimate::float8 as "asPayEstimate", d.name as "asDriver"
+    from loads l left join vehicles v on v.id = l.vehicle_id left join assignments a on a.load_id = l.id left join drivers d on d.id = a.driver_id
+    where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status <> 'quote'${laneSql}${sinceSql}`;
+
+  // Stops (the waits at the dock) are read only for the loads a number is made of: open ones and those finished since `stopsSince`, not the older months the charts reach back to.
+  const stopsFrom = (opts.stopsSince ?? since)?.getTime() ?? null;
+  const needStops = loads.filter((l) => OPEN.includes(l.status) || stopsFrom == null || (l.completedAt ?? l.cancelledAt ?? l.updatedAt).getTime() >= stopsFrom).map((l) => l.id);
+  const stopRows = needStops.length
+    ? await prisma.$queryRaw<Array<{ loadId: string; waitMinutes: number | null; arrivedAt: Date | null; timeWindowLatest: Date | null }>>`
+        select load_id as "loadId", wait_minutes as "waitMinutes", arrived_at as "arrivedAt", time_window_latest as "timeWindowLatest" from stops where load_id = any(${needStops})`
+    : [];
+  const stopsOf = new Map<string, Array<{ waitMinutes: number | null; arrivedAt: Date | null; timeWindowLatest: Date | null }>>();
+  for (const st of stopRows) stopsOf.set(st.loadId, [...(stopsOf.get(st.loadId) ?? []), st]);
+
+  const openIds = loads.filter((l) => OPEN.includes(l.status)).map((l) => l.id);
+  const priced = openIds.length ? await prisma.load.findMany({ where: { id: { in: openIds } }, include: { vehicle: { include: { costProfile: true } }, assignment: true } }) : [];
+  const verdictOf = new Map<string, Verdict | null>();
+  for (const l of priced) {
+    const profile = l.vehicle?.costProfile ?? null;
+    verdictOf.set(l.id, profile ? evaluateTlLoad(l, profile, l.vehicle).finalDecision : null);
+  }
+  return loads.map((l) => ({
+    ...l,
+    verdict: verdictOf.get(l.id) ?? null,
+    stops: stopsOf.get(l.id) ?? [],
+    assignment: l.asStatus ? { driverName: l.asDriver ?? "", payKind: l.asPayKind ?? "", payEstimate: l.asPayEstimate, status: l.asStatus } : null
+  }));
+}
+
+/**
+ * What the KPI, Customers and Lanes screens read is every load of a window (tens of thousands for a big fleet), so a finished answer is kept until the data under
+ * it moves (answer-cache.ts), and it also depends on the period, the filters, the thresholds and the hour (the windows slide with the clock).
+ */
+const answers = answerCache<DeskKpi>();
+/** Tests clear it between cases. */
+export const clearKpiCache = () => answers.clear();
+
+export async function getDeskKpi(opts: { period: KpiPeriod; compare?: boolean; filters?: KpiFilters }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<DeskKpi> {
+  const thresholds = await getThresholds(workspaceId);
+  const compare = opts.compare ?? true;
+  const filters = opts.filters ?? {};
+  return answers.remember([workspaceId, opts.period, compare, filters, clockBucket(now.getTime(), 3_600_000), thresholds], workspaceId, async () => {
+    const since = new Date(rowsSince(opts.period, now.getTime()));
+    const rows = await getKpiRows(workspaceId, { since, lane: filters.lane, stopsSince: new Date(stopsStart(opts.period, now.getTime(), since.getTime())) });
+    return buildDeskKpi(rows, { period: opts.period, compare, filters }, thresholds, now);
+  });
 }

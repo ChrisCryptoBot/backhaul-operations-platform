@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { summarizeDetention, type DetentionSummary } from "@/lib/detention";
 import { num, numOrNull } from "./convert";
 import { getThresholds } from "./thresholds";
-import { DEMO_WORKSPACE_ID } from "./workspace";
+import { currentWorkspaceId } from "./workspace";
 
 /** Detention on finished loads, from each stop's recorded wait and the truck's detention terms (TrueLane's rule, lib/detention.ts). */
 export type DetentionRow = DetentionSummary & {
@@ -40,14 +40,41 @@ export function detentionOfLoad(l: LoadForDetention, workspaceGraceMinutes: numb
   });
 }
 
-/** Every finished load that waited past its free time, newest first, with the total still unbilled. */
-export async function getDetentionRecovery(workspaceId = DEMO_WORKSPACE_ID) {
+/** Detention can be billed for this long after delivery; older loads are not read for it (a fleet has far too many to scan every visit). */
+export const DETENTION_WINDOW_DAYS = 90;
+
+/** Every finished load of the last 90 days that waited past its free time, newest first, with the total still unbilled. */
+export async function getDetentionRecovery(workspaceId = currentWorkspaceId(), now = new Date()) {
+  const since = new Date(now.getTime() - DETENTION_WINDOW_DAYS * 86_400_000);
+  // Only a load somebody waited on can have detention (a wait of nothing is never past the free time), so the database names those loads first and only they are read in full.
+  const waited = await prisma.$queryRaw<Array<{ id: string }>>`
+    select l.id from loads l
+    where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status = 'completed' and l.completed_at >= ${since}
+      and (l.dock_wait_minutes > 0 or exists (select 1 from stops s where s.load_id = l.id and s.wait_minutes > 0))`;
   const [loads, thresholds] = await Promise.all([
-    prisma.load.findMany({
-      where: { workspaceId, deletedAt: null, status: "completed" },
-      include: { stops: true, vehicle: { include: { costProfile: true } } },
-      orderBy: { completedAt: "desc" }
-    }),
+    waited.length === 0
+      ? Promise.resolve([])
+      : prisma.load.findMany({
+          where: { id: { in: waited.map((w) => w.id) } },
+          select: {
+            id: true,
+            loadNumber: true,
+            brokerName: true,
+            originAddress: true,
+            destinationAddress: true,
+            completedAt: true,
+            dockWaitMinutes: true,
+            quotedRevenue: true,
+            fuelSurcharge: true,
+            invoicedAmount: true,
+            paymentStatus: true,
+            snapshotDetentionRate: true,
+            snapshotFreeGraceMinutes: true,
+            stops: { select: { stopSequence: true, stopType: true, waitMinutes: true } },
+            vehicle: { select: { costProfile: { select: { detentionHourlyRate: true, freeGraceMinutes: true } } } }
+          },
+          orderBy: { completedAt: "desc" }
+        }),
     getThresholds(workspaceId)
   ]);
   const rows: DetentionRow[] = loads

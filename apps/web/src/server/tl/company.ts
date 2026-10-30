@@ -1,14 +1,14 @@
 import { prisma } from "@/lib/db";
 import { validateCompany, type Company, type CompanyCheck, type CompanyValues } from "@/lib/company";
 import { recordAudit } from "./audit";
-import { currentWorkspace, DEMO_WORKSPACE_ID } from "./workspace";
+import { currentWorkspace, currentWorkspaceId } from "./workspace";
 
 /** The company's identity for invoices and statements. Read by the sheets; saved from Settings with an audit entry listing what changed. */
 type WorkspaceRow = { name: string; mcNumber: string | null; dotNumber: string | null; address: string | null; phone: string | null; email: string | null; remitTo: string | null; paymentNote: string | null };
 
 export const toCompany = (w: WorkspaceRow): Company => ({ name: w.name, mcNumber: w.mcNumber, dotNumber: w.dotNumber, address: w.address, phone: w.phone, email: w.email, remitTo: w.remitTo, paymentNote: w.paymentNote });
 
-export async function getCompany(workspaceId = DEMO_WORKSPACE_ID): Promise<Company> {
+export async function getCompany(workspaceId = currentWorkspaceId()): Promise<Company> {
   const w = await prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId } });
   return toCompany(w);
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { TruckPicker } from "./truck-picker";
 import React from "react";
 import { completeTripAction, invoiceLoadAction, paidAction, saveExpensesAction, saveLoadDetailsAction, startTripAction } from "@/app/(desk)/actions";
 import { usd } from "@/lib/desk-format";
@@ -43,7 +44,7 @@ const nowLocal = () => toCentralLocal(Date.now());
  * contact. A load that has started keeps its stops where they are (its details can still be corrected). A driver who already has it is asked to
  * confirm again if a place or time changes.
  */
-export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, driverName, trucks, dealLocked }: { loadId: string; loadNumber: string; initial: LoadEditValues; scheduleLocked: boolean; driverName: string | null; trucks: Array<{ id: string; name: string; ready: boolean }>; dealLocked: string | null }) {
+export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, driverName, truckName, dealLocked }: { loadId: string; loadNumber: string; initial: LoadEditValues; scheduleLocked: boolean; driverName: string | null; truckName: string | null; dealLocked: string | null }) {
   const router = useRouter();
   const toast = useToast();
   const [open, setOpen] = React.useState(false);
@@ -126,15 +127,15 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
               {dealLocked ? <p className="tl-note" style={{ marginBottom: 8 }}>{dealLocked}</p> : null}
               <div className="rc-grid">
                 <Fld label="Truck" error={errors["deal.vehicleId"]} hint={!dealLocked && scheduleLocked ? "A load that has started keeps its truck." : undefined}>
-                  <select value={v.deal.vehicleId} disabled={dealLocked != null || scheduleLocked} onChange={(e) => setDeal({ vehicleId: e.target.value })}>
-                    {initial.deal?.vehicleId === "" ? <option value="">No truck yet</option> : null}
-                    {trucks.map((t) => (
-                      <option key={t.id} value={t.id} disabled={!t.ready && t.id !== initial.deal?.vehicleId}>
-                        {t.name}
-                        {t.ready ? "" : " (no cost profile)"}
-                      </option>
-                    ))}
-                  </select>
+                  <TruckPicker
+                    id={v.deal.vehicleId}
+                    name={truckName ?? ""}
+                    readyOnly
+                    label="Truck"
+                    disabled={dealLocked != null || scheduleLocked}
+                    invalid={v.deal.vehicleId === "?" || (initial.deal?.vehicleId !== "" && v.deal.vehicleId === "")}
+                    onPick={(id) => setDeal({ vehicleId: id })}
+                  />
                 </Fld>
                 {money("rate", "Agreed rate ($)")}
                 {money("fuelSurcharge", "Fuel surcharge ($)", { hint: "Dollars on the load, if it is paid on top." })}

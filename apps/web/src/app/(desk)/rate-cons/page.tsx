@@ -7,7 +7,6 @@ import { PageHead, StatusChip } from "@/components/desk/ui";
 import { perMile, shortDate, usd } from "@/lib/desk-format";
 import { cityState } from "@/lib/city-state";
 import { listRecentRateCons } from "@/server/ratecon/recent";
-import { listTrucks } from "@/server/tl/queries";
 
 const COLUMNS: Column[] = [
   { key: "load", label: "Load", group: "Load", sticky: true, width: 200 },
@@ -21,7 +20,7 @@ const COLUMNS: Column[] = [
 ];
 
 export default async function RateConsPage() {
-  const [{ rows: recent, total }, trucks] = await Promise.all([listRecentRateCons(8), listTrucks()]);
+  const { rows: recent, total } = await listRecentRateCons(8);
   const rows: Row[] = recent.map((r) => ({
     id: r.id,
     href: `/loads/${r.id}`,
@@ -50,7 +49,7 @@ export default async function RateConsPage() {
   return (
     <>
       <PageHead title="Rate confirmations" sub="A document in, a draft load out. Check what was read before anything is saved." />
-      <RateConIntake liveReading={Boolean(process.env.ANTHROPIC_API_KEY)} trucks={trucks.filter((t) => !t.archived).map((t) => ({ id: t.id, name: t.name }))} />
+      <RateConIntake liveReading={Boolean(process.env.ANTHROPIC_API_KEY)} />
 
       <div className="rc-list-head">
         <h2 className="rc-eyebrow">Read so far</h2>

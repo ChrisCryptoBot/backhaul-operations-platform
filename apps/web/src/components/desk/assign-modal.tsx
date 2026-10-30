@@ -125,7 +125,7 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
                 e.preventDefault();
                 void go();
               }}>
-              <AssignFields key={chosen} drivers={data.drivers} initial={{ driverId: chosen || null, payKind: chosenOption?.payKind ?? null, rate: chosenOption?.payRate ?? null }} rateConTotal={data.rateConTotal} />
+              <AssignFields key={chosen} loadId={loadId} drivers={data.drivers} initial={{ driverId: chosen || null, payKind: chosenOption?.payKind ?? null, rate: chosenOption?.payRate ?? null }} rateConTotal={data.rateConTotal} />
               {needsReason ? (
                 <label className="tl-field" style={{ flexBasis: "100%" }}>
                   Why double-book this driver?

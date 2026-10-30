@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { driverScorecard, type ScoreLoad } from "@/lib/driver-scorecard";
 import { num, numOrNull } from "./convert";
 import { driverBlocker } from "./dispatch";
-import { DEMO_WORKSPACE_ID } from "./workspace";
+import { currentWorkspaceId } from "./workspace";
 
 /**
  * One driver: who they are and whether they can take a load, what they are on now, and how they have done on the loads they delivered
@@ -12,7 +12,7 @@ const OPEN_ASSIGNMENT = ["draft", "dispatched", "accepted", "in_progress"];
 const OPEN_LOAD = ["draft", "accepted", "in_progress"];
 const RECENT = 8;
 
-export async function getDriverDetail(id: string, workspaceId = DEMO_WORKSPACE_ID) {
+export async function getDriverDetail(id: string, workspaceId = currentWorkspaceId()) {
   const d = await prisma.driver.findFirst({
     where: { id, workspaceId },
     include: { assignedVehicle: true, assignments: { include: { load: { include: { stops: { orderBy: { stopSequence: "asc" } } } } }, orderBy: { updatedAt: "desc" } } }

@@ -133,6 +133,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
   };
 
   const rows: FitRow[] = priced?.ok ? priced.fit.rows : [];
+  const fitTotal = priced?.ok ? priced.fit.total : 0;
   const row =
     rows.find((r) => r.key === selected) ??
     (initial?.vehicleId ? rows.find((r) => r.truckId === initial.vehicleId && !r.blocked) : undefined) ??
@@ -532,7 +533,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
       <section className="qt-fit">
         <div className="rc-list-head">
           <h2 className="rc-eyebrow">Which truck and driver</h2>
-          <span className="tl-sub">{pricing ? "Pricing…" : rows.length > 0 ? `${rows.length} ${rows.length === 1 ? "way" : "ways"} to run it, best first` : ""}</span>
+          <span className="tl-sub">{pricing ? "Pricing…" : rows.length > 0 ? (fitTotal > rows.length ? `The best ${rows.length} of ${fitTotal} ways to run it, best first` : `${rows.length} ${rows.length === 1 ? "way" : "ways"} to run it, best first`) : ""}</span>
         </div>
         {rows.length === 0 ? (
           <p className="tl-note">Every truck and driver is priced here once there is an offer and loaded miles.</p>

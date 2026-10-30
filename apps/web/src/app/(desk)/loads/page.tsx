@@ -3,18 +3,35 @@ import { redirect } from "next/navigation";
 import React from "react";
 import { listBoardRows, type BoardRow } from "@/server/tl/queries";
 import { getAlerts } from "@/server/tl/alerts";
+import { countHistory, listHistory } from "@/server/tl/history";
+import { currentWorkspaceId } from "@/server/tl/workspace";
+import { Pager } from "@/components/desk/pager";
 import { AssignmentChip, PageHead, StatusChip, Tabs, VerdictChip } from "@/components/desk/ui";
 import { AlertDot } from "@/components/desk/alert-bits";
-import { DataTable, type Column, type Row } from "@/components/desk/data-table";
+import { DataTable, type Column, type Row, type SortHref } from "@/components/desk/data-table";
+import { asPage, asSort, nextSortParam } from "@/lib/paging";
 import { DataTableTools } from "@/components/desk/data-table-tools";
 import { EmptyState } from "@/components/desk/kit/states";
 import { NewLoad } from "@/components/desk/new-load";
 import { asBoardStatus, BOARD_STATUSES, filterBoard, isBelowCost, searchBoard } from "@/lib/board-filter";
 import { reasonLabel } from "@/lib/disruptions";
-import { asHistoryFilter, asHistorySort, fellThrough, HISTORY_FILTERS, HISTORY_SORTS, historyDate, historyRows, isHistory, isOpen, isOwed, monthGroups, payRecord } from "@/lib/loads-history";
+import { asHistoryFilter, asHistorySort, fellThrough, HISTORY_FILTERS, HISTORY_SORTS, historyDate, monthGroups } from "@/lib/loads-history";
 import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
 
 const OPEN_FILTERS = BOARD_STATUSES.filter((s) => s.key !== "completed");
+/** Open loads shown at a time; a big fleet has hundreds moving at once. */
+const OPEN_PAGE = 50;
+const OPEN_SORTS = ["load", "lane", "pickup", "miles", "pay", "perMile", "floor", "driver"] as const;
+const OPEN_SORT_VALUE: Record<(typeof OPEN_SORTS)[number], (r: BoardRow) => string | number | null> = {
+  load: (r) => r.loadNumber?.toLowerCase() ?? null,
+  lane: (r) => `${r.origin ?? ""} ${r.destination ?? ""}`.toLowerCase(),
+  pickup: (r) => r.scheduledDate?.getTime() ?? null,
+  miles: (r) => r.totalMiles,
+  pay: (r) => r.quotedRevenue,
+  perMile: (r) => r.perMile,
+  floor: (r) => r.floorPerMile,
+  driver: (r) => r.driverName?.toLowerCase() ?? null
+};
 
 const COLUMNS: Column[] = [
   { key: "load", sortable: true, label: "Load", group: "Load", sticky: true, width: 150 },
@@ -43,19 +60,24 @@ const HISTORY_COLUMNS: Column[] = [
   { key: "money", label: "Where the money is", group: "Money", accentBand: true }
 ];
 
-type Params = { view?: string; status?: string; flag?: string; q?: string; filter?: string; sort?: string };
+type Params = { view?: string; status?: string; flag?: string; q?: string; filter?: string; sort?: string; page?: string };
 
 export default async function LoadsPage({ searchParams }: { searchParams?: Params }) {
   const q = searchParams?.q?.trim() ?? "";
   // Delivered loads moved to History; an old link to the Delivered tab lands there.
   if (searchParams?.status === "completed") redirect(`/loads?view=history${q ? `&q=${encodeURIComponent(q)}` : ""}`);
 
-  const [everything, { byLoad }] = await Promise.all([listBoardRows(), getAlerts()]);
   const view = searchParams?.view === "history" ? "history" : "open";
-  const openAll = everything.filter((r) => isOpen(r.status));
-  const historyAll = everything.filter((r) => isHistory(r.status));
+  // The open board is the loads still moving. History is read a page at a time: the database filters, sorts, searches and counts it.
+  const histFilter = asHistoryFilter(searchParams?.filter);
+  const histSort = asHistorySort(searchParams?.sort);
+  const [openAll, { byLoad }, hist] = await Promise.all([
+    listBoardRows(),
+    getAlerts(new Date(), currentWorkspaceId(), "open"),
+    view === "history" ? listHistory({ filter: histFilter, sort: histSort, q, page: Number(searchParams?.page) || 1 }) : Promise.resolve(null)
+  ]);
   const openCount = searchBoard(openAll, q).length;
-  const historyCount = historyRows(historyAll, { q }).length;
+  const historyCount = hist ? hist.counts.all : await countHistory(q);
 
   const viewHref = (v: string) => {
     const p = new URLSearchParams();
@@ -98,10 +120,10 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
     />
   );
 
-  if (view === "history") {
-    const filter = asHistoryFilter(searchParams?.filter);
-    const sort = asHistorySort(searchParams?.sort);
-    const hrefFor = (next: { filter?: string; sort?: string; q?: string }) => {
+  if (hist) {
+    const filter = hist.filter;
+    const sort = hist.sort;
+    const hrefFor = (next: { filter?: string; sort?: string; q?: string; page?: number }) => {
       const p = new URLSearchParams({ view: "history" });
       const f = next.filter ?? filter;
       const s = next.sort ?? sort;
@@ -109,14 +131,14 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
       if (f !== "all") p.set("filter", f);
       if (s !== "newest") p.set("sort", s);
       if (text) p.set("q", text);
+      if (next.page && next.page > 1) p.set("page", String(next.page));
       return `/loads?${p.toString()}`;
     };
-    const base = historyRows(historyAll, { filter: "all", sort, q });
-    const counts: Record<string, number> = { all: base.length, owed: base.filter(isOwed).length, cancelled: base.filter(fellThrough).length };
-    const shown = historyRows(historyAll, { filter, sort, q });
+    const counts: Record<string, number> = hist.counts;
+    const shown = hist.rows;
     const grouped = sort === "newest" || sort === "oldest";
     const groups = grouped ? monthGroups(shown) : [{ key: "sorted", label: `By ${HISTORY_SORTS.find((s) => s.key === sort)?.label.toLowerCase()}`, rows: shown }];
-    const record = q ? payRecord(historyRows(historyAll, { q })) : null;
+    const record = hist.record;
 
     const rowOf = (r: BoardRow): Row => {
       const done = historyDate(r);
@@ -171,7 +193,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
     return (
       <>
         {head}
-        <DataTableTools tableId="loads-history" total={shown.length} placeholder="Search load, PO, invoice, customer, MC, city, driver…">
+        <DataTableTools tableId="loads-history" total={hist.total} placeholder="Search load, PO, invoice, customer, MC, city, driver…">
           {views}
           <Tabs label="Filter" active={filter} hrefFor={(k) => hrefFor({ filter: k })} items={HISTORY_FILTERS.map((f) => ({ ...f, count: counts[f.key] }))} />
           <span className="tl-sub" style={{ alignSelf: "center" }}>
@@ -193,7 +215,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
             {record.fellThrough > 0 ? `, ${record.fellThrough} cancelled` : ""}.
           </p>
         ) : null}
-        {shown.length === 0 ? (
+        {hist.total === 0 ? (
           <DataTable id="loads-history" label="History" columns={HISTORY_COLUMNS} rows={[]} empty={<EmptyState icon="loads" title="No finished loads match">Try another filter, or clear the search.</EmptyState>} />
         ) : (
           groups.map((g) => {
@@ -209,6 +231,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
             );
           })
         )}
+        <Pager page={hist.page} pageSize={hist.pageSize} total={hist.total} hrefFor={(n) => hrefFor({ page: n })} />
       </>
     );
   }
@@ -220,16 +243,34 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   const shown = filterBoard(openAll, { status: active, flag: below ? "below" : undefined, q });
   const counts = (key: string) => (key === "all" ? all.length : all.filter((r) => r.status === key).length);
   const belowCount = all.filter(isBelowCost).length;
-  const href = (status: string, flag: boolean, text = q) => {
+  const sortKey = searchParams?.sort ? asSort(searchParams.sort, OPEN_SORTS, { key: "pickup", dir: "desc" }) : null;
+  const href = (status: string, flag: boolean, text = q, extra: { sort?: string | null; page?: number } = {}) => {
     const p = new URLSearchParams();
     if (status !== "all") p.set("status", status);
     if (flag) p.set("flag", "below");
     if (text) p.set("q", text);
+    const sort = extra.sort === undefined ? searchParams?.sort : extra.sort;
+    if (sort) p.set("sort", sort);
+    if (extra.page && extra.page > 1) p.set("page", String(extra.page));
     const s = p.toString();
     return s ? `/loads?${s}` : "/loads";
   };
+  // Sorted and paged on the server: the list can be hundreds of loads, and a sort of the fifty on screen would be a different list than the one asked for.
+  const ordered = sortKey
+    ? [...shown].sort((a, b) => {
+        const x = OPEN_SORT_VALUE[sortKey.key](a);
+        const y = OPEN_SORT_VALUE[sortKey.key](b);
+        if (x == null && y == null) return 0;
+        if (x == null) return 1;
+        if (y == null) return -1;
+        const c = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
+        return sortKey.dir === "asc" ? c : -c;
+      })
+    : shown;
+  const pageNo = Math.min(asPage(searchParams?.page), Math.max(1, Math.ceil(ordered.length / OPEN_PAGE)));
+  const sortHref: SortHref = (key) => ({ href: href(active, below, q, { sort: nextSortParam(sortKey, key), page: 1 }), dir: sortKey?.key === key ? (sortKey.dir === "asc" ? "asc" : "desc") : "none" });
 
-  const rows: Row[] = shown.map((r) => {
+  const rows: Row[] = ordered.slice((pageNo - 1) * OPEN_PAGE, pageNo * OPEN_PAGE).map((r) => {
     return {
       id: r.id,
       href: `/loads/${r.id}`,
@@ -265,7 +306,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   return (
     <>
       {head}
-      <DataTableTools tableId="loads-table" total={shown.length} placeholder="Search load, PO, customer, MC, city, driver…">
+      <DataTableTools tableId="loads-table" total={shown.length} placeholder="Search load, PO, customer, MC, city, driver…" server={{ path: "/loads", q, keep: { ...(active !== "all" ? { status: active } : {}), ...(below ? { flag: "below" } : {}), ...(searchParams?.sort ? { sort: searchParams.sort } : {}) } }}>
         {views}
         <Tabs active={active} hrefFor={(k) => href(k, below)} items={OPEN_FILTERS.map((f) => ({ ...f, count: counts(f.key) }))} />
         <Link href={href(active, !below)} className="tl-tab" aria-current={below ? "true" : undefined}>
@@ -282,8 +323,10 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
         label="Loads"
         columns={COLUMNS}
         rows={rows}
+        sortHref={sortHref}
         empty={<EmptyState icon="loads" title="No open loads match">Another status, or clear the search.</EmptyState>}
       />
+      <Pager page={pageNo} pageSize={OPEN_PAGE} total={ordered.length} hrefFor={(n) => href(active, below, q, { page: n })} newer="Previous" older="Next" />
     </>
   );
 }

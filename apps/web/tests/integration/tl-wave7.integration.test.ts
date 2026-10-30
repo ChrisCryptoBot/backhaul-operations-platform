@@ -288,7 +288,7 @@ describe.skipIf(!run)("loads and billing on the demo database", () => {
   });
 
   test("the board and the invoice list carry what the Loads and Invoices screens now need", async () => {
-    const rows = await listBoardRows();
+    const rows = await listBoardRows(undefined, "all"); // the board itself is the open loads; finished ones are History's
     const mine = rows.find((r) => r.loadNumber === "W7-TRIP")!;
     expect(mine).toMatchObject({ status: "completed", paymentStatus: "paid", invoiceNumber: "W7-INV-1", invoicedAmount: 1040, paidAmount: 1040 });
     expect(mine.completedAt).not.toBeNull();

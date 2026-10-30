@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import React from "react";
 import { getLoadDetail } from "@/server/tl/queries";
 import { getAlerts } from "@/server/tl/alerts";
+import { currentWorkspaceId } from "@/server/tl/workspace";
 import { listLoadAudit } from "@/server/tl/audit";
 import { num } from "@/server/tl/convert";
 import { detentionOfLoad } from "@/server/tl/detention";
@@ -39,8 +40,8 @@ const TONE: Record<string, "ok" | "warn" | "bad"> = { accept: "ok", caution: "wa
 export async function LoadView({ id, variant }: { id: string; variant: "drawer" | "page" }) {
   const detail = await getLoadDetail(id);
   if (!detail) notFound();
-  const [{ byLoad }, feed, settled] = await Promise.all([getAlerts(), listLoadAudit(id), settlementOfLoad(id)]);
-  const { load, evaluation, flipped, driverView, drivers, trucks } = detail;
+  const [{ byLoad }, feed, settled] = await Promise.all([getAlerts(new Date(), currentWorkspaceId(), "open", id), listLoadAudit(id), settlementOfLoad(id)]);
+  const { load, evaluation, flipped, driverView, drivers } = detail;
   const a = load.assignment;
   const alerts = byLoad.get(id) ?? [];
 
@@ -247,7 +248,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         {canAssign ? (
           <form action={assignAction} className="tl-form-row" style={{ marginBottom: canUnassign ? 10 : 0 }}>
             <input type="hidden" name="loadId" value={load.id} />
-            <AssignFields drivers={drivers} initial={{ driverId: a?.driverId ?? null, payKind: a?.payKind ?? null, rate: a ? num(a.payRate) : null }} rateConTotal={rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge))} />
+            <AssignFields loadId={load.id} drivers={drivers} initial={{ driverId: a?.driverId ?? null, payKind: a?.payKind ?? null, rate: a ? num(a.payRate) : null }} rateConTotal={rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge))} />
             {drivers.some((d) => d.busy) ? (
               <label className="tl-field" style={{ flexBasis: "100%" }}>
                 Reason, only for a driver who is already on another load at the same time
@@ -303,7 +304,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
       <div className="sec-box">
         {fellThrough ? null : (
           <div style={{ marginBottom: 10 }}>
-            <LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load)} scheduleLocked={scheduleLocked} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} trucks={trucks} dealLocked={load.paymentStatus ? "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." : settled ? "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." : null} />
+            <LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load)} scheduleLocked={scheduleLocked} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} truckName={load.vehicle?.name ?? null} dealLocked={load.paymentStatus ? "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." : settled ? "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." : null} />
           </div>
         )}
         <table className="tl-table" aria-label="Stops">

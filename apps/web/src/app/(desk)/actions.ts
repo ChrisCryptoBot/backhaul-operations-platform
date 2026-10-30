@@ -25,6 +25,9 @@ import type { InvoiceForm } from "@/lib/invoicing";
 import type { CompleteValues, ExpenseValues, StartValues } from "@/lib/trip";
 import { saveLoadDetails, type EditResult } from "@/server/tl/edit";
 import { assignFromQueue, assignOptions, type AssignOptions, type AssignOutcome } from "@/server/tl/suggest";
+import { currentTerminal } from "@/server/tl/terminal";
+import { commitImport, locateHomeBases, previewImport, type ImportPreview, type ImportResult, type LocateResult } from "@/server/tl/import";
+import type { ImportKind } from "@/lib/import-csv";
 import { deleteLoad, restoreLoad, type RemoveResult } from "@/server/tl/remove";
 import { completeTrip, saveExpenses, startTrip, type TripResult } from "@/server/tl/execution";
 import { undoPaid, type InvoiceOut, type PaidOut } from "@/server/tl/invoicing";
@@ -283,7 +286,7 @@ export type PricedQuote = { ok: true; fit: FitResult; context: QuoteContext; war
 export async function priceQuoteAction(values: QuoteValues): Promise<PricedQuote> {
   const input = readQuote(values);
   if (!input) return { ok: false };
-  const [fit, context] = await Promise.all([fitQuote(input), quoteContext(input)]);
+  const [fit, context] = await Promise.all([fitQuote(input, undefined, undefined, await currentTerminal()), quoteContext(input)]);
   return { ok: true, fit, context, warnings: quoteWarnings(input) };
 }
 
@@ -420,5 +423,32 @@ export async function voidSettlementAction(id: string, reason: string): Promise<
 export async function discardSettlementAction(id: string): Promise<SettleResult> {
   const out = await discardSettlement(id);
   if (out.ok) refreshSettlements();
+  return out;
+}
+
+// ── Bulk import of trucks and drivers ──────────────────────────────────────────────────────────
+
+const asKind = (k: unknown): ImportKind | null => (k === "trucks" || k === "drivers" ? k : null);
+
+/** Reads a CSV and says what would be imported and what would not. Writes nothing. */
+export async function previewImportAction(kind: ImportKind, text: string): Promise<ImportPreview> {
+  const k = asKind(kind);
+  if (!k || typeof text !== "string") return { ok: false, error: "That is not a file the desk can read." };
+  return previewImport(k, text);
+}
+
+/** Imports the rows that pass, 500 at a time, with one entry in the audit log. */
+export async function commitImportAction(kind: ImportKind, text: string, fileName: string): Promise<ImportResult> {
+  const k = asKind(kind);
+  if (!k || typeof text !== "string") return { ok: false, error: "That is not a file the desk can read." };
+  const out = await commitImport(k, text, typeof fileName === "string" ? fileName : "");
+  if (out.ok) revalidatePath("/", "layout");
+  return out;
+}
+
+/** Finds the next few trucks' home bases on the map; the screen calls it again with `next` until there is none. */
+export async function locateHomeBasesAction(after: string | null): Promise<LocateResult> {
+  const out = await locateHomeBases(typeof after === "string" ? after : null);
+  if (out.located > 0) revalidatePath("/fleet");
   return out;
 }

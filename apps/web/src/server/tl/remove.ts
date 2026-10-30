@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { DELETE_REASONS, isDeleteReason, reasonLabel } from "@/lib/disruptions";
 import { LOAD_STATUS } from "@/lib/desk-format";
 import { recordAudit } from "./audit";
-import { DEMO_WORKSPACE_ID } from "./workspace";
+import { currentWorkspaceId } from "./workspace";
 
 /**
  * Take a load that should never have been entered (a duplicate, a slip, a practice load) off the desk, and put it back if that was wrong.
@@ -14,7 +14,7 @@ export type RemoveResult = { ok: true } | { ok: false; error: string };
 
 export { DELETE_REASONS };
 
-export async function deleteLoad(input: { loadId: string; reason: string; note?: string | null }, now = new Date(), workspaceId = DEMO_WORKSPACE_ID): Promise<RemoveResult> {
+export async function deleteLoad(input: { loadId: string; reason: string; note?: string | null }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<RemoveResult> {
   const load = await prisma.load.findFirst({ where: { id: input.loadId, workspaceId, deletedAt: null, status: { not: "quote" } }, include: { assignment: { include: { driver: true } }, settlement: true } });
   if (!load) return { ok: false, error: "That load does not exist." };
   if (!isDeleteReason(input.reason)) return { ok: false, error: "Pick a reason from the list." };
@@ -38,7 +38,7 @@ export async function deleteLoad(input: { loadId: string; reason: string; note?:
         reason: input.note?.trim() || null,
         before: { Load: status, Driver: a?.driver.name ?? null },
         after: { Load: "Deleted", Reason: label },
-        at: now
+        at: now, workspaceId
       },
       tx
     );
@@ -47,7 +47,7 @@ export async function deleteLoad(input: { loadId: string; reason: string; note?:
 }
 
 /** Put a deleted load back as it was. */
-export async function restoreLoad(loadId: string, now = new Date(), workspaceId = DEMO_WORKSPACE_ID): Promise<RemoveResult> {
+export async function restoreLoad(loadId: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<RemoveResult> {
   const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: { not: null } } });
   if (!load) return { ok: false, error: "That load is not deleted." };
   await prisma.$transaction(async (tx) => {
@@ -61,7 +61,7 @@ export async function restoreLoad(loadId: string, now = new Date(), workspaceId 
         summary: "Restored after being deleted",
         before: { Load: "Deleted" },
         after: { Load: LOAD_STATUS[load.status]?.label ?? load.status },
-        at: now
+        at: now, workspaceId
       },
       tx
     );

@@ -1,6 +1,6 @@
 import { notQuote } from "@/lib/quote-status";
 import { prisma } from "@/lib/db";
-import { DEMO_WORKSPACE_ID } from "./workspace";
+import { currentWorkspaceId } from "./workspace";
 
 /**
  * The header search: loads, drivers, brokers and cities that match what was typed.
@@ -10,7 +10,7 @@ export type SearchHit = { kind: "load" | "driver" | "broker" | "city"; label: st
 
 const filterHref = (text: string) => `/loads?q=${encodeURIComponent(text)}`;
 
-export async function searchDesk(raw: string, workspaceId = DEMO_WORKSPACE_ID): Promise<SearchHit[]> {
+export async function searchDesk(raw: string, workspaceId = currentWorkspaceId()): Promise<SearchHit[]> {
   const q = raw.trim();
   if (q.length < 2) return [];
   const has = (field: string) => ({ [field]: { contains: q, mode: "insensitive" as const } });

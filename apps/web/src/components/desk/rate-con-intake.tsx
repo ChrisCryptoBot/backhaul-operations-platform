@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { TruckPicker } from "./truck-picker";
 import React from "react";
 import { readSampleRateConAction, readUploadedRateConAction, saveRateConAction, type DraftDto, type ReadResult } from "@/app/(desk)/actions";
 import { dateTime, perMile, usd } from "@/lib/desk-format";
@@ -42,7 +43,7 @@ const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour:
  * Nothing becomes a load until the box is ticked. There is no verdict here on purpose: a rate confirmation is for a
  * load that was already accepted, so the page shows what the document says and the arithmetic on it, not a judgement.
  */
-export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; trucks: Array<{ id: string; name: string | null }> }) {
+export function RateConIntake({ liveReading }: { liveReading: boolean }) {
   const [stage, setStage] = React.useState<Stage>("pick");
   const [draft, setDraft] = React.useState<DraftDto | null>(null);
   const [source, setSource] = React.useState<"demo" | "live">("demo");
@@ -56,7 +57,8 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
   const [saving, setSaving] = React.useState(false);
   const [over, setOver] = React.useState(false);
   // Kept between documents: a dispatcher reading a stack of them for one truck should not have to pick it every time.
-  const [vehicleId, setVehicleId] = React.useState(trucks.length === 1 ? trucks[0]!.id : "");
+  const [vehicleId, setVehicleId] = React.useState("");
+  const [vehicleName, setVehicleName] = React.useState("");
   // Where the miles in the box came from. A document that printed none gets the road miles measured from its stops; a typed figure is never replaced.
   const [milesFrom, setMilesFrom] = React.useState<MilesSource>("none");
   const [milesNote, setMilesNote] = React.useState<{ state: "busy" | "ok" | "error"; text: string } | null>(null);
@@ -328,14 +330,7 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                   </label>
                   <label className="tl-field">
                     Runs on
-                    <select value={vehicleId} onChange={(e) => setVehicleId(e.target.value)}>
-                      <option value="">No truck yet</option>
-                      {trucks.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
-                        </option>
-                      ))}
-                    </select>
+                    <TruckPicker id={vehicleId} name={vehicleName} readyOnly label="Runs on" invalid={vehicleId === "?"} onPick={(id, name) => { setVehicleId(id === "?" ? "" : id); setVehicleName(name); }} />
                     <span className="rc-hint">Sets the cost floor for this load.</span>
                   </label>
                   <label className="tl-field">
@@ -484,7 +479,7 @@ export function RateConIntake({ liveReading, trucks }: { liveReading: boolean; t
                 </div>
                 <div>
                   <dt>Truck</dt>
-                  <dd>{trucks.find((t) => t.id === vehicleId)?.name ?? "None yet"}</dd>
+                  <dd>{vehicleId ? vehicleName || "Chosen" : "None yet"}</dd>
                 </div>
                 <div>
                   <dt>Stops</dt>
