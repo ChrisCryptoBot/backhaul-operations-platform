@@ -1,4 +1,4 @@
-import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
+import { OTHER_TRAILER_MAX, OTHER_TRAILER_PREFIX, TRAILER_TYPES, isOtherTrailer } from "@/truelane/constants/trailerData";
 import { parseCentralLocal, toCentralLocal } from "./zoned";
 
 /**
@@ -118,7 +118,9 @@ export function validateLoadEdit(v: LoadEditValues): LoadEditCheck {
   len("loadNumber", v.loadNumber, "The load number", 40);
   len("poNumber", v.poNumber, "The PO number", 40);
   const trailer = t(v.trailer);
-  if (trailer !== "" && !TRAILER_TYPES.some((x) => x.value === trailer)) errors.trailer = "Pick a trailer from the list.";
+  // A listed trailer, equipment typed as "other:<text>" or the retired "hopper" a saved load can still carry (what the rate-confirmation reader produces) are all fine to save back.
+  if (trailer !== "" && !TRAILER_TYPES.some((x) => x.value === trailer) && !isOtherTrailer(trailer) && trailer !== "hopper") errors.trailer = "Pick a trailer from the list.";
+  if (isOtherTrailer(trailer) && trailer.length > OTHER_TRAILER_PREFIX.length + OTHER_TRAILER_MAX) errors.trailer = "That equipment name is too long.";
   const weightLbs = num("weightLbs", v.weightLbs, "Weight", 1, 80000, true);
   const lengthFt = num("lengthFt", v.lengthFt, "Length", 1, 100);
   const widthFt = num("widthFt", v.widthFt, "Width", 1, 20);

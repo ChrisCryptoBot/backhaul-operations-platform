@@ -19,6 +19,7 @@ import { saveStopCoordinates } from "@/server/geo/persist";
 import { evaluateTlLoad, resolveLabour, type EvaluateLoadRow } from "./evaluate";
 import { freezeLoadSnapshot } from "./snapshot";
 import { currentWorkspaceId } from "./workspace";
+import { countTrailersAvailable } from "./trailers";
 
 /**
  * The Calculate tab for a dispatcher. An offer is priced with TrueLane's own verdict (evaluateTlLoad) against every truck that has a cost
@@ -77,7 +78,8 @@ export type FitRow = {
 };
 
 /** `rows` are the best ways to run it (at most MAX_FIT_ROWS); `total` is how many there are in all. */
-export type FitResult = { rows: FitRow[]; total: number; skipped: Array<{ truck: string; why: string }> };
+/** `trailersAvailable`: trailers of the kind the offer needs (any kind when none is stated) that are in service, available, with no date lapsed and not on an open load; null when the desk keeps no trailers. */
+export type FitResult = { rows: FitRow[]; total: number; skipped: Array<{ truck: string; why: string }>; trailersAvailable: number | null };
 export const MAX_FIT_ROWS = 50;
 
 const D = 86_400_000;
@@ -229,7 +231,9 @@ export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspace
     }
   }
   rows.sort((a, b) => (a.blocked ? 1 : 0) - (b.blocked ? 1 : 0) || (b.marginPerMile ?? -Infinity) - (a.marginPerMile ?? -Infinity));
-  return { rows: rows.slice(0, MAX_FIT_ROWS), total: rows.length, skipped };
+  const kept = await prisma.trailer.count({ where: { workspaceId, archivedAt: null } });
+  const trailersAvailable = kept === 0 ? null : await countTrailersAvailable(input.trailer, terminal, now, workspaceId);
+  return { rows: rows.slice(0, MAX_FIT_ROWS), total: rows.length, skipped, trailersAvailable };
 }
 
 // ── What the desk already knows about this lane and this broker ───────────────────────────────

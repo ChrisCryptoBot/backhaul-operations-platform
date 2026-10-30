@@ -1,12 +1,13 @@
 import { toCsv } from "./csv";
 import { validateDriver, validateTruck, type DriverValues, type TruckSpecs, type TruckValues } from "./fleet-forms";
+import { validateTrailer, type TrailerNumbers, type TrailerValues } from "./trailer-forms";
 
 /**
  * Bulk import of trucks and drivers from a spreadsheet saved as CSV. A fleet of thousands is not typed in by hand, so a file is read, each row is checked with the
  * same rules as the Add truck / Add driver forms (validateTruck, validateDriver), a copy of a name already in use or earlier in the file is refused, and the rows
  * that pass are the ones imported. Pure: the server reads and writes the database (server/tl/import.ts); this decides what a file means.
  */
-export type ImportKind = "trucks" | "drivers";
+export type ImportKind = "trucks" | "drivers" | "trailers";
 /** A file is read whole in one request; this is far more than any fleet and keeps one upload bounded. */
 export const IMPORT_MAX_ROWS = 20_000;
 /** Problem rows sent back for the screen to page through. The count is always exact; the list stops here. */
@@ -87,8 +88,30 @@ const DRIVER_COLUMNS: Array<Column<DriverColumnKey>> = [
   { key: "terminal", label: "Terminal", aliases: ["terminal", "yard", "branch", "region", "domicile"], example: "Dallas" }
 ];
 
-const COLUMNS = { trucks: TRUCK_COLUMNS, drivers: DRIVER_COLUMNS } as const;
-const REQUIRED = { trucks: ["name"], drivers: ["name"] } as const;
+const TRAILER_COLUMNS: Array<Column<keyof TrailerValues>> = [
+  { key: "number", label: "Number", aliases: ["number", "trailer", "trailernumber", "unit", "unitnumber", "trailerid", "name"], example: "T-2041" },
+  { key: "type", label: "Type", aliases: ["type", "trailertype", "equipment"], example: "dry_van" },
+  { key: "plate", label: "Plate", aliases: ["plate", "platenumber", "license", "licenseplate"], example: "ABC1234" },
+  { key: "plateState", label: "Plate state", aliases: ["platestate", "state"], example: "TX" },
+  { key: "vin", label: "VIN", aliases: ["vin"], example: "1HGBH41JXMN109186" },
+  { key: "ownership", label: "Ownership", aliases: ["ownership", "owner", "owned"], example: "owned" },
+  { key: "lengthFt", label: "Length (ft)", aliases: ["length", "lengthft"], example: "53" },
+  { key: "widthIn", label: "Width (in)", aliases: ["width", "widthin"], example: "102" },
+  { key: "tareLbs", label: "Empty weight (lb)", aliases: ["tare", "tarelbs", "emptyweight", "emptyweightlb"], example: "14500" },
+  { key: "maxPayloadLbs", label: "Payload (lb)", aliases: ["payload", "payloadlb", "payloadlbs", "maxpayload", "maxpayloadlbs"], example: "45000" },
+  { key: "axles", label: "Axles", aliases: ["axles"], example: "2" },
+  { key: "hasLiftgate", label: "Liftgate", aliases: ["liftgate", "hasliftgate"], example: "no" },
+  { key: "hasETrack", label: "E-track", aliases: ["etrack", "hasetrack"], example: "yes" },
+  { key: "status", label: "Status", aliases: ["status"], example: "available" },
+  { key: "terminal", label: "Terminal", aliases: ["terminal", "yard", "branch", "region", "domicile"], example: "Dallas" },
+  { key: "location", label: "Location", aliases: ["location", "currentlocation"], example: "Dallas yard, door 14" },
+  { key: "registrationExpiry", label: "Registration good through", aliases: ["registrationgoodthrough", "registrationexpiry", "registration", "regexpiry", "registrationexpires"], example: "2027-03-31" },
+  { key: "inspectionExpiry", label: "Inspection good through", aliases: ["inspectiongoodthrough", "inspectionexpiry", "inspection", "annualinspection", "inspectionexpires"], example: "2027-06-30" },
+  { key: "notes", label: "Notes", aliases: ["notes", "note", "comments"], example: "" }
+];
+
+const COLUMNS = { trucks: TRUCK_COLUMNS, drivers: DRIVER_COLUMNS, trailers: TRAILER_COLUMNS } as const;
+const REQUIRED = { trucks: ["name"], drivers: ["name"], trailers: ["number"] } as const;
 
 /** A file with a header row and one example row, for a person to fill in. */
 export function importTemplate(kind: ImportKind): string {
@@ -237,6 +260,30 @@ export function checkDriverRows(table: string[][], truckIdByName: ReadonlyMap<st
     if (first !== undefined) return { errors: [`Name: ${check.value.name} is also on line ${first} of this file.`] };
     seen.set(key, line);
     return { item: { values: check.value, cdlExpiry: check.cdlExpiry, medicalCardExpiry: check.medicalCardExpiry, payRate: check.payRate, truckId: truckId ?? "" } };
+  });
+}
+
+export type TrailerImport = { values: TrailerValues; numbers: TrailerNumbers };
+
+/** Trailers. `existingNumbers` are the numbers of trailers in service (lower case): a copy of one, or of a number earlier in the file, is refused, as the Add trailer form refuses it. */
+export function checkTrailerRows(table: string[][], existingNumbers: ReadonlySet<string>): ImportCheck<TrailerImport> {
+  const seen = new Map<string, number>();
+  return walk<TrailerImport>("trailers", table, (cells, header, line) => {
+    const raw: Record<string, string> = {};
+    for (const c of TRAILER_COLUMNS) raw[c.key] = cellAt(cells, header, c.key);
+    for (const k of ["hasLiftgate", "hasETrack"]) raw[k] = asYes(raw[k]!);
+    raw.registrationExpiry = asYmd(raw.registrationExpiry!);
+    raw.inspectionExpiry = asYmd(raw.inspectionExpiry!);
+    raw.ownership = raw.ownership!.toLowerCase().replace(/['\s]+s?$/, "") === "customer" ? "customer" : raw.ownership!.toLowerCase();
+    raw.status = raw.status!.toLowerCase().replace(/\s+/g, "_");
+    const check = validateTrailer(raw);
+    if (!check.ok) return { errors: messages(check.errors, labelOf("trailers")) };
+    const key = check.value.number.toLowerCase();
+    if (existingNumbers.has(key)) return { errors: [`Number: A trailer numbered ${check.value.number} is already in service.`] };
+    const first = seen.get(key);
+    if (first !== undefined) return { errors: [`Number: ${check.value.number} is also on line ${first} of this file.`] };
+    seen.set(key, line);
+    return { item: { values: check.value, numbers: check.numbers } };
   });
 }
 

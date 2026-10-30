@@ -11,7 +11,9 @@ import { currentWorkspaceId } from "./workspace";
 export type AuditDb = PrismaClient | Prisma.TransactionClient;
 
 export type AuditInput = {
-  entity: "assignment" | "load" | "invoice" | "intake" | "settings" | "fleet" | "settlement" | "customer";
+  entity: "assignment" | "load" | "invoice" | "intake" | "settings" | "fleet" | "settlement" | "customer" | "trailer";
+  /** The record the event is about (a trailer's id), so its history is found by id. */
+  entityId?: string | null;
   action: AuditAction;
   summary: string;
   loadId?: string | null;
@@ -32,6 +34,7 @@ export async function recordAudit(i: AuditInput, db: AuditDb = prisma) {
       loadId: i.loadId ?? null,
       loadNumber: i.loadNumber ?? null,
       entity: i.entity,
+      entityId: i.entityId ?? null,
       action: i.action,
       summary: i.summary,
       reason: i.reason?.trim() ? i.reason.trim() : null,
@@ -92,6 +95,12 @@ export async function listAudit(f: AuditFilter = {}, workspaceId = currentWorksp
     prisma.auditEvent.count({ where: { workspaceId } })
   ]);
   return { rows: rows.map(toRow), total, all, page, pageSize };
+}
+
+/** The history of one record (a trailer), newest first, found by its id. */
+export async function listEntityAudit(entityId: string, limit = 25, workspaceId = currentWorkspaceId()): Promise<AuditRow[]> {
+  const rows = await prisma.auditEvent.findMany({ where: { entityId, workspaceId }, orderBy: { createdAt: "desc" }, take: limit });
+  return rows.map(toRow);
 }
 
 /** The activity feed on a load. */

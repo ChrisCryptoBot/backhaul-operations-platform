@@ -64,6 +64,13 @@ export type AuditAction =
   | "truck_archived"
   | "truck_restored"
   | "import_completed"
+  | "trailer_added"
+  | "trailer_changed"
+  | "trailer_archived"
+  | "trailer_restored"
+  | "trailer_hooked"
+  | "trailer_unhooked"
+  | "trailer_assigned"
   | "cost_profile_changed";
 
 export const ACTION_LABEL: Record<string, string> = {
@@ -105,6 +112,13 @@ export const ACTION_LABEL: Record<string, string> = {
   truck_archived: "Truck archived",
   truck_restored: "Truck restored",
   import_completed: "Fleet imported from a file",
+  trailer_added: "Trailer added",
+  trailer_changed: "Trailer changed",
+  trailer_archived: "Trailer archived",
+  trailer_restored: "Trailer restored",
+  trailer_hooked: "Trailer hooked",
+  trailer_unhooked: "Trailer unhooked",
+  trailer_assigned: "Trailer put on a load",
   cost_profile_changed: "Cost profile changed"
 };
 
@@ -147,6 +161,13 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   truck_archived: "bad",
   truck_restored: "ok",
   import_completed: "info",
+  trailer_added: "info",
+  trailer_changed: "muted",
+  trailer_archived: "bad",
+  trailer_restored: "ok",
+  trailer_hooked: "info",
+  trailer_unhooked: "muted",
+  trailer_assigned: "info",
   cost_profile_changed: "warn"
 };
 
@@ -155,7 +176,7 @@ export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[]
   { key: "dispatch", label: "Dispatch", actions: ["booked", "quote_passed", "load_edited", "trip_started", "delivered", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled"] },
   { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "paid", "payment_undone", "statement_started", "statement_finalized", "statement_voided", "statement_discarded"] },
   { key: "intake", label: "Intake", actions: ["rate_con_saved"] },
-  { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_deactivated", "driver_reactivated", "truck_added", "truck_changed", "truck_archived", "truck_restored", "import_completed", "cost_profile_changed"] },
+  { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_deactivated", "driver_reactivated", "truck_added", "truck_changed", "truck_archived", "truck_restored", "import_completed", "cost_profile_changed", "trailer_added", "trailer_changed", "trailer_archived", "trailer_restored", "trailer_hooked", "trailer_unhooked", "trailer_assigned"] },
   { key: "customers", label: "Customers", actions: ["customer_added", "customer_changed"] },
   { key: "settings", label: "Settings", actions: ["thresholds_changed", "company_changed"] }
 ];

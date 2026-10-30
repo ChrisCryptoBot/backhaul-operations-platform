@@ -1,4 +1,5 @@
 import { clearanceSoon, driverBlocker } from "./clearance";
+import { trailerBlocker, trailerClearanceSoon } from "./trailer-clearance";
 import { loadWindow, windowsOverlap, type Window } from "./schedule";
 
 /**
@@ -17,6 +18,7 @@ export type AlertCode =
   | "LATE_ON_ROAD"
   | "SENT_NO_ANSWER"
   | "CLEARANCE_SOON"
+  | "TRAILER_COMPLIANCE"
   | "BELOW_COST_UNASSIGNED"
   | "INVOICE_OVERDUE"
   | "MISSING_REFERENCE"
@@ -36,6 +38,13 @@ export const RULES: RuleDef[] = [
     title: "Driver's CDL or medical card has lapsed",
     appliesTo: "Open loads with a driver",
     trigger: () => "The assigned driver's CDL or medical card expiry date is in the past."
+  },
+  {
+    code: "TRAILER_COMPLIANCE",
+    level: "block",
+    title: "Trailer cannot go out, or its papers are about to lapse",
+    appliesTo: "Open loads with a trailer",
+    trigger: (t) => `The trailer on the load is in the shop or out of service, or its registration or inspection date is in the past (a block), or falls within ${t.clearanceDays} days (a warning).`
   },
   {
     code: "DOUBLE_BOOKED",
@@ -131,6 +140,8 @@ export type AlertLoad = {
   verdict: "accept" | "caution" | "reject" | "needs_fuel" | null;
   /** Whether a truck is set on the load. Absent is read as having one, so a caller that does not know raises nothing. */
   hasTruck?: boolean;
+  /** The trailer unit on the load, when one is set. */
+  trailer?: { number: string; status: string; registrationExpiry: Date | null; inspectionExpiry: Date | null } | null;
   stops: Array<{ timeWindowEarliest: Date | null; timeWindowLatest: Date | null; referenceNumbers: unknown }>;
   assignment: null | {
     status: string;
@@ -167,6 +178,15 @@ export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds =
       // The delivery is the final stop. With no closing time on it there is no deadline to be late for.
       const close = l.stops[l.stops.length - 1]?.timeWindowLatest ?? null;
       if (close && close.getTime() < now.getTime()) add(l, "LATE_ON_ROAD", "warn", `The delivery window closed ${hours(now.getTime() - close.getTime())} ago and the load is not delivered.`);
+    }
+
+    if (open && l.trailer) {
+      const why = trailerBlocker(l.trailer, now);
+      if (why) add(l, "TRAILER_COMPLIANCE", "block", `Trailer ${l.trailer.number}: ${why.toLowerCase()}.`);
+      else {
+        const soon = trailerClearanceSoon(l.trailer, now, t.clearanceDays);
+        if (soon) add(l, "TRAILER_COMPLIANCE", "warn", `Trailer ${l.trailer.number}'s ${soon.what} lapses in ${soon.inDays} ${soon.inDays === 1 ? "day" : "days"} (${day(soon.on)}).`);
+      }
     }
 
     if (open && holding) {

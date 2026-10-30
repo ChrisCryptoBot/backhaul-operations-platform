@@ -14,6 +14,7 @@ import { agingFor, countInvoices, listBoardRows, listInvoiceRows } from "../src/
 import { fitQuote } from "../src/server/tl/quote";
 import { listSettlements, settlementCounts, unsettledByDriver } from "../src/server/tl/settlement";
 import { getShellData } from "../src/server/tl/shell";
+import { countTrailersAvailable, listTrailersPage } from "../src/server/tl/trailers";
 
 const quote = () => {
   const input = readQuote({
@@ -44,6 +45,10 @@ const steps: Array<[string, () => Promise<unknown>]> = [
   ["planner", () => getPlannerData(Date.now())],
   ["trucks", () => listTrucksPage({})],
   ["drivers", () => listDriversPage({})],
+  ["trailers", () => listTrailersPage({})],
+  ["trailers-search", () => listTrailersPage({ q: "T-0042" })],
+  ["trailers-lapsed", () => listTrailersPage({ compliance: "lapsed", type: "dry_van" })],
+  ["trailers-free", () => countTrailersAvailable("dry_van", null)],
   ["invoices-ready", () => listInvoiceRows(undefined, { scope: "ready", take: 50 })],
   ["invoices-out", () => listInvoiceRows(undefined, { scope: "out", take: 50 })],
   ["invoices-paid", () => listInvoiceRows(undefined, { scope: "paid", take: 50 })],

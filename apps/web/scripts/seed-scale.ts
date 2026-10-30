@@ -25,6 +25,7 @@ const DAY = 86_400_000;
 const TRUCKS = Number(process.env.TRUCKS ?? 1500);
 const DRIVERS = Number(process.env.DRIVERS ?? 1500);
 const LOADS = Number(process.env.LOADS ?? 50000);
+const TRAILER_COUNT = Number(process.env.TRAILERS ?? 5000);
 
 function rng(seed: number) {
   let a = seed >>> 0;
@@ -105,6 +106,33 @@ async function main() {
     1000,
     (part) => prisma.costProfile.createMany({ data: part })
   );
+
+  // Trailers: mostly dry vans, a third hooked to a tractor, a few in the shop, some with papers lapsed or due.
+  const TRAILER_KINDS = ["dry_van", "dry_van", "dry_van", "reefer", "flatbed", "step_deck"] as const;
+  const trailers = Array.from({ length: TRAILER_COUNT }, (_, i) => {
+    const base = pick(CITIES);
+    const r = rand();
+    return {
+      id: randomUUID(),
+      workspaceId: WORKSPACE_ID,
+      number: `T-${String(i + 1).padStart(5, "0")}`,
+      type: pick(TRAILER_KINDS),
+      plate: `TL${String(10000 + i)}`,
+      plateState: "TX",
+      vin: null,
+      ownership: pick(["owned", "owned", "leased", "pool"] as const),
+      lengthFt: 53,
+      widthIn: 102,
+      maxPayloadLbs: 44000,
+      axles: 2,
+      status: r < 0.03 ? "in_shop" : r < 0.04 ? "out_of_service" : "available",
+      terminal: base.split(",")[0]!,
+      currentVehicleId: i < vehicleIds.length / 3 ? vehicleIds[i]! : null,
+      registrationExpiry: new Date(now + between(r < 0.02 ? -60 : 5, 500) * DAY),
+      inspectionExpiry: new Date(now + between(r > 0.97 ? -30 : 3, 330) * DAY)
+    };
+  });
+  await chunked(trailers, 2000, (part) => prisma.trailer.createMany({ data: part }));
 
   const driverIds: string[] = [];
   const drivers = Array.from({ length: DRIVERS }, (_, i) => {

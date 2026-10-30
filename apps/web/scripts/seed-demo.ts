@@ -123,6 +123,39 @@ async function main() {
     vehicles.push({ id: v.id, mpg: t.mpg, breakEven, terminal: t.base.split(",")[0]! });
   }
 
+  // Six trailers: two hooked to tractors, one free, one in the shop, one with a lapsed registration and one whose inspection is due soon.
+  const inDays = (n: number) => new Date(Date.now() + n * DAY);
+  const TRAILERS = [
+    { number: "T-101", type: "dry_van", terminal: "Dallas", hook: 0, reg: 300, insp: 200, plate: "TLA1101", location: "Dallas yard" },
+    { number: "T-102", type: "reefer", terminal: "Houston", hook: 1, reg: 220, insp: 150, plate: "TLA1102", location: "Houston yard" },
+    { number: "T-103", type: "flatbed", terminal: "Dallas", hook: -1, reg: 400, insp: 250, plate: "TLA1103", location: "Dallas yard, door 4" },
+    { number: "T-104", type: "dry_van", terminal: "Dallas", hook: -1, reg: 300, insp: 200, plate: "TLA1104", location: "Dallas shop", status: "in_shop" },
+    { number: "T-105", type: "dry_van", terminal: "Houston", hook: -1, reg: -10, insp: 120, plate: "TLA1105", location: "Houston yard" },
+    { number: "T-106", type: "dry_van", terminal: "Houston", hook: -1, reg: 180, insp: 12, plate: "TLA1106", location: "Houston yard" }
+  ];
+  for (const t of TRAILERS) {
+    await prisma.trailer.create({
+      data: {
+        workspaceId: WORKSPACE_ID,
+        number: t.number,
+        type: t.type,
+        plate: t.plate,
+        plateState: "TX",
+        ownership: "owned",
+        lengthFt: 53,
+        widthIn: 102,
+        maxPayloadLbs: 44000,
+        axles: 2,
+        status: t.status ?? "available",
+        terminal: t.terminal,
+        location: t.location,
+        currentVehicleId: t.hook >= 0 ? vehicles[t.hook]!.id : null,
+        registrationExpiry: inDays(t.reg),
+        inspectionExpiry: inDays(t.insp)
+      }
+    });
+  }
+
   // Mostly per mile, one hourly: the two pay models the phone's verdict knows.
   const USUAL_PAY = [
     { kind: "cpm", rate: 0.5 },

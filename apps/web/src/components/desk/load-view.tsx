@@ -10,6 +10,8 @@ import { detentionOfLoad } from "@/server/tl/detention";
 import { getThresholds } from "@/server/tl/thresholds";
 import { settlementOfLoad } from "@/server/tl/settlement";
 import { AssignFields } from "./assign-fields";
+import { AssignTrailer } from "./trailer-forms";
+import { trailerBlocker } from "@/lib/trailer-clearance";
 import { assignAction, respondAction, sendAction, unassignAction, undoPaidAction } from "@/app/(desk)/actions";
 import { InvoiceDialog, LoadEditDialog, PaidDialog, TripEntry } from "./load-actions";
 import { defaultInvoiceNumber, invoiceReadiness } from "@/lib/invoicing";
@@ -217,6 +219,24 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         </div>
       </section>
     ) : null;
+
+  const trailerOpen = load.status === "draft" || load.status === "accepted" || load.status === "in_progress";
+  const trailerSec = (
+    <section className="sec">
+      <h3>Trailer</h3>
+      <div className="sec-box">
+        {load.trailer ? (
+          <p style={{ margin: "0 0 10px" }}>
+            <Link href={`/trailers/${load.trailer.id}`}><b>{load.trailer.number}</b></Link>
+            {trailerBlocker(load.trailer) ? <span className="tl-chip bad" style={{ marginLeft: 8 }}>{trailerBlocker(load.trailer)}</span> : null}
+          </p>
+        ) : (
+          <p className="tl-note" style={{ marginBottom: 10 }}>No trailer unit is on this load{load.trailerType ? ` (it needs ${load.trailerType.replace(/_/g, " ")})` : ""}.</p>
+        )}
+        {trailerOpen ? <AssignTrailer loadId={load.id} current={load.trailer ? { id: load.trailer.id, number: load.trailer.number } : null} /> : null}
+      </div>
+    </section>
+  );
 
   const driverSec = (
     <section className="sec">
@@ -523,6 +543,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
       {heroSec}
       {whereSec}
       {driverSec}
+      {trailerSec}
       {tripSec}
       {stopsSec}
       {invoiceSec}
@@ -550,6 +571,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         </div>
         <div className="lv-rail">
           {driverSec}
+          {trailerSec}
           {invoiceSec}
           {decisionSec}
           {driverSeesSec}

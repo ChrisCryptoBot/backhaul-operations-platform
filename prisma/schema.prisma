@@ -46,6 +46,7 @@ model Workspace {
   paymentNote String? @map("payment_note")
 
   vehicles    Vehicle[]
+  trailers    Trailer[]
   loads       Load[]
   drivers     Driver[]
   auditEvents AuditEvent[]
@@ -112,6 +113,7 @@ model Vehicle {
   costProfile CostProfile?
   loads       Load[]
   drivers     Driver[]
+  trailers    Trailer[]
 
   @@index([workspaceId, archivedAt, name])
   @@index([workspaceId, terminal])
@@ -251,9 +253,12 @@ model Load {
   createdAt                     DateTime  @default(now()) @map("created_at")
   updatedAt                     DateTime  @updatedAt @map("updated_at")
   deletedAt                     DateTime? @map("deleted_at")
+  /// The trailer unit pulling this load (a record in the trailer registry). `trailerType` stays the kind of equipment the load needs.
+  trailerId                     String?   @map("trailer_id")
 
   workspace  Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   vehicle    Vehicle?        @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  trailer    Trailer?        @relation(fields: [trailerId], references: [id], onDelete: SetNull)
   stops      Stop[]
   segments   TripSegment[]
   decisions  LoadDecision[]
@@ -269,6 +274,7 @@ model Load {
   @@index([workspaceId, brokerName])
   @@index([workspaceId, loadNumber])
   @@index([vehicleId, status])
+  @@index([trailerId])
   @@map("loads")
 }
 
@@ -404,6 +410,8 @@ model AuditEvent {
   loadId      String?  @map("load_id")
   loadNumber  String?  @map("load_number")
   entity      String
+  /// The record the event is about (a trailer's id), so a record's history is found by id and not by matching words. Older events leave it blank.
+  entityId    String?  @map("entity_id")
   action      String
   summary     String
   reason      String?
@@ -416,6 +424,7 @@ model AuditEvent {
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, action, createdAt])
+  @@index([entityId, createdAt])
   @@index([loadId, createdAt])
   @@map("audit_events")
 }
@@ -467,4 +476,45 @@ model SettlementLoad {
 
   @@index([settlementId])
   @@map("settlement_loads")
+}
+
+/// A trailer unit in the registry: owned, leased, a customer's or a pool trailer. Desk-only (the phone has no trailer record). It is hooked to at most one
+/// tractor at a time (a partial unique index) and can be put on a load; its registration and inspection dates feed the same alerts a driver's cards do.
+/// status: available | in_shop | out_of_service. "On a load" is read from the open loads, not stored.
+model Trailer {
+  id                 String    @id @default(cuid())
+  workspaceId        String    @map("workspace_id")
+  number             String
+  type               String?
+  plate              String?
+  plateState         String?   @map("plate_state")
+  vin                String?
+  ownership          String    @default("owned")
+  lengthFt           Decimal?  @map("length_ft") @db.Decimal(8, 2)
+  widthIn            Decimal?  @map("width_in") @db.Decimal(8, 2)
+  tareLbs            Int?      @map("tare_lbs")
+  maxPayloadLbs      Int?      @map("max_payload_lbs")
+  axles              Int?
+  hasLiftgate        Boolean   @default(false) @map("has_liftgate")
+  hasETrack          Boolean   @default(false) @map("has_e_track")
+  status             String    @default("available")
+  terminal           String?
+  location           String?
+  currentVehicleId   String?   @map("current_vehicle_id")
+  registrationExpiry DateTime? @map("registration_expiry")
+  inspectionExpiry   DateTime? @map("inspection_expiry")
+  notes              String?
+  archivedAt         DateTime? @map("archived_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  currentVehicle Vehicle?  @relation(fields: [currentVehicleId], references: [id], onDelete: SetNull)
+  loads          Load[]
+
+  @@index([workspaceId, archivedAt, number])
+  @@index([workspaceId, terminal])
+  @@index([workspaceId, status])
+  @@index([currentVehicleId])
+  @@map("trailers")
 }

@@ -13,7 +13,7 @@ import { useToast } from "./kit/toast";
  * then import the rows that pass. The desk checks the file again when it imports, so what is written is what the server found, not what this screen was told.
  */
 const PROBLEM_PAGE = 25;
-const NOUN = { trucks: { one: "truck", many: "trucks", list: "/fleet", listLabel: "Trucks" }, drivers: { one: "driver", many: "drivers", list: "/drivers", listLabel: "Drivers" } } as const;
+const NOUN = { trucks: { one: "truck", many: "trucks", list: "/fleet", listLabel: "Trucks" }, drivers: { one: "driver", many: "drivers", list: "/drivers", listLabel: "Drivers" }, trailers: { one: "trailer", many: "trailers", list: "/trailers", listLabel: "Trailers" } } as const;
 
 function save(name: string, csv: string) {
   const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));

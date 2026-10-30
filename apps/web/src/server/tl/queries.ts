@@ -17,6 +17,7 @@ import { currentWorkspaceId } from "./workspace";
  */
 export const loadInclude = {
   vehicle: { include: { costProfile: true } },
+  trailer: true,
   stops: { orderBy: { stopSequence: "asc" as const } },
   assignment: { include: { driver: true } }
 };

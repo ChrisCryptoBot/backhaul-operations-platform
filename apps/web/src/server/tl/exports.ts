@@ -7,6 +7,10 @@ import { parseKpiParams } from "@/lib/kpi-params";
 import { ACTION_LABEL } from "@/lib/audit-diff";
 import { DESK_TZ, toCentralLocal } from "@/lib/zoned";
 import { listAudit } from "./audit";
+import { listTrailersPage } from "./trailers";
+import { OWNERSHIPS } from "@/lib/trailer-forms";
+import { statusLabel } from "@/lib/trailer-clearance";
+import { trailerLabel } from "@/truelane/constants/trailerData";
 import { getDeskKpi } from "./kpi";
 import { listHistory } from "./history";
 import { listBoardRows, listInvoiceRows, type BoardRow } from "./queries";
@@ -15,7 +19,7 @@ import { listBoardRows, listInvoiceRows, type BoardRow } from "./queries";
  * The CSV files the desk offers. Each is built from the same functions the screen uses (the Loads filter, the KPI engine),
  * so a file always matches what was on screen when it was asked for. Dates are the Central calendar date.
  */
-export const EXPORT_KINDS = ["loads", "invoices", "audit", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks"] as const;
+export const EXPORT_KINDS = ["loads", "invoices", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks"] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
 type Query = Record<string, string | string[] | undefined>;
@@ -113,6 +117,24 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
           two(r.amount),
           r.status ?? "not invoiced"
         ])
+      )
+    };
+  }
+
+  if (kind === "trailers") {
+    // The Trailers screen's own filters, every match, read a thousand at a time (a fleet has thousands of trailers).
+    const base = { q: first(query.q), sort: first(query.sort), type: first(query.type), status: first(query.status), ownership: first(query.ownership), compliance: first(query.compliance), archived: first(query.archived) === "1", pageSize: 1000 };
+    const rows: Awaited<ReturnType<typeof listTrailersPage>>["rows"] = [];
+    for (let page = 1; ; page++) {
+      const got = await listTrailersPage({ ...base, page }, now);
+      rows.push(...got.rows);
+      if (page >= got.pages) break;
+    }
+    return {
+      filename: name("trailers"),
+      csv: toCsv(
+        ["Number", "Type", "Plate", "Plate state", "Ownership", "Status", "Terminal", "Location", "Hooked to", "On now", "Registration good through", "Inspection good through", "Papers"],
+        rows.map((t): CsvCell[] => [t.number, t.type ? trailerLabel(t.type) : null, t.plate, t.plateState, OWNERSHIPS.find((o) => o.key === t.ownership)?.label ?? t.ownership, statusLabel(t.status), t.terminal, t.location, t.hookedTo, t.onLoads.map((l) => l.loadNumber).join(" "), ymd(t.registrationExpiry), ymd(t.inspectionExpiry), t.compliance])
       )
     };
   }

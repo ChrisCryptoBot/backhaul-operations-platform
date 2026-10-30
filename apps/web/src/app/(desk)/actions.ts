@@ -26,6 +26,7 @@ import type { CompleteValues, ExpenseValues, StartValues } from "@/lib/trip";
 import { saveLoadDetails, type EditResult } from "@/server/tl/edit";
 import { assignFromQueue, assignOptions, type AssignOptions, type AssignOutcome } from "@/server/tl/suggest";
 import { currentTerminal } from "@/server/tl/terminal";
+import { assignTrailerToLoad, hookTrailer, saveTrailer, setTrailerArchived, type AssignTrailerResult, type SaveResult as TrailerSaveResult } from "@/server/tl/trailers";
 import { commitImport, locateHomeBases, previewImport, type ImportPreview, type ImportResult, type LocateResult } from "@/server/tl/import";
 import type { ImportKind } from "@/lib/import-csv";
 import { deleteLoad, restoreLoad, type RemoveResult } from "@/server/tl/remove";
@@ -233,6 +234,35 @@ export async function setTruckArchivedAction(id: string, archived: boolean): Pro
   return out;
 }
 
+export async function saveTrailerAction(values: Record<string, string>, id: string | null): Promise<TrailerSaveResult> {
+  const out = await saveTrailer(values, id);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function setTrailerArchivedAction(id: string, archived: boolean): Promise<ActResult> {
+  const out = await setTrailerArchived(id, archived);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+/** Hook a trailer to a tractor (by the tractor's id), or unhook it with an empty id. */
+export async function hookTrailerAction(id: string, vehicleId: string): Promise<ActResult> {
+  const out = await hookTrailer(id, vehicleId || null);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+/** Put a trailer on a load, or take it off with an empty id. */
+export async function assignTrailerAction(loadId: string, trailerId: string): Promise<AssignTrailerResult> {
+  const out = await assignTrailerToLoad(loadId, trailerId || null);
+  if (out.ok) {
+    revalidatePath("/loads", "layout");
+    revalidatePath("/trailers", "layout");
+  }
+  return out;
+}
+
 export async function saveCostProfileAction(vehicleId: string, values: Record<string, string>): Promise<SaveResult<ProfileKey> & { floors?: { breakEven: number; survival: number } }> {
   const out = await saveCostProfile(vehicleId, values);
   if (out.ok) refreshFleet();
@@ -428,7 +458,7 @@ export async function discardSettlementAction(id: string): Promise<SettleResult>
 
 // ── Bulk import of trucks and drivers ──────────────────────────────────────────────────────────
 
-const asKind = (k: unknown): ImportKind | null => (k === "trucks" || k === "drivers" ? k : null);
+const asKind = (k: unknown): ImportKind | null => (k === "trucks" || k === "drivers" || k === "trailers" ? k : null);
 
 /** Reads a CSV and says what would be imported and what would not. Writes nothing. */
 export async function previewImportAction(kind: ImportKind, text: string): Promise<ImportPreview> {

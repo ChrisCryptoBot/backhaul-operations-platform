@@ -70,6 +70,7 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
       payTermsDays: l.payTermsDays,
       detentionUnbilled: l.status === "completed" ? detentionOfLoad(l, t.detentionGraceMinutes).unbilled : 0,
       hasTruck: l.vehicleId != null,
+      trailer: l.trailer ? { number: l.trailer.number, status: l.trailer.status, registrationExpiry: l.trailer.registrationExpiry, inspectionExpiry: l.trailer.inspectionExpiry } : null,
       // The verdict only matters for a draft nobody has been sent (BELOW_COST_UNASSIGNED): no need to price anything else.
       verdict: l.status === "draft" && profile ? (evaluateTlLoad(l, profile, l.vehicle)?.finalDecision ?? null) : null,
       stops: l.stops.map((s) => ({ timeWindowEarliest: s.timeWindowEarliest, timeWindowLatest: s.timeWindowLatest, referenceNumbers: s.referenceNumbers })),

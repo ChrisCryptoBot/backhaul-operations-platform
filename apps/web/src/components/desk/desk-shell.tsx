@@ -31,7 +31,8 @@ const NAV: Array<{ label: string; items: Item[] }> = [
     label: "Fleet",
     items: [
       { href: "/drivers", label: "Drivers", icon: "drivers" },
-      { href: "/fleet", label: "Trucks", icon: "trucks" }
+      { href: "/fleet", label: "Trucks", icon: "trucks" },
+      { href: "/trailers", label: "Trailers", icon: "trailers" }
     ]
   },
   {

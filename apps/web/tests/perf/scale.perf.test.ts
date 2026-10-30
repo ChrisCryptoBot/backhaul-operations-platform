@@ -12,6 +12,7 @@ import { agingFor, countInvoices, listBoardRows, listInvoiceRows } from "@/serve
 import { fitQuote } from "@/server/tl/quote";
 import { listSettlements, settlementCounts, unsettledByDriver } from "@/server/tl/settlement";
 import { getShellData } from "@/server/tl/shell";
+import { countTrailersAvailable, listTrailersPage } from "@/server/tl/trailers";
 
 /**
  * How long each screen's data takes on the scale database: 1,500 trucks and drivers, 50,000 loads, 100,000 stops, about 9,000 invoices out. Not run with the rest.
@@ -81,6 +82,14 @@ describe.runIf(run)("the desk at the size of a big fleet", () => {
     expect(await best(() => listTrucksPage({ q: "Unit 12" }))).toBeLessThan(500);
     expect(await best(() => listAudit({}))).toBeLessThan(400);
     expect(await best(() => listSettlements(undefined, { take: 50 }))).toBeLessThan(400);
+  }, 60_000);
+
+  test("Trailers: 5,000 of them, a page, a search, a filter and the free count", async () => {
+    expect(await prisma.trailer.count()).toBeGreaterThan(4000);
+    expect(await best(() => listTrailersPage({}))).toBeLessThan(500);
+    expect(await best(() => listTrailersPage({ q: "T-0042" }))).toBeLessThan(500);
+    expect(await best(() => listTrailersPage({ compliance: "lapsed", type: "dry_van" }))).toBeLessThan(800);
+    expect(await best(() => countTrailersAvailable("dry_van", null))).toBeLessThan(800);
   }, 60_000);
 
   test("Loads: the open board and History", async () => {

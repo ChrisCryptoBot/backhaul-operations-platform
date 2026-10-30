@@ -500,6 +500,11 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
           <div className="qt-glass">
           <h2 className="rc-eyebrow">{row ? `Priced for ${row.truckName}${row.driverName ? ` · ${row.driverName}` : ""}` : "The verdict"}</h2>
           {row ? <Verdict row={row} values={values} /> : <p className="tl-note">{priced && !priced.ok ? "Type the offer and the loaded miles to price it." : pricing ? "Pricing…" : priced?.ok && priced.fit.skipped.length > 0 ? "No truck has a cost profile to price against." : "Type the offer and the loaded miles to price it."}</p>}
+          {priced?.ok && priced.fit.trailersAvailable != null ? (
+            <p className="tl-sub" style={{ marginTop: 8 }}>
+              {priced.fit.trailersAvailable.toLocaleString("en-US")} {priced.fit.trailersAvailable === 1 ? "trailer is" : "trailers are"} free{values.trailer ? ` of the kind this needs (${values.trailer.replace(/_/g, " ")})` : ""}.
+            </p>
+          ) : null}
           {priced?.ok && priced.warnings.map((w) => <p key={w} className="tl-note warn">{w}</p>)}
           {priced?.ok && check.ok && check.input.fuelPrice != null ? <p className="tl-note">{`Priced with fuel at $${check.input.fuelPrice.toFixed(2)} a gallon on diesel trucks, not their own price. Once booked, a load is judged on its truck's own price.`}</p> : null}
           {message ? (

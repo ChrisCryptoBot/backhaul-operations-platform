@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { IMPORT_MAX_ROWS, checkDriverRows, checkTruckRows, driverKey, parseCsv, type ImportCheck, type ImportKind, type ProblemRow, type TruckImport, type DriverImport } from "@/lib/import-csv";
+import { IMPORT_MAX_ROWS, checkDriverRows, checkTrailerRows, checkTruckRows, driverKey, parseCsv, type ImportCheck, type ImportKind, type ProblemRow, type TrailerImport, type TruckImport, type DriverImport } from "@/lib/import-csv";
 import { saveTruckHomeCoordinates } from "@/server/geo/persist";
 import { recordAudit } from "./audit";
 import { currentWorkspaceId } from "./workspace";
@@ -12,7 +12,7 @@ import { currentWorkspaceId } from "./workspace";
  */
 export const IMPORT_CHUNK = 500;
 
-type Read = { ok: false; error: string } | { ok: true; table: string[][]; trucks?: ImportCheck<TruckImport>; drivers?: ImportCheck<DriverImport & { truckId: string }> };
+type Read = { ok: false; error: string } | { ok: true; table: string[][]; trucks?: ImportCheck<TruckImport>; drivers?: ImportCheck<DriverImport & { truckId: string }>; trailers?: ImportCheck<TrailerImport> };
 
 async function read(kind: ImportKind, text: string, workspaceId: string): Promise<Read> {
   const table = parseCsv(text);
@@ -20,6 +20,10 @@ async function read(kind: ImportKind, text: string, workspaceId: string): Promis
   if (kind === "trucks") {
     const inService = await prisma.vehicle.findMany({ where: { workspaceId, archivedAt: null }, select: { name: true } });
     return { ok: true, table, trucks: checkTruckRows(table, new Set(inService.map((v) => (v.name ?? "").toLowerCase()))) };
+  }
+  if (kind === "trailers") {
+    const inService = await prisma.trailer.findMany({ where: { workspaceId, archivedAt: null }, select: { number: true } });
+    return { ok: true, table, trailers: checkTrailerRows(table, new Set(inService.map((t) => t.number.toLowerCase()))) };
   }
   const [trucks, drivers] = await Promise.all([
     prisma.vehicle.findMany({ where: { workspaceId, archivedAt: null }, select: { id: true, name: true } }),
@@ -52,7 +56,7 @@ const NOT_USABLE = (check: ImportCheck<unknown>): string | null =>
 export async function previewImport(kind: ImportKind, text: string, workspaceId = currentWorkspaceId()): Promise<ImportPreview> {
   const r = await read(kind, text, workspaceId);
   if (!r.ok) return r;
-  const check = (r.trucks ?? r.drivers)!;
+  const check = (r.trucks ?? r.drivers ?? r.trailers)!;
   const refused = NOT_USABLE(check);
   if (refused) return { ok: false, error: refused };
   return { ok: true, kind, total: check.total, ready: check.good.length, problemCount: check.problemCount, problems: check.problems, fileHeader: r.table[0] ?? [], matched: check.header.matched, unknown: check.header.unknown };
@@ -63,12 +67,12 @@ export type ImportResult = { ok: true; created: number; skipped: number; kind: I
 export async function commitImport(kind: ImportKind, text: string, fileName: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<ImportResult> {
   const r = await read(kind, text, workspaceId);
   if (!r.ok) return r;
-  const check = (r.trucks ?? r.drivers)!;
+  const check = (r.trucks ?? r.drivers ?? r.trailers)!;
   const refused = NOT_USABLE(check);
   if (refused) return { ok: false, error: refused };
   if (check.good.length === 0) return { ok: false, error: "No row in that file can be imported. Fix the problems listed and load it again." };
   const skipped = check.problemCount;
-  const file = fileName.trim().slice(0, 120) || (kind === "trucks" ? "trucks.csv" : "drivers.csv");
+  const file = fileName.trim().slice(0, 120) || `${kind}.csv`;
   await prisma.$transaction(
     async (tx) => {
       if (r.trucks) {
@@ -92,6 +96,30 @@ export async function commitImport(kind: ImportKind, text: string, fileName: str
           hasPalletJack: v.hasPalletJack === "yes"
         }));
         for (let i = 0; i < rows.length; i += IMPORT_CHUNK) await tx.vehicle.createMany({ data: rows.slice(i, i + IMPORT_CHUNK) });
+      } else if (r.trailers) {
+        const rows = r.trailers.good.map(({ item: { values: v, numbers: n } }) => ({
+          workspaceId,
+          number: v.number,
+          type: v.type || null,
+          plate: v.plate || null,
+          plateState: v.plateState || null,
+          vin: v.vin || null,
+          ownership: v.ownership,
+          lengthFt: n.lengthFt,
+          widthIn: n.widthIn,
+          tareLbs: n.tareLbs,
+          maxPayloadLbs: n.maxPayloadLbs,
+          axles: n.axles,
+          hasLiftgate: v.hasLiftgate === "yes",
+          hasETrack: v.hasETrack === "yes",
+          status: v.status,
+          terminal: v.terminal || null,
+          location: v.location || null,
+          registrationExpiry: n.registrationExpiry,
+          inspectionExpiry: n.inspectionExpiry,
+          notes: v.notes || null
+        }));
+        for (let i = 0; i < rows.length; i += IMPORT_CHUNK) await tx.trailer.createMany({ data: rows.slice(i, i + IMPORT_CHUNK) });
       } else if (r.drivers) {
         const rows = r.drivers.good.map(({ item: d }) => ({
           workspaceId,
@@ -109,7 +137,7 @@ export async function commitImport(kind: ImportKind, text: string, fileName: str
         for (let i = 0; i < rows.length; i += IMPORT_CHUNK) await tx.driver.createMany({ data: rows.slice(i, i + IMPORT_CHUNK) });
       }
       const n = check.good.length;
-      const noun = kind === "trucks" ? (n === 1 ? "truck" : "trucks") : n === 1 ? "driver" : "drivers";
+      const noun = kind === "trucks" ? (n === 1 ? "truck" : "trucks") : kind === "trailers" ? (n === 1 ? "trailer" : "trailers") : n === 1 ? "driver" : "drivers";
       await recordAudit(
         {
           entity: "fleet",
