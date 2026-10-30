@@ -6,9 +6,11 @@ import React from "react";
 import { bookQuoteAction, discardQuoteAction, passQuoteAction, priceQuoteAction, saveQuoteAction, type PricedQuote } from "@/app/(desk)/actions";
 import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
 import { addressReady, roundMiles } from "@/lib/geo";
-import { BAND_LABEL, BLANK_QUOTE, gateTitle, missingTimes, OVERRIDE_REASONS, PASS_REASONS, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
+import { BLANK_QUOTE, gateTitle, missingTimes, OVERRIDE_REASONS, PASS_REASONS, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
 import type { FitRow, QuoteListRow } from "@/server/tl/quote";
 import type { Measured } from "@/server/geo/measure";
+import { groundOf, readVerdict, type Verdict as VerdictRead } from "@/lib/verdict";
+import { VerdictHead, VerdictRuler, VerdictTag } from "./verdict-card";
 import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
 import { AddressInput } from "./address-input";
 import { AuthorityStatus, useAuthorityLookup } from "./customer-authority";
@@ -316,16 +318,21 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
     );
   }
 
+  const verdict = row ? verdictOf(row) : null;
+  const bookTo = row ? `${row.truckName}${row.driverName ? ` with ${row.driverName.split(" ")[0]}` : ""}` : "";
+  // A load the rules want a reason for says so on the button, before it is pressed.
+  const bookLabel = !row ? "Book it" : row.blocked ? `${row.truckName} cannot take it` : row.gate ? "Book with a reason" : `Book on ${bookTo}`;
+
   /** Below 1100 px the verdict sits under the form; the bar keeps its headline in view and this takes you to the rest. */
   const jumpToVerdict = () =>
     document.getElementById("qt-verdict")?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
 
   return (
     <>
-      <div className="qt-bar" role="group" aria-label="Verdict summary" data-tone={row ? BAND_LABEL[row.band].tone : "none"}>
-        {row ? (
+      <div className="qt-bar" role="group" aria-label="Verdict summary" data-tone={verdict?.tone ?? "none"}>
+        {row && verdict ? (
           <>
-            <span className={`tl-chip ${BAND_LABEL[row.band].tone}`}>{BAND_LABEL[row.band].label}</span>
+            <VerdictTag state={verdict.state} word={verdict.word} />
             <strong className="qt-bar-fig">
               {perMile(row.allInPerMile)} <span>all-in</span>
             </strong>
@@ -531,10 +538,10 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
           </section>
         </div>
 
-        <aside id="qt-verdict" className="qt-side" aria-label="The verdict" aria-live="polite" data-tone={row ? BAND_LABEL[row.band].tone : "none"}>
+        <aside id="qt-verdict" className="qt-side" aria-label="The verdict" aria-live="polite" data-tone={verdict?.tone ?? "none"}>
           <div className="qt-glass">
           <h2 className="rc-eyebrow">{row ? `Priced for ${row.truckName}${row.driverName ? ` · ${row.driverName}` : ""}` : "The verdict"}</h2>
-          {row ? <Verdict row={row} values={values} /> : <p className="tl-note">{priced && !priced.ok ? "Type the offer and the loaded miles to price it." : pricing ? "Pricing…" : priced?.ok && priced.fit.skipped.length > 0 ? "No truck has a cost profile to price against." : "Type the offer and the loaded miles to price it."}</p>}
+          {row && verdict ? <VerdictPanel row={row} verdict={verdict} values={values} milesFrom={manual.current.has("loadedMiles") || measure.state !== "ok" ? "typed" : "measured"} fuelFrom={check.ok && check.input.fuelPrice != null ? "typed" : row.detail.fuelPerMile == null ? "none" : "own"} /> : <p className="tl-note">{priced && !priced.ok ? "Type the offer and the loaded miles to price it." : pricing ? "Pricing…" : priced?.ok && priced.fit.skipped.length > 0 ? "No truck has a cost profile to price against." : "Type the offer and the loaded miles to price it."}</p>}
           {priced?.ok && priced.fit.trailersAvailable != null ? (
             <p className="tl-sub" style={{ marginTop: 8 }}>
               {priced.fit.trailersAvailable.toLocaleString("en-US")} {priced.fit.trailersAvailable === 1 ? "trailer is" : "trailers are"} free{values.trailer ? ` of the kind this needs (${values.trailer.replace(/_/g, " ")})` : ""}.
@@ -547,25 +554,38 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
               {message}
             </p>
           ) : null}
-          <div className="qt-actions">
-            <button type="button" className="tl-btn primary" disabled={busy || !row || !!row.blocked} aria-busy={busy || undefined} onClick={onBook}>
-              {row ? `Book on ${row.truckName}${row.driverName ? ` with ${row.driverName.split(" ")[0]}` : ""}` : "Book it"}
-            </button>
-            <div className="qt-actions-row">
-              <button type="button" className="tl-btn" disabled={busy} onClick={() => void onSave()}>
-                {quoteId ? "Update quote" : "Save as a quote"}
-              </button>
-              <button type="button" className="tl-btn ghost" disabled={busy || !row} onClick={onOpenPass}>
-                Pass on it
-              </button>
-            </div>
-          </div>
           {row?.blocked ? (
             <p className="tl-note warn">
               {row.truckName}
               {row.driverName ? ` with ${row.driverName}` : ""} cannot take it: {row.blocked} Pick another row.
             </p>
           ) : null}
+          {/* The buttons say the verdict too: below cost, passing is the main button and booking asks for a reason, so the card still tells you with every colour taken away. */}
+          <div className="qt-actions">
+            {verdict?.state === "below" ? (
+              <button type="button" className="tl-btn primary" disabled={busy} onClick={onOpenPass}>
+                Pass on it
+              </button>
+            ) : (
+              <button type="button" className="tl-btn primary" disabled={busy || !row || !!row.blocked} aria-busy={busy || undefined} onClick={onBook}>
+                {bookLabel}
+              </button>
+            )}
+            <div className="qt-actions-row">
+              <button type="button" className="tl-btn" disabled={busy} onClick={() => void onSave()}>
+                {quoteId ? "Update quote" : "Save as a quote"}
+              </button>
+              {verdict?.state === "below" ? (
+                <button type="button" className="tl-btn ghost" disabled={busy || !!row?.blocked} aria-busy={busy || undefined} onClick={onBook}>
+                  Book anyway
+                </button>
+              ) : (
+                <button type="button" className="tl-btn ghost" disabled={busy || !row} onClick={onOpenPass}>
+                  Pass on it
+                </button>
+              )}
+            </div>
+          </div>
           </div>
         </aside>
       </div>
@@ -593,7 +613,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
               </thead>
               <tbody>
                 {rows.map((r) => {
-                  const band = BAND_LABEL[r.band];
+                  const said = verdictOf(r);
                   const on = row?.key === r.key;
                   return (
                     <tr key={r.key} className={`${on ? "qt-on" : ""}${r.blocked ? " qt-off" : ""}`.trim() || undefined} onClick={() => setSelected(r.key)}>
@@ -628,7 +648,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                         {values.emptyHomeByTruck[r.truckId] ? <span className="sub">+ {values.emptyHomeByTruck[r.truckId]} home</span> : null}
                       </td>
                       <td>
-                        <span className={`tl-chip ${band.tone}`}>{band.label}</span>
+                        <VerdictTag state={said.state} word={said.word} />
                       </td>
                       <td className="num">{perMile(r.allInPerMile)}</td>
                       <td className="num">{perMile(r.floorPerMile)}</td>
@@ -835,39 +855,55 @@ function Money({ label, unit, value, error, onChange, hint }: { label: string; u
   );
 }
 
-/** The hero: the band, the per-mile figure with the miles it is per, what the floor is, and every reason to pause. */
-function Verdict({ row, values }: { row: FitRow; values: QuoteValues }) {
-  const band = BAND_LABEL[row.band];
+/** What the audited math said about one way of running the load, as a verdict. */
+function verdictOf(row: FitRow): VerdictRead {
+  const d = row.detail;
+  return readVerdict({
+    band: row.band,
+    gate: row.gate,
+    allInPerMile: row.allInPerMile,
+    floorPerMile: row.floorPerMile,
+    marginPerMile: row.marginPerMile,
+    leftOver: row.leftOver,
+    totalMiles: row.totalMiles,
+    gross: d.effectiveGross,
+    marketDollars: d.marketVarianceDollars,
+    marketPct: d.marketVariancePct,
+    payNeeded: d.payNeeded,
+    thinMargin: d.thinMargin,
+    timeTrap: d.timeTrap,
+    profitPerHour: d.profitPerHour,
+    hourlyTarget: d.hourlyTarget
+  });
+}
+
+/**
+ * The card. Its skeleton does not change from load to load or from surface to surface: the word, why, the figure, where the load lands, the working, what it rests on. The verdict
+ * itself is data (src/lib/verdict.ts); this only draws it. See docs/VERDICT_CARD.md before changing the order of anything here.
+ */
+function VerdictPanel({ row, verdict, values, milesFrom, fuelFrom }: { row: FitRow; verdict: VerdictRead; values: QuoteValues; milesFrom: "measured" | "typed"; fuelFrom: "own" | "typed" | "none" }) {
   const d = row.detail;
   const home = values.loadBack ? "a load covers the way home" : Number(values.emptyHome) > 0 ? `${miles(Number(values.emptyHome))} empty home` : "no empty miles home";
   const notes: string[] = [];
-  if (row.band === "needs_fuel") notes.push("Add the truck's mpg and a fuel price on its page to get a verdict.");
-  if (d.rejectReason) notes.push(d.rejectReason);
   if (d.routeMinimum && !d.routeMinimum.meets) notes.push(`The route minimum of ${usd(d.routeMinimum.expected, 0)} is not met.`);
-  if (d.thinMargin) notes.push("It clears, but by less than five cents a mile.");
-  if (d.timeTrap && d.profitPerHour != null) notes.push(`Profit per trip hour is ${usd(d.profitPerHour, 2)}, under the ${usd(d.hourlyTarget, 0)} an hour target.`);
+  // Below cost, the sentence already says it, with the money.
+  if (d.rejectReason && verdict.state !== "below") notes.push(d.rejectReason);
+  // Thin and slow money are in the sentence when they are the reason; when something else was, they still get said.
+  if (d.thinMargin && !verdict.sentence.includes("five cents")) notes.push("It clears, but by less than five cents a mile.");
+  if (d.timeTrap && d.profitPerHour != null && !verdict.sentence.includes("an hour against")) notes.push(`Profit per trip hour is ${usd(d.profitPerHour, 2)}, under the ${usd(d.hourlyTarget, 0)} an hour target.`);
   if (d.requiredRests > 0) notes.push(`A run this long needs ${d.requiredRests} ten-hour ${d.requiredRests === 1 ? "rest" : "rests"}: about ${d.elapsedHours.toFixed(0)} hours elapsed.`);
-  const fitNotes = row.warnings;
+  const trust = groundOf({ miles: milesFrom, fuel: fuelFrom, market: values.marketRate.trim() === "" ? "none" : "typed", driver: !!row.driverName }).filter((g) => !g.firm);
   return (
     <div className="qt-verdict">
-      <div>
-        <span className={`tl-chip ${band.tone} qt-band`}>{band.label}</span>
-      </div>
+      <VerdictHead verdict={verdict} />
       <div className="qt-big">
         {perMile(row.allInPerMile)} <span>all-in</span>
       </div>
       <p className="tl-note">
         on {miles(row.totalMiles)} · {home}
       </p>
+      {verdict.ruler ? <VerdictRuler ruler={verdict.ruler} state={verdict.state} /> : null}
       <dl className="rc-facts">
-        <div>
-          <dt>Floor ({d.floorName})</dt>
-          <dd>{perMile(row.floorPerMile)}</dd>
-        </div>
-        <div>
-          <dt>{row.marginPerMile != null && row.marginPerMile < 0 ? "Short by" : "Clears by"}</dt>
-          <dd>{row.marginPerMile == null ? "—" : `${perMile(Math.abs(row.marginPerMile))}`}</dd>
-        </div>
         <div>
           <dt>Pay with surcharge</dt>
           <dd>{usd(d.effectiveGross, 2)}</dd>
@@ -880,12 +916,6 @@ function Verdict({ row, values }: { row: FitRow; values: QuoteValues }) {
               {Math.abs(d.marketVariancePct * 100).toFixed(1)}%
               {d.marketVarianceDollars != null ? ` (${d.marketVarianceDollars >= 0 ? "+" : "−"}${usd(Math.abs(d.marketVarianceDollars), 0)})` : ""}
             </dd>
-          </div>
-        ) : null}
-        {row.decision === "reject" || row.band === "below_floor" ? (
-          <div>
-            <dt>Pay needed to cover it</dt>
-            <dd>{usd(d.payNeeded, 0)}</dd>
           </div>
         ) : null}
         {d.fuelPerMile != null ? (
@@ -903,13 +933,14 @@ function Verdict({ row, values }: { row: FitRow; values: QuoteValues }) {
           ))}
         </ul>
       ) : null}
-      {fitNotes.length > 0 ? (
+      {row.warnings.length > 0 ? (
         <ul className="rc-warns-list">
-          {fitNotes.map((n) => (
+          {row.warnings.map((n) => (
             <li key={n}>{n}</li>
           ))}
         </ul>
       ) : null}
+      <p className="vc-trust">{trust.length > 0 ? `Taken on trust: ${trust.map((g) => g.label.toLowerCase()).join(", ")}.` : "Every figure here was measured or is on record."}</p>
     </div>
   );
 }
