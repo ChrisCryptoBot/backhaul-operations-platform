@@ -127,7 +127,7 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
             <option value="soon">Due soon</option>
             <option value="ok">All good</option>
           </select>
-          <label className="tl-check" style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+          <label className="dlg-check" style={{ whiteSpace: "nowrap" }}>
             <input type="checkbox" name="archived" value="1" defaultChecked={archived} /> Archived
           </label>
           {filtered ? <Link href="/trailers" className="tl-btn ghost sm" replace>Clear</Link> : null}

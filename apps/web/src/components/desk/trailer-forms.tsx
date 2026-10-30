@@ -70,10 +70,10 @@ export function TrailerForm({ trailer, onDone, inline }: { trailer?: TrailerInfo
           }
         });
       }}>
-      <Field label="Number" error={errors.number}>
-        <input data-autofocus value={values.number} onChange={set("number")} autoComplete="off" />
-      </Field>
-      <div className="dlg-two">
+      <div className="dlg-three">
+        <Field label="Number" error={errors.number}>
+          <input data-autofocus value={values.number} onChange={set("number")} autoComplete="off" />
+        </Field>
         <Field label="Type" error={errors.type}>
           <select value={values.type} onChange={set("type")}>
             <option value="">Not set</option>
@@ -93,46 +93,41 @@ export function TrailerForm({ trailer, onDone, inline }: { trailer?: TrailerInfo
             ))}
           </select>
         </Field>
-      </div>
-      <div className="dlg-two">
         <Field label="Plate" error={errors.plate}>
           <input value={values.plate} onChange={set("plate")} autoComplete="off" />
         </Field>
         <Field label="Plate state" error={errors.plateState}>
           <input value={values.plateState} onChange={set("plateState")} maxLength={2} autoComplete="off" />
         </Field>
-      </div>
-      <Field label="VIN" error={errors.vin}>
-        <input value={values.vin} onChange={set("vin")} maxLength={17} autoComplete="off" />
-      </Field>
-      <div className="dlg-two">
+        <Field label="VIN" error={errors.vin}>
+          <input value={values.vin} onChange={set("vin")} maxLength={17} autoComplete="off" />
+        </Field>
         <Field label="Length (ft)" error={errors.lengthFt}>
           <input value={values.lengthFt} onChange={set("lengthFt")} inputMode="decimal" />
         </Field>
         <Field label="Width (in)" error={errors.widthIn}>
           <input value={values.widthIn} onChange={set("widthIn")} inputMode="decimal" />
         </Field>
-        <Field label="Empty weight (lb)" error={errors.tareLbs}>
-          <input value={values.tareLbs} onChange={set("tareLbs")} inputMode="numeric" />
-        </Field>
-        <Field label="Payload (lb)" error={errors.maxPayloadLbs} hint="A load heavier than this is refused.">
-          <input value={values.maxPayloadLbs} onChange={set("maxPayloadLbs")} inputMode="numeric" />
-        </Field>
         <Field label="Axles" error={errors.axles}>
           <input value={values.axles} onChange={set("axles")} inputMode="numeric" />
         </Field>
-      </div>
-      <Field label="Carries">
-        <div className="tl-form-row">
-          <label className="tl-check" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <input type="checkbox" checked={values.hasLiftgate === "yes"} onChange={tick("hasLiftgate")} /> Liftgate
-          </label>
-          <label className="tl-check" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <input type="checkbox" checked={values.hasETrack === "yes"} onChange={tick("hasETrack")} /> E-track
-          </label>
+        <Field label="Empty weight (lb)" error={errors.tareLbs}>
+          <input value={values.tareLbs} onChange={set("tareLbs")} inputMode="numeric" />
+        </Field>
+        <Field label="Payload (lb)" error={errors.maxPayloadLbs} hint="A heavier load is refused.">
+          <input value={values.maxPayloadLbs} onChange={set("maxPayloadLbs")} inputMode="numeric" />
+        </Field>
+        <div className="tl-field">
+          Carries
+          <div className="th-checks">
+            <label className="dlg-check">
+              <input type="checkbox" checked={values.hasLiftgate === "yes"} onChange={tick("hasLiftgate")} /> Liftgate
+            </label>
+            <label className="dlg-check">
+              <input type="checkbox" checked={values.hasETrack === "yes"} onChange={tick("hasETrack")} /> E-track
+            </label>
+          </div>
         </div>
-      </Field>
-      <div className="dlg-two">
         <Field label="Status" error={errors.status} hint="In the shop or out of service keeps it off loads.">
           <select value={values.status} onChange={set("status")}>
             {TRAILER_STATUSES.map((s) => (
@@ -145,11 +140,9 @@ export function TrailerForm({ trailer, onDone, inline }: { trailer?: TrailerInfo
         <Field label="Terminal" error={errors.terminal}>
           <input value={values.terminal} onChange={set("terminal")} list={TERMINAL_LIST_ID} maxLength={TERMINAL_MAX_LENGTH} autoComplete="off" />
         </Field>
-      </div>
-      <Field label="Where it is" error={errors.location} hint="A yard and door, a customer's dock, a shop.">
-        <input value={values.location} onChange={set("location")} autoComplete="off" />
-      </Field>
-      <div className="dlg-two">
+        <Field label="Where it is" error={errors.location} hint="A yard and door, a dock, a shop.">
+          <input value={values.location} onChange={set("location")} autoComplete="off" />
+        </Field>
         <Field label="Registration good through" error={errors.registrationExpiry} hint="A lapsed one keeps it off loads.">
           <DateInput type="date" value={values.registrationExpiry} onChange={set("registrationExpiry")} />
         </Field>
@@ -186,7 +179,7 @@ export function AddTrailer() {
       <button type="button" className="tl-btn primary" onClick={() => setOpen(true)}>
         Add a trailer
       </button>
-      <Modal open={open} onClose={() => setOpen(false)} eyebrow="New trailer" title="Add a trailer">
+      <Modal open={open} onClose={() => setOpen(false)} eyebrow="New trailer" title="Add a trailer" wide>
         <TrailerForm onDone={() => setOpen(false)} />
       </Modal>
     </>

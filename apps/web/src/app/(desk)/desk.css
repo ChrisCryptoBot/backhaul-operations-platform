@@ -110,6 +110,14 @@
 .tl-field input, .tl-field select, .tl-field textarea { min-height: 36px; padding: 0 var(--db-3); background: var(--db-bg-input); color: var(--db-fg); border: 1px solid var(--db-border-strong); border-radius: var(--db-r-md); font-size: var(--db-text-base); }
 .tl-field textarea { padding: var(--db-2) var(--db-3); min-height: 72px; }
 .tl-field input:hover, .tl-field select:hover { border-color: var(--db-fg-dim); }
+/* Every select in the desk draws like a field: the desk surface, text and arrow, not the browser's grey button. */
+.tl-field select, .audit-filters select, .tl-scope select { appearance: none; -webkit-appearance: none; font: inherit; font-size: var(--db-text-base); font-weight: 400; padding-right: 30px; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--db-fg-dim) 50%), linear-gradient(135deg, var(--db-fg-dim) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 50%, calc(100% - 11px) 50%; background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+.audit-filters select { min-height: 34px; padding-left: var(--db-3); background-color: var(--db-bg-input); border: 1px solid var(--db-border-strong); border-radius: var(--db-r-md); color: var(--db-fg); }
+.audit-filters select:hover { border-color: var(--db-fg-dim); }
+.audit-filters select:focus-visible { outline: none; border-color: var(--db-accent); box-shadow: 0 0 0 3px var(--db-accent-ring); }
+.tl-field select option, .audit-filters select option, .tl-scope select option { background: var(--db-bg-card); color: var(--db-fg); }
 .tl-field input:focus-visible, .tl-field select:focus-visible, .tl-field textarea:focus-visible { outline: none; border-color: var(--db-accent); box-shadow: 0 0 0 3px var(--db-accent-ring); }
 .tl-field input:disabled { opacity: 0.5; cursor: not-allowed; }
 .tl-form-row { display: flex; gap: var(--db-3); flex-wrap: wrap; align-items: flex-end; }
@@ -178,11 +186,12 @@
 .k-toast.bad { border-color: var(--db-neg-fill); }
 .k-toast button { margin-left: auto; background: none; border: 0; color: var(--db-accent-fg); font-weight: 700; cursor: pointer; padding: 0 var(--db-1); }
 .k-scrim { position: fixed; inset: 0; z-index: 80; background: var(--db-scrim); display: grid; place-items: center; padding: var(--db-4); }
-.k-modal { width: min(520px, 100%); background: var(--db-bg-card); border: 1px solid var(--db-border-strong); border-top-color: var(--db-border-lit); border-radius: var(--db-r-card); box-shadow: var(--db-shadow-pop); }
+.k-modal { max-height: calc(100vh - 48px); display: flex; flex-direction: column; width: min(520px, 100%); background: var(--db-bg-card); border: 1px solid var(--db-border-strong); border-top-color: var(--db-border-lit); border-radius: var(--db-r-card); box-shadow: var(--db-shadow-pop); }
 .k-modal > header { padding: var(--db-4) var(--db-5) var(--db-2); }
 .k-modal > header .eyebrow { font-family: var(--db-font-head); font-size: var(--db-text-sm); letter-spacing: 0.12em; text-transform: uppercase; color: var(--db-accent-fg); font-weight: 600; }
 .k-modal > header h2 { font-size: var(--db-text-xl); margin-top: 2px; }
-.k-modal > .body { padding: var(--db-2) var(--db-5) var(--db-4); color: var(--db-fg-mid); }
+.k-modal > .body { padding: var(--db-2) var(--db-5) var(--db-4); color: var(--db-fg-mid); overflow: auto; min-height: 0; }
+.k-modal > header, .k-modal > footer { flex: none; }
 .k-modal.wide { width: min(900px, 100%); max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
 .k-modal.wide > .body { overflow: auto; }
 .k-modal > footer { display: flex; justify-content: flex-end; gap: var(--db-2); padding: var(--db-3) var(--db-5); border-top: 1px solid var(--db-border-soft); }
@@ -464,6 +473,8 @@ a.al:hover { background: var(--db-bg-elev-1); }
 
 .row-actions { display: flex; gap: var(--db-2); justify-content: flex-end; align-items: center; flex-wrap: nowrap; }
 .dlg-two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--db-3); }
+.dlg-three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--db-3); }
+@media (max-width: 720px) { .dlg-three { grid-template-columns: 1fr 1fr; } }
 .cp { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: var(--db-5); align-items: start; }
 .cp-preview { position: sticky; top: 76px; background: var(--db-bg-inset); border: 1px solid var(--db-border); border-top-color: var(--db-border-lit); border-radius: var(--db-r-card); padding: var(--db-4) var(--db-5); }
 .cp-was { display: flex; align-items: center; gap: var(--db-2); color: var(--db-fg-mid); font-size: var(--db-text-sm); }
@@ -478,7 +489,8 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .dlg-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--db-text-sm); color: var(--db-fg-mid); }
 .dlg-check input { width: 16px; height: 16px; accent-color: var(--db-accent); }
 .th-checks { display: flex; flex-wrap: wrap; gap: var(--db-2) var(--db-5); min-height: 36px; align-items: center; }
-.k-modal .tl-field select, .k-modal .tl-field input { width: 100%; }
+.k-modal .tl-field select, .k-modal .tl-field input:not([type="checkbox"]) { width: 100%; }
+.k-modal.wide { width: min(820px, 100%); }
 
 /* ───────────────────────────── thresholds (Settings) ───────────────────────────── */
 .th-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--db-4) var(--db-5); }
