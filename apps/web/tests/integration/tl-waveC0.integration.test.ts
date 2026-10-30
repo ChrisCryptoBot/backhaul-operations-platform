@@ -226,7 +226,7 @@ describe.skipIf(!run)("core load integrity on the demo database", () => {
         { stopSequence: 1, stopType: "pickup", stopRole: "pickup", addressString: "Dallas, TX", facilityName: null, timeWindowEarliest: at("2027-05-03T08:00"), timeWindowLatest: at("2027-05-03T09:00"), referenceNumbers: [], contactPhone: null, stopNotes: null },
         { stopSequence: 2, stopType: "delivery", stopRole: "delivery", addressString: "Tulsa, OK", facilityName: null, timeWindowEarliest: at("2027-05-03T16:00"), timeWindowLatest: at("2027-05-03T17:00"), referenceNumbers: [], contactPhone: null, stopNotes: null }
       ],
-      printed: { commodity: "Paper", weightLbs: 41000, fuelSurchargeIncluded: null, dockTerms: "Two hours free, then $50 an hour", detentionFreeMinutes: 120, detentionHourlyRate: 50, notes: "Call ahead", tonuOnly: false },
+      printed: { commodity: "Paper", weightLbs: 41000, fuelSurchargeIncluded: null, dockTerms: "Two hours free, then $50 an hour", detentionFreeMinutes: 120, detentionHourlyRate: 50, notes: "Call ahead", accessorials: [], tonuOnly: false },
       warnings: [],
       confirmed: true,
       fileName: "rate-con-wc0.pdf"

@@ -1179,3 +1179,18 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .mb-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .mb-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--db-info-fill); }
 .mb-legend i.ok { background: var(--db-pos-fill); } .mb-legend i.warn { background: var(--db-warn-fill); } .mb-legend i.bad { background: var(--db-neg-fill); }
+
+/* Settings forms (company, team, thresholds): the same controls as every other form on the desk, not the browser's bare boxes. */
+.th-field, .tm-form .tm-f { display: flex; flex-direction: column; gap: var(--db-1); font-size: var(--db-text-sm); color: var(--db-fg-dim); font-weight: 500; }
+.th-field input, .tm-form .tm-f input, .th-field select, .tm-form .tm-f select, .th-field textarea, .tm-form .tm-f textarea { min-height: 36px; padding: 0 var(--db-3); background: var(--db-bg-input); color: var(--db-fg); border: 1px solid var(--db-border-strong); border-radius: var(--db-r-md); font-size: var(--db-text-base); }
+.th-field textarea, .tm-form .tm-f textarea { padding: var(--db-2) var(--db-3); min-height: 72px; }
+.th-field input:hover, .tm-form .tm-f input:hover, .th-field select:hover, .tm-form .tm-f select:hover { border-color: var(--db-fg-dim); }
+.th-field select, .tm-form .tm-f select, .audit-filters select, .tl-scope select { appearance: none; -webkit-appearance: none; font: inherit; font-size: var(--db-text-base); font-weight: 400; padding-right: 30px; cursor: pointer; }
+.th-field select option, .tm-form .tm-f select option, .audit-filters select option, .tl-scope select option { background: var(--db-bg-card); color: var(--db-fg); }
+.th-field input:focus-visible, .tm-form .tm-f input:focus-visible, .th-field select:focus-visible, .tm-form .tm-f select:focus-visible, .th-field textarea:focus-visible, .tm-form .tm-f textarea:focus-visible { outline: none; border-color: var(--db-accent); box-shadow: 0 0 0 3px var(--db-accent-ring); }
+.th-field input:disabled, .tm-form .tm-f input:disabled { opacity: 0.5; cursor: not-allowed; }
+.th-field input:not([type="checkbox"]):not([type="radio"]), .th-field textarea, .th-field select { width: 100%; }
+.tm-form { margin-top: 14px; display: flex; flex-wrap: wrap; gap: var(--db-3); align-items: flex-end; }
+.tm-form .tm-f { display: flex; flex-direction: column; gap: 4px; }
+.tm-form .tm-f input { min-width: 200px; }
+.tm-form .tm-f select { min-width: 150px; }

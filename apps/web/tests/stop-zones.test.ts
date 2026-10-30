@@ -144,3 +144,12 @@ describe("working out the zones of a document's stops", () => {
     expect(urls).toHaveLength(0);
   });
 });
+
+describe("the names of the extra charges a rate confirmation lists", () => {
+  it("come through to the draft, so the lumper check can read them", () => {
+    const raw = normalizeExtraction(DEMO_RATE_CON_READINGS["RC-AFB-482913"]!) as { rate: { accessorials: Array<{ description: string; amount: number | null }> } };
+    raw.rate.accessorials = [{ description: "Lumper reimbursement", amount: 150 }, { description: "Detention after 2 hours", amount: null }];
+    const d = extractionToLoadDraft(raw)!;
+    expect(d.printed.accessorials).toEqual(["Lumper reimbursement", "Detention after 2 hours"]);
+  });
+});

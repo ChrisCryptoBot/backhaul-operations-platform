@@ -80,7 +80,7 @@ export function TeamCard({ rows, canEdit, seats }: { rows: TeamRow[]; canEdit: b
       </table>
       {canEdit ? (
         <form
-          style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "end" }}
+          className="tm-form"
           onSubmit={(e) => {
             e.preventDefault();
             run(async () => {
@@ -93,15 +93,15 @@ export function TeamCard({ rows, canEdit, seats }: { rows: TeamRow[]; canEdit: b
             }, `${name || "That person"} added.`);
           }}
         >
-          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <label className="tm-f">
             <span className="th-label">Name</span>
             <input type="text" value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" required />
           </label>
-          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <label className="tm-f">
             <span className="th-label">Email</span>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" required />
           </label>
-          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <label className="tm-f">
             <span className="th-label">Role</span>
             <select value={role} onChange={(e) => setRole(e.target.value as Role)}>
               {ROLES.map((x) => (

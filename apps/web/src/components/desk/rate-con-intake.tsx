@@ -6,6 +6,7 @@ import React from "react";
 import { readSampleRateConAction, readUploadedRateConAction, saveRateConAction, type DraftDto, type ReadResult } from "@/app/(desk)/actions";
 import { dateTime, perMile, usd } from "@/lib/desk-format";
 import { needsStopCheck, rateConChecks } from "@/lib/rate-con-checks";
+import { lumperFlag } from "@/lib/lumper";
 import { parseCentralLocal, toCentralLocal } from "@/lib/zoned";
 import { cityState } from "@/lib/city-state";
 import { trailerLabel } from "@/truelane/constants/trailerData";
@@ -42,33 +43,98 @@ type Stage = "pick" | "reading" | "check" | "saved";
 const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" });
 
 /**
+ * A document that was read and is being checked survives going to another page and coming back: the read cost a paid call and the
+ * corrections are the dispatcher's work, so leaving to look something up must not throw them away. Held in memory for the browser
+ * session (a full reload clears it, because the file itself cannot be stored). Cleared when the load is saved or the page is reset.
+ */
+type Kept = {
+  draft: DraftDto;
+  source: "demo" | "live";
+  fileName: string;
+  confirmed: boolean;
+  stopsTicked: string | null;
+  milesFrom: MilesSource;
+  milesNote: { state: "busy" | "ok" | "error"; text: string } | null;
+  lastRoute: string;
+  file: File | null;
+};
+let kept: Kept | null = null;
+let keptTruck = { id: "", name: "" };
+
+// The same review, kept across a reload: the text in sessionStorage (this tab only, gone when it closes), the file in IndexedDB.
+const STORE_KEY = "tl.rateConReview";
+const DB_NAME = "tl-rate-con";
+const openDb = () =>
+  new Promise<IDBDatabase>((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("files");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+async function fileStore(run: (s: IDBObjectStore) => IDBRequest): Promise<unknown> {
+  try {
+    const db = await openDb();
+    return await new Promise((resolve) => {
+      const req = run(db.transaction("files", "readwrite").objectStore("files"));
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    });
+  } catch {
+    return null;
+  }
+}
+function writeStored(k: Kept | null, fileChanged: boolean) {
+  try {
+    if (!k) {
+      sessionStorage.removeItem(STORE_KEY);
+      void fileStore((s) => s.delete("current"));
+      return;
+    }
+    const { file, ...text } = k;
+    sessionStorage.setItem(STORE_KEY, JSON.stringify({ ...text, hasFile: !!file }));
+    if (fileChanged) void fileStore((s) => (file ? s.put(file, "current") : s.delete("current")));
+  } catch {
+    // Storage can be full or blocked; the in-memory copy still covers navigating between pages.
+  }
+}
+function readStored(): Omit<Kept, "file"> | null {
+  try {
+    const raw = sessionStorage.getItem(STORE_KEY);
+    return raw ? (JSON.parse(raw) as Omit<Kept, "file">) : null;
+  } catch {
+    return null;
+  }
+}
+let storedFile: File | null = null;
+
+/**
  * Rate-confirmation intake: read a document, check and correct what was read, then save it as a draft load.
  * Nothing becomes a load until the box is ticked. There is no verdict here on purpose: a rate confirmation is for a
  * load that was already accepted, so the page shows what the document says and the arithmetic on it, not a judgement.
  */
 export function RateConIntake({ liveReading }: { liveReading: boolean }) {
-  const [stage, setStage] = React.useState<Stage>("pick");
-  const [draft, setDraft] = React.useState<DraftDto | null>(null);
-  const [source, setSource] = React.useState<"demo" | "live">("demo");
-  const [fileName, setFileName] = React.useState("");
+  const [stage, setStage] = React.useState<Stage>(kept ? "check" : "pick");
+  const [draft, setDraft] = React.useState<DraftDto | null>(kept?.draft ?? null);
+  const [source, setSource] = React.useState<"demo" | "live">(kept?.source ?? "demo");
+  const [fileName, setFileName] = React.useState(kept?.fileName ?? "");
   const [duplicateOf, setDuplicateOf] = React.useState<string | null>(null);
   const [message, setMessage] = React.useState<string | null>(null);
-  const [confirmed, setConfirmed] = React.useState(false);
+  const [confirmed, setConfirmed] = React.useState(kept?.confirmed ?? false);
   // The stops box is ticked for one set of confirm-level checks; if the stops change so that the checks change, it clears itself.
-  const [stopsTicked, setStopsTicked] = React.useState<string | null>(null);
+  const [stopsTicked, setStopsTicked] = React.useState<string | null>(kept?.stopsTicked ?? null);
   const [savedId, setSavedId] = React.useState<string | null>(null);
   // The file that was read, kept on the load when it is saved (a sample is not a real document and is not kept). Factoring's packet is made of what is kept.
-  const picked = React.useRef<File | null>(null);
+  const picked = React.useRef<File | null>(kept?.file ?? null);
   const [fileNote, setFileNote] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [over, setOver] = React.useState(false);
   // Kept between documents: a dispatcher reading a stack of them for one truck should not have to pick it every time.
-  const [vehicleId, setVehicleId] = React.useState("");
-  const [vehicleName, setVehicleName] = React.useState("");
+  const [vehicleId, setVehicleId] = React.useState(keptTruck.id);
+  const [vehicleName, setVehicleName] = React.useState(keptTruck.name);
   // Where the miles in the box came from. A document that printed none gets the road miles measured from its stops; a typed figure is never replaced.
-  const [milesFrom, setMilesFrom] = React.useState<MilesSource>("none");
-  const [milesNote, setMilesNote] = React.useState<{ state: "busy" | "ok" | "error"; text: string } | null>(null);
-  const lastRoute = React.useRef("");
+  const [milesFrom, setMilesFrom] = React.useState<MilesSource>(kept?.milesFrom ?? "none");
+  const [milesNote, setMilesNote] = React.useState<{ state: "busy" | "ok" | "error"; text: string } | null>(kept?.milesNote ?? null);
+  const lastRoute = React.useRef(kept?.lastRoute ?? "");
   const milesSeq = React.useRef(0);
 
   function arrive(out: ReadResult) {
@@ -123,6 +189,46 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
   }
 
   const authority = useAuthorityLookup();
+
+  // After a reload the in-memory copy is gone: bring the review back from the tab's storage. Runs once, before the writer below.
+  const restoring = React.useRef(false);
+  React.useEffect(() => {
+    if (kept) return;
+    const s = readStored();
+    if (!s?.draft) return;
+    restoring.current = true;
+    setDraft(s.draft);
+    setSource(s.source);
+    setFileName(s.fileName);
+    setConfirmed(s.confirmed);
+    setStopsTicked(s.stopsTicked);
+    setMilesFrom(s.milesFrom);
+    setMilesNote(s.milesNote);
+    lastRoute.current = s.lastRoute;
+    setStage("check");
+    void fileStore((st) => st.get("current")).then((f) => {
+      if (f instanceof File && !picked.current) {
+        picked.current = f;
+        storedFile = f;
+      }
+    });
+  }, []);
+
+  // Written on every change, not on unmount, so a navigation away always finds the latest state.
+  React.useEffect(() => {
+    if (restoring.current) {
+      restoring.current = false;
+      return;
+    }
+    keptTruck = { id: vehicleId, name: vehicleName };
+    kept =
+      stage === "check" && draft
+        ? { draft, source, fileName, confirmed, stopsTicked, milesFrom, milesNote: milesNote?.state === "busy" ? null : milesNote, lastRoute: lastRoute.current, file: picked.current }
+        : null;
+    const fileChanged = (kept?.file ?? null) !== storedFile;
+    storedFile = kept?.file ?? null;
+    writeStored(kept, fileChanged);
+  }, [stage, draft, source, fileName, confirmed, stopsTicked, milesFrom, milesNote, vehicleId, vehicleName]);
 
   // Measure the road once every stop is something a map could find, a moment after the route stops changing.
   const routeKey = draft ? draft.stops.map((s) => `${s.stopType}|${s.addressString.trim().toLowerCase()}`).join("~") : "";
@@ -180,6 +286,13 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
   }
 
   const checks = draft ? rateConChecks({ stops: draft.stops, loadedMiles: draft.load.loadedMiles }) : [];
+  const lumper = draft
+    ? lumperFlag({
+        commodity: draft.printed.commodity,
+        text: [draft.printed.notes ?? "", draft.printed.dockTerms ?? "", ...(draft.printed.accessorials ?? []), ...draft.stops.map((s) => s.stopNotes ?? "")],
+        stops: draft.stops
+      })
+    : null;
   const stopsSignature = checks.filter((c) => c.level === "confirm").map((c) => c.id).join(",");
   const stopsOk = !needsStopCheck(checks) || stopsTicked === stopsSignature;
 
@@ -526,6 +639,12 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
                   <dd>{dateTime(draft.stops[0]?.timeWindowEarliest)}</dd>
                 </div>
               </dl>
+
+              {lumper ? (
+                <p className="tl-note warn" role="alert" data-testid="lumper-flag">
+                  <strong>{lumper.kind === "stated" ? "Lumper" : "Lumper likely"}.</strong> {lumper.text}
+                </p>
+              ) : null}
 
               {draft.warnings.length > 0 ? (
                 <div className="rc-warns">

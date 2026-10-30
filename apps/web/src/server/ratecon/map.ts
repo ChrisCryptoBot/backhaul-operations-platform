@@ -61,6 +61,8 @@ export type RateConLoadDraft = {
     detentionFreeMinutes: number | null;
     detentionHourlyRate: number | null;
     notes: string | null;
+    /** The names of the extra charges the document lists (read for a lumper; not saved). */
+    accessorials: string[];
     /** The document pays only a TONU fee: nothing was hauled. */
     tonuOnly: boolean;
   };
@@ -140,6 +142,7 @@ export function extractionToLoadDraft(raw: unknown, zones?: Array<StopZone | und
       detentionFreeMinutes: x.detention.freeMinutes,
       detentionHourlyRate: x.detention.hourlyRate,
       notes: x.notes,
+      accessorials: x.rate.accessorials.map((a) => a.description),
       tonuOnly: x.tonuOnly
     },
     warnings
