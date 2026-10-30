@@ -269,7 +269,8 @@ export function TripEntry({
   stops,
   expenses,
   delivered,
-  pod
+  pod,
+  quoted
 }: {
   loadId: string;
   status: string;
@@ -279,6 +280,8 @@ export function TripEntry({
   expenses: ExpenseValues;
   delivered: string;
   pod: { note: string; without: boolean };
+  /** The rate on the load, as typed in the box: shown as the default of the linehaul actually paid. */
+  quoted: string;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -287,7 +290,7 @@ export function TripEntry({
   const [errors, setErrors] = React.useState<Errors>({});
   const [message, setMessage] = React.useState<string | null>(null);
   const [start, setStart] = React.useState<StartValues>({ arrivedAt: "", waitMinutes: "", seal: "" });
-  const [done, setDone] = React.useState<CompleteValues>({ stops: [], deliveredAt: "", pod: "received", podNote: "", fuel: "", tolls: "", misc: "" });
+  const [done, setDone] = React.useState<CompleteValues>({ stops: [], deliveredAt: "", pod: "received", podNote: "", fuel: "", tolls: "", misc: "", actualRevenue: "" });
   const [spent, setSpent] = React.useState<ExpenseValues>(expenses);
 
   const canStart = status === "accepted" && assignmentStatus === "accepted";
@@ -299,7 +302,7 @@ export function TripEntry({
     setErrors({});
     setMessage(null);
     if (next === "start") setStart({ arrivedAt: nowLocal(), waitMinutes: "", seal: "" });
-    if (next === "complete") setDone({ stops: later.map((s) => ({ id: s.id, arrivedAt: s.arrivedLocal, waitMinutes: s.waitMinutes })), deliveredAt: nowLocal(), pod: "received", podNote: "", fuel: expenses.fuel, tolls: expenses.tolls, misc: expenses.misc });
+    if (next === "complete") setDone({ stops: later.map((s) => ({ id: s.id, arrivedAt: s.arrivedLocal, waitMinutes: s.waitMinutes, seal: s.seal })), deliveredAt: nowLocal(), pod: "received", podNote: "", fuel: expenses.fuel, tolls: expenses.tolls, misc: expenses.misc, actualRevenue: "" });
     if (next === "expenses") setSpent(expenses);
     setMode(next);
   }
@@ -457,6 +460,9 @@ export function TripEntry({
               <Fld label="Waited (minutes)" error={errors[`stop${i}.waitMinutes`]}>
                 <input inputMode="numeric" value={done.stops[i]?.waitMinutes ?? ""} onChange={(e) => setDone({ ...done, stops: done.stops.map((x, k) => (k === i ? { ...x, waitMinutes: e.target.value } : x)) })} />
               </Fld>
+              <Fld label={`Seal at stop ${s.sequence} (optional)`} error={errors[`stop${i}.seal`]}>
+                <input value={done.stops[i]?.seal ?? ""} onChange={(e) => setDone({ ...done, stops: done.stops.map((x, k) => (k === i ? { ...x, seal: e.target.value } : x)) })} autoComplete="off" />
+              </Fld>
             </div>
           ))}
           <Fld label="Delivered at" error={errors.deliveredAt}>
@@ -472,6 +478,9 @@ export function TripEntry({
           </div>
           <Fld label={done.pod === "none" ? "Why there is no proof of delivery" : "What it is and where it is (optional)"} error={errors.podNote} hint={done.pod === "received" ? "For example: signed BOL emailed on delivery. The file itself waits for the phone's storage." : undefined}>
             <input value={done.podNote} onChange={(e) => setDone({ ...done, podNote: e.target.value })} autoComplete="off" />
+          </Fld>
+          <Fld label="Linehaul actually paid ($)" error={errors.actualRevenue} hint={`Leave blank when it is the rate on the load${quoted ? ` ($${quoted})` : ""}. Type the amount when the customer paid a different linehaul: a short pay or an adjusted rate. It becomes what the load earned and what the invoice starts from.`}>
+            <input inputMode="decimal" value={done.actualRevenue ?? ""} onChange={(e) => setDone({ ...done, actualRevenue: e.target.value })} placeholder={quoted} />
           </Fld>
           <div className="rc-grid">
             <Fld label="Fuel ($)" error={errors.fuel}>
@@ -665,25 +674,34 @@ export function InvoiceDialog({
 // ── Payment ────────────────────────────────────────────────────────────────────────────────────
 
 /** Mark an invoice paid with what came in. A payment that is not the invoice total is recorded as it came, and says by how much it differs. */
-export function PaidDialog({ loadId, invoiceNumber, billed, size = "primary" }: { loadId: string; invoiceNumber: string | null; billed: number; size?: "primary" | "sm" }) {
+export function PaidDialog({ loadId, invoiceNumber, billed, owing, size = "primary" }: { loadId: string; invoiceNumber: string | null; billed: number; owing?: number; size?: "primary" | "sm" }) {
   const router = useRouter();
   const toast = useToast();
+  // What is still owed: the whole invoice, or what is left of it after part payments.
+  const due = owing ?? billed;
+  const received = Math.round((billed - due) * 100) / 100;
   const [open, setOpen] = React.useState(false);
-  const [amount, setAmount] = React.useState(billed.toFixed(2));
+  const [amount, setAmount] = React.useState(due.toFixed(2));
   const [paidOn, setPaidOn] = React.useState(() => nowLocal().slice(0, 10));
   const [method, setMethod] = React.useState("");
+  const [shortAction, setShortAction] = React.useState<"balance" | "writeoff">("balance");
+  const [shortReason, setShortReason] = React.useState("");
   const [message, setMessage] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const typed = Number(amount.replace(/,/g, ""));
-  const diff = Number.isFinite(typed) ? Math.round((typed - billed) * 100) / 100 : 0;
+  const diff = Number.isFinite(typed) ? Math.round((typed - due) * 100) / 100 : 0;
 
   async function pay() {
     setBusy(true);
-    const out = await paidAction(loadId, amount, paidOn, method);
+    const out = await paidAction(loadId, amount, paidOn, method, shortAction, shortReason);
     setBusy(false);
     if (out.ok) {
       setOpen(false);
-      toast({ text: out.difference ? `Paid, $${Math.abs(out.difference).toFixed(2)} ${out.difference < 0 ? "short" : "over"}.` : "Marked paid.", tone: out.difference && out.difference < 0 ? "bad" : "ok" });
+      toast(
+        out.balance != null
+          ? { text: `Part payment recorded. ${usd(out.balance, 2)} is still owed.`, tone: "ok" }
+          : { text: out.difference ? `Paid, $${Math.abs(out.difference).toFixed(2)} ${out.difference < 0 ? "written off" : "over"}.` : "Marked paid.", tone: out.difference && out.difference < 0 ? "bad" : "ok" }
+      );
       router.refresh();
     } else setMessage(out.error ?? "That could not be recorded.");
   }
@@ -694,13 +712,15 @@ export function PaidDialog({ loadId, invoiceNumber, billed, size = "primary" }: 
         type="button"
         className={`tl-btn ${size === "sm" ? "sm" : "primary"}`}
         onClick={() => {
-          setAmount(billed.toFixed(2));
+          setAmount(due.toFixed(2));
           setPaidOn(nowLocal().slice(0, 10));
           setMethod("");
+          setShortAction("balance");
+          setShortReason("");
           setMessage(null);
           setOpen(true);
         }}>
-        Mark paid
+        {received > 0 ? "Record a payment" : "Mark paid"}
       </button>
       <Modal
         open={open}
@@ -718,7 +738,7 @@ export function PaidDialog({ loadId, invoiceNumber, billed, size = "primary" }: 
           </>
         }>
         <div className="dlg-form">
-          <Fld label="Amount received ($)" error={message ?? undefined} hint={`The invoice is ${usd(billed, 2)}.`}>
+          <Fld label="Amount received ($)" error={message ?? undefined} hint={received > 0 ? `The invoice is ${usd(billed, 2)}; ${usd(received, 2)} has come in, so ${usd(due, 2)} is owed.` : `The invoice is ${usd(billed, 2)}.`}>
             <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
           </Fld>
           <div className="dlg-two">
@@ -736,7 +756,24 @@ export function PaidDialog({ loadId, invoiceNumber, billed, size = "primary" }: 
               </select>
             </Fld>
           </div>
-          {diff < 0 ? <p className="tl-note warn">That is {usd(Math.abs(diff), 2)} short of the invoice. It is recorded as a short payment, and the invoice shows it.</p> : diff > 0 ? <p className="tl-note">That is {usd(diff, 2)} more than the invoice.</p> : null}
+          {diff < 0 ? (
+            <fieldset className="dlg-choice" style={{ border: 0, padding: 0, margin: 0 }}>
+              <legend className="tl-note warn">That is {usd(Math.abs(diff), 2)} short of what is owed. What should happen to the {usd(Math.abs(diff), 2)}?</legend>
+              <label style={{ display: "block", margin: "6px 0" }}>
+                <input type="radio" name="short" checked={shortAction === "balance"} onChange={() => setShortAction("balance")} /> Keep it open: {usd(Math.abs(diff), 2)} stays owed, and the invoice keeps ageing
+              </label>
+              <label style={{ display: "block", margin: "6px 0" }}>
+                <input type="radio" name="short" checked={shortAction === "writeoff"} onChange={() => setShortAction("writeoff")} /> Close the invoice and write the {usd(Math.abs(diff), 2)} off
+              </label>
+              {shortAction === "writeoff" ? (
+                <Fld label="Why is it written off?" hint="Required. The customer's deduction, a damage claim, a negotiated discount. It goes in the audit trail.">
+                  <input value={shortReason} onChange={(e) => setShortReason(e.target.value)} maxLength={200} />
+                </Fld>
+              ) : null}
+            </fieldset>
+          ) : diff > 0 ? (
+            <p className="tl-note">That is {usd(diff, 2)} more than is owed.</p>
+          ) : null}
         </div>
       </Modal>
     </>

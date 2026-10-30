@@ -87,10 +87,18 @@ describe("the contact is real", () => {
 });
 
 describe("signing out", () => {
-  it("the sidebar always has a Sign out button that goes to sign-in", () => {
+  it("the sidebar has a Sign out button only when sign-in is on (a button that signs no one out is not shown), named in the folded rail too", () => {
     const shell = fs.readFileSync(path.join(__dirname, "..", "src/components/desk/desk-shell.tsx"), "utf8");
-    expect(shell).toContain("Sign out");
-    expect(shell).toContain('router.push("/sign-in")');
-    expect(shell).toContain('data-tip={collapsed ? "Sign out" : undefined}'); // named in the folded rail too
+    expect(shell).toMatch(/data\.account\.on \? \(\s*<AuthSignOutButton/);
+    expect(shell).toContain('tip={collapsed ? "Sign out" : undefined}');
+    expect(shell).not.toContain('router.push("/sign-in")');
+  });
+
+  it("signing out ends the provider's session, then removes the desk's own cookie and lands on sign-in", () => {
+    const button = fs.readFileSync(path.join(__dirname, "..", "src/components/desk/auth-sign-out.tsx"), "utf8");
+    expect(button).toContain('signOut({ redirectUrl: "/auth/leave" })');
+    const leave = fs.readFileSync(path.join(__dirname, "..", "src/app/(public)/auth/leave/route.ts"), "utf8");
+    expect(leave).toContain("maxAge: 0");
+    expect(leave).toContain('"/sign-in"');
   });
 });

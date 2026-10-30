@@ -140,8 +140,29 @@ export default async function InvoicePage({ params }: { params: { id: string } }
             <p>
               Paid {inv.paidAt ? shortDate(inv.paidAt) : ""}
               {inv.paidMethod ? ` by ${paidMethodLabel(inv.paidMethod).toLowerCase()}` : ""}: <b>{usd(inv.paidAmount, 2)}</b>
-              {short > 0 ? <span className="rp-bad"> · {usd(short, 2)} short of the invoice</span> : short < 0 ? <span> · {usd(Math.abs(short), 2)} over the invoice</span> : <span className="rp-good"> · paid in full</span>}
+              {short > 0 ? <span className="rp-bad"> · {usd(short, 2)} short of the invoice, written off</span> : short < 0 ? <span> · {usd(Math.abs(short), 2)} over the invoice</span> : <span className="rp-good"> · paid in full</span>}
             </p>
+          </>
+        ) : null}
+        {inv.payments.length > 0 ? (
+          <>
+            <h2>{inv.status === "paid" ? "Payments received" : "Payments so far"}</h2>
+            <table className="rp-table" aria-label="Payments received">
+              <tbody>
+                {inv.payments.map((p, i) => (
+                  <tr key={i}>
+                    <td>{shortDate(p.paidAt)}{p.method ? ` · ${paidMethodLabel(p.method).toLowerCase()}` : ""}</td>
+                    <td className="num">{usd(p.amount, 2)}</td>
+                  </tr>
+                ))}
+                {inv.status === "invoiced" ? (
+                  <tr>
+                    <td><b>Still owed</b></td>
+                    <td className="num"><b>{usd(inv.balance, 2)}</b></td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
           </>
         ) : null}
 

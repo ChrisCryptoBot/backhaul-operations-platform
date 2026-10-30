@@ -7,6 +7,7 @@ import { PageHead } from "@/components/desk/ui";
 import { DataTable, type Column, type Row, type SortHref } from "@/components/desk/data-table";
 import { DataTableTools } from "@/components/desk/data-table-tools";
 import { AddTruck, TruckRowActions } from "@/components/desk/fleet-forms";
+import { unitUse } from "@/server/tl/plan";
 import { EmptyState } from "@/components/desk/kit/states";
 import { miles, perMile } from "@/lib/desk-format";
 import { currentTerminal } from "@/server/tl/terminal";
@@ -74,12 +75,13 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
     }
   }));
 
+  const use = await unitUse("truck");
   return (
     <>
       <PageHead title="Trucks" sub={`${terminal ? `${terminal} terminal. ` : ""}Each truck's break-even floor, from its own cost profile. Every verdict on the Loads screen is measured against it. Open a truck to change its costs and see the floor move.`}>
         <SyncEldButton reason={eld.reason} />
         <Link href="/fleet/import" className="tl-btn">Import from a file</Link>
-        <AddTruck />
+        <AddTruck use={use} />
       </PageHead>
       <DataTableTools tableId="trucks-table" total={pageData.total} placeholder="Search trucks…" server={{ path: "/fleet", q: pageData.q, keep: searchParams?.sort ? { sort: searchParams.sort } : {} }} />
       <DataTable id="trucks-table" label="Trucks" columns={COLUMNS} rows={rows} sortHref={sortHref} empty={<EmptyState icon="trucks" title="No trucks yet">A truck and its cost profile set the floor every load is measured against.</EmptyState>} />

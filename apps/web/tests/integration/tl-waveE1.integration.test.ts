@@ -44,7 +44,7 @@ describe.skipIf(!run)("another workspace's records cannot be acted on", () => {
 
   beforeAll(async () => {
     await prisma.workspace.deleteMany({ where: { id: OTHER } });
-    await prisma.workspace.create({ data: { id: OTHER, name: "E1 other fleet" } });
+    await prisma.workspace.create({ data: { id: OTHER, name: "E1 other fleet", plan: "enterprise" } });
     const driver = await prisma.driver.create({ data: { workspaceId: OTHER, name: "E1 Other Driver", cdlClass: "A", cdlExpiry: FUTURE, medicalCardExpiry: FUTURE } });
     const make = (loadNumber: string, extra: Record<string, unknown> = {}) => prisma.load.create({ data: { workspaceId: OTHER, loadNumber, brokerName: "E1 Broker", quotedRevenue: 1000, ...extra } });
     const draft = await make("E1-DRAFT");

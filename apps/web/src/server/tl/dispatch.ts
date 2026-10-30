@@ -8,7 +8,9 @@ import { PAY_KIND_KEYS, PERCENT_MAX, rateConTotal } from "@/lib/pay";
 import { assertDriverSafe, driverFacingPay, payEstimate, projectLoadToSummary, type AssignmentPay, type LoadSummary, type PayKind } from "./projector";
 import { num, numOrNull } from "./convert";
 import { recordAudit } from "./audit";
+import { loadStatusFor } from "@/lib/load-state";
 import { freezeLoadSnapshot } from "./snapshot";
+import { lockWorkspace } from "./plan";
 import { currentWorkspaceId } from "./workspace";
 
 export { driverBlocker };
@@ -59,18 +61,32 @@ export function assertPay(pay: AssignmentPay): void {
   }
 }
 
-const windowText = (w: Window) => `${dateTime(w.start)} to ${dateTime(w.end)}`;
+export const windowText = (w: Window) => `${dateTime(w.start)} to ${dateTime(w.end)}`;
 
 /** Another open load this driver already holds whose window overlaps `win`, or null. */
-export async function findDriverClash(driverId: string, exceptLoadId: string, win: Window | null): Promise<{ loadNumber: string | null; window: Window } | null> {
+export async function findDriverClash(driverId: string, exceptLoadId: string, win: Window | null, db: Pick<typeof prisma, "assignment"> = prisma): Promise<{ loadNumber: string | null; window: Window } | null> {
   if (!win) return null;
-  const others = await prisma.assignment.findMany({
+  const others = await db.assignment.findMany({
     where: { driverId, loadId: { not: exceptLoadId }, status: { in: OPEN_ASSIGNMENT }, load: { deletedAt: null, status: { in: OPEN_LOAD } } },
     include: { load: { include: { stops: true } } }
   });
   for (const o of others) {
     const w = loadWindow(o.load.stops);
     if (w && windowsOverlap(win, w)) return { loadNumber: o.load.loadNumber, window: w };
+  }
+  return null;
+}
+
+/**
+ * Another open load this TRUCK is on whose window overlaps `win`, or null. A truck is on one load at a time, whoever drives it; the driver check above does not see a truck two
+ * dispatchers have put on two loads at once.
+ */
+export async function findTruckClash(vehicleId: string, exceptLoadId: string, win: Window | null, workspaceId = currentWorkspaceId()): Promise<{ loadNumber: string | null; window: Window } | null> {
+  if (!win) return null;
+  const others = await prisma.load.findMany({ where: { workspaceId, vehicleId, ...(exceptLoadId ? { id: { not: exceptLoadId } } : {}), deletedAt: null, status: { in: OPEN_LOAD } }, include: { stops: true } });
+  for (const o of others) {
+    const w = loadWindow(o.stops);
+    if (w && windowsOverlap(win, w)) return { loadNumber: o.loadNumber, window: w };
   }
   return null;
 }
@@ -142,14 +158,27 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
   };
   const payText = describePay(input.pay.kind, input.pay.rate);
   const prev = load.assignment;
+  // A driver who already has the load (sent to them, or accepted) is not swapped for another without a reason, as taking them off it needs one.
+  const replacing = prev != null && (prev.status === "dispatched" || prev.status === "accepted") && prev.driverId !== driver.id;
+  const changeWhy = (input.overrideReason ?? "").trim();
+  if (replacing && changeWhy.length < 3) throw new DispatchError("reason_required", `${prev.driver.name} has this load. Add a reason to change the driver.`);
 
   return prisma.$transaction(async (tx) => {
+    // The clash was checked above, before this transaction; two dispatchers assigning one driver to two loads at once would both have passed it. Checked again here, with the desk
+    // locked, so the second one sees the first. (Only when the dispatcher has not already given a reason to double-book.)
+    await lockWorkspace(tx, workspaceId);
+    if (override == null) {
+      const now2 = await findDriverClash(driver.id, load.id, loadWindow(load.stops), tx);
+      if (now2) throw new DispatchError("double_booked", `${driver.name} is already on ${now2.loadNumber ?? "another load"} (${windowText(now2.window)}). Add a reason to assign anyway.`);
+    }
     const saved = prev
       ? await tx.assignment.update({
           where: { loadId: load.id },
           data: { ...data, status: "draft", driverResponse: Prisma.JsonNull, assignmentVersion: { increment: 1 }, dispatchedAt: null, respondedAt: null }
         })
       : await tx.assignment.create({ data: { loadId: load.id, status: "draft", ...data } });
+    // A new driver has not said yes: a load that was accepted by the last one goes back to draft with the assignment (src/lib/load-state.ts).
+    if (load.status !== loadStatusFor("draft")) await tx.load.update({ where: { id: load.id }, data: { status: loadStatusFor("draft") } });
     // Who is driving, and at what pay, is now known: freeze it with the rest of what the load was booked with.
     await freezeLoadSnapshot(tx, load.id, { labour: true });
     await recordAudit(
@@ -164,7 +193,7 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
               ? `${driver.name} assigned again at ${payText}`
               : `Changed from ${prev.driver.name} (${describePay(prev.payKind, num(prev.payRate))}) to ${driver.name} (${payText})`
             : `${driver.name} assigned at ${payText}`) + (override ? ", double-booked on purpose" : ""),
-        reason: override,
+        reason: override ?? (replacing ? changeWhy : null),
         before: prev ? { Driver: prev.driver.name, Pay: describePay(prev.payKind, num(prev.payRate)), Estimate: money(num(prev.payEstimate)) } : null,
         after: { Driver: driver.name, Pay: payText, Estimate: money(num(estimate)) },
         at: now, workspaceId
@@ -287,7 +316,8 @@ export async function recordDriverResponse(loadId: string, response: "accepted" 
       where: { loadId },
       data: { status: response, respondedAt: now, driverResponse: { response, note: note ?? null, at: now.toISOString() } }
     });
-    if (response === "accepted") await tx.load.update({ where: { id: loadId }, data: { status: "accepted" } });
+    // The load's status follows the assignment's in the same transaction: yes is accepted, a no is back on the board as a draft.
+    if (a.load.status !== loadStatusFor(response)) await tx.load.update({ where: { id: loadId }, data: { status: loadStatusFor(response) } });
     await recordAudit(
       {
         entity: "assignment",

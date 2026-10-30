@@ -25,7 +25,7 @@ async function drop(id: string) {
 }
 async function workspace(id: string) {
   await drop(id);
-  await prisma.workspace.create({ data: { id, name: `E1 ${id}` } });
+  await prisma.workspace.create({ data: { id, name: `E1 ${id}`, plan: "enterprise" } });
 }
 
 describe.skipIf(!run)("kept answers move with the data", () => {

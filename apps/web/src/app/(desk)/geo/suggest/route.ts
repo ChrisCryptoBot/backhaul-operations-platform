@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { suggestPlaces } from "@/server/geo/mapbox";
+import { guardRoute } from "@/server/tl/access";
+import { overBudget } from "@/server/tl/budget";
 
 export const dynamic = "force-dynamic";
 
@@ -8,6 +10,10 @@ export const dynamic = "force-dynamic";
  * waits behind the Quote page's pricing action, and so the answer can be cached for the person's next keystroke. Server-side token; nothing is stored.
  */
 export async function GET(request: Request) {
+  const denied = await guardRoute("dispatcher");
+  if (denied) return denied;
+  const over = overBudget("geo_suggest");
+  if (over) return over;
   const q = new URL(request.url).searchParams.get("q") ?? "";
   const places = await suggestPlaces(q.slice(0, 120));
   return NextResponse.json({ places }, { headers: { "Cache-Control": "private, max-age=60" } });

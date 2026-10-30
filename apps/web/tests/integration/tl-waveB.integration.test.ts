@@ -37,11 +37,12 @@ describe.skipIf(!run)("measured miles and stored coordinates on the demo databas
   const urls: string[] = [];
 
   const day = "2027-03-02";
-  const quote = (over: Partial<QuoteValues> = {}): QuoteValues => ({
+  // A truck is on one load at a time, so each load booked on the same truck here is on its own day.
+  const quote = (over: Partial<QuoteValues> = {}, onDay = day): QuoteValues => ({
     ...BLANK_QUOTE,
     stops: [
-      { role: "pickup", address: "Dallas, TX", appointment: `${day}T08:00` },
-      { role: "delivery", address: "Tulsa, OK", appointment: `${day}T17:00` }
+      { role: "pickup", address: "Dallas, TX", appointment: `${onDay}T08:00` },
+      { role: "delivery", address: "Tulsa, OK", appointment: `${onDay}T17:00` }
     ],
     broker: "WB Broker",
     offer: "1500",
@@ -109,7 +110,7 @@ describe.skipIf(!run)("measured miles and stored coordinates on the demo databas
 
   test("with no Mapbox key a stop simply keeps no coordinates, and the save is not affected", async () => {
     delete process.env.MAPBOX_ACCESS_TOKEN;
-    const out = await bookQuote(quote({ broker: "WB Broker" }), { vehicleId: truckId, driverId: null }, null, null);
+    const out = await bookQuote(quote({ broker: "WB Broker" }, "2027-03-04"), { vehicleId: truckId, driverId: null }, null, null);
     if (!out.ok) throw new Error(JSON.stringify(out));
     loadIds.push(out.loadId);
     const stops = await prisma.stop.findMany({ where: { loadId: out.loadId } });
@@ -135,7 +136,7 @@ describe.skipIf(!run)("measured miles and stored coordinates on the demo databas
   });
 
   test("a booked load carries its own truck's empty miles, not the shared figure", async () => {
-    const out = await bookQuote(quote({ emptyByTruck: { [truckId]: "75" }, emptyHomeByTruck: { [truckId]: "90" }, broker: "WB Broker" }), { vehicleId: truckId, driverId: null }, null, null);
+    const out = await bookQuote(quote({ emptyByTruck: { [truckId]: "75" }, emptyHomeByTruck: { [truckId]: "90" }, broker: "WB Broker" }, "2027-03-06"), { vehicleId: truckId, driverId: null }, null, null);
     if (!out.ok) throw new Error(JSON.stringify(out));
     loadIds.push(out.loadId);
     const l = await prisma.load.findUniqueOrThrow({ where: { id: out.loadId } });

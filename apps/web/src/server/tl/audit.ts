@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { AUDIT_GROUPS, type AuditAction, type AuditSnapshot } from "@/lib/audit-diff";
 import { auditRange } from "@/lib/audit-range";
+import { DESK_ACTOR, currentActor } from "./identity";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -23,9 +24,11 @@ export type AuditInput = {
   after?: AuditSnapshot | null;
   at?: Date;
   workspaceId?: string;
+  /** Who did it; the signed-in person by default ("Dispatcher" with sign-in off). */
+  actor?: string;
 };
 
-export const DESK_ACTOR = "Dispatcher";
+export { DESK_ACTOR };
 
 export async function recordAudit(i: AuditInput, db: AuditDb = prisma) {
   return db.auditEvent.create({
@@ -40,7 +43,7 @@ export async function recordAudit(i: AuditInput, db: AuditDb = prisma) {
       reason: i.reason?.trim() ? i.reason.trim() : null,
       before: i.before ? (i.before as Prisma.InputJsonObject) : undefined,
       after: i.after ? (i.after as Prisma.InputJsonObject) : undefined,
-      actor: DESK_ACTOR,
+      actor: i.actor ?? currentActor(),
       createdAt: i.at
     }
   });

@@ -1,3 +1,4 @@
+import { currentTerminal } from "@/server/tl/terminal";
 import Link from "next/link";
 import React from "react";
 import { agingFor, countInvoices, listInvoiceRows } from "@/server/tl/queries";
@@ -59,15 +60,17 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: { 
   // Each list is read on its own and a page at a time, because a fleet can have thousands waiting to be invoiced, out, or paid: the oldest first for what still needs
   // work, the newest first for what is paid. The search looks through what is out.
   const q = (searchParams?.q ?? "").trim();
-  const [readyTotal, outTotal, paidTotal] = await Promise.all([countInvoices("ready"), countInvoices("out", undefined, q), countInvoices("paid")]);
+  // The header's terminal narrows the invoices too (loads placed in that terminal, and loads not placed anywhere yet).
+  const terminal = await currentTerminal();
+  const [readyTotal, outTotal, paidTotal] = await Promise.all([countInvoices("ready", undefined, undefined, terminal), countInvoices("out", undefined, q, terminal), countInvoices("paid", undefined, undefined, terminal)]);
   const pageOf = (param: string | undefined, total: number, size: number) => Math.min(asPage(param), Math.max(1, Math.ceil(total / size)));
   const readyPage = pageOf(searchParams?.ready, readyTotal, READY_PAGE);
   const outPage = pageOf(searchParams?.out, outTotal, OUT_PAGE);
   const paidPage = pageOf(searchParams?.paid, paidTotal, PAID_PAGE);
   const [toInvoice, open, paid, aging, detention] = await Promise.all([
-    listInvoiceRows(undefined, { scope: "ready", skip: (readyPage - 1) * READY_PAGE, take: READY_PAGE }),
-    listInvoiceRows(undefined, { scope: "out", q, skip: (outPage - 1) * OUT_PAGE, take: OUT_PAGE }),
-    listInvoiceRows(undefined, { scope: "paid", skip: (paidPage - 1) * PAID_PAGE, take: PAID_PAGE }),
+    listInvoiceRows(undefined, { scope: "ready", terminal, skip: (readyPage - 1) * READY_PAGE, take: READY_PAGE }),
+    listInvoiceRows(undefined, { scope: "out", q, terminal, skip: (outPage - 1) * OUT_PAGE, take: OUT_PAGE }),
+    listInvoiceRows(undefined, { scope: "paid", terminal, skip: (paidPage - 1) * PAID_PAGE, take: PAID_PAGE }),
     agingFor(),
     getDetentionRecovery()
   ]);
@@ -131,9 +134,14 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: { 
         broker: r.broker,
         sent: shortDate(r.invoicedAt),
         due: <span className={late ? "tone-neg" : ""}>{shortDate(due)}{late ? " · overdue" : ""}</span>,
-        amount: usd(r.amount, 2),
+        amount: (
+          <>
+            {usd(r.balance, 2)}
+            {r.paidAmount != null && r.paidAmount > 0 ? <span className="sub">of {usd(r.amount, 2)} · {usd(r.paidAmount, 2)} received</span> : null}
+          </>
+        ),
         // One action: the payment. The invoice opens from its number, and the reminder for a late one is on that sheet.
-        act: <PaidDialog loadId={r.id} invoiceNumber={r.invoiceNumber} billed={r.amount} size="sm" />
+        act: <PaidDialog loadId={r.id} invoiceNumber={r.invoiceNumber} billed={r.amount} owing={r.balance} size="sm" />
       }
     };
   });

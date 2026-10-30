@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { ATTACHMENTS_PER_MESSAGE, ATTACHMENT_MAX_BYTES, checkAttachment } from "@/lib/attachments";
 import { sendMessage, type CheckedFile } from "@/server/tl/messages";
+import { guardRoute } from "@/server/tl/access";
 
 /**
  * Save a message with its pictures and files. A route and not a server action, because a message can carry up to four files of 10 MB and a server action's body
@@ -11,6 +12,8 @@ import { sendMessage, type CheckedFile } from "@/server/tl/messages";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const denied = await guardRoute("dispatcher");
+  if (denied) return denied;
   let form: FormData;
   try {
     form = await req.formData();

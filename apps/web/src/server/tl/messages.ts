@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { cleanBody } from "@/lib/messages";
 import { ATTACHMENTS_PER_MESSAGE, summaryOf, type Checked } from "@/lib/attachments";
 import { removeFiles, storeFile } from "./message-files";
+import { storageRefusal } from "./storage";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -96,6 +97,10 @@ export async function sendMessage(input: SendInput, workspaceId = currentWorkspa
     loadId = load.id;
   }
   const clientId = input.clientId && input.clientId.length <= 64 ? input.clientId : null;
+
+  // A plan holds only so much in pictures and files; a message that would take the desk past it is refused before anything is kept.
+  const refused = await storageRefusal(files.reduce((s, f) => s + f.data.length, 0), workspaceId);
+  if (refused) return { ok: false, error: refused };
 
   const thread = await prisma.thread.upsert({ where: { driverId: driver.id }, update: {}, create: { workspaceId, driverId: driver.id } });
   if (clientId) {

@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { randomBytes } from "node:crypto";
 import { fuelKindOf } from "@/lib/eia";
 import { prisma } from "@/lib/db";
 import { driverBlocker } from "@/lib/clearance";
@@ -13,7 +14,8 @@ import { fuelSurchargePercentFromDollars, fuelSurchargePerMileFromDollars } from
 import { cityState } from "@/lib/city-state";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
-import { assignDriver, DispatchError, driverClashesIn } from "./dispatch";
+import { assignDriver, DispatchError, driverClashesIn, findTruckClash, windowText } from "./dispatch";
+import { duplicateMessage, findTwinLoad } from "./twins";
 import type { PayKind } from "@/lib/pay";
 import { saveStopCoordinates } from "@/server/geo/persist";
 import { evaluateTlLoad, resolveLabour, type EvaluateLoadRow } from "./evaluate";
@@ -250,28 +252,34 @@ export type QuoteContext = {
   broker: { name: string; loads: number; finished: number; fellThrough: number; averagePerMile: number | null; averageDaysToPay: number | null } | null;
 };
 
-const cityOf = (address: string | undefined) => (cityState(address ?? "") ?? "").split(",")[0]!.trim();
+/** "Dallas, TX" for an address (the city and the state: Springfield IL and Springfield MO are two lanes), or just the city when no state was typed. */
+const cityStateOf = (address: string | undefined) => (cityState(address ?? "") ?? "").trim();
+/** How many of the lane's most recent finished loads the average is taken over. */
+const LANE_SAMPLE = 25;
+const BROKER_SAMPLE = 1000;
 
 export async function quoteContext(input: QuoteInput, workspaceId = currentWorkspaceId()): Promise<QuoteContext> {
-  const from = cityOf(input.stops[0]?.address);
-  const to = cityOf(input.stops[input.stops.length - 1]?.address);
+  const from = cityStateOf(input.stops[0]?.address);
+  const to = cityStateOf(input.stops[input.stops.length - 1]?.address);
   let lane: QuoteContext["lane"] = null;
   if (from.length >= 2 && to.length >= 2) {
     const where = { workspaceId, deletedAt: null, ...notQuote, status: "completed", originAddress: { contains: from, mode: "insensitive" as const }, destinationAddress: { contains: to, mode: "insensitive" as const } };
-    const [count, recent] = await Promise.all([prisma.load.count({ where }), prisma.load.findMany({ where, orderBy: { completedAt: "desc" }, take: 5 })]);
+    const [count, recent] = await Promise.all([prisma.load.count({ where }), prisma.load.findMany({ where, orderBy: { completedAt: "desc" }, take: LANE_SAMPLE })]);
     if (count > 0) {
+      // The average is over the most recent LANE_SAMPLE finished loads; the list shows the latest five of them.
       const rows = recent.map((l) => {
         const gross = (numOrNull(l.actualRevenue) ?? num(l.quotedRevenue)) + (numOrNull(l.fuelSurcharge) ?? 0);
         const miles = num(l.loadedMiles);
         return { id: l.id, loadNumber: l.loadNumber, on: l.completedAt, gross, perMile: miles > 0 ? gross / miles : null, broker: l.brokerName };
       });
       const rated = rows.filter((r) => r.perMile != null);
-      lane = { from: cityState(input.stops[0]!.address) ?? from, to: cityState(input.stops[input.stops.length - 1]!.address) ?? to, count, averagePerMile: rated.length > 0 ? rated.reduce((s, r) => s + r.perMile!, 0) / rated.length : null, recent: rows };
+      lane = { from: cityState(input.stops[0]!.address) ?? from, to: cityState(input.stops[input.stops.length - 1]!.address) ?? to, count, averagePerMile: rated.length > 0 ? rated.reduce((s, r) => s + r.perMile!, 0) / rated.length : null, recent: rows.slice(0, 5) };
     }
   }
   let broker: QuoteContext["broker"] = null;
   if (input.broker) {
-    const theirs = await prisma.load.findMany({ where: { workspaceId, deletedAt: null, ...notQuote, brokerName: { equals: input.broker, mode: "insensitive" } } });
+    // The customer's most recent loads (a customer a desk has worked with for years has thousands; the record is read over the latest BROKER_SAMPLE).
+    const theirs = await prisma.load.findMany({ where: { workspaceId, deletedAt: null, ...notQuote, brokerName: { equals: input.broker, mode: "insensitive" } }, orderBy: { createdAt: "desc" }, take: BROKER_SAMPLE });
     if (theirs.length > 0) {
       const done = theirs.filter((l) => l.status === "completed");
       const rated = done.map((l) => ({ gross: (numOrNull(l.actualRevenue) ?? num(l.quotedRevenue)) + (numOrNull(l.fuelSurcharge) ?? 0), miles: num(l.loadedMiles) })).filter((r) => r.miles > 0);
@@ -344,7 +352,8 @@ function loadFields(input: QuoteInput, truckId: string | null) {
   };
 }
 
-const quoteNumber = (now: Date) => `QT-${new Prisma.Decimal(now.getTime()).div(1000).toDecimalPlaces(0, Prisma.Decimal.ROUND_DOWN).toNumber().toString(36).toUpperCase()}`;
+/** The desk's own number for a quote: the time in seconds, and four random characters so two saved in the same second are not the same number. */
+const quoteNumber = (now: Date) => `QT-${new Prisma.Decimal(now.getTime()).div(1000).toDecimalPlaces(0, Prisma.Decimal.ROUND_DOWN).toNumber().toString(36).toUpperCase()}${randomBytes(2).toString("hex").toUpperCase()}`;
 
 export type QuoteSave = { ok: true; id: string } | { ok: false; errors?: QuoteErrors; error?: string };
 
@@ -377,7 +386,7 @@ export async function brokerNames(workspaceId = currentWorkspaceId()): Promise<s
 export type QuoteListRow = { id: string; lane: string; broker: string | null; offer: number; loadedMiles: number; savedAt: Date; truck: string | null; /** Why it was passed on, or null while it is still open. */ passedFor: string | null };
 
 export async function listQuotes(workspaceId = currentWorkspaceId()): Promise<QuoteListRow[]> {
-  const rows = await prisma.load.findMany({ where: { workspaceId, status: QUOTE_STATUS, deletedAt: null }, include: { vehicle: true, decisions: { orderBy: { decidedAt: "desc" }, take: 1 } }, orderBy: { updatedAt: "desc" }, take: 12 });
+  const rows = await prisma.load.findMany({ where: { workspaceId, status: QUOTE_STATUS, deletedAt: null }, include: { vehicle: true, decisions: { orderBy: { decidedAt: "desc" }, take: 1 } }, orderBy: { updatedAt: "desc" }, take: 50 });
   return rows.map((l) => ({
     id: l.id,
     lane: `${cityState(l.originAddress) ?? "?"} to ${cityState(l.destinationAddress) ?? "?"}`,
@@ -491,9 +500,17 @@ export async function passQuote(id: string, reason: string, notes: string, works
   return { ok: true };
 }
 
+/** Throw a saved quote away. It is written to the audit trail (a quote was priced for a customer; its being thrown away is part of that customer's record). */
 export async function discardQuote(id: string, workspaceId = currentWorkspaceId(), now = new Date()): Promise<boolean> {
-  const out = await prisma.load.updateMany({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null }, data: { deletedAt: now } });
-  return out.count > 0;
+  const q = await prisma.load.findFirst({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null } });
+  if (!q) return false;
+  const lane = `${cityState(q.originAddress) ?? "?"} to ${cityState(q.destinationAddress) ?? "?"}`;
+  return prisma.$transaction(async (tx) => {
+    const out = await tx.load.updateMany({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null }, data: { deletedAt: now } });
+    if (out.count !== 1) return false;
+    await recordAudit({ entity: "load", action: "quote_discarded", loadId: null, loadNumber: q.loadNumber, workspaceId, summary: `Quote thrown away: ${lane}, $${num(q.quotedRevenue).toLocaleString("en-US")}${q.brokerName ? ` for ${q.brokerName}` : ""}`, before: { Lane: lane, Offer: `$${num(q.quotedRevenue).toLocaleString("en-US")}` }, after: null, at: now }, tx);
+    return true;
+  });
 }
 
 // ── Booking ───────────────────────────────────────────────────────────────────────────────────
@@ -539,6 +556,18 @@ export async function bookQuote(
     if (!valid) return { ok: false, gate: fit.gate, error: reason === "Other" ? "Say what the reason is when you pick Other." : "This one needs a reason before it is booked." };
   }
 
+  // The broker's load number is the same load as another on the desk with that number from that customer: refuse, rather than book it twice.
+  const twin = await findTwinLoad(workspaceId, input.loadNumber, input.broker, quoteId ?? undefined);
+  if (twin) return { ok: false, error: `${duplicateMessage(twin)} Open it, or type another number.` };
+  // Booked twice in a moment (a double click, a retry) with nothing to tell the two apart: the load that was just made is the answer, not a second one.
+  if (!quoteId && !input.loadNumber) {
+    const just = await prisma.load.findFirst({ where: { workspaceId, deletedAt: null, vehicleId: truck.id, channel: "dispatch", status: "draft", createdAt: { gte: new Date(now.getTime() - 30_000) }, scheduledDate: input.stops[0]?.appointment != null ? new Date(input.stops[0].appointment) : null, originAddress: cityState(input.stops[0]!.address) ?? input.stops[0]!.address, destinationAddress: cityState(input.stops[last]!.address) ?? input.stops[last]!.address, quotedRevenue: input.offer } });
+    if (just) return { ok: true, loadId: just.id, loadNumber: just.loadNumber, assigned: false, note: "This was booked a moment ago; it is the same load." };
+  }
+  // A truck is on one load at a time.
+  const stopsForWindow = stopRows(input);
+  const busy = await findTruckClash(truck.id, quoteId ?? "", loadWindow(stopsForWindow), workspaceId);
+  if (busy) return { ok: false, error: `${truck.name} is already on ${busy.loadNumber ?? "another load"} (${windowText(busy.window)}). Pick another truck, or move that load first.` };
   const data = { ...loadFields(input, truck.id), vehicleId: truck.id, status: "draft", channel: "dispatch" };
   const lane = `${cityState(input.stops[0]!.address)} to ${cityState(input.stops[last]!.address)}`;
   let saved: { loadId: string; loadNumber: string | null };

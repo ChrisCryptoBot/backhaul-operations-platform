@@ -1,5 +1,6 @@
 "use client";
 
+import { SubmitButton } from "./kit/submit-button";
 import React from "react";
 import { cancelAction, rescheduleAction, tonuAction } from "@/app/(desk)/actions";
 import { CANCEL_REASONS, RESCHEDULE_REASONS } from "@/lib/disruptions";
@@ -62,9 +63,9 @@ export function DisruptionButtons({
       <button type="button" className="tl-btn" onClick={close}>
         Back
       </button>
-      <button type="submit" className={`tl-btn ${danger ? "danger" : "primary"}`}>
+      <SubmitButton className={`tl-btn ${danger ? "danger" : "primary"}`} pending="Saving…">
         {submit}
-      </button>
+      </SubmitButton>
     </div>
   );
 

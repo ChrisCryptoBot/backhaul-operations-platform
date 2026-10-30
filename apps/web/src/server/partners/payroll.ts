@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { recordAudit } from "@/server/tl/audit";
 import { num } from "@/server/tl/convert";
@@ -66,25 +67,55 @@ export async function listPayroll(opts: { page?: number; filter?: "ready" | "sen
 
 export type SendResult = { ok: true; sent: number; reference: string } | { ok: false; error: string; code?: string };
 
+/** A claim on a statement while it is being sent. One that was never finished (the server stopped) is free again after this long. */
+const CLAIM_MS = 10 * 60_000;
+const CLAIM = "pending:";
+
 export async function sendToPayroll(statementIds: string[], now = new Date(), workspaceId = currentWorkspaceId()): Promise<SendResult> {
   const ids = [...new Set(statementIds)];
   if (ids.length < 1 || ids.length > 200) return { ok: false, error: "Pick one to 200 statements." };
   const statements = await prisma.settlement.findMany({ where: { id: { in: ids }, workspaceId, status: "final" }, include: { driver: true } });
   if (statements.length !== ids.length) return { ok: false, error: "A statement is not final or does not exist." };
   for (const s of statements) {
-    const why = readiness(s.driver, s.payrollSentAt);
+    // A claim that was never finished (the server stopped mid-send) does not count as sent once it is old.
+    const unfinished = s.payrollReference?.startsWith(CLAIM) && s.payrollSentAt != null && s.payrollSentAt.getTime() < now.getTime() - CLAIM_MS;
+    const why = readiness(s.driver, unfinished ? null : s.payrollSentAt);
     if (why) return { ok: false, error: `${s.number} (${s.driver.name}): ${why}` };
   }
-  const { provider, result } = await callPartner(
-    "payroll",
-    null,
-    { statements: statements.map((s) => ({ id: s.id, number: s.number, employeeId: s.driver.payrollEmployeeId, workerType: s.driver.payrollWorkerType, total: num(s.total), periodStart: s.periodStart.toISOString().slice(0, 10), periodEnd: s.periodEnd.toISOString().slice(0, 10) })) },
-    workspaceId
-  );
-  if (!result.ok) return { ok: false, error: result.message ?? "Payroll could not be reached.", code: result.code };
+  // Claimed BEFORE the company is called, in one step that only succeeds for statements nobody else has claimed or sent: two clicks, or two tabs, cannot both send the same
+  // statement, and a statement is never paid twice. If the call then fails, the claim is released so it can be sent again.
+  const claimRef = `${CLAIM}${randomUUID()}`;
+  const stale = new Date(now.getTime() - CLAIM_MS);
+  const claimed = await prisma.settlement.updateMany({
+    where: { id: { in: ids }, workspaceId, status: "final", OR: [{ payrollSentAt: null }, { payrollSentAt: { lt: stale }, payrollReference: { startsWith: CLAIM } }] },
+    data: { payrollSentAt: now, payrollReference: claimRef }
+  });
+  if (claimed.count !== ids.length) {
+    // Some were taken by someone else in the meantime: give back the ones this call got, and say so.
+    await prisma.settlement.updateMany({ where: { id: { in: ids }, workspaceId, payrollReference: claimRef }, data: { payrollSentAt: null, payrollReference: null } });
+    return { ok: false, error: "A statement was just sent, or is being sent, by someone else. Reload the page." };
+  }
+  const release = () => prisma.settlement.updateMany({ where: { id: { in: ids }, workspaceId, payrollReference: claimRef }, data: { payrollSentAt: null, payrollReference: null } });
+  let called;
+  try {
+    called = await callPartner(
+      "payroll",
+      null,
+      { statements: statements.map((s) => ({ id: s.id, number: s.number, employeeId: s.driver.payrollEmployeeId, workerType: s.driver.payrollWorkerType, total: num(s.total), periodStart: s.periodStart.toISOString().slice(0, 10), periodEnd: s.periodEnd.toISOString().slice(0, 10) })) },
+      workspaceId
+    );
+  } catch (e) {
+    await release();
+    throw e;
+  }
+  const { provider, result } = called;
+  if (!result.ok) {
+    await release();
+    return { ok: false, error: result.message ?? "Payroll could not be reached.", code: result.code };
+  }
   const { reference } = result.data;
   await prisma.$transaction(async (tx) => {
-    await tx.settlement.updateMany({ where: { id: { in: ids }, workspaceId }, data: { payrollSentAt: now, payrollReference: reference } });
+    await tx.settlement.updateMany({ where: { id: { in: ids }, workspaceId, payrollReference: claimRef }, data: { payrollReference: reference } });
     await tx.driver.updateMany({ where: { id: { in: statements.map((s) => s.driverId) }, workspaceId }, data: { payrollStatus: "sent" } });
     const total = statements.reduce((sum, s) => sum + num(s.total) * 100, 0) / 100;
     await recordAudit(

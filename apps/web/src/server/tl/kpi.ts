@@ -496,7 +496,7 @@ export async function getKpiRows(workspaceId = currentWorkspaceId(), opts: { sin
       l.pickup_deadhead_miles::float8 as "pickupDeadheadMiles", l.loaded_miles::float8 as "loadedMiles", l.return_deadhead_miles::float8 as "returnDeadheadMiles",
       l.quoted_pickup_dh_miles::float8 as "quotedPickupDhMiles", l.quoted_loaded_miles::float8 as "quotedLoadedMiles", l.quoted_return_dh_miles::float8 as "quotedReturnDhMiles", l.is_backhaul as "isBackhaul",
       l.broker_name as "brokerName", l.origin_address as "originAddress", l.destination_address as "destinationAddress", l.market_benchmark::float8 as "marketBenchmark",
-      l.payment_status as "paymentStatus", l.invoiced_at as "invoicedAt", l.pay_terms_days as "payTermsDays", l.invoiced_amount::float8 as "invoicedAmount",
+      l.payment_status as "paymentStatus", l.invoiced_at as "invoicedAt", l.pay_terms_days as "payTermsDays", l.invoiced_amount::float8 as "invoicedAmount", l.paid_amount::float8 as "paidAmount",
       v.name as "vehicleName", a.status as "asStatus", a.pay_kind as "asPayKind", a.pay_estimate::float8 as "asPayEstimate", d.name as "asDriver"
     from loads l left join vehicles v on v.id = l.vehicle_id left join assignments a on a.load_id = l.id left join drivers d on d.id = a.driver_id
     where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status <> 'quote'${laneSql}${sinceSql}`;

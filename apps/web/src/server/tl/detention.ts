@@ -20,6 +20,7 @@ type LoadForDetention = {
   quotedRevenue: unknown;
   fuelSurcharge: unknown;
   invoicedAmount: unknown;
+  invoiceLines?: unknown;
   paymentStatus: string | null;
   /** Terms frozen on the load when it was booked; they win over the truck's profile as it is today. */
   snapshotDetentionRate?: unknown;
@@ -36,7 +37,7 @@ export function detentionOfLoad(l: LoadForDetention, workspaceGraceMinutes: numb
     rate: numOrNull(l.snapshotDetentionRate as never) ?? numOrNull(profile?.detentionHourlyRate as never),
     graceMinutes: l.snapshotFreeGraceMinutes ?? profile?.freeGraceMinutes ?? null,
     workspaceGraceMinutes,
-    invoice: { invoiced: l.paymentStatus === "invoiced" || l.paymentStatus === "paid", invoicedAmount: numOrNull(l.invoicedAmount as never), quotedRevenue: num(l.quotedRevenue as never), fuelSurcharge: numOrNull(l.fuelSurcharge as never) }
+    invoice: { invoiced: l.paymentStatus === "invoiced" || l.paymentStatus === "paid", invoicedAmount: numOrNull(l.invoicedAmount as never), quotedRevenue: num(l.quotedRevenue as never), fuelSurcharge: numOrNull(l.fuelSurcharge as never), lines: Array.isArray(l.invoiceLines) ? (l.invoiceLines as Array<{ label: string; amount: number }>) : null }
   });
 }
 
@@ -67,6 +68,7 @@ export async function getDetentionRecovery(workspaceId = currentWorkspaceId(), n
             quotedRevenue: true,
             fuelSurcharge: true,
             invoicedAmount: true,
+            invoiceLines: true,
             paymentStatus: true,
             snapshotDetentionRate: true,
             snapshotFreeGraceMinutes: true,

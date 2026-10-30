@@ -61,14 +61,16 @@ describe.skipIf(!run)("a plan holds only its number of trucks", () => {
     expect(await prisma.vehicle.count({ where: { workspaceId: P } })).toBe(before);
   });
 
-  test("a workspace with no plan chosen has no limit, and the summary says what the fleet comes to", async () => {
+  test("a workspace with no plan chosen is held to Starter, and the summary says so", async () => {
     await prisma.workspace.update({ where: { id: P }, data: { plan: null } });
-    expect(await commitImport("trucks", file(12, 200), "d.csv", new Date(), P)).toMatchObject({ ok: true, created: 12 });
+    expect(await commitImport("trucks", file(1, 200), "d.csv", new Date(), P)).toMatchObject({ ok: false, error: expect.stringContaining("Starter plan covers 3 trucks") });
     const s = await planSummary(P);
-    expect(s).toMatchObject({ key: "pro", chosen: false, limit: null, trucks: 15 });
-    expect(s.monthly).toBe("$379"); // $199 + 15 trucks at $12
+    expect(s).toMatchObject({ key: "starter", chosen: false, limit: 3, trucks: 3 });
+    expect(s.monthly).toBe("$49");
     await prisma.workspace.update({ where: { id: P }, data: { plan: "growth" } });
     expect(await planSummary(P)).toMatchObject({ key: "growth", chosen: true, limit: 10 });
+    expect(await commitImport("trucks", file(7, 300), "e.csv", new Date(), P)).toMatchObject({ ok: true, created: 7 });
+    await expect(planSummary(P)).resolves.toMatchObject({ trucks: 10 });
   });
 
   test("saveTruck in the request's workspace refuses the truck past the plan", async () => {
@@ -103,6 +105,8 @@ describe.skipIf(!run)("the partner seams", () => {
     const stops = (n: number) => ({ create: [{ stopSequence: 1, stopType: "pickup", stopRole: "pickup", addressString: "Dallas, TX", timeWindowEarliest: days(-n - 2), timeWindowLatest: days(-n - 2) }, { stopSequence: 2, stopType: "delivery", stopRole: "delivery", addressString: "Tulsa, OK", timeWindowEarliest: days(-n), timeWindowLatest: days(-n), podPhotoUrl: "pod.jpg" }] });
     const load = await prisma.load.create({ data: { workspaceId: W, loadNumber: "E4-L1", status: "completed", completedAt: days(-3), quotedRevenue: 1500, vehicleId: truck.id, paymentStatus: "invoiced", invoiceNumber: "E4-INV-1", invoicedAt: days(-2), invoicedAmount: 1500, rateConPath: "rc.pdf", stops: stops(3) } });
     const noDoc = await prisma.load.create({ data: { workspaceId: W, loadNumber: "E4-L2", status: "completed", completedAt: days(-3), quotedRevenue: 900, paymentStatus: "invoiced", invoiceNumber: "E4-INV-2", invoicedAt: days(-2), invoicedAmount: 900, stops: { create: [{ stopSequence: 1, stopType: "pickup", addressString: "Dallas, TX" }] } } });
+    // The rate confirmation is a kept file (a typed file name on the load is not one); the proof of delivery is the driver's photo on the delivery stop.
+    await prisma.loadDocument.create({ data: { id: "e4-doc-rc", workspaceId: W, loadId: load.id, kind: "rate_con", name: "rc.pdf", mime: "application/pdf", bytes: 10, sha256: "0".repeat(64), storageKey: `${W}/00000000-0000-0000-0000-000000000001`, addedBy: "test" } });
     Object.assign(ids, { truck: truck.id, truck2: truck2.id, driver: driver.id, ready: ready.id, load: load.id, loadNoDoc: noDoc.id });
   });
   afterAll(async () => {

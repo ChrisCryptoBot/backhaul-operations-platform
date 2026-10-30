@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { DeskShell } from "@/components/desk/desk-shell";
 import { UnderlayProvider } from "@/components/desk/underlay";
+import { requirePage } from "@/server/tl/access";
 import { getShellData } from "@/server/tl/shell";
 import "./desk.css";
 
@@ -15,6 +16,8 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function DeskLayout({ children, drawer }: { children: React.ReactNode; drawer: React.ReactNode }) {
+  // With sign-in on, nothing here renders for anyone who is not a member of the desk (asked of the member table on every request).
+  await requirePage("viewer");
   const data = await getShellData();
   const collapsed = cookies().get("desk-sidebar")?.value === "1";
   return (

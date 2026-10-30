@@ -32,8 +32,8 @@ describe.skipIf(!run)("the trailer registry", () => {
   beforeAll(async () => {
     await wipe(W);
     await wipe(OTHER);
-    await prisma.workspace.create({ data: { id: W, name: "E2 fleet" } });
-    await prisma.workspace.create({ data: { id: OTHER, name: "E2 other" } });
+    await prisma.workspace.create({ data: { id: W, name: "E2 fleet", plan: "enterprise" } });
+    await prisma.workspace.create({ data: { id: OTHER, name: "E2 other", plan: "enterprise" } });
     const truck = await prisma.vehicle.create({ data: { workspaceId: W, name: "E2 Truck 1", terminal: "E2 Yard" } });
     const truck2 = await prisma.vehicle.create({ data: { workspaceId: W, name: "E2 Truck 2" } });
     const window = (start: string, end: string) => ({ create: [{ stopSequence: 1, stopType: "pickup", stopRole: "pickup", addressString: "Dallas, TX", timeWindowEarliest: new Date(start), timeWindowLatest: new Date(start) }, { stopSequence: 2, stopType: "delivery", stopRole: "delivery", addressString: "Tulsa, OK", timeWindowEarliest: new Date(end), timeWindowLatest: new Date(end) }] });
@@ -170,7 +170,7 @@ describe.skipIf(!run)("the trailer registry", () => {
     expect((await fitQuote(input, W)).trailersAvailable).toBe(free);
     expect((await fitQuote(input, OTHER)).trailersAvailable).toBe(0); // the other workspace keeps one trailer, but not of this kind
     await wipe(OTHER);
-    await prisma.workspace.create({ data: { id: OTHER, name: "E2 other" } });
+    await prisma.workspace.create({ data: { id: OTHER, name: "E2 other", plan: "enterprise" } });
     expect((await fitQuote(input, OTHER)).trailersAvailable).toBeNull();
   });
 
@@ -241,7 +241,7 @@ describe.skipIf(!run)("the registry at the size of a big yard", () => {
   const BIG = "e2-big";
   beforeAll(async () => {
     await wipe(BIG);
-    await prisma.workspace.create({ data: { id: BIG, name: "E2 big" } });
+    await prisma.workspace.create({ data: { id: BIG, name: "E2 big", plan: "enterprise" } });
     const rows = Array.from({ length: 6000 }, (_, i) => ({ workspaceId: BIG, number: `B-${String(i).padStart(5, "0")}`, type: i % 3 === 0 ? "reefer" : "dry_van", plate: `PL${i}`, terminal: `T${i % 10}`, registrationExpiry: i % 50 === 0 ? days(-3) : FUTURE, inspectionExpiry: FUTURE }));
     for (let i = 0; i < rows.length; i += 2000) await prisma.trailer.createMany({ data: rows.slice(i, i + 2000) });
   });

@@ -16,6 +16,8 @@ export type AlertCode =
   | "PICKUP_NO_DRIVER"
   | "NO_TRUCK"
   | "LATE_ON_ROAD"
+  | "LATE_TO_PICKUP"
+  | "TRUCK_DOUBLE_BOOKED"
   | "SENT_NO_ANSWER"
   | "CLEARANCE_SOON"
   | "TRAILER_COMPLIANCE"
@@ -23,6 +25,7 @@ export type AlertCode =
   | "INVOICE_OVERDUE"
   | "MISSING_REFERENCE"
   | "READY_TO_INVOICE"
+  | "MISSING_POD"
   | "DETENTION_UNBILLED";
 
 /** The thresholds the rules use. Fixed for now; the settings screen will own them. */
@@ -61,6 +64,13 @@ export const RULES: RuleDef[] = [
     trigger: (t) => `The first pickup is within ${t.pickupHours} hours (or already past) and no driver has been sent the load.`
   },
   {
+    code: "TRUCK_DOUBLE_BOOKED",
+    level: "block",
+    title: "Truck is on overlapping loads",
+    appliesTo: "Open loads with a truck",
+    trigger: () => "Two open loads are on one truck and their windows (first stop's earliest time to the last stop's latest) overlap, whoever drives."
+  },
+  {
     code: "NO_TRUCK",
     level: "warn",
     title: "Load has no truck",
@@ -73,6 +83,13 @@ export const RULES: RuleDef[] = [
     title: "On the road and past its delivery window",
     appliesTo: "Loads on the road",
     trigger: () => "The load is on the road and its final stop's delivery window has closed without it being delivered."
+  },
+  {
+    code: "LATE_TO_PICKUP",
+    level: "warn",
+    title: "Pickup time has passed and the driver has not picked up",
+    appliesTo: "Loads sent to or accepted by a driver, not yet on the road",
+    trigger: () => "The driver has the load (sent or accepted), the first stop's window has closed, and the pickup has not been entered, so the load is not on the road."
   },
   {
     code: "SENT_NO_ANSWER",
@@ -117,6 +134,13 @@ export const RULES: RuleDef[] = [
     trigger: () => "The load is delivered and no invoice has been created."
   },
   {
+    code: "MISSING_POD",
+    level: "info",
+    title: "Delivered with no proof of delivery",
+    appliesTo: "Delivered loads",
+    trigger: () => "The load was closed without proof of delivery. Customers often hold payment, and a factor will not fund it, until they have it."
+  },
+  {
     code: "DETENTION_UNBILLED",
     level: "info",
     title: "Detention that was never billed",
@@ -140,6 +164,10 @@ export type AlertLoad = {
   verdict: "accept" | "caution" | "reject" | "needs_fuel" | null;
   /** Whether a truck is set on the load. Absent is read as having one, so a caller that does not know raises nothing. */
   hasTruck?: boolean;
+  /** The truck on the load, when one is set (for two loads on one truck at once). */
+  vehicle?: { id: string; name: string | null } | null;
+  /** True when a delivered load was closed with no proof of delivery. */
+  closedWithoutPod?: boolean | null;
   /** The trailer unit on the load, when one is set. */
   trailer?: { number: string; status: string; registrationExpiry: Date | null; inspectionExpiry: Date | null } | null;
   stops: Array<{ timeWindowEarliest: Date | null; timeWindowLatest: Date | null; referenceNumbers: unknown }>;
@@ -173,6 +201,14 @@ export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds =
     const unsent = !a || a.status === "draft" || a.status === "declined";
 
     if (open && l.hasTruck === false) add(l, "NO_TRUCK", "warn", "No truck is set, so this load has no cost floor and no verdict. Pick one under Edit details.");
+
+    // The driver has the load and its pickup window is over, but the pickup was never entered: the load is not on the road. (A late arrival is the driver's; a pickup nobody has
+    // recorded is the desk's, and the load is wrong on the board until it is.)
+    if (open && l.status !== "in_progress" && a != null && (a.status === "dispatched" || a.status === "accepted")) {
+      const first = l.stops[0];
+      const closes = first?.timeWindowLatest ?? first?.timeWindowEarliest ?? null;
+      if (closes && closes.getTime() < now.getTime()) add(l, "LATE_TO_PICKUP", "warn", `The pickup window closed ${hours(now.getTime() - closes.getTime())} ago and the pickup has not been entered. Is ${a.driver.name} on the road?`);
+    }
 
     if (l.status === "in_progress") {
       // The delivery is the final stop. With no closing time on it there is no deadline to be late for.
@@ -221,6 +257,7 @@ export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds =
     }
 
     if (l.status === "completed" && !l.paymentStatus) add(l, "READY_TO_INVOICE", "info", "Delivered and not invoiced yet.");
+    if (l.status === "completed" && l.closedWithoutPod === true) add(l, "MISSING_POD", "info", "Closed without proof of delivery.");
     if (l.status === "completed" && (l.detentionUnbilled ?? 0) > 0) add(l, "DETENTION_UNBILLED", "info", `$${l.detentionUnbilled!.toFixed(2)} of detention can still be billed.`);
   }
 
@@ -240,6 +277,24 @@ export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds =
       if (clash.length === 0) continue;
       const names = clash.map((y) => y.load.loadNumber ?? "another load").join(", ");
       add(x.load, "DOUBLE_BOOKED", "block", `${x.load.assignment!.driver.name} is also booked on ${names} at the same time.`);
+    }
+  }
+
+  // One truck on two open loads whose windows overlap, whoever drives (the driver check above does not see a truck two dispatchers put on two loads).
+  const byTruck = new Map<string, Array<{ load: AlertLoad; win: Window }>>();
+  for (const l of loads) {
+    if (!OPEN.includes(l.status) || !l.vehicle) continue;
+    const win = loadWindow(l.stops);
+    if (!win) continue;
+    const list = byTruck.get(l.vehicle.id) ?? [];
+    list.push({ load: l, win });
+    byTruck.set(l.vehicle.id, list);
+  }
+  for (const list of byTruck.values()) {
+    for (const x of list) {
+      const clash = list.filter((y) => y.load.id !== x.load.id && windowsOverlap(x.win, y.win));
+      if (clash.length === 0) continue;
+      add(x.load, "TRUCK_DOUBLE_BOOKED", "block", `${x.load.vehicle!.name ?? "The truck"} is also on ${clash.map((y) => y.load.loadNumber ?? "another load").join(", ")} at the same time.`);
     }
   }
 

@@ -1,3 +1,4 @@
+import { loadStatusFor } from "@/lib/load-state";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { describePay } from "@/lib/audit-diff";
@@ -116,6 +117,8 @@ export async function rescheduleLoad(input: Why & { loadId: string; newPickup: D
         where: { loadId: load.id },
         data: { status: "dispatched", dispatchedAt: now, respondedAt: null, driverResponse: Prisma.JsonNull, assignmentVersion: { increment: 1 } }
       });
+      // The driver has to say yes again, so the load is no longer accepted (src/lib/load-state.ts: a sent assignment goes with a draft load).
+      if (load.status !== loadStatusFor("dispatched")) await tx.load.update({ where: { id: load.id }, data: { status: loadStatusFor("dispatched") } });
     }
     await recordAudit(
       {

@@ -13,6 +13,8 @@ export type BoardFilterable = {
   destination: string | null;
   vehicleName: string | null;
   driverName: string | null;
+  /** The assignment's status (none, draft, dispatched, accepted, declined, ...), for the "Needs a driver" and "Sent, waiting" tabs. */
+  assignmentStatus?: string | null;
   /** Also searched when present: the customer's PO, the invoice number and the broker's MC. */
   poNumber?: string | null;
   invoiceNumber?: string | null;
@@ -22,6 +24,7 @@ export type BoardFilterable = {
 export const BOARD_STATUSES = [
   { key: "all", label: "All" },
   { key: "draft", label: "Needs a driver" },
+  { key: "sent", label: "Sent, waiting" },
   { key: "accepted", label: "Accepted" },
   { key: "in_progress", label: "On the road" },
   { key: "completed", label: "Delivered" }
@@ -42,9 +45,20 @@ export function searchBoard<T extends BoardFilterable>(rows: T[], q: string | un
   return rows.filter((r) => boardSearchText(r).toLowerCase().includes(needle));
 }
 
+/**
+ * Whether a row belongs under a tab. "Needs a driver" is a load with no driver, or one who said no, or one chosen and not yet sent (the same loads the sidebar and the dispatch
+ * queue count); a load that has been sent and is waiting for the answer is under "Sent, waiting", not under "Needs a driver".
+ */
+export function onTab(r: Pick<BoardFilterable, "status" | "assignmentStatus">, key: string): boolean {
+  if (key === "all") return true;
+  if (key === "draft") return r.status === "draft" && r.assignmentStatus !== "dispatched";
+  if (key === "sent") return r.assignmentStatus === "dispatched";
+  return r.status === key;
+}
+
 export function filterBoard<T extends BoardFilterable>(rows: T[], f: BoardFilter): T[] {
   const status = asBoardStatus(f.status);
   const byText = searchBoard(rows, f.q);
-  const byStatus = status === "all" ? byText : byText.filter((r) => r.status === status);
+  const byStatus = status === "all" ? byText : byText.filter((r) => onTab(r, status));
   return f.flag === "below" ? byStatus.filter(isBelowCost) : byStatus;
 }

@@ -7,7 +7,7 @@ import { COST_ARCHETYPES, normalizeArchetype, normalizeFscCutAnswer } from "@/tr
 import { categoriesCarrySplit, resolveWizardInsurance } from "@/truelane/lib/insuranceFields";
 import type { AuditSnapshot } from "@/lib/audit-diff";
 import { recordAudit } from "./audit";
-import { truckRoom } from "./plan";
+import { lockWorkspace, roomFor } from "./plan";
 import { num, numOrNull } from "./convert";
 import { profileMathInput } from "./evaluate";
 import { currentWorkspace, currentWorkspaceId } from "./workspace";
@@ -54,10 +54,15 @@ export async function saveDriver(raw: Record<string, unknown>, id: string | null
 
   if (id == null) {
     const created = await prisma.$transaction(async (tx) => {
+      // A plan holds twice as many drivers as trucks; the count is taken with the workspace locked so two adds at the edge cannot both pass.
+      await lockWorkspace(tx, ws.id);
+      const room = await roomFor("driver", 1, ws.id, tx);
+      if (!room.ok) return room;
       const d = await tx.driver.create({ data: { workspaceId: ws.id, ...data } });
       await recordAudit({ entity: "fleet", action: "driver_added", summary: `${v.name} added as a driver`, before: null, after, at: now, workspaceId: ws.id }, tx);
       return d;
     });
+    if ("ok" in created) return { ok: false, error: created.message };
     return { ok: true, id: created.id, changed: true };
   }
 
@@ -85,11 +90,18 @@ export async function setDriverActive(id: string, active: boolean, now = new Dat
     const nums = d.assignments.map((a) => a.load.loadNumber ?? "a load");
     return { ok: false, error: `${d.name} is on ${list(nums)}. Take them off ${d.assignments.length === 1 ? "it" : "those"} first.` };
   }
-  await prisma.$transaction(async (tx) => {
+  const refused = await prisma.$transaction(async (tx) => {
+    // Bringing a driver back is adding one to the plan's count.
+    if (active) {
+      await lockWorkspace(tx, d.workspaceId);
+      const room = await roomFor("driver", 1, d.workspaceId, tx);
+      if (!room.ok) return room.message;
+    }
     await tx.driver.update({ where: { id }, data: { active } });
     await recordAudit({ entity: "fleet", action: active ? "driver_reactivated" : "driver_deactivated", summary: `${d.name} ${active ? "brought back" : "taken out of service"}`, before: { Status: d.active ? "Active" : "Deactivated" }, after: { Status: active ? "Active" : "Deactivated" }, at: now }, tx);
+    return null;
   });
-  return { ok: true };
+  return refused ? { ok: false, error: refused } : { ok: true };
 }
 
 // ── Trucks ─────────────────────────────────────────────────────────────────────────────────────
@@ -128,11 +140,6 @@ export async function saveTruck(raw: Record<string, unknown>, id: string | null,
   const v = check.value;
   const clash = await prisma.vehicle.findFirst({ where: { workspaceId: ws.id, archivedAt: null, name: { equals: v.name, mode: "insensitive" }, ...(id ? { id: { not: id } } : {}) } });
   if (clash) return { ok: false, errors: { name: "A truck with that name already exists." } };
-  // A workspace on a plan may hold only that plan's number of trucks.
-  if (id == null) {
-    const room = await truckRoom(1, ws.id);
-    if (!room.ok) return { ok: false, error: room.message };
-  }
   const data = {
     name: v.name,
     type: v.type || null,
@@ -155,10 +162,15 @@ export async function saveTruck(raw: Record<string, unknown>, id: string | null,
 
   if (id == null) {
     const created = await prisma.$transaction(async (tx) => {
+      // A workspace holds only its plan's number of trucks; the count is taken with the workspace locked so two adds at the edge cannot both pass.
+      await lockWorkspace(tx, ws.id);
+      const room = await roomFor("truck", 1, ws.id, tx);
+      if (!room.ok) return room;
       const t = await tx.vehicle.create({ data: { workspaceId: ws.id, ...data } });
       await recordAudit({ entity: "fleet", action: "truck_added", summary: `${v.name} added as a truck`, before: null, after, at: now, workspaceId: ws.id }, tx);
       return t;
     });
+    if ("ok" in created) return { ok: false, error: created.message };
     // The home base is found after the save has committed, and never fails it.
     await saveTruckHomeCoordinates(created.id);
     return { ok: true, id: created.id, changed: true };
@@ -205,7 +217,13 @@ export async function setTruckArchived(id: string, archived: boolean, now = new 
   if (archived && t.loads.length > 0) {
     return { ok: false, error: `${t.name} is on ${list(t.loads.map((l) => l.loadNumber ?? "a load"))}. Finish or move ${t.loads.length === 1 ? "that load" : "those loads"} first.` };
   }
-  await prisma.$transaction(async (tx) => {
+  const refused = await prisma.$transaction(async (tx) => {
+    // Restoring a truck is adding one to the plan's count: archive, add another and restore must not get past the limit.
+    if (!archived) {
+      await lockWorkspace(tx, t.workspaceId);
+      const room = await roomFor("truck", 1, t.workspaceId, tx);
+      if (!room.ok) return room.message;
+    }
     await tx.vehicle.update({ where: { id }, data: archived ? { archivedAt: now, active: false } : { archivedAt: null, active: true } });
     if (archived && t.drivers.length > 0) await tx.driver.updateMany({ where: { assignedVehicleId: id }, data: { assignedVehicleId: null } });
     await recordAudit(
@@ -219,8 +237,9 @@ export async function setTruckArchived(id: string, archived: boolean, now = new 
       },
       tx
     );
+    return null;
   });
-  return { ok: true };
+  return refused ? { ok: false, error: refused } : { ok: true };
 }
 
 // ── Cost profile ───────────────────────────────────────────────────────────────────────────────

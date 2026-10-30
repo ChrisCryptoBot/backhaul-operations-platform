@@ -63,7 +63,7 @@ async function main() {
   await prisma.settlementLoad.deleteMany({ where: { settlement: { workspaceId: WORKSPACE_ID } } });
   await prisma.settlement.deleteMany({ where: { workspaceId: WORKSPACE_ID } });
   await prisma.workspace.deleteMany({ where: { id: WORKSPACE_ID } });
-  await prisma.workspace.create({ data: { id: WORKSPACE_ID, name: "Demo fleet" } });
+  await prisma.workspace.create({ data: { id: WORKSPACE_ID, name: "Demo fleet", plan: "pro" } });
 
   const trucks = [
     // What each can carry: the tractors pull a 53 ft trailer to the legal limits; the box truck is a 26 ft straight truck with a liftgate and a pallet jack.
@@ -333,7 +333,8 @@ async function main() {
         fuelSurcharge: 0,
         expenseFuelActual: fuel,
         expenseTolls: tolls,
-        status: p.status,
+        // "accepted" in the plan means sent and waiting for the answer: the assignment is dispatched, and a load whose driver has not said yes is a draft (src/lib/load-state.ts).
+        status: p.status === "accepted" ? "draft" : p.status,
         scheduledDate: p.windows ? new Date(pk0) : when,
         completedAt: p.status === "completed" ? new Date(when.getTime() + 1 * DAY) : null,
         cancelledAt,

@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { owedOf } from "@/lib/invoicing";
 import type { AgingLoadView } from "@/truelane/lib/invoice";
 import type { AnalyticsLoadInput } from "@/truelane/lib/analytics";
 import type { MarketVarianceLoad } from "@/truelane/lib/domain/marketVariance";
@@ -42,6 +43,8 @@ export type LoadRow = {
   invoicedAt: Date | null;
   payTermsDays: number | null;
   invoicedAmount: Dec;
+  /** What has come in against the invoice so far (the sum of its payments); null when nothing has. */
+  paidAmount?: Dec;
 };
 
 export function toAnalyticsInput(l: LoadRow): AnalyticsLoadInput {
@@ -79,7 +82,8 @@ export function toAgingView(l: LoadRow): AgingLoadView {
     payTermsDays: l.payTermsDays,
     quotedRevenue: num(l.quotedRevenue),
     fuelSurcharge: numOrNull(l.fuelSurcharge),
-    invoicedAmount: numOrNull(l.invoicedAmount)
+    // What is OWED: an invoice paid in part is counted for its balance (src/lib/invoicing.ts owedOf).
+    invoicedAmount: l.paymentStatus === "invoiced" ? owedOf(numOrNull(l.invoicedAmount), numOrNull(l.paidAmount)) : numOrNull(l.invoicedAmount)
   };
 }
 

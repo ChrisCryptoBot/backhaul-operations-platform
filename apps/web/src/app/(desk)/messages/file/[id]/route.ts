@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { isAllowedMime } from "@/lib/attachments";
 import { readFile } from "@/server/tl/message-files";
 import { currentWorkspaceId } from "@/server/tl/workspace";
+import { guardRoute } from "@/server/tl/access";
 
 /**
  * A message's picture or file, handed back only to someone in the workspace it belongs to. Pictures are shown in the message; everything else is saved, never opened
@@ -12,6 +13,8 @@ export const dynamic = "force-dynamic";
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  const denied = await guardRoute("viewer");
+  if (denied) return denied;
   if (!ID.test(params.id)) return new Response("Not found", { status: 404 });
   const att = await prisma.messageAttachment.findFirst({
     where: { id: params.id, message: { thread: { workspaceId: currentWorkspaceId() } } },

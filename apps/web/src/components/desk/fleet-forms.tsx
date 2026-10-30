@@ -1,5 +1,7 @@
 "use client";
 
+import type { UnitUse } from "@/lib/plans";
+import { AtLimit, countText } from "./plan-limit";
 import { TruckPicker } from "./truck-picker";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -206,12 +208,13 @@ function DriverDialog({ open, onClose, driver }: { open: boolean; onClose: () =>
   );
 }
 
-export function AddDriver() {
+export function AddDriver({ use }: { use?: UnitUse }) {
   const [open, setOpen] = React.useState(false);
+  if (use?.full) return <AtLimit use={use} label="Add a driver" />;
   return (
     <>
       <button type="button" className="tl-btn primary" onClick={() => setOpen(true)}>
-        Add a driver
+        Add a driver{countText(use)}
       </button>
       <DriverDialog open={open} onClose={() => setOpen(false)} />
     </>
@@ -547,12 +550,13 @@ export function TruckForm({ truck, onDone, inline }: { truck?: TruckInfo; onDone
   );
 }
 
-export function AddTruck() {
+export function AddTruck({ use }: { use?: UnitUse }) {
   const [open, setOpen] = React.useState(false);
+  if (use?.full) return <AtLimit use={use} label="Add a truck" />;
   return (
     <>
       <button type="button" className="tl-btn primary" onClick={() => setOpen(true)}>
-        Add a truck
+        Add a truck{countText(use)}
       </button>
       <Modal open={open} onClose={() => setOpen(false)} eyebrow="New truck" title="Add a truck">
         <p className="tl-note" style={{ marginBottom: 10 }}>You set its costs next, on its own page. Until it has a cost profile, loads on it show no verdict.</p>

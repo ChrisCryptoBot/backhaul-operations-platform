@@ -1,3 +1,5 @@
+import { Prisma } from "@prisma/client";
+import { loadStatusFor } from "@/lib/load-state";
 import { prisma } from "@/lib/db";
 import { dateTime } from "@/lib/desk-format";
 import { validateComplete, validateExpenses, validateStart, type CompleteValues, type ExpenseValues, type StartValues, type TripErrors } from "@/lib/trip";
@@ -53,6 +55,50 @@ export async function startTrip(loadId: string, values: StartValues, now = new D
 }
 
 /**
+ * Take the pickup back: it was entered against the wrong load, or before it happened. The load goes back to accepted (the driver still has it), and the pickup's arrival, wait and
+ * seal are cleared. Only while nothing has been entered after the pickup. The reason is kept.
+ */
+export async function undoStartTrip(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult> {
+  const why = reason.trim();
+  if (why.length < 3) return { ok: false, error: "Say why the pickup is being taken back." };
+  const load = await loadFor(loadId, workspaceId);
+  if (!load || load.status === "quote") return { ok: false, error: "That load does not exist." };
+  if (load.status !== "in_progress") return { ok: false, error: "Only a load that is on the road can have its pickup taken back." };
+  if (load.stops.slice(1).some((s) => s.arrivedAt != null)) return { ok: false, error: "A later stop has arrival times entered. Take those back first, or finish the trip." };
+  const pickup = load.stops[0];
+  if (!pickup || !load.assignment) return { ok: false, error: "This load has no pickup to take back." };
+  await prisma.$transaction(async (tx) => {
+    await tx.stop.update({ where: { id: pickup.id }, data: { arrivedAt: null, waitMinutes: null, sealNumber: null } });
+    await tx.load.update({ where: { id: load.id }, data: { status: loadStatusFor("accepted") } });
+    await tx.assignment.update({ where: { loadId: load.id }, data: { status: "accepted" } });
+    await recordAudit({ entity: "load", action: "trip_undone", loadId: load.id, loadNumber: load.loadNumber, summary: `Pickup taken back: ${load.assignment!.driver.name} has the load again, not yet on the road`, reason: why, before: { Status: "On the road", Arrived: pickup.arrivedAt ? dateTime(pickup.arrivedAt) : null }, after: { Status: "Accepted", Arrived: null }, at: now, workspaceId }, tx);
+  });
+  return { ok: true };
+}
+
+/**
+ * Take the delivery back: it was entered against the wrong load, or with the wrong times. The load is on the road again (its delivery time, proof-of-delivery answer and actual
+ * revenue are cleared; the stops' arrival and wait times and the expenses stay, to be corrected). Not once the load has been invoiced or is on a driver statement: those carry what
+ * was delivered. The reason is kept.
+ */
+export async function reopenDelivered(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult> {
+  const why = reason.trim();
+  if (why.length < 3) return { ok: false, error: "Say why the delivery is being taken back." };
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null }, include: { assignment: { include: { driver: true } }, settlement: true } });
+  if (!load || load.status === "quote") return { ok: false, error: "That load does not exist." };
+  if (load.status !== "completed") return { ok: false, error: "Only a delivered load can have its delivery taken back." };
+  if (load.paymentStatus) return { ok: false, error: "This load has been invoiced. Take the invoice back first." };
+  if (load.settlement) return { ok: false, error: "This load is on a driver statement, so what was delivered is what the driver was paid on." };
+  if (!load.assignment) return { ok: false, error: "This load has no driver, so there is no trip to reopen." };
+  await prisma.$transaction(async (tx) => {
+    await tx.load.update({ where: { id: load.id }, data: { status: loadStatusFor("in_progress"), completedAt: null, actualRevenue: null, closedWithoutPod: null, podNote: null } });
+    await tx.assignment.update({ where: { loadId: load.id }, data: { status: "in_progress" } });
+    await recordAudit({ entity: "load", action: "trip_reopened", loadId: load.id, loadNumber: load.loadNumber, summary: `Delivery taken back: ${load.assignment!.driver.name} is on the road again`, reason: why, before: { Status: "Delivered", Delivered: load.completedAt ? dateTime(load.completedAt) : null }, after: { Status: "On the road", Delivered: null }, at: now, workspaceId }, tx);
+  });
+  return { ok: true };
+}
+
+/**
  * The driver delivered. Arrival and wait are kept for each stop that has them; the delivery time closes the load; the proof of delivery is
  * either there (with a note on what and where) or its absence is explained; and what the trip cost is recorded. The rate confirmation's
  * rate becomes the load's actual revenue, as the phone does, and the waits add up to the dock wait the verdict reads.
@@ -77,14 +123,16 @@ export async function completeTrip(loadId: string, values: CompleteValues, now =
   await prisma.$transaction(async (tx) => {
     for (const s of v.stops) {
       const had = load.stops.find((x) => x.id === s.id)!;
-      if (s.arrivedAt != null || s.waitMinutes != null) await tx.stop.update({ where: { id: s.id }, data: { arrivedAt: s.arrivedAt ?? had.arrivedAt, waitMinutes: s.waitMinutes ?? had.waitMinutes } });
+      // A blank seal keeps the one already recorded; a typed one is written at that stop (the table shows a seal column for every stop, so it can be entered at every stop).
+      if (s.arrivedAt != null || s.waitMinutes != null || s.seal != null) await tx.stop.update({ where: { id: s.id }, data: { arrivedAt: s.arrivedAt ?? had.arrivedAt, waitMinutes: s.waitMinutes ?? had.waitMinutes, sealNumber: s.seal ?? had.sealNumber } });
     }
     await tx.load.update({
       where: { id: load.id },
       data: {
         status: "completed",
         completedAt: v.deliveredAt,
-        actualRevenue: load.quotedRevenue,
+        // What was actually paid when the broker paid a different linehaul (a short pay, an adjusted rate); otherwise the rate on the load, as the phone does.
+        actualRevenue: v.actualRevenue ?? load.quotedRevenue,
         dockWaitMinutes: dockWait,
         closedWithoutPod: v.pod === "none",
         podNote: v.podNote,
@@ -95,16 +143,19 @@ export async function completeTrip(loadId: string, values: CompleteValues, now =
     });
     if (a) await tx.assignment.update({ where: { loadId: load.id }, data: { status: "completed" } });
     const spent = v.expenses.fuel + v.expenses.tolls + v.expenses.misc;
+    const quoted = num(load.quotedRevenue);
+    const seals = v.stops.filter((s) => s.seal != null).map((s) => `${load.stops.find((x) => x.id === s.id)?.stopSequence ?? "?"}: ${s.seal}`);
+    const differs = v.actualRevenue != null && !new Prisma.Decimal(v.actualRevenue).equals(new Prisma.Decimal(quoted));
     await recordAudit(
       {
         entity: "load",
         action: "delivered",
         loadId: load.id,
         loadNumber: load.loadNumber,
-        summary: `Delivered ${dateTime(v.deliveredAt)}, entered by the desk${v.pod === "none" ? ", no proof of delivery" : ""}${spent > 0 ? `, ${money(spent)} of expenses` : ""}`,
+        summary: `Delivered ${dateTime(v.deliveredAt)}, entered by the desk${v.pod === "none" ? ", no proof of delivery" : ""}${spent > 0 ? `, ${money(spent)} of expenses` : ""}${differs ? `, linehaul paid ${money(v.actualRevenue!)} (the load said ${money(quoted)})` : ""}`,
         reason: v.pod === "none" ? v.podNote : null,
         before: { Status: "On the road" },
-        after: { Status: "Delivered", Delivered: dateTime(v.deliveredAt), "Proof of delivery": v.pod === "received" ? (v.podNote ?? "Received") : "None", "Dock wait": `${dockWait} min`, Expenses: spent > 0 ? money(spent) : null },
+        after: { Status: "Delivered", Delivered: dateTime(v.deliveredAt), "Proof of delivery": v.pod === "received" ? (v.podNote ?? "Received") : "None", "Dock wait": `${dockWait} min`, Expenses: spent > 0 ? money(spent) : null, ...(differs ? { "Linehaul paid": money(v.actualRevenue!) } : {}), ...(seals.length > 0 ? { Seals: seals.join(", ") } : {}) },
         at: now, workspaceId
       },
       tx

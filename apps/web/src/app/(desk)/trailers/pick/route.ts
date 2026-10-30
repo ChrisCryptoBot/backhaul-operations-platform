@@ -6,6 +6,7 @@ import { numOrNull } from "@/server/tl/convert";
 import { currentTerminal } from "@/server/tl/terminal";
 import { getThresholds } from "@/server/tl/thresholds";
 import { currentWorkspaceId } from "@/server/tl/workspace";
+import { guardRoute } from "@/server/tl/access";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,8 @@ export const dynamic = "force-dynamic";
  * date) and what to know about it. With nothing typed the box offers the header's terminal; a typed search reaches every terminal.
  */
 export async function GET(request: Request) {
+  const denied = await guardRoute("viewer");
+  if (denied) return denied;
   const params = new URL(request.url).searchParams;
   const q = (params.get("q") ?? "").trim().slice(0, 60);
   const loadId = params.get("load");

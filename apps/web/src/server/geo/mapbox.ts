@@ -1,4 +1,6 @@
 import { parseRoute, parseSuggestions, type Drive, type Place } from "@/lib/geo";
+import type { UsageService } from "@/lib/spend";
+import { claimUsage } from "@/server/tl/usage";
 
 /**
  * The desk's one door to Mapbox. Server only: the token is read from the environment here and never reaches the browser. Every call fails soft
@@ -16,7 +18,12 @@ const token = (): string => process.env.MAPBOX_ACCESS_TOKEN ?? "";
 /** True when a key is set, so the form can say live lookup is on or off. */
 export const mapboxConfigured = (): boolean => token() !== "";
 
-async function getJson(url: string): Promise<unknown | null> {
+/**
+ * Every real call to Mapbox is claimed in the desk's ledger first (server/tl/usage.ts), so the desk's own day and everyone's month are bounded: Mapbox cannot cap spending at its end, so this
+ * is the only cap there is. Over the allowance (or switched off) it fails soft like a missing key: no suggestions, no coordinates, no route; the form still works on typed values.
+ */
+async function getJson(url: string, service: UsageService): Promise<unknown | null> {
+  if (!(await claimUsage(service)).ok) return null;
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS), cache: "no-store" });
     return res.ok ? await res.json() : null;
@@ -34,7 +41,7 @@ function geocodeUrl(endpoint: "mapbox.places" | "mapbox.places-permanent", text:
 export async function suggestPlaces(query: string): Promise<Place[]> {
   const text = query.trim();
   if (text.length < 2 || !mapboxConfigured()) return [];
-  return parseSuggestions(await getJson(geocodeUrl("mapbox.places", text, 5, true)));
+  return parseSuggestions(await getJson(geocodeUrl("mapbox.places", text, 5, true), "mapbox_geocode"));
 }
 
 // A short-lived memory of lookups: measuring a quote geocodes the same few truck bases again and again as the form is edited.
@@ -49,7 +56,7 @@ export async function geocode(address: string): Promise<Place | null> {
   const key = text.toLowerCase();
   const hit = memory.get(key);
   if (hit && Date.now() - hit.at < MEMORY_MS) return hit.place;
-  const place = parseSuggestions(await getJson(geocodeUrl("mapbox.places", text, 1, false)), 1)[0] ?? null;
+  const place = parseSuggestions(await getJson(geocodeUrl("mapbox.places", text, 1, false), "mapbox_geocode"), 1)[0] ?? null;
   if (place) {
     if (memory.size >= MEMORY_MAX) memory.delete(memory.keys().next().value as string);
     memory.set(key, { at: Date.now(), place });
@@ -61,7 +68,7 @@ export async function geocode(address: string): Promise<Place | null> {
 export async function geocodePermanent(address: string): Promise<Place | null> {
   const text = address.trim();
   if (text.length < 2 || !mapboxConfigured()) return null;
-  return parseSuggestions(await getJson(geocodeUrl("mapbox.places-permanent", text, 1, false)), 1)[0] ?? null;
+  return parseSuggestions(await getJson(geocodeUrl("mapbox.places-permanent", text, 1, false), "mapbox_permanent"), 1)[0] ?? null;
 }
 
 /** The driving route through two to twenty-five points, in order. */
@@ -69,5 +76,5 @@ export async function drive(points: readonly Place[]): Promise<Drive | null> {
   if (points.length < 2 || points.length > 25 || !mapboxConfigured()) return null;
   const coords = points.map((p) => `${p.lng},${p.lat}`).join(";");
   const q = new URLSearchParams({ access_token: token(), overview: "false" });
-  return parseRoute(await getJson(`${BASE}/directions/v5/mapbox/driving/${coords}?${q.toString()}`));
+  return parseRoute(await getJson(`${BASE}/directions/v5/mapbox/driving/${coords}?${q.toString()}`, "mapbox_directions"));
 }

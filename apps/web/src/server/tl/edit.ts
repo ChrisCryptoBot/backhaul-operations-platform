@@ -1,3 +1,4 @@
+import { loadStatusFor } from "@/lib/load-state";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { AuditSnapshot } from "@/lib/audit-diff";
@@ -11,7 +12,10 @@ import { payEstimate, type PayKind } from "./projector";
 import { rateConTotal } from "@/lib/pay";
 import { freezeLoadSnapshot } from "./snapshot";
 import { num, numOrNull } from "./convert";
-import { findDriverClash } from "./dispatch";
+import { findDriverClash, findTruckClash, windowText } from "./dispatch";
+import { truckFit } from "@/lib/load-fit";
+import { truckLimits } from "./quote";
+import { duplicateMessage, findTwinLoad } from "./twins";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -33,6 +37,23 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
   const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null }, include: { stops: { orderBy: { stopSequence: "asc" } }, assignment: { include: { driver: true } }, vehicle: true, settlement: true } });
   if (!load || load.status === "quote") return { ok: false, error: "That load does not exist." };
   if (CLOSED.includes(load.status)) return { ok: false, error: "A cancelled load, or one closed as a TONU, cannot be edited." };
+  // The form was opened on one version of the load. If it has changed since (someone sent it, accepted it, edited it), saving this form would overwrite their change with what
+  // was on screen: refuse, and say to reload.
+  if (values.version != null && values.version !== "" && values.version !== String(load.updatedAt.getTime())) return { ok: false, error: "This load changed since you opened it. Close this and open it again to see the change, then make yours." };
+  // An invoice carries the load number, the customer, the PO and the terms it was billed under: they stay as billed.
+  if (load.paymentStatus) {
+    const held: string[] = [];
+    if ((v.loadNumber ?? null) !== (load.loadNumber ?? null)) held.push("load number");
+    if ((v.brokerName ?? null) !== (load.brokerName ?? null)) held.push("customer");
+    if ((v.poNumber ?? null) !== (load.poNumber ?? null)) held.push("PO number");
+    if ((v.payTermsDays ?? null) !== (load.payTermsDays ?? null)) held.push("pay terms");
+    if (held.length > 0) return { ok: false, error: `This load has been invoiced, so its ${held.join(", ")} ${held.length === 1 ? "is" : "are"} what the invoice carries and stay${held.length === 1 ? "s" : ""} as billed. Take the invoice back first to change ${held.length === 1 ? "it" : "them"}.` };
+  }
+  // Another load on the desk with this number from this customer is the same load.
+  if (v.loadNumber && v.loadNumber !== load.loadNumber) {
+    const twin = await findTwinLoad(workspaceId, v.loadNumber, v.brokerName ?? load.brokerName, load.id);
+    if (twin) return { ok: false, errors: { loadNumber: `${duplicateMessage(twin)} Use another number.` } };
+  }
   if (v.stops.length !== load.stops.length || v.stops.some((s) => !load.stops.some((x) => x.id === s.id))) return { ok: false, error: "The stops on this load changed since you opened it. Reload it and try again." };
 
   const old = new Map(load.stops.map((s) => [s.id, s]));
@@ -63,6 +84,12 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
     if (deal.vehicleId == null) return { ok: false, error: "Pick the truck that has this load." };
     const found = await prisma.vehicle.findFirst({ where: { id: deal.vehicleId, workspaceId, archivedAt: null }, include: { costProfile: true } });
     if (!found) return { ok: false, error: "That truck is not available." };
+    // The truck has to be able to take the load (weight, size, equipment) and not be on another load at the same time: the Quote checks both, and moving a load to a truck must too.
+    const specs = { weightLbs: v.weightLbs, lengthFt: v.lengthFt, widthFt: v.widthFt, heightIn: v.heightIn, hazmatClass: v.hazmat, requiresLiftgate: v.liftgate, requiresRamp: v.ramp, requiresPalletJack: v.palletJack };
+    const fit = truckFit(specs, truckLimits(found));
+    if (fit.blocker) return { ok: false, error: `${found.name} cannot take this load. ${fit.blocker}` };
+    const busy = await findTruckClash(found.id, load.id, loadWindow(v.stops.map((s) => ({ timeWindowEarliest: s.earliest, timeWindowLatest: s.latest }))), workspaceId);
+    if (busy) return { ok: false, error: `${found.name} is already on ${busy.loadNumber ?? "another load"} (${windowText(busy.window)}). Pick another truck, or move that load first.` };
     if (!found.costProfile) return { ok: false, error: `${found.name} has no cost profile yet. Set it up on the truck's page, then move the load.` };
     truck = { id: found.id, name: found.name ?? "Unnamed truck" };
   }
@@ -161,6 +188,8 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
           ? {
               vehicleId: truckChanged ? deal.vehicleId : load.vehicleId,
               quotedRevenue: deal.rate,
+              // A delivered load's revenue was copied from the rate when it was delivered; the correction has to reach it, or the KPI keeps reading the old rate while the invoice bills the new one.
+              ...(load.status === "completed" ? { actualRevenue: deal.rate } : {}),
               fuelSurcharge: deal.fuelSurcharge,
               loadedMiles: deal.loadedMiles,
               pickupDeadheadMiles: deal.emptyToPickup,
@@ -181,6 +210,8 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
         where: { loadId: load.id },
         data: { status: "dispatched", dispatchedAt: now, respondedAt: null, driverResponse: Prisma.JsonNull, assignmentVersion: { increment: 1 } }
       });
+      // The driver has to say yes again, so the load is no longer accepted (src/lib/load-state.ts: a sent assignment goes with a draft load).
+      if (load.status !== loadStatusFor("dispatched")) await tx.load.update({ where: { id: load.id }, data: { status: loadStatusFor("dispatched") } });
     }
     if (payChanged) await tx.assignment.update({ where: { loadId: load.id }, data: { payEstimate: newEstimate! } });
     // A load that has not started carries the cost floor of the truck and the miles it was booked with: refresh it when either changed.

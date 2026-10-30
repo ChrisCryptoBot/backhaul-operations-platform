@@ -119,6 +119,13 @@ export function ImportPanel({ kind, toLocate = 0 }: { kind: ImportKind; toLocate
             <b>{n(preview.total)}</b> {preview.total === 1 ? "row" : "rows"} read · <b>{n(preview.ready)}</b> will be imported ·{" "}
             <b className={preview.problemCount > 0 ? "neg" : undefined}>{n(preview.problemCount)}</b> left out
           </p>
+          {preview.room.limit != null ? (
+            <p className={preview.room.over ? "neg" : "tl-sub"} role={preview.room.over ? "alert" : undefined}>
+              {preview.room.over
+                ? `${preview.room.message} This file has ${n(preview.ready)} to add, which takes it to ${n(preview.room.used + preview.ready)}. Nothing is imported until it fits.`
+                : `Your plan holds ${n(preview.room.limit)} ${words.many}; ${n(preview.room.used)} in service now, ${n(preview.room.used + preview.ready)} after this file.`}
+            </p>
+          ) : null}
           <p className="tl-sub">
             Read: {preview.matched.map((m) => m.field).join(", ")}.{preview.unknown.length > 0 ? ` Not used: ${preview.unknown.join(", ")}.` : ""}
           </p>
@@ -167,7 +174,7 @@ export function ImportPanel({ kind, toLocate = 0 }: { kind: ImportKind; toLocate
             </>
           ) : null}
           <div className="tl-form-row" style={{ marginTop: "var(--db-4)" }}>
-            <button type="button" className="tl-btn primary" disabled={preview.ready === 0 || busy === "importing"} aria-busy={busy === "importing" || undefined} onClick={() => void importNow()}>
+            <button type="button" className="tl-btn primary" disabled={preview.ready === 0 || preview.room.over || busy === "importing"} aria-busy={busy === "importing" || undefined} onClick={() => void importNow()}>
               {busy === "importing" ? "Importing…" : `Import ${n(preview.ready)} ${preview.ready === 1 ? words.one : words.many}`}
             </button>
             {preview.problemCount > 0 ? (

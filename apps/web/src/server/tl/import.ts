@@ -1,8 +1,9 @@
 import { prisma } from "@/lib/db";
+import type { UnitKind } from "@/lib/plans";
 import { IMPORT_MAX_ROWS, checkDriverRows, checkTrailerRows, checkTruckRows, driverKey, parseCsv, type ImportCheck, type ImportKind, type ProblemRow, type TrailerImport, type TruckImport, type DriverImport } from "@/lib/import-csv";
 import { saveTruckHomeCoordinates } from "@/server/geo/persist";
 import { recordAudit } from "./audit";
-import { truckRoom } from "./plan";
+import { lockWorkspace, roomFor, unitUse } from "./plan";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -12,6 +13,8 @@ import { currentWorkspaceId } from "./workspace";
  * truck's home base is located afterwards, a few at a time (`locateHomeBases`).
  */
 export const IMPORT_CHUNK = 500;
+
+const UNIT_OF = { trucks: "truck", drivers: "driver", trailers: "trailer" } as const satisfies Record<ImportKind, UnitKind>;
 
 type Read = { ok: false; error: string } | { ok: true; table: string[][]; trucks?: ImportCheck<TruckImport>; drivers?: ImportCheck<DriverImport & { truckId: string }>; trailers?: ImportCheck<TrailerImport> };
 
@@ -47,6 +50,8 @@ export type ImportPreview =
       problems: ProblemRow[];
       /** The file's own header cells, for the problem file. */
       fileHeader: string[];
+      /** What the plan holds of this kind, what is in service, and whether the rows that will be imported would take it past the limit. */
+      room: { used: number; limit: number | null; over: boolean; message: string | null };
       matched: Array<{ column: string; field: string }>;
       unknown: string[];
     };
@@ -60,7 +65,8 @@ export async function previewImport(kind: ImportKind, text: string, workspaceId 
   const check = (r.trucks ?? r.drivers ?? r.trailers)!;
   const refused = NOT_USABLE(check);
   if (refused) return { ok: false, error: refused };
-  return { ok: true, kind, total: check.total, ready: check.good.length, problemCount: check.problemCount, problems: check.problems, fileHeader: r.table[0] ?? [], matched: check.header.matched, unknown: check.header.unknown };
+  const [use, room] = await Promise.all([unitUse(UNIT_OF[kind], workspaceId), roomFor(UNIT_OF[kind], check.good.length, workspaceId)]);
+  return { ok: true, kind, total: check.total, ready: check.good.length, problemCount: check.problemCount, problems: check.problems, fileHeader: r.table[0] ?? [], room: { used: use.used, limit: use.limit, over: !room.ok, message: room.ok ? null : room.message }, matched: check.header.matched, unknown: check.header.unknown };
 }
 
 export type ImportResult = { ok: true; created: number; skipped: number; kind: ImportKind } | { ok: false; error: string };
@@ -72,15 +78,15 @@ export async function commitImport(kind: ImportKind, text: string, fileName: str
   const refused = NOT_USABLE(check);
   if (refused) return { ok: false, error: refused };
   if (check.good.length === 0) return { ok: false, error: "No row in that file can be imported. Fix the problems listed and load it again." };
-  // A plan holds only so many trucks: a file that would take the fleet past it is refused whole (not partly written), with the number it would be over by.
-  if (kind === "trucks") {
-    const room = await truckRoom(check.good.length, workspaceId);
-    if (!room.ok) return { ok: false, error: `${room.message} This file has ${check.good.length.toLocaleString("en-US")} to add.` };
-  }
   const skipped = check.problemCount;
   const file = fileName.trim().slice(0, 120) || `${kind}.csv`;
-  await prisma.$transaction(
+  const overLimit = await prisma.$transaction(
     async (tx) => {
+      // A plan holds only so many trucks, and twice as many drivers and trailers: a file that would take the fleet past it is refused whole (nothing written), with the number it
+      // would add. The count is taken with the workspace locked, in the transaction that writes.
+      await lockWorkspace(tx, workspaceId);
+      const room = await roomFor(UNIT_OF[kind], check.good.length, workspaceId, tx);
+      if (!room.ok) return `${room.message} This file has ${check.good.length.toLocaleString("en-US")} to add.`;
       if (r.trucks) {
         const rows = r.trucks.good.map(({ item: { values: v, mpg, specs } }) => ({
           workspaceId,
@@ -156,9 +162,11 @@ export async function commitImport(kind: ImportKind, text: string, fileName: str
         },
         tx
       );
+      return null;
     },
     { timeout: 120_000, maxWait: 10_000 }
   );
+  if (overLimit) return { ok: false, error: overLimit };
   return { ok: true, created: check.good.length, skipped, kind };
 }
 

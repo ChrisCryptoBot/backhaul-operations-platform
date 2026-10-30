@@ -4,6 +4,8 @@ import type { Metadata } from "next";
 import { EmptyState } from "@/components/desk/kit/states";
 import { PageHead } from "@/components/desk/ui";
 import { listSignupRequests } from "@/server/tl/signup";
+import { isPlatformAdmin, requirePage } from "@/server/tl/access";
+import { notFound } from "next/navigation";
 
 export const metadata: Metadata = { title: "Sign-up requests · TrueLane" };
 export const dynamic = "force-dynamic";
@@ -15,6 +17,8 @@ const when = (d: Date) => d.toLocaleString("en-US", { month: "short", day: "nume
  * scripts/provision-enterprise.ts), and the list is where they find who to call.
  */
 export default async function SignupRequestsPage() {
+  // Who has asked for an account belongs to the people who run TrueLane, not to any customer's desk: only they (DESK_ADMIN_EMAILS) may read it.
+  if (!isPlatformAdmin(await requirePage("owner"))) notFound();
   const rows = await listSignupRequests();
   const enterprise = rows.filter((r) => r.kind === "enterprise" && r.status === "open").length;
   return (

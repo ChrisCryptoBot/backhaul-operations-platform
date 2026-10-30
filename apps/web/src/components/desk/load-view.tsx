@@ -12,9 +12,9 @@ import { settlementOfLoad } from "@/server/tl/settlement";
 import { AssignFields } from "./assign-fields";
 import { AssignTrailer } from "./trailer-forms";
 import { trailerBlocker } from "@/lib/trailer-clearance";
-import { assignAction, respondAction, sendAction, unassignAction, undoPaidAction } from "@/app/(desk)/actions";
+import { assignAction, reopenDeliveredAction, respondAction, sendAction, unassignAction, undoPaidAction, undoStartAction, voidInvoiceAction } from "@/app/(desk)/actions";
 import { InvoiceDialog, LoadEditDialog, PaidDialog, TripEntry } from "./load-actions";
-import { defaultInvoiceNumber, invoiceReadiness } from "@/lib/invoicing";
+import { canInvoiceStatus, defaultInvoiceNumber, invoiceBasis, invoiceReadiness, owedOf } from "@/lib/invoicing";
 import { toEditValues } from "@/lib/load-edit";
 import { customerTermsMap } from "@/server/tl/customers";
 import { DeleteLoadButton } from "./delete-load";
@@ -26,12 +26,16 @@ import { gapsPhrase, refList, sendReadiness } from "@/lib/send-readiness";
 import { AssignmentChip, PageHead, StatusChip, VerdictChip } from "./ui";
 import { AlertList } from "./alert-bits";
 import { DrawerFrame } from "./drawer-frame";
+import { SubmitButton } from "./kit/submit-button";
+import { LoadDocuments } from "./load-documents";
+import { listLoadDocuments } from "@/server/tl/documents";
 import { ConfirmForm } from "./kit/confirm-form";
 import { DisruptionButtons } from "./disruption-dialogs";
 import { Icon } from "./kit/icons";
 import { Tip, type TipData } from "./kit/tooltip";
 import { dateTime, miles, PAY_KIND_LABEL, payLabel, perMile, signedPct, usd } from "@/lib/desk-format";
 import { rateConTotal } from "@/lib/pay";
+import { telHref } from "@/lib/contact";
 
 const TONE: Record<string, "ok" | "warn" | "bad"> = { accept: "ok", caution: "warn", reject: "bad" };
 
@@ -84,12 +88,15 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     seal: s.sealNumber ?? ""
   }));
   const tripVisible = !!a && ["accepted", "in_progress", "completed"].includes(load.status);
-  const readiness = invoiceReadiness({ ...load, quotedRevenue: num(load.quotedRevenue) });
-  const invoiceContext = { rate: num(load.quotedRevenue), surcharge: num(load.fuelSurcharge), detention: dt.billable, defaultTerms: load.payTermsDays ?? (await customerTermsMap()).get((load.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays };
-  const billed = num(load.invoicedAmount ?? load.quotedRevenue);
+  const basis = invoiceBasis({ status: load.status, quotedRevenue: num(load.actualRevenue ?? load.quotedRevenue), fuelSurcharge: num(load.fuelSurcharge), tonuRevenue: load.tonuRevenue != null ? num(load.tonuRevenue) : null });
+  const readiness = invoiceReadiness({ ...load, quotedRevenue: basis.rate });
+  const invoiceContext = { rate: basis.rate, surcharge: basis.surcharge, detention: basis.tonu ? 0 : dt.billable, rateLabel: basis.label, defaultTerms: load.payTermsDays ?? (await customerTermsMap()).get((load.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays };
+  const billed = num(load.invoicedAmount ?? (basis.tonu ? basis.rate : (load.actualRevenue ?? load.quotedRevenue)));
   const invoiceLines = Array.isArray(load.invoiceLines) ? (load.invoiceLines as Array<{ label: string; amount: number }>) : null;
   const dueAt = load.invoicedAt ? new Date(load.invoicedAt.getTime() + (load.payTermsDays ?? 0) * 86_400_000) : null;
   const paidAmount = load.paidAmount != null ? num(load.paidAmount) : null;
+  // What is still owed on an invoice that is out (it can be part paid).
+  const owing = load.paymentStatus === "invoiced" ? (owedOf(billed, paidAmount) ?? billed) : 0;
   const needs = [load.requiresLiftgate ? "liftgate" : null, load.requiresRamp ? "ramp" : null, load.requiresPalletJack ? "pallet jack" : null].filter((x): x is string => x != null);
   const size = [load.lengthFt, load.widthFt].every((x) => x == null) && load.loadHeightIn == null ? null : [load.lengthFt != null ? `${num(load.lengthFt)} ft long` : null, load.widthFt != null ? `${num(load.widthFt)} ft wide` : null, load.loadHeightIn != null ? `${num(load.loadHeightIn)} in high` : null].filter(Boolean).join(", ");
 
@@ -280,6 +287,17 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
       </section>
     ) : null;
 
+  const docs = await listLoadDocuments(load.id);
+  const docsLocked = load.factoringStatus !== "none" && load.factoringStatus !== "rejected" ? "This load's invoice has gone to a factoring company, so its documents stay as they were sent." : null;
+  const docsSec = (
+    <section className="sec">
+      <h3>Documents</h3>
+      <div className="sec-box">
+        <LoadDocuments loadId={load.id} items={docs.map((d) => ({ id: d.id, kind: d.kind, name: d.name, bytes: d.bytes, when: dateTime(d.createdAt), by: d.addedBy }))} locked={docsLocked} defaultKind={load.status === "completed" ? "pod" : "rate_con"} />
+      </div>
+    </section>
+  );
+
   const trailerOpen = load.status === "draft" || load.status === "accepted" || load.status === "in_progress";
   const trailerSec = (
     <section className="sec">
@@ -306,6 +324,12 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           <dl className="tl-kv" style={{ marginBottom: 12 }}>
             <dt>Driver</dt>
             <dd>{a.driver.name}</dd>
+            {a.driver.phone ? (
+              <>
+                <dt>Phone</dt>
+                <dd><a href={telHref(a.driver.phone)}>{a.driver.phone}</a></dd>
+              </>
+            ) : null}
             <dt>Pay</dt>
             <dd>{PAY_KIND_LABEL[a.payKind] ?? a.payKind} · {payLabel(a.payKind, num(a.payRate))}</dd>
             <dt>Estimate (display only)</dt>
@@ -335,7 +359,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
                 <input name="overrideReason" type="text" placeholder="For example: team run" />
               </label>
             ) : null}
-            <button type="submit" className="tl-btn sm">{a ? "Change driver or pay" : "Assign driver"}</button>
+            <SubmitButton className="tl-btn sm" pending="Saving…">{a ? "Change driver or pay" : "Assign driver"}</SubmitButton>
           </form>
         ) : null}
 
@@ -373,6 +397,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           expenses={{ fuel: stored(load.expenseFuelActual), tolls: stored(load.expenseTolls), misc: stored(load.expenseMisc) }}
           delivered={load.completedAt ? toCentralLocal(load.completedAt.getTime()) : ""}
           pod={{ note: load.podNote ?? "", without: load.closedWithoutPod === true }}
+          quoted={stored(load.quotedRevenue)}
         />
       </div>
     </section>
@@ -423,7 +448,13 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           <dd>
             {load.brokerName ?? "—"}
             {load.brokerMcNumber ? ` · MC ${load.brokerMcNumber}` : ""}
-            {load.brokerPhone || load.brokerEmail ? <div className="tl-sub">{[load.brokerPhone, load.brokerEmail].filter(Boolean).join(" · ")}</div> : null}
+            {load.brokerPhone || load.brokerEmail ? (
+              <div className="tl-sub">
+                {load.brokerPhone ? <a href={telHref(load.brokerPhone)}>{load.brokerPhone}</a> : null}
+                {load.brokerPhone && load.brokerEmail ? " · " : null}
+                {load.brokerEmail ? <a href={`mailto:${load.brokerEmail}`}>{load.brokerEmail}</a> : null}
+              </div>
+            ) : null}
           </dd>
           <dt>Freight</dt>
           <dd>
@@ -460,7 +491,9 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
             <dd>
               {load.paymentStatus === "paid"
                 ? `Paid ${load.paidAt ? dateTime(load.paidAt) : ""} · ${usd(paidAmount, 2)}${paidAmount != null && paidAmount < billed ? `, ${usd(billed - paidAmount, 2)} short` : paidAmount != null && paidAmount > billed ? `, ${usd(paidAmount - billed, 2)} over` : ""}`
-                : "Out and waiting"}
+                : paidAmount != null && paidAmount > 0
+                  ? `Part paid: ${usd(paidAmount, 2)} received, ${usd(owing, 2)} still owed`
+                  : "Out and waiting"}
             </dd>
           </dl>
           <table className="tl-table" aria-label="Invoice lines">
@@ -551,7 +584,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
 
   const activitySec = (
     <section className="sec">
-      <h3>Activity · {feed.length}</h3>
+      <h3>Activity · {feed.length >= 25 ? "latest 25" : feed.length}</h3>
       <div className="sec-box">
         {feed.length === 0 ? (
           <p className="tl-note">Nothing recorded on this load yet.</p>
@@ -568,6 +601,11 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
             ))}
           </ul>
         )}
+        {feed.length >= 25 && load.loadNumber ? (
+          <p className="tl-note" style={{ marginTop: 8 }}>
+            The latest 25 are shown. <Link href={`/audit?q=${encodeURIComponent(load.loadNumber)}`}>See all of this load&apos;s history in the audit log</Link>.
+          </p>
+        ) : null}
       </div>
     </section>
   );
@@ -607,6 +645,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
       {tripSec}
       {stopsSec}
       {invoiceSec}
+      {docsSec}
       {docksSec}
       {decisionSec}
       {countSec}
@@ -633,6 +672,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           {driverSec}
           {trailerSec}
           {invoiceSec}
+          {docsSec}
           {decisionSec}
           {driverSeesSec}
           {moreSec}
@@ -652,7 +692,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
               <p className="tl-note warn">Not ready: still missing {gapsPhrase(gaps)}.</p>
             </>
           ) : null}
-          <button type="submit" className={gaps.length > 0 ? "tl-btn" : "tl-btn primary"}>{gaps.length > 0 ? "Send anyway" : "Send to driver"}</button>
+          <SubmitButton className={gaps.length > 0 ? "tl-btn" : "tl-btn primary"} pending="Sending…">{gaps.length > 0 ? "Send anyway" : "Send to driver"}</SubmitButton>
         </form>
       ) : null}
       {a?.status === "dispatched" ? (
@@ -661,12 +701,13 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           <form action={respondAction}>
             <input type="hidden" name="loadId" value={load.id} />
             <span className="tl-sub">Waiting on {a.driver.name}. The driver&apos;s phone is not connected in this demo, so answer for them:</span>
-            <button name="response" value="accepted" type="submit" className="tl-btn primary sm">Driver accepts</button>
-            <button name="response" value="declined" type="submit" className="tl-btn sm">Driver declines</button>
+            <input name="note" placeholder="Why, if the driver declines" maxLength={200} aria-label="Why the driver declines" />
+            <SubmitButton name="response" value="accepted" className="tl-btn primary sm">Driver accepts</SubmitButton>
+            <SubmitButton name="response" value="declined" className="tl-btn sm">Driver declines</SubmitButton>
           </form>
         </details>
       ) : null}
-      {load.status === "completed" && !load.paymentStatus ? (
+      {canInvoiceStatus(load.status, load.tonuRevenue != null ? num(load.tonuRevenue) : null) && !load.paymentStatus ? (
         <InvoiceDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} defaults={{ number: defaultInvoiceNumber(load.loadNumber, load.id) }} context={invoiceContext} blockers={readiness.blockers} cautions={readiness.cautions} />
       ) : null}
       {load.paymentStatus ? (
@@ -674,18 +715,41 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           View invoice
         </Link>
       ) : null}
-      {load.paymentStatus === "invoiced" ? <PaidDialog loadId={load.id} invoiceNumber={load.invoiceNumber} billed={billed} /> : null}
-      {load.paymentStatus === "paid" ? (
+      {load.status === "in_progress" && a ? (
+        <ConfirmForm action={undoStartAction} fields={{ loadId: load.id }} label="Take the pickup back" title={`Take back the pickup on ${load.loadNumber ?? "this load"}?`} eyebrow="Trip" confirmLabel="Take it back" destructive askReason>
+          <p className="tl-note">For a pickup entered against the wrong load, or before it happened. The driver keeps the load, it is no longer on the road, and the reason is kept in the audit trail.</p>
+        </ConfirmForm>
+      ) : null}
+      {load.status === "completed" && !load.paymentStatus && !settled && a ? (
+        <ConfirmForm action={reopenDeliveredAction} fields={{ loadId: load.id }} label="Take the delivery back" title={`Take back the delivery of ${load.loadNumber ?? "this load"}?`} eyebrow="Trip" confirmLabel="Take it back" destructive askReason>
+          <p className="tl-note">For a delivery entered against the wrong load, or with the wrong times. The load is on the road again, the delivery time and proof-of-delivery answer are cleared (the stop times and expenses stay to correct), and the reason is kept in the audit trail.</p>
+        </ConfirmForm>
+      ) : null}
+      {load.paymentStatus === "invoiced" ? <PaidDialog loadId={load.id} invoiceNumber={load.invoiceNumber} billed={billed} owing={owing} /> : null}
+      {load.paymentStatus === "invoiced" && load.factoringStatus === "none" && !(paidAmount != null && paidAmount > 0) ? (
+        <ConfirmForm
+          action={voidInvoiceAction}
+          fields={{ loadId: load.id }}
+          label="Take the invoice back"
+          title={`Take back ${load.invoiceNumber ?? "this invoice"}?`}
+          eyebrow="Invoice"
+          confirmLabel="Take it back"
+          destructive
+          askReason>
+          <p className="tl-note">For an invoice made for the wrong amount or the wrong customer. It goes away, the load is ready to invoice again, and the reason is kept in the audit trail.</p>
+        </ConfirmForm>
+      ) : null}
+      {load.paymentStatus === "paid" || (load.paymentStatus === "invoiced" && paidAmount != null && paidAmount > 0) ? (
         <ConfirmForm
           action={undoPaidAction}
           fields={{ loadId: load.id }}
           label="Undo payment"
-          title={`Take back the payment on ${load.invoiceNumber ?? "this invoice"}?`}
+          title={`Take back the latest payment on ${load.invoiceNumber ?? "this invoice"}?`}
           eyebrow="Payment"
           confirmLabel="Take it back"
           destructive
           askReason>
-          <p className="tl-note">For a payment entered against the wrong invoice, or one that bounced. The invoice goes back to out and waiting, and the reason is kept in the audit trail.</p>
+          <p className="tl-note">For a payment entered against the wrong invoice, or one that bounced. The invoice is out again for what is then owed, and the reason is kept in the audit trail.</p>
         </ConfirmForm>
       ) : null}
     </>

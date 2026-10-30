@@ -45,9 +45,10 @@ model Workspace {
   remitTo     String? @map("remit_to")
   paymentNote String? @map("payment_note")
 
-  /// The plan the workspace is on (starter | growth | pro | enterprise), or none chosen yet: then the price follows the fleet's size and nothing is limited.
-  plan               String?
+  /// The plan the workspace is on (starter | growth | pro | enterprise). A missing plan is read as Starter (src/lib/plans.ts effectivePlan), never as "no limit".
+  plan               String?  @default("starter")
   partnerConnections PartnerConnection[]
+  members            Member[]
   threads            Thread[]
   vehicles           Vehicle[]
   trailers           Trailer[]
@@ -276,6 +277,8 @@ model Load {
   vehicle    Vehicle?        @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
   trailer    Trailer?        @relation(fields: [trailerId], references: [id], onDelete: SetNull)
   stops      Stop[]
+  documents  LoadDocument[]
+  payments   LoadPayment[]
   segments   TripSegment[]
   decisions  LoadDecision[]
   assignment Assignment?
@@ -610,6 +613,27 @@ model Message {
   @@map("messages")
 }
 
+/// A person on a desk. Sign-in proves who someone is (the provider's user id); this says which workspace they work in and as what: viewer, dispatcher or owner. A person is added
+/// by an owner (or by whoever provisions the workspace) with an email before they have signed in; the first verified sign-in with that email binds the provider's user id,
+/// and from then on the user id is what is matched. A plan holds only so many people (seats).
+model Member {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  email       String
+  name        String
+  role        String    @default("dispatcher")
+  /// The sign-in provider's user id; null until the person first signs in. One person is on one desk.
+  clerkUserId String?   @unique @map("clerk_user_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  lastSeenAt  DateTime? @map("last_seen_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, email])
+  @@index([email])
+  @@map("members")
+}
+
 /// Someone who asked for an account. Not tied to a workspace: it exists before one does. kind: self_serve (under 50 trucks) | enterprise (50 or more: a person sets
 /// them up). The kind is worked out from `trucks` on the server, never taken from the form. status: open | contacted | provisioned | declined; `workspaceId`
 /// names the workspace made for them once provisioned (a plain column, so removing a workspace never removes the record that it was asked for).
@@ -634,6 +658,48 @@ model SignupRequest {
   @@map("signup_requests")
 }
 
+/// A payment received against an invoice: the amount, the day it came in (Dallas calendar, kept as a timestamp) and how. An invoice paid in part has one or more of these and stays
+/// out with a balance; the load's `paidAmount` is their sum. `kind` is payment, or the last row of an invoice closed short on purpose is still a payment (what was written off is the
+/// difference, kept with its reason in the audit entry). Taking a payment back removes its row.
+model LoadPayment {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  loadId      String   @map("load_id")
+  amount      Decimal  @db.Decimal(12, 2)
+  paidAt      DateTime @map("paid_at")
+  method      String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  load Load @relation(fields: [loadId], references: [id], onDelete: Cascade)
+
+  @@index([loadId])
+  @@index([workspaceId])
+  @@map("load_payments")
+}
+
+/// A document kept on a load: the rate confirmation it was booked from, the proof of delivery, a receipt, anything else. The bytes are in the desk's private storage (never a public
+/// address); this row names them (`storageKey`), says what they are (`kind`: rate_con | pod | receipt | other) and what they were checked to be (type, size, SHA-256). Factoring
+/// reads these rows to know what it can send: a document that is not here is not in the packet.
+model LoadDocument {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  loadId      String   @map("load_id")
+  kind        String
+  name        String
+  mime        String
+  bytes       Int
+  sha256      String
+  storageKey  String   @map("storage_key")
+  addedBy     String   @map("added_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  load Load @relation(fields: [loadId], references: [id], onDelete: Cascade)
+
+  @@index([loadId])
+  @@index([workspaceId])
+  @@map("load_documents")
+}
+
 /// A picture or a file on a message (the phone's own limits: up to 4 a message, 10 MB each). kind: image | file. `storageKey` names the bytes in the desk's private
 /// storage (never a public address); `sha256` is of the stored bytes. The type was checked against the file's real signature before it was kept.
 model MessageAttachment {
@@ -651,4 +717,20 @@ model MessageAttachment {
 
   @@index([messageId])
   @@map("message_attachments")
+}
+
+/// One claimed unit of paid-service spend (spend-guardrails plan, docs/platform/SPEND_GUARDRAILS.md): a rate-confirmation read, a Mapbox call. Written BEFORE the paid call by
+/// server/tl/usage.ts `claimUsage` (one caller at a time per service) and removed again if the call never happened. `workspaceId` is a plain column (usage outlives a workspace),
+/// `estCents` an estimate used only for the monthly dollar ceiling. Rows older than 70 days are deleted as claims are made.
+model ServiceUsage {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  service     String
+  units       Int      @default(1)
+  estCents    Int      @default(0) @map("est_cents")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([service, createdAt])
+  @@index([workspaceId, service, createdAt])
+  @@map("service_usage")
 }

@@ -5,7 +5,7 @@ import { detentionOfLoad } from "./detention";
 import { evaluateTlLoad } from "./evaluate";
 import { notQuote } from "@/lib/quote-status";
 import { getThresholds } from "./thresholds";
-import { loadInclude } from "./queries";
+import { inTerminal, loadInclude } from "./queries";
 import { currentWorkspaceId } from "./workspace";
 import { answerCache, clockBucket } from "./answer-cache";
 
@@ -25,6 +25,19 @@ const DELIVERED_CAP = 500;
 export type AlertScope = "shell" | "open" | "all";
 
 /** Reads the loads that can raise an alert and applies the rules (src/lib/alerts.ts). Nothing is stored: the alerts are as fresh as the rows. */
+/**
+ * The alerts for the loads in a terminal (and the loads not placed anywhere yet): the same alerts, narrowed. Which of the alerted loads are in the terminal is asked of the database
+ * for just those loads, so a fleet's thousands of loads are not read to draw a screen.
+ */
+export async function getAlertsInTerminal(terminal: string | null, now = new Date(), workspaceId = currentWorkspaceId()) {
+  const all = await getAlerts(now, workspaceId, "all");
+  if (!terminal) return all;
+  const ids = [...new Set(all.alerts.map((a) => a.loadId))];
+  const mine = new Set((await prisma.load.findMany({ where: { id: { in: ids }, workspaceId, ...inTerminal(terminal) }, select: { id: true } })).map((l) => l.id));
+  const alerts = all.alerts.filter((a) => mine.has(a.loadId));
+  return { alerts, byLoad: alertsByLoad(alerts), counts: countAlerts(alerts) };
+}
+
 const answers = answerCache<Awaited<ReturnType<typeof buildAlerts>>>(60);
 /** Tests clear it between cases. */
 export const clearAlertCache = () => answers.clear();
@@ -42,9 +55,11 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
   const base = { workspaceId, deletedAt: null, ...notQuote };
   const full = (where: object, take?: number) => prisma.load.findMany({ where: { ...base, ...where }, include: loadInclude, ...(take ? { orderBy: { completedAt: "desc" as const }, take } : {}) });
 
-  const [open, delivered, extra, outOwed, t] = await Promise.all([
+  const [open, delivered, uninvoiced, extra, outOwed, t] = await Promise.all([
     full({ status: { in: OPEN } }),
     scope === "all" ? full({ status: "completed", completedAt: { gte: new Date(now.getTime() - DETENTION_WINDOW_DAYS * DAY) } }, DELIVERED_CAP) : Promise.resolve([]),
+    // Delivered and not invoiced, of ANY age (the window above is for detention): a delivery nobody invoiced does not stop being owed money after ninety days.
+    scope === "all" ? full({ status: "completed", paymentStatus: null }, DELIVERED_CAP) : Promise.resolve([]),
     extraId ? full({ id: extraId }) : Promise.resolve([]),
     // Only what the overdue rule reads: no stops, no truck, no driver.
     scope === "open"
@@ -55,7 +70,7 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
 
   const seen = new Set<string>();
   const input: AlertLoad[] = [];
-  for (const l of [...open, ...delivered, ...extra]) {
+  for (const l of [...open, ...delivered, ...uninvoiced, ...extra]) {
     if (seen.has(l.id)) continue;
     seen.add(l.id);
     const profile = l.vehicle?.costProfile ?? null;
@@ -70,6 +85,8 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
       payTermsDays: l.payTermsDays,
       detentionUnbilled: l.status === "completed" ? detentionOfLoad(l, t.detentionGraceMinutes).unbilled : 0,
       hasTruck: l.vehicleId != null,
+      vehicle: l.vehicleId != null && l.vehicle ? { id: l.vehicleId, name: l.vehicle.name } : null,
+      closedWithoutPod: l.closedWithoutPod,
       trailer: l.trailer ? { number: l.trailer.number, status: l.trailer.status, registrationExpiry: l.trailer.registrationExpiry, inspectionExpiry: l.trailer.inspectionExpiry } : null,
       // The verdict only matters for a draft nobody has been sent (BELOW_COST_UNASSIGNED): no need to price anything else.
       verdict: l.status === "draft" && profile ? (evaluateTlLoad(l, profile, l.vehicle)?.finalDecision ?? null) : null,

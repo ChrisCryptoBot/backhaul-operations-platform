@@ -3,6 +3,7 @@ import { prisma } from "@/lib/db";
 import type { RateConLoadDraft } from "./map";
 import { currentWorkspace } from "@/server/tl/workspace";
 import { recordAudit } from "@/server/tl/audit";
+import { findTwinLoad } from "@/server/tl/twins";
 import { freezeLoadSnapshot } from "@/server/tl/snapshot";
 import { normalizeMcNumber } from "@/lib/fmcsa";
 import { saveStopCoordinates } from "@/server/geo/persist";
@@ -40,18 +41,19 @@ export function assertSavable(d: ReviewedDraft): void {
   if (!d.confirmed) throw new ReviewRequiredError();
   if (d.load.quotedRevenue == null || d.load.quotedRevenue <= 0) throw new Error("Type the agreed rate before saving.");
   if (d.stops.length === 0) throw new Error("A load needs at least one stop.");
+  // A truck-ordered-not-used notice is not a load to haul, and a load with no miles cannot be judged: both are caught here as well as on the review screen.
+  if (d.printed.tonuOnly) throw new Error("This document is a truck-ordered-not-used notice, not a load. Record it as a TONU on the load it was for.");
+  if (d.load.loadedMiles == null || !(d.load.loadedMiles > 0)) throw new Error("Type the loaded miles before saving: without them the load cannot be judged against the truck's cost.");
 }
-
-const same = (a: string | null | undefined, b: string | null | undefined) => (a ?? "").trim().toLowerCase() === (b ?? "").trim().toLowerCase();
 
 export async function saveReviewedDraft(d: ReviewedDraft) {
   assertSavable(d);
   const ws = await currentWorkspace();
+  // The truck comes from the browser: it must be one of this desk's own, in service. Otherwise another desk's truck (and its cost profile) would be copied onto this load.
+  if (d.vehicleId && !(await prisma.vehicle.findFirst({ where: { id: d.vehicleId, workspaceId: ws.id, archivedAt: null }, select: { id: true } }))) throw new Error("That truck is not available.");
   const number = d.load.loadNumber?.trim();
   if (number && !d.allowDuplicate) {
-    const twins = await prisma.load.findMany({ where: { workspaceId: ws.id, deletedAt: null, status: { not: "quote" }, loadNumber: { equals: number, mode: "insensitive" } }, select: { id: true, brokerName: true, status: true } });
-    // The same number from a broker that is not named is still the same number: only two different named brokers are two different loads.
-    const twin = twins.find((t) => !t.brokerName || !d.load.brokerName || same(t.brokerName, d.load.brokerName));
+    const twin = await findTwinLoad(ws.id, number, d.load.brokerName);
     if (twin) throw new DuplicateLoadError(`Load ${number}${twin.brokerName ? ` from ${twin.brokerName}` : ""} is already on the desk. Open it, or save this one anyway.`, twin.id);
   }
   const weight = d.printed.weightLbs != null && d.printed.weightLbs > 0 ? new Prisma.Decimal(d.printed.weightLbs).toDecimalPlaces(0).toNumber() : null;

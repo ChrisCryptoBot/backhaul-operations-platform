@@ -156,8 +156,9 @@ describe.skipIf(!run)("core load integrity on the demo database", () => {
     const billed = await mkLoad("BILLED", { status: "completed", completedAt: at("2027-04-06T10:00"), paymentStatus: "invoiced", invoiceNumber: "WC0-INV-LOCK", invoicedAmount: 1100, invoicedAt: new Date() });
     const bv = await valuesOf(billed.id);
     expect(await saveLoadDetails(billed.id, withDeal(bv, { rate: "1300" }))).toMatchObject({ ok: false, error: expect.stringContaining("invoiced") });
-    // Its details (not the money) can still be corrected.
-    expect(await saveLoadDetails(billed.id, { ...bv, poNumber: "PO-FIXED" })).toMatchObject({ ok: true, changed: true });
+    // Its other details (not the money, and not what the invoice carries: the number, customer, PO and terms) can still be corrected.
+    expect(await saveLoadDetails(billed.id, { ...bv, poNumber: "PO-FIXED" })).toMatchObject({ ok: false, error: expect.stringContaining("PO number") });
+    expect(await saveLoadDetails(billed.id, { ...bv, notes: "Dock 4, ask for Lee" })).toMatchObject({ ok: true, changed: true });
   });
 
   test("seconds on a stored stop time are not a schedule change: a started load can still be corrected, and a driver is not asked to confirm again for a rate that does not move their pay", async () => {

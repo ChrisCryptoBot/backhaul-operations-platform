@@ -254,7 +254,14 @@ describe.skipIf(!run)("quoting a load on the demo database", () => {
     const fit = await fitQuote(input(quote({}, "2027-02-23")));
     const row = fit.rows.find((r) => r.truckId === truckId && r.driverId === driverId)!;
     expect(row.blocked).toMatch(/Already on QT-/);
-    const out = await bookQuote(quote({ broker: "W6 Broker" }, "2027-02-23"), { vehicleId: truckId, driverId }, null, null);
+    // The same truck is on that load too, and a truck is on one load at a time: booking it again is refused, with the other load named.
+    const again = await bookQuote(quote({ broker: "W6 Broker", offer: "1600" }, "2027-02-23"), { vehicleId: truckId, driverId }, null, null);
+    expect(again).toMatchObject({ ok: false, error: expect.stringMatching(/already on .*Pick another truck/) });
+    // On a second truck the load is booked, and the driver, who is on the first one at that time, is not assigned.
+    const second = await saveTruck({ name: "W6 Truck Two", type: "box_truck", mpg: "10", fuelType: "diesel" }, null);
+    if (!second.ok) throw new Error("setup");
+    await saveCostProfile(second.id, profile);
+    const out = await bookQuote(quote({ broker: "W6 Broker" }, "2027-02-23"), { vehicleId: second.id, driverId }, null, null);
     if (!out.ok) throw new Error(JSON.stringify(out));
     loadIds.push(out.loadId);
     expect(out.assigned).toBe(false);

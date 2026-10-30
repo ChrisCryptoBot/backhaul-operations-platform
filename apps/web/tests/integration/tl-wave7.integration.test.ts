@@ -263,11 +263,14 @@ describe.skipIf(!run)("loads and billing on the demo database", () => {
   test("a short payment is recorded as it came and says by how much; it can be taken back with a reason", async () => {
     const load = await prisma.load.findFirstOrThrow({ where: { loadNumber: "W7-TRIP" } });
     expect(await markLoadPaid(load.id, new Date(), { amount: 0 })).toMatchObject({ ok: false, error: expect.any(String) });
-    expect(await markLoadPaid(load.id, new Date(), { amount: 1000 })).toEqual({ ok: true, difference: -40 });
+    // Closing the invoice below what is owed writes the rest off, so the reason has to be given (paying less WITHOUT closing is a part payment: see tl-waveC-integrity).
+    expect(await markLoadPaid(load.id, new Date(), { amount: 1000, shortAction: "writeoff" })).toMatchObject({ ok: false, needsShortReason: true });
+    expect((await prisma.load.findUniqueOrThrow({ where: { id: load.id } })).paymentStatus).toBe("invoiced");
+    expect(await markLoadPaid(load.id, new Date(), { amount: 1000, shortAction: "writeoff", shortReason: "Customer deducted a lumper fee" })).toEqual({ ok: true, difference: -40 });
     const paid = await prisma.load.findUniqueOrThrow({ where: { id: load.id } });
     expect(paid.paymentStatus).toBe("paid");
     expect(Number(paid.paidAmount)).toBe(1000);
-    expect((await events(load.id)).find((e) => e.action === "paid")!.summary).toContain("$40.00 short");
+    expect((await events(load.id)).find((e) => e.action === "paid")!).toMatchObject({ reason: "Customer deducted a lumper fee", summary: expect.stringContaining("$40.00 short") });
     expect(await markLoadPaid(load.id)).toMatchObject({ ok: false });
 
     const invoice = await getInvoice(load.id);

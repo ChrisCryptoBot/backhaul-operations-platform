@@ -1,3 +1,4 @@
+import { LOAD_LIMITS } from "./load-limits";
 import type { AcceptGate, MarketBand } from "@/truelane/lib/domain/marketVerdict";
 import { fuelSurchargeDollars, type FuelSurchargeUnit } from "@/truelane/lib/fuelSurcharge";
 import { isUnusualValue } from "@/truelane/lib/formatNumbers";
@@ -220,7 +221,7 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
   if (phone !== "" && (phone.replace(/\D/g, "").length < 7 || phone.replace(/\D/g, "").length > 15 || /[^\d\s()+.\-x]/i.test(phone))) errors.brokerPhone = "A phone number, for example 555-0142.";
   const email = str(values.brokerEmail);
   if (email !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.brokerEmail = "An email address, for example name@example.com.";
-  for (const [key, label, max, whole] of [["weightLbs", "Weight in pounds", 200000, true], ["lengthFt", "Length in feet", 120, false], ["widthFt", "Width in feet", 30, false], ["heightIn", "Height in inches", 300, false]] as const) {
+  for (const [key, label, max, whole] of [["weightLbs", "Weight in pounds", LOAD_LIMITS.weightLbs, true], ["lengthFt", "Length in feet", LOAD_LIMITS.lengthFt, false], ["widthFt", "Width in feet", LOAD_LIMITS.widthFt, false], ["heightIn", "Height in inches", LOAD_LIMITS.heightIn, false]] as const) {
     const raw = str(values[key] ?? "");
     if (raw === "") continue;
     const n = num(raw);

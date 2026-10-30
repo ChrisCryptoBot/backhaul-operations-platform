@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { fuelKindOf } from "@/lib/eia";
 import { eiaConfigured, latestFuelPrice } from "@/server/fuel/eia";
 import { resolveLaneEiaPadd } from "@/truelane/lib/eiaRegion";
+import { guardRoute } from "@/server/tl/access";
+import { overBudget } from "@/server/tl/budget";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +13,10 @@ export const dynamic = "force-dynamic";
  * the server and nothing is stored. A screen fills a fuel box from this only when someone clicks.
  */
 export async function GET(request: Request) {
+  const denied = await guardRoute("dispatcher");
+  if (denied) return denied;
+  const over = overBudget("eia");
+  if (over) return over;
   const p = new URL(request.url).searchParams;
   const fuel = fuelKindOf(p.get("fuel"));
   const lane = resolveLaneEiaPadd((p.get("origin") ?? "").slice(0, 200), (p.get("destination") ?? "").slice(0, 200));

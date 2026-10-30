@@ -8,6 +8,7 @@ import { PageHead } from "@/components/desk/ui";
 import { DataTable, type Column, type Row, type SortHref } from "@/components/desk/data-table";
 import { LiveForm } from "@/components/desk/live-form";
 import { AddTrailer, TrailerRowActions } from "@/components/desk/trailer-forms";
+import { unitUse } from "@/server/tl/plan";
 import { EmptyState } from "@/components/desk/kit/states";
 import { OWNERSHIPS } from "@/lib/trailer-forms";
 import { TRAILER_STATUSES, statusLabel } from "@/lib/trailer-clearance";
@@ -95,12 +96,13 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
   }));
   const filtered = Boolean(data.q || type || status || ownership || compliance || archived);
 
+  const use = await unitUse("trailer");
   return (
     <>
       <PageHead title="Trailers" sub={`${terminal ? `${terminal} terminal. ` : ""}Every trailer: its number, plate and papers, where it is, which tractor pulls it and what it is on. A trailer in the shop, out of service or with a lapsed date is kept off loads.`}>
         <a className="tl-btn" href={`/export/trailers${filtered ? `?${href({}).split("?")[1] ?? ""}` : ""}`}>Export CSV</a>
         <Link href="/trailers/import" className="tl-btn">Import from a file</Link>
-        <AddTrailer />
+        <AddTrailer use={use} />
       </PageHead>
       <div className="dt-toolbar" style={{ margin: "12px 0" }}>
         <LiveForm path="/trailers" label="Filter the trailers" className="audit-filters">

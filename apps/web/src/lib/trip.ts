@@ -6,13 +6,15 @@ import { parseCentralLocal } from "./zoned";
  * their own. Checked here and again on the server. Pure.
  */
 export type StartValues = { arrivedAt: string; waitMinutes: string; seal: string };
-export type CompleteStopValues = { id: string; arrivedAt: string; waitMinutes: string };
+/** `seal` is the seal number put on or read at that stop (optional; blank keeps what is already recorded). */
+export type CompleteStopValues = { id: string; arrivedAt: string; waitMinutes: string; seal?: string };
 export type ExpenseValues = { fuel: string; tolls: string; misc: string };
-export type CompleteValues = ExpenseValues & { stops: CompleteStopValues[]; deliveredAt: string; pod: "received" | "none"; podNote: string };
+/** `actualRevenue` is the linehaul the broker actually paid, when it is not the rate on the load (a short pay, an adjusted rate): blank keeps the load's own rate. */
+export type CompleteValues = ExpenseValues & { stops: CompleteStopValues[]; deliveredAt: string; pod: "received" | "none"; podNote: string; actualRevenue?: string };
 
 export type TripErrors = Record<string, string>;
 export type StartInput = { arrivedAt: Date; waitMinutes: number | null; seal: string | null };
-export type CompleteInput = { stops: Array<{ id: string; arrivedAt: Date | null; waitMinutes: number | null }>; deliveredAt: Date; pod: "received" | "none"; podNote: string | null; expenses: ExpenseInput };
+export type CompleteInput = { actualRevenue: number | null; stops: Array<{ id: string; arrivedAt: Date | null; waitMinutes: number | null; seal: string | null }>; deliveredAt: Date; pod: "received" | "none"; podNote: string | null; expenses: ExpenseInput };
 export type ExpenseInput = { fuel: number; tolls: number; misc: number };
 
 const t = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -51,7 +53,8 @@ function minutes(errors: TripErrors, key: string, raw: string): number | null {
 function money(errors: TripErrors, key: string, raw: string): number {
   const s = t(raw).replace(/,/g, "");
   if (s === "") return 0;
-  const n = Number(s);
+  // Plain digits with at most one point: "1e3" and "0x10" are numbers to JavaScript but not dollar amounts.
+  const n = /^(\d+(\.\d*)?|\.\d+)$/.test(s) ? Number(s) : Number.NaN;
   if (!Number.isFinite(n) || n < 0 || n > 100000 || Math.abs(n * 100 - Math.trunc(n * 100)) > 1e-6) {
     errors[key] = "Dollars and cents, 0 to 100,000.";
     return 0;
@@ -77,7 +80,11 @@ export function validateStart(v: StartValues, now = Date.now()): { ok: true; val
 
 export function validateComplete(v: CompleteValues, now = Date.now()): { ok: true; value: CompleteInput } | { ok: false; errors: TripErrors } {
   const errors: TripErrors = {};
-  const stops = v.stops.map((s, i) => ({ id: s.id, arrivedAt: time(errors, `stop${i}.arrivedAt`, s.arrivedAt, now, false), waitMinutes: minutes(errors, `stop${i}.waitMinutes`, s.waitMinutes) }));
+  const stops = v.stops.map((s, i) => {
+    const seal = t(s.seal ?? "");
+    if (seal.length > 30) errors[`stop${i}.seal`] = "A seal number is 30 characters at most.";
+    return { id: s.id, arrivedAt: time(errors, `stop${i}.arrivedAt`, s.arrivedAt, now, false), waitMinutes: minutes(errors, `stop${i}.waitMinutes`, s.waitMinutes), seal: seal === "" ? null : seal };
+  });
   const deliveredAt = time(errors, "deliveredAt", v.deliveredAt, now, true);
   const note = t(v.podNote);
   if (v.pod !== "received" && v.pod !== "none") errors.pod = "Say whether there is proof of delivery.";
@@ -85,6 +92,16 @@ export function validateComplete(v: CompleteValues, now = Date.now()): { ok: tru
   if (note.length > 300) errors.podNote = "300 characters at most.";
   const expenses = validateExpenses(v);
   if (!expenses.ok) Object.assign(errors, expenses.errors);
+  // The linehaul actually paid: blank keeps the load's own rate; anything typed has to be real money.
+  let actualRevenue: number | null = null;
+  const actualRaw = t(v.actualRevenue ?? "");
+  if (actualRaw !== "") {
+    const typed = money(errors, "actualRevenue", actualRaw);
+    if (errors.actualRevenue === undefined) {
+      if (typed <= 0) errors.actualRevenue = "More than $0, or leave it blank to keep the rate on the load.";
+      else actualRevenue = typed;
+    }
+  }
   if (Object.keys(errors).length > 0 || !deliveredAt || !expenses.ok) return { ok: false, errors };
-  return { ok: true, value: { stops, deliveredAt, pod: v.pod, podNote: note === "" ? null : note, expenses: expenses.value } };
+  return { ok: true, value: { stops, deliveredAt, pod: v.pod, podNote: note === "" ? null : note, expenses: expenses.value, actualRevenue } };
 }

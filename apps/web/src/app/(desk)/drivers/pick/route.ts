@@ -5,6 +5,7 @@ import { driverClashNotes } from "@/server/tl/dispatch";
 import { numOrNull } from "@/server/tl/convert";
 import { currentTerminal } from "@/server/tl/terminal";
 import { currentWorkspaceId } from "@/server/tl/workspace";
+import { guardRoute } from "@/server/tl/access";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,8 @@ export const dynamic = "force-dynamic";
  * `inactive=1` also offers drivers who are out of service (for pay still owed them). Each driver comes back with what stops them (a lapsed card, another load at the same time) and their usual pay, the shape the Assign form already takes.
  */
 export async function GET(request: Request) {
+  const denied = await guardRoute("viewer");
+  if (denied) return denied;
   const params = new URL(request.url).searchParams;
   const q = (params.get("q") ?? "").trim().slice(0, 60);
   const loadId = params.get("load");

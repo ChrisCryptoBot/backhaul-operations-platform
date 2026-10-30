@@ -103,7 +103,7 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
     return {
       filename: name("invoices"),
       csv: toCsv(
-        ["Load", "Invoice", "Customer", "Lane", "Delivered", "Invoiced", "Due", "Paid", "Terms (days)", "Amount", "Status"],
+        ["Load", "Invoice", "Customer", "Lane", "Delivered", "Invoiced", "Due", "Paid", "Terms (days)", "Amount", "Received", "Balance owed", "Status"],
         rows.map((r): CsvCell[] => [
           r.loadNumber,
           r.invoiceNumber,
@@ -115,6 +115,8 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
           ymd(r.paidAt),
           r.payTermsDays,
           two(r.amount),
+          r.paidAmount != null ? two(r.paidAmount) : null,
+          r.status === "invoiced" ? two(r.balance) : null,
           r.status ?? "not invoiced"
         ])
       )

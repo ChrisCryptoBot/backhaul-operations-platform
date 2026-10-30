@@ -27,6 +27,9 @@ const REASONS: Record<string, string> = {
   no_key: "That file can only be read with a reading key, and none is set on this machine. The two samples read without one.",
   unsupported_file: "That file type cannot be read. Use a PDF, or a photo or screenshot (PNG, JPG, WebP).",
   too_big: "That file is over 10 MB. Use a smaller scan or a screenshot.",
+  daily_limit: "This desk has used today's reads of rate confirmations (the number depends on the plan, and a few unreadable ones count too). Try again tomorrow, or type the load in by hand.",
+  too_many_pages: "That PDF has too many pages for a rate confirmation (12 at most). Send just the pages with the rate and the stops, or type the load in by hand.",
+  busy: "Reading is busy right now. Try again later, or type the load in by hand.",
   unreadable: "The reader could not make sense of that document.",
   refused: "The reader declined this file.",
   upstream_error: "The reading service did not answer. Try again."
@@ -54,6 +57,9 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
   // The stops box is ticked for one set of confirm-level checks; if the stops change so that the checks change, it clears itself.
   const [stopsTicked, setStopsTicked] = React.useState<string | null>(null);
   const [savedId, setSavedId] = React.useState<string | null>(null);
+  // The file that was read, kept on the load when it is saved (a sample is not a real document and is not kept). Factoring's packet is made of what is kept.
+  const picked = React.useRef<File | null>(null);
+  const [fileNote, setFileNote] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [over, setOver] = React.useState(false);
   // Kept between documents: a dispatcher reading a stack of them for one truck should not have to pick it every time.
@@ -95,8 +101,12 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
     }
   }
 
-  const readSample = (file: string) => begin(file, () => readSampleRateConAction(file));
+  const readSample = (file: string) => {
+    picked.current = null;
+    return begin(file, () => readSampleRateConAction(file));
+  };
   const readFile = (file: File) => {
+    picked.current = file;
     const form = new FormData();
     form.set("file", file);
     return begin(file.name, () => readUploadedRateConAction(form));
@@ -165,6 +175,8 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
     if (draft.load.quotedRevenue == null || draft.load.quotedRevenue <= 0) problems.push("Type the agreed rate.");
     if (draft.stops.length === 0) problems.push("A load needs at least one stop.");
     if (draft.stops.some((s) => s.addressString.trim() === "")) problems.push("Every stop needs an address.");
+    if (draft.printed.tonuOnly) problems.push("This document is a truck-ordered-not-used notice, not a load to haul. Record it as a TONU on the load it was for.");
+    if (draft.load.loadedMiles == null || !(draft.load.loadedMiles > 0)) problems.push("Type the loaded miles. The document printed none, and without them the load cannot be judged.");
   }
 
   const checks = draft ? rateConChecks({ stops: draft.stops, loadedMiles: draft.load.loadedMiles }) : [];
@@ -190,6 +202,21 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
     if (out.ok) {
       setSavedId(out.loadId);
       setStage("saved");
+      setFileNote(null);
+      const original = picked.current;
+      if (original) {
+        const keep = new FormData();
+        keep.set("loadId", out.loadId);
+        keep.set("kind", "rate_con");
+        keep.set("file", original);
+        try {
+          const res = await fetch("/documents/upload", { method: "POST", body: keep });
+          const kept = (await res.json().catch(() => null)) as { ok: boolean; error?: string } | null;
+          setFileNote(kept?.ok ? "The rate confirmation is kept on the load." : `The load is saved, but the file could not be kept (${kept?.error ?? "try again"}). Add it under Documents on the load.`);
+        } catch {
+          setFileNote("The load is saved, but the file could not be kept. Add it under Documents on the load.");
+        }
+      }
     } else {
       setMessage(out.error);
       setDuplicateOf(out.duplicateOf ?? null);
@@ -221,8 +248,13 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
             onDrop={(e) => {
               e.preventDefault();
               setOver(false);
-              const file = e.dataTransfer.files[0];
-              if (file && stage === "pick") void readFile(file);
+              const files = e.dataTransfer.files;
+              const file = files[0];
+              if (file && stage === "pick") {
+                void readFile(file);
+                // One document is read at a time: say so when several were dropped, rather than quietly reading one and ignoring the rest.
+                if (files.length > 1) setMessage(`${files.length} files were dropped and only ${file.name} is being read. Drop the others one at a time, after this one is saved.`);
+              }
             }}>
             <input
               className="rc-file"
@@ -562,6 +594,7 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
             <p className="tl-note">
               {cityState(draft.stops[0]?.addressString ?? null) ?? "—"} to {cityState(draft.stops[draft.stops.length - 1]?.addressString ?? null) ?? "—"} · {draft.load.quotedRevenue != null ? usd(draft.load.quotedRevenue, 2) : "no rate"} · it is on the Dispatch queue, needing a driver.
             </p>
+            {fileNote ? <p className="tl-note">{fileNote}</p> : null}
           </div>
           {savedId ? (
             <Link className="tl-btn primary" href={`/loads/${savedId}`}>

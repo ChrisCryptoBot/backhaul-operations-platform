@@ -1,3 +1,4 @@
+import { currentTerminal } from "@/server/tl/terminal";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import React from "react";
@@ -13,7 +14,7 @@ import { asPage, asSort, nextSortParam } from "@/lib/paging";
 import { DataTableTools } from "@/components/desk/data-table-tools";
 import { EmptyState } from "@/components/desk/kit/states";
 import { NewLoad } from "@/components/desk/new-load";
-import { asBoardStatus, BOARD_STATUSES, filterBoard, isBelowCost, searchBoard } from "@/lib/board-filter";
+import { asBoardStatus, BOARD_STATUSES, filterBoard, isBelowCost, onTab, searchBoard } from "@/lib/board-filter";
 import { reasonLabel } from "@/lib/disruptions";
 import { asHistoryFilter, asHistorySort, fellThrough, HISTORY_FILTERS, HISTORY_SORTS, historyDate, monthGroups } from "@/lib/loads-history";
 import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
@@ -29,7 +30,7 @@ const OPEN_SORT_VALUE: Record<(typeof OPEN_SORTS)[number], (r: BoardRow) => stri
   lane: (r) => `${r.origin ?? ""} ${r.destination ?? ""}`.toLowerCase(),
   pickup: (r) => r.scheduledDate?.getTime() ?? null,
   miles: (r) => r.totalMiles,
-  pay: (r) => r.quotedRevenue,
+  pay: (r) => r.grossRevenue,
   perMile: (r) => r.perMile,
   floor: (r) => r.floorPerMile,
   driver: (r) => r.driverName?.toLowerCase() ?? null
@@ -70,11 +71,13 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   if (searchParams?.status === "completed") redirect(`/loads?view=history${q ? `&q=${encodeURIComponent(q)}` : ""}`);
 
   const view = searchParams?.view === "history" ? "history" : "open";
+  // The header's terminal scope narrows the board too (loads placed in that terminal, and loads not placed anywhere yet).
+  const terminal = await currentTerminal();
   // The open board is the loads still moving. History is read a page at a time: the database filters, sorts, searches and counts it.
   const histFilter = asHistoryFilter(searchParams?.filter);
   const histSort = asHistorySort(searchParams?.sort);
   const [openAll, { byLoad }, hist] = await Promise.all([
-    listBoardRows(),
+    listBoardRows(currentWorkspaceId(), "open", terminal),
     getAlerts(new Date(), currentWorkspaceId(), "open"),
     view === "history" ? listHistory({ filter: histFilter, sort: histSort, q, page: Number(searchParams?.page) || 1 }) : Promise.resolve(null)
   ]);
@@ -243,9 +246,10 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   const active = asBoardStatus(searchParams?.status);
   const below = searchParams?.flag === "below";
   const shown = filterBoard(openAll, { status: active, flag: below ? "below" : undefined, q });
-  const counts = (key: string) => (key === "all" ? all.length : all.filter((r) => r.status === key).length);
+  const counts = (key: string) => (key === "all" ? all.length : all.filter((r) => onTab(r, key)).length);
   const belowCount = all.filter(isBelowCost).length;
-  const sortKey = searchParams?.sort ? asSort(searchParams.sort, OPEN_SORTS, { key: "pickup", dir: "desc" }) : null;
+  // Latest pickup first unless another column is chosen, and the Pickup header shows it (an unmarked order read as no order).
+  const sortKey = asSort(searchParams?.sort, OPEN_SORTS, { key: "pickup", dir: "desc" });
   const href = (status: string, flag: boolean, text = q, extra: { sort?: string | null; page?: number } = {}) => {
     const p = new URLSearchParams();
     if (status !== "all") p.set("status", status);
@@ -295,7 +299,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
         pickup: shortDate(r.scheduledDate),
         truck: r.vehicleName ?? "—",
         miles: miles(r.totalMiles),
-        pay: usd(r.quotedRevenue),
+        pay: usd(r.grossRevenue),
         perMile: perMile(r.perMile),
         floor: <span className="dim">{perMile(r.floorPerMile)}</span>,
         verdict: <VerdictChip verdict={r.verdict} />,

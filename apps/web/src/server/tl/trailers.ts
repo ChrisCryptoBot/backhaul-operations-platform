@@ -11,6 +11,7 @@ import { ymdOf } from "@/lib/fleet-forms";
 import { trailerLabel } from "@/truelane/constants/trailerData";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
+import { lockWorkspace, roomFor } from "./plan";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
 
@@ -114,10 +115,15 @@ export async function saveTrailer(raw: Record<string, unknown>, id: string | nul
   try {
     if (id == null) {
       const created = await prisma.$transaction(async (tx) => {
+        // A plan holds twice as many trailers as trucks; the count is taken with the workspace locked so two adds at the edge cannot both pass.
+        await lockWorkspace(tx, workspaceId);
+        const room = await roomFor("trailer", 1, workspaceId, tx);
+        if (!room.ok) return room;
         const t = await tx.trailer.create({ data: { workspaceId, ...data } });
         await recordAudit({ entity: "trailer", entityId: t.id, action: "trailer_added", summary: `${v.number} added as a trailer`, before: null, after, at: now, workspaceId }, tx);
         return t;
       });
+      if ("ok" in created) return { ok: false, error: created.message };
       return { ok: true, id: created.id, changed: true };
     }
     const prev = await prisma.trailer.findFirst({ where: { id, workspaceId } });
@@ -148,14 +154,21 @@ export async function setTrailerArchived(id: string, archived: boolean, now = ne
     const clash = await prisma.trailer.findFirst({ where: { workspaceId, archivedAt: null, number: { equals: t.number, mode: "insensitive" } } });
     if (clash) return { ok: false, error: `Another trailer numbered ${t.number} is in service.` };
   }
-  await prisma.$transaction(async (tx) => {
+  const refused = await prisma.$transaction(async (tx) => {
+    // Restoring a trailer is adding one to the plan's count.
+    if (!archived) {
+      await lockWorkspace(tx, workspaceId);
+      const room = await roomFor("trailer", 1, workspaceId, tx);
+      if (!room.ok) return room.message;
+    }
     await tx.trailer.update({ where: { id }, data: { archivedAt: archived ? now : null, ...(archived ? { currentVehicleId: null } : {}) } });
     await recordAudit(
       { entity: "trailer", entityId: id, action: archived ? "trailer_archived" : "trailer_restored", summary: `${t.number} ${archived ? `archived${t.currentVehicle ? `; unhooked from ${t.currentVehicle.name}` : ""}` : "restored"}`, before: { Status: archived ? "In service" : "Archived" }, after: { Status: archived ? "Archived" : "In service" }, at: now, workspaceId },
       tx
     );
+    return null;
   });
-  return { ok: true };
+  return refused ? { ok: false, error: refused } : { ok: true };
 }
 
 /** Hook a trailer to a tractor, or (with no tractor) unhook it. A tractor pulls one trailer at a time. */

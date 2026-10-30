@@ -5,6 +5,9 @@ import { cookies } from "next/headers";
 import { DENSITY_COOKIE, THEME_COOKIE, asDensity, asTheme } from "@/lib/appearance";
 import { redirect, RedirectType } from "next/navigation";
 import { prisma } from "@/lib/db";
+import { requireMember } from "@/server/tl/access";
+import { removeLoadDocument, type DocResult } from "@/server/tl/documents";
+import { addMember, removeMember, setMemberRole, type MemberResult } from "@/server/tl/members";
 import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
 import { cancelLoad, recordTonu, rescheduleLoad } from "@/server/tl/disruptions";
 import { invoiceLoad, markLoadPaid } from "@/server/tl/invoicing";
@@ -37,10 +40,14 @@ import { markThreadRead, sendMessage, type SendResult as SendMessageResult } fro
 import { commitImport, locateHomeBases, previewImport, type ImportPreview, type ImportResult, type LocateResult } from "@/server/tl/import";
 import type { ImportKind } from "@/lib/import-csv";
 import { deleteLoad, restoreLoad, type RemoveResult } from "@/server/tl/remove";
-import { completeTrip, saveExpenses, startTrip, type TripResult } from "@/server/tl/execution";
-import { undoPaid, type InvoiceOut, type PaidOut } from "@/server/tl/invoicing";
+import { completeTrip, reopenDelivered, saveExpenses, startTrip, undoStartTrip, type TripResult } from "@/server/tl/execution";
+import { undoPaid, voidInvoice, type InvoiceOut, type PaidOut } from "@/server/tl/invoicing";
 import { discardSettlement, finalizeSettlement, saveDraft, startSettlement, voidSettlement, type Draft, type SettleResult } from "@/server/tl/settlement";
+import { checkAttachment } from "@/lib/attachments";
 import { readRateCon } from "@/server/ratecon/reader";
+import { claimRead, noteRead, readMeter } from "@/server/ratecon/meter";
+import { releaseUsage } from "@/server/tl/usage";
+import { MAX_RATE_CON_PAGES, pdfPageCount } from "@/lib/pdf-pages";
 import { DuplicateLoadError, saveReviewedDraft, type ReviewedDraft } from "@/server/ratecon/save";
 import { loadSendGaps } from "@/server/tl/readiness";
 import { gapsPhrase } from "@/lib/send-readiness";
@@ -73,6 +80,7 @@ async function attempt(loadId: string, fn: () => Promise<string>): Promise<never
 }
 
 export async function assignAction(formData: FormData) {
+  await requireMember("dispatcher");
   const loadId = String(formData.get("loadId"));
   await attempt(loadId, async () => {
     const rate = Number(formData.get("rate"));
@@ -88,17 +96,20 @@ export async function assignAction(formData: FormData) {
 
 /** Who could take a load, with the best fits first: the data behind the Assign window on the dispatch queue and the planner. Reads only. */
 export async function assignOptionsAction(loadId: string): Promise<AssignOptions | null> {
+  await requireMember("viewer");
   return assignOptions(loadId);
 }
 
 /** Assign from the queue or the planner. Answers in place (no redirect), and everything that shows a load looks again. */
 export async function assignFromQueueAction(input: { loadId: string; driverId: string; payKind: string; rate: string; overrideReason?: string }): Promise<AssignOutcome> {
+  await requireMember("dispatcher");
   const out = await assignFromQueue(input);
   if (out.ok) refreshLoads();
   return out;
 }
 
 export async function unassignAction(formData: FormData) {
+  await requireMember("dispatcher");
   const loadId = String(formData.get("loadId"));
   await attempt(loadId, async () => {
     await unassignLoad(loadId, String(formData.get("reason") ?? ""));
@@ -107,6 +118,7 @@ export async function unassignAction(formData: FormData) {
 }
 
 export async function sendAction(formData: FormData) {
+  await requireMember("dispatcher");
   const loadId = String(formData.get("loadId"));
   const sendAnyway = formData.get("sendAnyway") === "1";
   await attempt(loadId, async () => {
@@ -120,10 +132,14 @@ export async function sendAction(formData: FormData) {
 }
 
 export async function respondAction(formData: FormData) {
+  await requireMember("dispatcher");
   const loadId = String(formData.get("loadId"));
   const response = formData.get("response") === "declined" ? "declined" : "accepted";
+  const note = String(formData.get("note") ?? "").trim();
   await attempt(loadId, async () => {
-    await recordDriverResponse(loadId, response);
+    // A no is kept with its reason: the next dispatcher to look at the load needs to know why.
+    if (response === "declined" && note.length < 3) throw new DispatchError("reason_required", "Say why the driver declined. It is kept with the answer.");
+    await recordDriverResponse(loadId, response, new Date(), note || undefined);
     return response === "accepted" ? "Driver accepted." : "Driver declined. Pick another driver.";
   });
 }
@@ -133,6 +149,7 @@ export async function respondAction(formData: FormData) {
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "");
 
 export async function cancelAction(formData: FormData) {
+  await requireMember("dispatcher");
   const loadId = text(formData, "loadId");
   await attempt(loadId, async () => {
     await cancelLoad({ loadId, reason: text(formData, "reason"), note: text(formData, "note") });
@@ -141,6 +158,7 @@ export async function cancelAction(formData: FormData) {
 }
 
 export async function tonuAction(formData: FormData) {
+  await requireMember("dispatcher");
   const loadId = text(formData, "loadId");
   await attempt(loadId, async () => {
     await recordTonu({ loadId, reason: text(formData, "reason"), note: text(formData, "note"), fee: Number(text(formData, "fee")) });
@@ -149,6 +167,7 @@ export async function tonuAction(formData: FormData) {
 }
 
 export async function rescheduleAction(formData: FormData) {
+  await requireMember("dispatcher");
   const loadId = text(formData, "loadId");
   await attempt(loadId, async () => {
     const at = parseCentralLocal(text(formData, "pickup"));
@@ -172,6 +191,7 @@ function toDto(d: RateConLoadDraft): DraftDto {
 export type ReadResult = { ok: true; source: "demo" | "live"; fileName: string; draft: DraftDto } | { ok: false; reason: string };
 
 export async function readSampleRateConAction(fileName: string): Promise<ReadResult> {
+  await requireMember("viewer");
   const out = await readRateCon({ fileName });
   return out.ok ? { ok: true, source: out.source, fileName, draft: toDto(out.draft) } : { ok: false, reason: out.reason };
 }
@@ -181,14 +201,30 @@ const MAX_RATE_CON_BYTES = 10 * 1024 * 1024;
 
 /** A file chosen or dropped on the page. A sample's name still reads without a key; anything else needs one. */
 export async function readUploadedRateConAction(formData: FormData): Promise<ReadResult> {
+  await requireMember("dispatcher");
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) return { ok: false, reason: "unreadable" };
   if (file.size > MAX_RATE_CON_BYTES) return { ok: false, reason: "too_big" };
-  const out = await readRateCon({ fileName: file.name, mime: file.type, bytes: new Uint8Array(await file.arrayBuffer()) });
+  // An uploaded file is a paid read (the samples have their own buttons, readSampleRateConAction), so it is held to the daily meter and its type is taken from the file's own bytes,
+  // not from what the browser said it was.
+  const checked = checkAttachment(file.name, file.type, new Uint8Array(await file.arrayBuffer()));
+  if (!checked.ok) return { ok: false, reason: checked.code === "too_big" ? "too_big" : "unsupported_file" };
+  // A PDF with more pages than a rate confirmation has is refused before anything is spent on it.
+  if (checked.type.mime === "application/pdf" && pdfPageCount(checked.data) > MAX_RATE_CON_PAGES) return { ok: false, reason: "too_many_pages" };
+  const meter = await readMeter();
+  if (!meter.ok) return { ok: false, reason: meter.reason };
+  // The claim on paid spend comes before the call and is checked in one step, so a burst of reads cannot all pass; a read that never reaches the service gives it back.
+  const claim = await claimRead();
+  if (!claim.ok) return { ok: false, reason: claim.reason };
+  const out = await readRateCon({ fileName: file.name, mime: checked.type.mime, bytes: checked.data });
+  // A file that never reached the service (no key here, a type it cannot read) cost nothing and is not counted.
+  if (out.ok || out.reason === "unreadable" || out.reason === "refused" || out.reason === "upstream_error") await noteRead(out.ok, file.name);
+  else await releaseUsage(claim.claim);
   return out.ok ? { ok: true, source: out.source, fileName: file.name, draft: toDto(out.draft) } : { ok: false, reason: out.reason };
 }
 
 export async function saveRateConAction(dto: DraftDto, confirmed: boolean, vehicleId: string | null = null, fileName: string | null = null, allowDuplicate = false): Promise<{ ok: true; loadId: string } | { ok: false; error: string; duplicateOf?: string }> {
+  await requireMember("dispatcher");
   try {
     const draft: ReviewedDraft = {
       ...dto,
@@ -218,36 +254,42 @@ export async function saveRateConAction(dto: DraftDto, confirmed: boolean, vehic
 const refreshFleet = () => revalidatePath("/", "layout");
 
 export async function saveDriverAction(values: Record<string, string>, id: string | null): Promise<SaveResult<keyof DriverValues>> {
+  await requireMember("dispatcher");
   const out = await saveDriver(values, id);
   if (out.ok) refreshFleet();
   return out;
 }
 
 export async function setDriverActiveAction(id: string, active: boolean): Promise<ActResult> {
+  await requireMember("dispatcher");
   const out = await setDriverActive(id, active);
   if (out.ok) refreshFleet();
   return out;
 }
 
 export async function saveTruckAction(values: Record<string, string>, id: string | null): Promise<SaveResult<keyof TruckValues>> {
+  await requireMember("dispatcher");
   const out = await saveTruck(values, id);
   if (out.ok) refreshFleet();
   return out;
 }
 
 export async function setTruckArchivedAction(id: string, archived: boolean): Promise<ActResult> {
+  await requireMember("dispatcher");
   const out = await setTruckArchived(id, archived);
   if (out.ok) refreshFleet();
   return out;
 }
 
 export async function saveTrailerAction(values: Record<string, string>, id: string | null): Promise<TrailerSaveResult> {
+  await requireMember("dispatcher");
   const out = await saveTrailer(values, id);
   if (out.ok) refreshFleet();
   return out;
 }
 
 export async function setTrailerArchivedAction(id: string, archived: boolean): Promise<ActResult> {
+  await requireMember("dispatcher");
   const out = await setTrailerArchived(id, archived);
   if (out.ok) refreshFleet();
   return out;
@@ -255,6 +297,7 @@ export async function setTrailerArchivedAction(id: string, archived: boolean): P
 
 /** Hook a trailer to a tractor (by the tractor's id), or unhook it with an empty id. */
 export async function hookTrailerAction(id: string, vehicleId: string): Promise<ActResult> {
+  await requireMember("dispatcher");
   const out = await hookTrailer(id, vehicleId || null);
   if (out.ok) refreshFleet();
   return out;
@@ -262,6 +305,7 @@ export async function hookTrailerAction(id: string, vehicleId: string): Promise<
 
 /** Put a trailer on a load, or take it off with an empty id. */
 export async function assignTrailerAction(loadId: string, trailerId: string): Promise<AssignTrailerResult> {
+  await requireMember("dispatcher");
   const out = await assignTrailerToLoad(loadId, trailerId || null);
   if (out.ok) {
     revalidatePath("/loads", "layout");
@@ -271,6 +315,7 @@ export async function assignTrailerAction(loadId: string, trailerId: string): Pr
 }
 
 export async function saveCostProfileAction(vehicleId: string, values: Record<string, string>): Promise<SaveResult<ProfileKey> & { floors?: { breakEven: number; survival: number } }> {
+  await requireMember("dispatcher");
   const out = await saveCostProfile(vehicleId, values);
   if (out.ok) refreshFleet();
   return out;
@@ -280,6 +325,7 @@ export async function saveCostProfileAction(vehicleId: string, values: Record<st
 
 /** Checks and saves the thresholds the form sent. Everything that reads them (alerts, the KPI lines, invoice terms) refreshes. */
 export async function saveThresholdsAction(values: Record<string, string>): Promise<{ ok: true; changed: boolean } | { ok: false; errors: Partial<Record<keyof Thresholds, string>> }> {
+  await requireMember("owner");
   const out = await saveThresholds(values);
   if (!out.ok) return { ok: false, errors: out.errors };
   revalidatePath("/", "layout");
@@ -288,6 +334,7 @@ export async function saveThresholdsAction(values: Record<string, string>): Prom
 
 /** The company on invoices and statements. Both sheets read it, so they refresh with the layout. */
 export async function saveCompanyAction(values: CompanyValues): Promise<{ ok: true; changed: boolean } | { ok: false; errors: Partial<Record<keyof CompanyValues, string>> }> {
+  await requireMember("owner");
   const out = await saveCompany(values);
   if (!out.ok) return { ok: false, errors: out.errors };
   revalidatePath("/", "layout");
@@ -296,6 +343,7 @@ export async function saveCompanyAction(values: CompanyValues): Promise<{ ok: tr
 
 /** A customer's record. Its name is on loads, so everything that shows a load or a customer looks again. */
 export async function saveCustomerAction(values: CustomerValues, id: string | null): Promise<SaveCustomerResult> {
+  await requireMember("dispatcher");
   const out = await saveCustomer(values, id);
   if (out.ok && out.changed) refreshLoads();
   return out;
@@ -305,6 +353,7 @@ export async function saveCustomerAction(values: CustomerValues, id: string | nu
 
 /** Saves the theme and/or density in cookies (read by the root layout) and returns to Settings with a note. */
 export async function setAppearanceAction(formData: FormData) {
+  await requireMember("viewer");
   const jar = cookies();
   const theme = formData.get("theme");
   const density = formData.get("density");
@@ -321,6 +370,7 @@ export type PricedQuote = { ok: true; fit: FitResult; context: QuoteContext; war
 
 /** The offer priced as you type: every truck and driver, plus what the desk already knows about the lane and the broker. Writes nothing. */
 export async function priceQuoteAction(values: QuoteValues): Promise<PricedQuote> {
+  await requireMember("viewer");
   const input = readQuote(values);
   if (!input) return { ok: false };
   const [fit, context] = await Promise.all([fitQuote(input, undefined, undefined, await currentTerminal()), quoteContext(input)]);
@@ -328,12 +378,14 @@ export async function priceQuoteAction(values: QuoteValues): Promise<PricedQuote
 }
 
 export async function saveQuoteAction(values: QuoteValues, quoteId: string | null, vehicleId: string | null): Promise<QuoteSave> {
+  await requireMember("dispatcher");
   const out = await saveQuote(values, quoteId, vehicleId);
   if (out.ok) revalidatePath("/quote");
   return out;
 }
 
 export async function bookQuoteAction(values: QuoteValues, pick: { vehicleId: string; driverId: string | null }, override: Override | null, quoteId: string | null): Promise<BookResult> {
+  await requireMember("dispatcher");
   const out = await bookQuote(values, pick, override, quoteId);
   if (out.ok) {
     for (const path of ["/quote", "/loads", "/dispatch", "/planner", "/alerts", "/audit", "/kpi"]) revalidatePath(path);
@@ -343,6 +395,7 @@ export async function bookQuoteAction(values: QuoteValues, pick: { vehicleId: st
 }
 
 export async function passQuoteAction(id: string, reason: string, notes: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireMember("dispatcher");
   const out = await passQuote(id, reason, notes);
   if (out.ok) {
     revalidatePath("/quote");
@@ -352,6 +405,7 @@ export async function passQuoteAction(id: string, reason: string, notes: string)
 }
 
 export async function discardQuoteAction(id: string): Promise<{ ok: boolean }> {
+  await requireMember("dispatcher");
   const ok = await discardQuote(id);
   if (ok) revalidatePath("/quote");
   return { ok };
@@ -366,57 +420,96 @@ function refreshLoads() {
 }
 
 export async function saveLoadDetailsAction(loadId: string, values: LoadEditValues): Promise<EditResult> {
+  await requireMember("dispatcher");
   const out = await saveLoadDetails(loadId, values);
   if (out.ok && out.changed) refreshLoads();
   return out;
 }
 
 export async function deleteLoadAction(loadId: string, reason: string, note: string): Promise<RemoveResult> {
+  await requireMember("dispatcher");
   const out = await deleteLoad({ loadId, reason, note });
   if (out.ok) refreshLoads();
   return out;
 }
 
 export async function restoreLoadAction(loadId: string): Promise<RemoveResult> {
+  await requireMember("dispatcher");
   const out = await restoreLoad(loadId);
   if (out.ok) refreshLoads();
   return out;
 }
 
 export async function startTripAction(loadId: string, values: StartValues): Promise<TripResult> {
+  await requireMember("dispatcher");
   const out = await startTrip(loadId, values);
   if (out.ok) refreshLoads();
   return out;
 }
 
+export async function undoStartAction(formData: FormData) {
+  await requireMember("dispatcher");
+  const loadId = String(formData.get("loadId"));
+  await attempt(loadId, async () => {
+    const out = await undoStartTrip(loadId, String(formData.get("reason") ?? ""));
+    if (!out.ok) throw new DispatchError("not_allowed", out.error ?? "That pickup cannot be taken back.");
+    return "Pickup taken back. The driver has the load again.";
+  });
+}
+
+export async function reopenDeliveredAction(formData: FormData) {
+  await requireMember("dispatcher");
+  const loadId = String(formData.get("loadId"));
+  await attempt(loadId, async () => {
+    const out = await reopenDelivered(loadId, String(formData.get("reason") ?? ""));
+    if (!out.ok) throw new DispatchError("not_allowed", out.error ?? "That delivery cannot be taken back.");
+    return "Delivery taken back. The load is on the road again.";
+  });
+}
+
 export async function completeTripAction(loadId: string, values: CompleteValues): Promise<TripResult> {
+  await requireMember("dispatcher");
   const out = await completeTrip(loadId, values);
   if (out.ok) refreshLoads();
   return out;
 }
 
 export async function saveExpensesAction(loadId: string, values: ExpenseValues): Promise<TripResult & { changed?: boolean }> {
+  await requireMember("dispatcher");
   const out = await saveExpenses(loadId, values);
   if (out.ok && out.changed) refreshLoads();
   return out;
 }
 
 export async function invoiceLoadAction(loadId: string, form: InvoiceForm): Promise<InvoiceOut> {
+  await requireMember("dispatcher");
   const out = await invoiceLoad(loadId, { form });
   if (out.ok) refreshLoads();
   return out;
 }
 
 /** Mark an invoice paid with the amount that came in; blank means the invoice total. */
-export async function paidAction(loadId: string, amount: string, paidOn = "", method = ""): Promise<PaidOut> {
+export async function paidAction(loadId: string, amount: string, paidOn = "", method = "", shortAction: "balance" | "writeoff" = "balance", shortReason = ""): Promise<PaidOut> {
+  await requireMember("dispatcher");
   const text = amount.trim().replace(/,/g, "");
   const typed = text === "" ? undefined : Number(text);
-  const out = await markLoadPaid(loadId, new Date(), { amount: typed, paidOn, method });
+  const out = await markLoadPaid(loadId, new Date(), { amount: typed, paidOn, method, shortAction: shortAction === "writeoff" ? "writeoff" : "balance", shortReason });
   if (out.ok) refreshLoads();
   return out;
 }
 
+export async function voidInvoiceAction(formData: FormData) {
+  await requireMember("dispatcher");
+  const loadId = String(formData.get("loadId"));
+  await attempt(loadId, async () => {
+    const out = await voidInvoice(loadId, String(formData.get("reason") ?? ""));
+    if (!out.ok) throw new DispatchError("not_allowed", out.error ?? "That invoice cannot be taken back.");
+    return "Invoice taken back. The load is ready to invoice again.";
+  });
+}
+
 export async function undoPaidAction(formData: FormData) {
+  await requireMember("dispatcher");
   const loadId = String(formData.get("loadId"));
   await attempt(loadId, async () => {
     const out = await undoPaid(loadId, String(formData.get("reason") ?? ""));
@@ -434,30 +527,35 @@ function refreshSettlements(id?: string) {
 }
 
 export async function startSettlementAction(input: { driverId: string; start: string; end: string }): Promise<SettleResult> {
+  await requireMember("dispatcher");
   const out = await startSettlement(input);
   if (out.ok) refreshSettlements();
   return out;
 }
 
 export async function saveSettlementAction(id: string, draft: Draft): Promise<SettleResult> {
+  await requireMember("dispatcher");
   const out = await saveDraft(id, draft);
   if (out.ok) refreshSettlements(id);
   return out;
 }
 
 export async function finalizeSettlementAction(id: string, draft: Draft): Promise<SettleResult> {
+  await requireMember("dispatcher");
   const out = await finalizeSettlement(id, draft);
   if (out.ok) refreshSettlements(id);
   return out;
 }
 
 export async function voidSettlementAction(id: string, reason: string): Promise<SettleResult> {
+  await requireMember("dispatcher");
   const out = await voidSettlement(id, reason);
   if (out.ok) refreshSettlements(id);
   return out;
 }
 
 export async function discardSettlementAction(id: string): Promise<SettleResult> {
+  await requireMember("dispatcher");
   const out = await discardSettlement(id);
   if (out.ok) refreshSettlements();
   return out;
@@ -469,6 +567,7 @@ const asKind = (k: unknown): ImportKind | null => (k === "trucks" || k === "driv
 
 /** Reads a CSV and says what would be imported and what would not. Writes nothing. */
 export async function previewImportAction(kind: ImportKind, text: string): Promise<ImportPreview> {
+  await requireMember("viewer");
   const k = asKind(kind);
   if (!k || typeof text !== "string") return { ok: false, error: "That is not a file the desk can read." };
   return previewImport(k, text);
@@ -476,6 +575,7 @@ export async function previewImportAction(kind: ImportKind, text: string): Promi
 
 /** Imports the rows that pass, 500 at a time, with one entry in the audit log. */
 export async function commitImportAction(kind: ImportKind, text: string, fileName: string): Promise<ImportResult> {
+  await requireMember("dispatcher");
   const k = asKind(kind);
   if (!k || typeof text !== "string") return { ok: false, error: "That is not a file the desk can read." };
   const out = await commitImport(k, text, typeof fileName === "string" ? fileName : "");
@@ -485,6 +585,7 @@ export async function commitImportAction(kind: ImportKind, text: string, fileNam
 
 /** Finds the next few trucks' home bases on the map; the screen calls it again with `next` until there is none. */
 export async function locateHomeBasesAction(after: string | null): Promise<LocateResult> {
+  await requireMember("dispatcher");
   const out = await locateHomeBases(typeof after === "string" ? after : null);
   if (out.located > 0) revalidatePath("/fleet");
   return out;
@@ -493,6 +594,7 @@ export async function locateHomeBasesAction(after: string | null): Promise<Locat
 // ── Partner companies (factoring, ELD, fuel cards, carrier vetting, payroll) ───────────────────
 
 export async function factorInvoiceAction(loadId: string, sendAnyway: boolean): Promise<FactorResult> {
+  await requireMember("dispatcher");
   const out = await factorInvoice(loadId, { sendAnyway: sendAnyway === true });
   if (out.ok) {
     revalidatePath("/invoices", "layout");
@@ -502,6 +604,7 @@ export async function factorInvoiceAction(loadId: string, sendAnyway: boolean): 
 }
 
 export async function syncEldAction(): Promise<SyncResult> {
+  await requireMember("dispatcher");
   const out = await syncEld();
   if (out.ok) revalidatePath("/", "layout");
   return out;
@@ -509,34 +612,40 @@ export async function syncEldAction(): Promise<SyncResult> {
 
 /** Reads a trip's fuel from the truck's card. Writes nothing to the load: the screen decides whether to put the total in the box. */
 export async function importFuelAction(loadId: string): Promise<FuelCardResult> {
+  await requireMember("dispatcher");
   return importFuelForLoad(loadId);
 }
 
 export async function saveFuelCardAction(vehicleId: string, provider: string, accountId: string): Promise<SaveFuelCard> {
+  await requireMember("dispatcher");
   const out = await saveFuelCard(vehicleId, String(provider ?? ""), String(accountId ?? ""));
   if (out.ok) refreshFleet();
   return out;
 }
 
 export async function vetCarrierAction(driverId: string): Promise<VetResult> {
+  await requireMember("dispatcher");
   const out = await vetDriverCarrier(driverId);
   if (out.ok) refreshFleet();
   return out;
 }
 
 export async function sendToPayrollAction(statementIds: string[]): Promise<SendResult> {
+  await requireMember("dispatcher");
   const out = await sendToPayroll(Array.isArray(statementIds) ? statementIds.filter((i) => typeof i === "string") : []);
   if (out.ok) revalidatePath("/payroll", "layout");
   return out;
 }
 
 export async function connectPartnerAction(capability: string, provider: string, accountLabel: string | null): Promise<ConnectResult> {
+  await requireMember("owner");
   const out = await connectPartner(String(capability), String(provider), accountLabel);
   if (out.ok) revalidatePath("/", "layout");
   return out;
 }
 
 export async function disconnectPartnerAction(capability: string, provider: string): Promise<ConnectResult> {
+  await requireMember("owner");
   const out = await disconnectPartner(String(capability), String(provider));
   if (out.ok) revalidatePath("/", "layout");
   return out;
@@ -545,6 +654,7 @@ export async function disconnectPartnerAction(capability: string, provider: stri
 
 /** Save a message to a driver (the desk's record only: nothing carries it to a phone yet). `clientId` makes a double send save once. */
 export async function sendMessageAction(input: { driverId: string; body: string; loadId?: string | null; clientId?: string | null }): Promise<SendMessageResult> {
+  await requireMember("dispatcher");
   const out = await sendMessage({ driverId: String(input.driverId), body: String(input.body ?? ""), loadId: input.loadId ? String(input.loadId) : null, clientId: input.clientId ? String(input.clientId) : null });
   if (out.ok) revalidatePath("/messages");
   return out;
@@ -552,7 +662,38 @@ export async function sendMessageAction(input: { driverId: string; body: string;
 
 /** The dispatcher opened a conversation: the driver's messages in it count as read, and the sidebar number drops. */
 export async function markThreadReadAction(driverId: string): Promise<number> {
+  await requireMember("dispatcher");
   const n = await markThreadRead(String(driverId));
   if (n > 0) revalidatePath("/", "layout");
   return n;
+}
+
+export async function removeDocumentAction(id: string): Promise<DocResult> {
+  await requireMember("dispatcher");
+  const out = await removeLoadDocument(id);
+  if (out.ok) refreshLoads();
+  return out;
+}
+
+// ── The team (owners only) ─────────────────────────────────────────────────────────────────────
+
+export async function addMemberAction(input: { email: string; name: string; role: string }): Promise<MemberResult> {
+  await requireMember("owner");
+  const out = await addMember(input);
+  if (out.ok) revalidatePath("/settings");
+  return out;
+}
+
+export async function setMemberRoleAction(id: string, role: string): Promise<MemberResult> {
+  await requireMember("owner");
+  const out = await setMemberRole(id, role);
+  if (out.ok) revalidatePath("/settings");
+  return out;
+}
+
+export async function removeMemberAction(id: string): Promise<MemberResult> {
+  await requireMember("owner");
+  const out = await removeMember(id);
+  if (out.ok) revalidatePath("/settings");
+  return out;
 }

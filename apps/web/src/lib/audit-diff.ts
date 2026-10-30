@@ -40,11 +40,23 @@ export type AuditAction =
   | "invoiced"
   | "paid"
   | "rate_con_saved"
+  | "rate_con_read"
+  | "rate_con_read_failed"
+  | "invoice_voided"
+  | "payment_part"
+  | "document_added"
+  | "document_removed"
+  | "member_added"
+  | "member_role_changed"
+  | "member_removed"
   | "booked"
   | "quote_passed"
+  | "quote_discarded"
   | "load_edited"
   | "trip_started"
   | "delivered"
+  | "trip_undone"
+  | "trip_reopened"
   | "expenses_changed"
   | "payment_undone"
   | "statement_started"
@@ -96,11 +108,23 @@ export const ACTION_LABEL: Record<string, string> = {
   invoiced: "Invoice created",
   paid: "Marked paid",
   rate_con_saved: "Created from a rate confirmation",
+  rate_con_read: "Rate confirmation read",
+  rate_con_read_failed: "Rate confirmation could not be read",
+  invoice_voided: "Invoice taken back",
+  payment_part: "Part payment received",
+  document_added: "Document kept",
+  document_removed: "Document removed",
+  member_added: "Person added to the desk",
+  member_role_changed: "Role changed",
+  member_removed: "Person removed from the desk",
   booked: "Booked from a quote",
   quote_passed: "Quote passed",
+  quote_discarded: "Quote thrown away",
   load_edited: "Load details changed",
   trip_started: "Picked up",
   delivered: "Delivered",
+  trip_undone: "Pickup taken back",
+  trip_reopened: "Delivery taken back",
   expenses_changed: "Expenses changed",
   payment_undone: "Payment undone",
   statement_started: "Statement started",
@@ -153,11 +177,23 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   invoiced: "info",
   paid: "ok",
   rate_con_saved: "muted",
+  rate_con_read: "muted",
+  rate_con_read_failed: "warn",
+  invoice_voided: "warn",
+  payment_part: "info",
+  document_added: "muted",
+  document_removed: "muted",
+  member_added: "info",
+  member_role_changed: "warn",
+  member_removed: "warn",
   booked: "ok",
   quote_passed: "muted",
+  quote_discarded: "muted",
   load_edited: "muted",
   trip_started: "info",
   delivered: "ok",
+  trip_undone: "warn",
+  trip_reopened: "warn",
   expenses_changed: "muted",
   payment_undone: "warn",
   statement_started: "info",
@@ -197,9 +233,10 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
 
 /** The filter chips on the audit page: which actions belong to which group. */
 export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[] }> = [
-  { key: "dispatch", label: "Dispatch", actions: ["booked", "quote_passed", "load_edited", "trip_started", "delivered", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled"] },
-  { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "paid", "payment_undone", "statement_started", "statement_finalized", "statement_voided", "statement_discarded"] },
-  { key: "intake", label: "Intake", actions: ["rate_con_saved"] },
+  { key: "dispatch", label: "Dispatch", actions: ["booked", "quote_passed", "quote_discarded", "load_edited", "trip_started", "trip_undone", "delivered", "trip_reopened", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled"] },
+  { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "invoice_voided", "paid", "payment_part", "payment_undone", "statement_started", "statement_finalized", "statement_voided", "statement_discarded"] },
+  { key: "intake", label: "Intake", actions: ["rate_con_saved", "rate_con_read", "rate_con_read_failed", "document_added", "document_removed"] },
+  { key: "team", label: "Team", actions: ["member_added", "member_role_changed", "member_removed"] },
   { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_deactivated", "driver_reactivated", "truck_added", "truck_changed", "truck_archived", "truck_restored", "import_completed", "cost_profile_changed", "trailer_added", "trailer_changed", "trailer_archived", "trailer_restored", "trailer_hooked", "trailer_unhooked", "trailer_assigned"] },
   { key: "customers", label: "Customers", actions: ["customer_added", "customer_changed"] },
   { key: "partners", label: "Partners", actions: ["factoring_requested", "factoring_updated", "eld_linked", "hos_synced", "fuel_imported", "carrier_vetted", "payroll_sent", "partner_connected"] },

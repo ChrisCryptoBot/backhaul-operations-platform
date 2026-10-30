@@ -15,6 +15,10 @@ import { planSummary } from "@/server/tl/plan";
 import { partnerStatus } from "@/server/partners/connections";
 import { IntegrationsList } from "@/components/desk/partner-actions";
 import { PLANS, priceText } from "@/lib/plans";
+import { TeamCard } from "@/components/desk/team-card";
+import { isPlatformAdmin, requirePage } from "@/server/tl/access";
+import { listMembers } from "@/server/tl/members";
+import { roleAtLeast } from "@/lib/roles";
 
 export const metadata = { title: "Settings · TrueLane" };
 
@@ -23,7 +27,9 @@ export default async function SettingsPage() {
   const jar = cookies();
   const theme = asTheme(jar.get(THEME_COOKIE)?.value);
   const density = asDensity(jar.get(DENSITY_COOKIE)?.value);
-  const [row, kpi, company, plan, partners] = await Promise.all([getStoredThresholds(), getDeskKpi({ period: "4w", compare: false }), getCompany(), planSummary(), partnerStatus()]);
+  const me = await requirePage("viewer");
+  const [row, kpi, company, plan, partners, members] = await Promise.all([getStoredThresholds(), getDeskKpi({ period: "4w", compare: false }), getCompany(), planSummary(), partnerStatus(), listMembers()]);
+  const seats = plan.units.find((u) => u.kind === "member")!;
   const stored = Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, row[f.key] ?? null])) as Record<keyof Thresholds, number | null>;
 
   return (
@@ -37,13 +43,32 @@ export default async function SettingsPage() {
         <CompanyForm stored={toCompanyValues(company)} />
       </Card>
 
+      <div id="plan">
       <Card title="Plan" className="tl-card">
         <p style={{ margin: "0 0 6px" }}>
           <b>{plan.label}</b> · {plan.price} · {plan.trucks} {plan.trucks === 1 ? "truck" : "trucks"} in service · <b>{plan.monthly} a month</b> <span className="tl-sub">({plan.parts})</span>
         </p>
         <p className="tl-note" style={{ marginBottom: 10, maxWidth: "72ch" }}>
-          {plan.chosen ? `This fleet is on the ${plan.label} plan, which holds ${plan.limit == null ? "any number of trucks" : `${plan.limit} trucks`}; adding past it is refused.` : "No plan has been chosen, so nothing is limited: the price follows the fleet's size. Nothing is charged by the desk yet."}
+          {plan.chosen ? `This fleet is on the ${plan.label} plan.` : `No plan is set for this fleet, so it is held to the ${plan.label} plan.`} A plan holds its trucks and twice as many drivers and trailers; the desk stops at a limit and says which plan comes next. Talk to a person to change the plan. Nothing is charged by the desk yet.
         </p>
+        <table className="tl-table" aria-label="What this plan holds">
+          <tbody>
+            {plan.units.map((u) => (
+              <tr key={u.kind} aria-current={u.full ? "true" : undefined}>
+                <td><b>{u.word.charAt(0).toUpperCase() + u.word.slice(1)}</b></td>
+                <td>{u.used} of {u.limit ?? "no automatic limit"} in service</td>
+                <td style={{ width: "40%" }}>
+                  {u.limit != null ? (
+                    <div role="img" aria-label={`${u.used} of ${u.limit} ${u.word}`} style={{ height: 8, background: "color-mix(in srgb, currentColor 14%, transparent)" }}>
+                      <div style={{ height: "100%", width: `${Math.min(100, (u.used / u.limit) * 100)}%`, background: u.full ? "var(--neg, #c24d4d)" : "var(--accent, #e8a020)" }} />
+                    </div>
+                  ) : null}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p style={{ margin: "14px 0 6px" }}><b>The plans</b></p>
         <table className="tl-table" aria-label="Plans">
           <tbody>
             {PLANS.map((p) => (
@@ -55,6 +80,11 @@ export default async function SettingsPage() {
             ))}
           </tbody>
         </table>
+      </Card>
+      </div>
+
+      <Card title="Team" className="tl-card">
+        <TeamCard rows={members.map((m) => ({ id: m.id, email: m.email, name: m.name, role: m.role, signedIn: m.signedIn, you: m.email === me.email }))} canEdit={roleAtLeast(me.role, "owner")} seats={{ used: seats.used, limit: seats.limit }} />
       </Card>
 
       <Card title="Integrations" className="tl-card">
@@ -101,10 +131,12 @@ export default async function SettingsPage() {
         <Link href="/settings/rules" className="tl-btn">See the rules</Link>
       </Card>
 
-      <Card title="Sign-up requests" className="tl-card">
-        <p className="tl-note" style={{ marginBottom: 10 }}>Who has asked for an account, and which large fleets are waiting for a person to set them up.</p>
-        <Link href="/settings/requests" className="tl-btn">See the requests</Link>
-      </Card>
+      {isPlatformAdmin(me) ? (
+        <Card title="Sign-up requests" className="tl-card">
+          <p className="tl-note" style={{ marginBottom: 10 }}>Who has asked for an account, and which large fleets are waiting for a person to set them up.</p>
+          <Link href="/settings/requests" className="tl-btn">See the requests</Link>
+        </Card>
+      ) : null}
     </>
   );
 }

@@ -7,6 +7,7 @@ import { AssignmentChip, PageHead } from "@/components/desk/ui";
 import { DataTable, type Column, type Row, type SortHref } from "@/components/desk/data-table";
 import { DataTableTools } from "@/components/desk/data-table-tools";
 import { AddDriver, DriverRowActions, type DriverRow } from "@/components/desk/fleet-forms";
+import { unitUse } from "@/server/tl/plan";
 import { EmptyState } from "@/components/desk/kit/states";
 import { ymdOf } from "@/lib/fleet-forms";
 import { payLabel, shortDate } from "@/lib/desk-format";
@@ -111,11 +112,12 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
     };
   });
 
+  const use = await unitUse("driver");
   return (
     <>
       <PageHead title="Drivers" sub={`${terminal ? `${terminal} terminal. ` : ""}Who can take a load today. A lapsed CDL or medical card blocks the assignment. A driver on an open load cannot be taken out of service.`}>
         <Link href="/drivers/import" className="tl-btn">Import from a file</Link>
-        <AddDriver />
+        <AddDriver use={use} />
       </PageHead>
       <DataTableTools tableId="drivers-table" total={pageData.total} placeholder="Search driver, phone, truck…" server={{ path: "/drivers", q: pageData.q, keep: searchParams?.sort ? { sort: searchParams.sort } : {} }} />
       <DataTable id="drivers-table" label="Drivers" columns={COLUMNS} rows={rows} sortHref={sortHref} empty={<EmptyState icon="drivers" title="No drivers yet">Add a driver and they show up here with their CDL and medical card dates.</EmptyState>} />

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { measureForDesk } from "@/server/geo/desk";
 import { currentTerminal } from "@/server/tl/terminal";
+import { guardRoute } from "@/server/tl/access";
+import { overBudget } from "@/server/tl/budget";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +12,10 @@ export const dynamic = "force-dynamic";
  * so a slow lookup never holds up the live price. Nothing is stored.
  */
 export async function POST(request: Request) {
+  const denied = await guardRoute("dispatcher");
+  if (denied) return denied;
+  const over = overBudget("geo_measure");
+  if (over) return over;
   let body: unknown;
   try {
     body = await request.json();

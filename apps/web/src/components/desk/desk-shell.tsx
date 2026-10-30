@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import React from "react";
+import { AuthSignOutButton } from "./auth-sign-out";
 import { BrandMark } from "./kit/brand-mark";
 import { Icon, type IconName } from "./kit/icons";
 import { ToastProvider } from "./kit/toast";
@@ -80,18 +81,6 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
     });
   }, []);
   const t = data.totals;
-
-  // Signing out ends the session and goes to the sign-in page. This build has no accounts, so there is nothing to end but the launch screen's "seen" mark, which is
-  // cleared so the next visit starts at the front door again. When sign-in is switched on, the provider's sign-out is called here first.
-  const signOut = () => {
-    setTip(null);
-    try {
-      window.sessionStorage.removeItem("desk-splash-seen");
-    } catch {
-      /* storage blocked: nothing to clear */
-    }
-    router.push("/sign-in");
-  };
 
   // "[" folds the rail, like most desks. Not while typing, and never with a modifier held.
   React.useEffect(() => {
@@ -203,14 +192,17 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
             <div className="tl-side-note">Sample data only. Every name, customer and number here is invented.</div>
             <div className="tl-account" aria-label="Account">
               {data.workspaceName ? <div className="tl-ws" title={data.workspaceName}>{data.workspaceName}</div> : null}
+              {data.account.on && data.account.name ? <div className="tl-ws" title={`${data.account.name}, ${data.account.role ?? ""}`}>{data.account.name}</div> : null}
               <Link href="/enterprise" className="tl-acc" data-tip={collapsed ? "Talk to a person" : undefined}>
                 <Icon name="message" />
                 <span className="lbl">Talk to a person</span>
               </Link>
-              <button type="button" className="tl-acc" onClick={signOut} data-tip={collapsed ? "Sign out" : undefined}>
-                <Icon name="signout" />
-                <span className="lbl">Sign out</span>
-              </button>
+              {data.account.on ? (
+                <AuthSignOutButton className="tl-acc" tip={collapsed ? "Sign out" : undefined}>
+                  <Icon name="signout" />
+                  <span className="lbl">Sign out</span>
+                </AuthSignOutButton>
+              ) : null}
             </div>
             <button type="button" className="tl-collapse" onClick={toggle} aria-expanded={!collapsed} aria-controls="tl-sections" aria-keyshortcuts="[" data-tip={collapsed ? "Expand sidebar" : undefined}>
               <Icon name={collapsed ? "expand" : "collapse"} />

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import React from "react";
-import { getAlerts } from "@/server/tl/alerts";
+import { getAlertsInTerminal } from "@/server/tl/alerts";
+import { currentTerminal } from "@/server/tl/terminal";
 import { LEVEL_LABEL, type AlertLevel } from "@/lib/alerts";
 import { PageHead, Tabs } from "@/components/desk/ui";
 import { AlertList } from "@/components/desk/alert-bits";
@@ -14,7 +15,8 @@ const PAGE = 100;
 const HEADING: Record<AlertLevel, string> = { block: "Fix before it goes out", warn: "Look at these soon", info: "For your information" };
 
 export default async function AlertsPage({ searchParams }: { searchParams?: { level?: string; page?: string } }) {
-  const { alerts, counts } = await getAlerts();
+  // The header's terminal narrows the alerts too.
+  const { alerts, counts } = await getAlertsInTerminal(await currentTerminal());
   const level = LEVELS.find((l) => l === searchParams?.level) ?? null;
   const filtered = level ? alerts.filter((a) => a.level === level) : alerts;
   // Most-urgent first, then a page of them at a time: a large fleet can have thousands of notes.

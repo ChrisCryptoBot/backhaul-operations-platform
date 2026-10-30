@@ -16,7 +16,7 @@ const day = (d: string) => new Date(`${d}T17:00:00Z`);
 
 async function workspace(id: string) {
   await prisma.workspace.deleteMany({ where: { id } });
-  await prisma.workspace.create({ data: { id, name: `E1 ${id}` } });
+  await prisma.workspace.create({ data: { id, name: `E1 ${id}`, plan: "enterprise" } });
 }
 const drop = (id: string) => prisma.workspace.deleteMany({ where: { id } });
 

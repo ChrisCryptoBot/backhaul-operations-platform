@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { customerTermsMap } from "./customers";
 import { prisma } from "@/lib/db";
-import { defaultInvoiceNumber, invoiceReadiness } from "@/lib/invoicing";
+import { defaultInvoiceNumber, invoiceBasis, invoiceReadiness, owedOf } from "@/lib/invoicing";
 import { computeAnalytics, type AnalyticsPeriod } from "@/truelane/lib/analytics";
 import { computeAgingSummary } from "@/truelane/lib/invoice";
 import { evaluateTlLoad, resolveLabour } from "./evaluate";
@@ -40,6 +40,8 @@ export function boardRowOf(l: BoardLoad) {
     scheduledDate: l.scheduledDate,
     vehicleName: l.vehicle?.name ?? null,
     quotedRevenue: num(l.quotedRevenue),
+    /** What the load pays in all: the rate and the fuel surcharge (the $/mi on the board is over this). */
+    grossRevenue: new Prisma.Decimal(num(l.quotedRevenue)).plus(num(l.fuelSurcharge)).toDecimalPlaces(2).toNumber(),
     totalMiles: evaluation?.totalMiles ?? null,
     verdict: evaluation?.finalDecision ?? null,
     perMile: evaluation && evaluation.totalMiles > 0 ? evaluation.effectiveGross / evaluation.totalMiles : null,
@@ -152,6 +154,10 @@ export async function getLoadDetail(id: string, workspaceId = currentWorkspaceId
 
 /** The invoices screen reads each of its lists on its own: "ready" is delivered and not invoiced, "out" is invoiced and unpaid, "paid" is paid (a page at a time). "all" is for the CSV. */
 export type InvoiceScope = "ready" | "out" | "paid" | "all";
+/** What can be invoiced: a delivered load, or a TONU with a fee (a cancelled load and a saved quote cannot). */
+const INVOICEABLE = { OR: [{ status: "completed" }, { status: "tonu", tonuRevenue: { gt: 0 } }] };
+/** Loads placed in a terminal (on its truck or with its driver), and loads not placed anywhere yet, which are everyone's to take: the same rule the Loads board uses. */
+export const inTerminal = (terminal: string | null): object => (terminal ? { OR: [{ vehicle: { terminal } }, { assignment: { driver: { terminal } } }, { vehicleId: null, assignment: null }] } : {});
 const SCOPE_WHERE: Record<InvoiceScope, object> = { ready: { paymentStatus: null }, out: { paymentStatus: "invoiced" }, paid: { paymentStatus: "paid" }, all: {} };
 
 /** A search over the words a person has for an invoice: its number, the load's, the customer's PO, the customer. Every word must match something. */
@@ -161,8 +167,8 @@ const invoiceSearch = (q?: string) => {
   return terms.length ? { AND: terms.map((t) => ({ OR: [has("invoiceNumber", t), has("loadNumber", t), has("poNumber", t), has("brokerName", t)] })) } : {};
 };
 
-export async function countInvoices(scope: InvoiceScope, workspaceId = currentWorkspaceId(), q?: string) {
-  return prisma.load.count({ where: { workspaceId, deletedAt: null, status: "completed", ...SCOPE_WHERE[scope], ...invoiceSearch(q) } });
+export async function countInvoices(scope: InvoiceScope, workspaceId = currentWorkspaceId(), q?: string, terminal: string | null = null) {
+  return prisma.load.count({ where: { workspaceId, deletedAt: null, ...SCOPE_WHERE[scope], AND: [INVOICEABLE, inTerminal(terminal), invoiceSearch(q)] } });
 }
 
 /** Oldest first for what still has to be sent or collected (the one waiting longest is the one to chase), newest first for what is paid. */
@@ -173,10 +179,10 @@ const INVOICE_ORDER = {
   all: [{ invoicedAt: { sort: "desc" as const, nulls: "last" as const } }, { completedAt: "desc" as const }]
 };
 
-export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: { scope?: InvoiceScope; skip?: number; take?: number; q?: string } = {}) {
+export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: { scope?: InvoiceScope; skip?: number; take?: number; q?: string; terminal?: string | null } = {}) {
   const [loads, thresholds, customerTerms] = await Promise.all([
     prisma.load.findMany({
-      where: { workspaceId, deletedAt: null, status: "completed", ...SCOPE_WHERE[opts.scope ?? "all"], ...invoiceSearch(opts.q) },
+      where: { workspaceId, deletedAt: null, ...SCOPE_WHERE[opts.scope ?? "all"], AND: [INVOICEABLE, inTerminal(opts.terminal ?? null), invoiceSearch(opts.q)] },
       include: { stops: true, vehicle: { include: { costProfile: true } } },
       orderBy: INVOICE_ORDER[opts.scope ?? "all"],
       ...(opts.skip ? { skip: opts.skip } : {}),
@@ -186,9 +192,11 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
     customerTermsMap(workspaceId)
   ]);
   return loads.map((l) => {
-    const rate = num(l.quotedRevenue);
-    const billable = detentionOfLoad(l, thresholds.detentionGraceMinutes).billable;
-    const billed = num(l.invoicedAmount ?? l.actualRevenue ?? l.quotedRevenue);
+    const basis = invoiceBasis({ status: l.status, quotedRevenue: num(l.actualRevenue ?? l.quotedRevenue), fuelSurcharge: num(l.fuelSurcharge), tonuRevenue: numOrNull(l.tonuRevenue) });
+    const rate = basis.rate;
+    // A TONU hauled nothing, so it carries no detention.
+    const billable = basis.tonu ? 0 : detentionOfLoad(l, thresholds.detentionGraceMinutes).billable;
+    const billed = num(l.invoicedAmount ?? (basis.tonu ? l.tonuRevenue : (l.actualRevenue ?? l.quotedRevenue)));
     const paidAmount = numOrNull(l.paidAmount);
     return {
       id: l.id,
@@ -207,9 +215,11 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
       status: l.paymentStatus,
       amount: billed,
       paidAmount,
+      /** What is still owed on an invoice that is out: the invoice less what has come in (0 once it is paid). */
+      balance: l.paymentStatus === "invoiced" ? (owedOf(billed, paidAmount) ?? billed) : 0,
       /** Negative when the broker paid less than the invoice. */
       paidDifference: l.paymentStatus === "paid" && paidAmount != null ? new Prisma.Decimal(paidAmount).minus(billed).toDecimalPlaces(2).toNumber() : null,
-      invoiceContext: { rate, surcharge: num(l.fuelSurcharge), detention: billable, defaultTerms: l.payTermsDays ?? customerTerms.get((l.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays },
+      invoiceContext: { rate, surcharge: basis.surcharge, detention: billable, rateLabel: basis.label, defaultTerms: l.payTermsDays ?? customerTerms.get((l.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays },
       defaultNumber: defaultInvoiceNumber(l.loadNumber, l.id),
       readiness: invoiceReadiness({ ...l, quotedRevenue: rate })
     };

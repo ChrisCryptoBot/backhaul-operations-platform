@@ -5,7 +5,10 @@ import { createPortal } from "react-dom";
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-/** A modal that closes on Esc or a click outside, keeps Tab inside, and hands focus back to whatever opened it. */
+/**
+ * A modal that closes on Esc, its own Close/Cancel button, or a click outside, keeps Tab inside, and hands focus back to whatever opened it. A click outside does NOT close it once
+ * something in it has been typed or chosen: a stray click must not throw away a long form. Esc and the buttons still do, because those are meant.
+ */
 export function Modal({ open, onClose, eyebrow, title, children, footer, wide, xl }: { open: boolean; onClose: () => void; eyebrow?: string; title: string; children?: React.ReactNode; footer?: React.ReactNode; wide?: boolean; xl?: boolean }) {
   const panel = React.useRef<HTMLDivElement>(null);
   const opener = React.useRef<HTMLElement | null>(null);
@@ -14,9 +17,12 @@ export function Modal({ open, onClose, eyebrow, title, children, footer, wide, x
   // effect below, which would hand focus back to the opener and then to the first field on every keystroke.
   const close = React.useRef(onClose);
   close.current = onClose;
+  // Set by any typing or choosing inside the dialog; cleared each time it opens.
+  const dirty = React.useRef(false);
 
   React.useEffect(() => {
     if (!open) return;
+    dirty.current = false;
     opener.current = document.activeElement as HTMLElement | null;
     const first = panel.current?.querySelector<HTMLElement>("[data-autofocus]") ?? panel.current?.querySelector<HTMLElement>(FOCUSABLE);
     first?.focus();
@@ -49,8 +55,8 @@ export function Modal({ open, onClose, eyebrow, title, children, footer, wide, x
   if (!open) return null;
   // Portalled to the body so a table cell or a drawer around the trigger cannot style it (alignment, clipping, stacking).
   return createPortal(
-    <div className="k-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={`k-modal${wide ? " wide" : ""}${xl ? " xl" : ""}`} ref={panel} role="dialog" aria-modal="true" aria-labelledby={id}>
+    <div className="k-scrim" onMouseDown={(e) => e.target === e.currentTarget && !dirty.current && onClose()}>
+      <div className={`k-modal${wide ? " wide" : ""}${xl ? " xl" : ""}`} ref={panel} role="dialog" aria-modal="true" aria-labelledby={id} onInput={() => (dirty.current = true)} onChange={() => (dirty.current = true)}>
         <header>
           {eyebrow ? <div className="eyebrow">{eyebrow}</div> : null}
           <h2 id={id}>{title}</h2>

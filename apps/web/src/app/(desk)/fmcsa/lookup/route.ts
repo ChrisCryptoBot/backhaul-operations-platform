@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { lookupMc } from "@/server/fmcsa/lookup";
+import { guardRoute } from "@/server/tl/access";
+import { overBudget } from "@/server/tl/budget";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +11,10 @@ export const dynamic = "force-dynamic";
  * calls this: the screens only ask when an MC was typed.
  */
 export async function GET(request: Request) {
+  const denied = await guardRoute("dispatcher");
+  if (denied) return denied;
+  const over = overBudget("fmcsa");
+  if (over) return over;
   const mc = new URL(request.url).searchParams.get("mc") ?? "";
   const result = await lookupMc(mc.slice(0, 40));
   return NextResponse.json(result, { headers: { "Cache-Control": "private, max-age=60" } });

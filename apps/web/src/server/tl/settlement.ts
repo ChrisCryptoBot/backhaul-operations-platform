@@ -183,16 +183,31 @@ export async function voidSettlement(id: string, reason: string, now = new Date(
   const s = await prisma.settlement.findFirst({ where: { id, workspaceId }, include: { driver: true } });
   if (!s) return { ok: false, error: "That statement does not exist." };
   if (s.status !== "final") return { ok: false, error: "Only a finalized statement can be voided." };
+  // Voiding frees its loads to be paid on another statement. Once the statement has been sent to payroll the driver has been paid on it, so that would pay them twice.
+  if (s.payrollSentAt) return { ok: false, error: `${s.number} was sent to payroll, so the driver has been paid on it. It cannot be voided; correct it on the next statement.` };
   const total = numOrNull(s.total) ?? 0;
-  await prisma.$transaction(async (tx) => {
-    await tx.settlementLoad.deleteMany({ where: { settlementId: id } });
-    await tx.settlement.update({ where: { id }, data: { status: "void", voidedAt: now, voidReason: why } });
-    await recordAudit(
-      { entity: "settlement", action: "statement_voided", summary: `${s.number} voided for ${s.driver.name} (${money(total)}); its loads can be paid again`, reason: why, before: { Status: "Final", Total: money(total) }, after: { Status: "Void" }, at: now, workspaceId },
-      tx
-    );
-  });
+  try {
+    await prisma.$transaction(async (tx) => {
+      // Checked again in the transaction that voids it: a statement sent to payroll a moment ago is not voided.
+      const voided = await tx.settlement.updateMany({ where: { id, status: "final", payrollSentAt: null }, data: { status: "void", voidedAt: now, voidReason: why } });
+      if (voided.count !== 1) throw new PaidAlready();
+      await tx.settlementLoad.deleteMany({ where: { settlementId: id } });
+      await recordAudit(
+        { entity: "settlement", action: "statement_voided", summary: `${s.number} voided for ${s.driver.name} (${money(total)}); its loads can be paid again`, reason: why, before: { Status: "Final", Total: money(total) }, after: { Status: "Void" }, at: now, workspaceId },
+        tx
+      );
+    });
+  } catch (e) {
+    if (e instanceof PaidAlready) return { ok: false, error: `${s.number} was just sent to payroll, so it cannot be voided.` };
+    throw e;
+  }
   return { ok: true, id };
+}
+
+class PaidAlready extends Error {
+  constructor() {
+    super("statement already sent to payroll");
+  }
 }
 
 export async function discardSettlement(id: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<SettleResult> {
@@ -252,15 +267,15 @@ export type SettlementRow = { id: string; number: string; status: string; driver
 export const STATEMENTS_PAGE = 50;
 
 /** How many statements there are in each state, and what the finalized ones come to. */
-export async function settlementCounts(workspaceId = currentWorkspaceId()) {
-  const groups = await prisma.settlement.groupBy({ by: ["status"], where: { workspaceId }, _count: { _all: true }, _sum: { total: true } });
+export async function settlementCounts(workspaceId = currentWorkspaceId(), terminal: string | null = null) {
+  const groups = await prisma.settlement.groupBy({ by: ["status"], where: { workspaceId, ...(terminal ? { driver: { terminal } } : {}) }, _count: { _all: true }, _sum: { total: true } });
   const of = (status: string) => groups.find((g) => g.status === status);
   return { draft: of("draft")?._count._all ?? 0, final: of("final")?._count._all ?? 0, void: of("void")?._count._all ?? 0, finalTotal: numOrNull(of("final")?._sum.total) ?? 0 };
 }
 
 /** Statements, newest first, a page at a time (a big fleet settles every driver every week). */
-export async function listSettlements(workspaceId = currentWorkspaceId(), opts: { skip?: number; take?: number; status?: string } = {}): Promise<SettlementRow[]> {
-  const rows = await prisma.settlement.findMany({ where: { workspaceId, ...(opts.status ? { status: opts.status } : {}) }, include: { driver: true }, orderBy: [{ createdAt: "desc" }], skip: opts.skip ?? 0, take: opts.take ?? STATEMENTS_PAGE });
+export async function listSettlements(workspaceId = currentWorkspaceId(), opts: { skip?: number; take?: number; status?: string; terminal?: string | null } = {}): Promise<SettlementRow[]> {
+  const rows = await prisma.settlement.findMany({ where: { workspaceId, ...(opts.status ? { status: opts.status } : {}), ...(opts.terminal ? { driver: { terminal: opts.terminal } } : {}) }, include: { driver: true }, orderBy: [{ createdAt: "desc" }], skip: opts.skip ?? 0, take: opts.take ?? STATEMENTS_PAGE });
   return Promise.all(
     rows.map(async (s) => {
       const label = periodText(ymd(s.periodStart), ymd(s.periodEnd));
@@ -281,7 +296,7 @@ export type Unsettled = { driverId: string; driverName: string; loads: number; a
 export const UNSETTLED_DAYS = 120;
 
 /** Per driver, the delivered loads of the last 120 days not on any final statement, what they come to, and a period that would cover them. */
-export async function unsettledByDriver(workspaceId = currentWorkspaceId(), now = new Date()): Promise<Unsettled[]> {
+export async function unsettledByDriver(workspaceId = currentWorkspaceId(), now = new Date(), terminal: string | null = null): Promise<Unsettled[]> {
   // Read as the nine plain columns the pay is worked out from (a whole load, with its assignment and driver, is a hundred): a fleet has thousands of these.
   const since = new Date(now.getTime() - UNSETTLED_DAYS * 86_400_000);
   const loads = await prisma.$queryRaw<
@@ -291,7 +306,7 @@ export async function unsettledByDriver(workspaceId = currentWorkspaceId(), now 
       l.fuel_surcharge::float8 as "fuelSurcharge", a.pay_kind as "payKind", a.pay_rate::float8 as "payRate", a.pay_estimate::float8 as "payEstimate"
     from loads l join assignments a on a.load_id = l.id and a.status = 'completed' join drivers d on d.id = a.driver_id
     where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status = 'completed' and l.completed_at >= ${since}
-      and not exists (select 1 from settlement_loads sl where sl.load_id = l.id)`;
+      and not exists (select 1 from settlement_loads sl where sl.load_id = l.id) ${terminal ? Prisma.sql`and d.terminal = ${terminal}` : Prisma.empty}`;
   const byDriver = new Map<string, { name: string; loads: typeof loads }>();
   for (const l of loads) {
     const group = byDriver.get(l.driverId) ?? { name: l.driverName, loads: [] };

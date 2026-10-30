@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultInvoiceNumber, invoiceReadiness, reminderText, validateInvoice, type InvoiceForm, type ReadinessLoad } from "../src/lib/invoicing";
+import { defaultInvoiceNumber, invoiceReadiness, owedOf, reminderText, validateInvoice, type InvoiceForm, type ReadinessLoad } from "../src/lib/invoicing";
 
 const ready = (over: Partial<ReadinessLoad> = {}): ReadinessLoad => ({ status: "completed", brokerName: "Acme", loadNumber: "AF-1", brokerEmail: "ap@acme.example", brokerPhone: null, closedWithoutPod: false, podNote: "Signed BOL", quotedRevenue: 1000, ...over });
 const form = (over: Partial<InvoiceForm> = {}): InvoiceForm => ({ number: "INV-AF-1", terms: "", detention: false, lumper: "", layover: "", otherLabel: "", other: "", ...over });
@@ -80,5 +80,16 @@ describe("reminderText", () => {
     expect(text.startsWith("Hello,")).toBe(true);
     expect(text).toContain("Load: AF-1\n");
     expect(text).toContain("? to ?");
+  });
+});
+
+describe("what is owed on a part-paid invoice", () => {
+  it("the invoice less what has come in, in whole cents, never below nothing; no amount stays none", () => {
+    expect(owedOf(1000, 400)).toBe(600);
+    expect(owedOf(1040.1, 0.1)).toBe(1040);
+    expect(owedOf(19.99, 8.2)).toBe(11.79);
+    expect(owedOf(500, 520)).toBe(0);
+    expect(owedOf(500, null)).toBe(500);
+    expect(owedOf(null, 100)).toBeNull();
   });
 });

@@ -230,7 +230,9 @@ describe.skipIf(!run)("wave C1: what a truck can carry, passing on a quote, quot
 
     // A tab on the Open board narrows the file the way it narrows the screen.
     const draft = await buildExport("loads", { view: "open", status: "draft" });
-    expect(lines(draft).length - 1).toBe(rows.filter((r) => r.status === "draft").length);
+    expect(lines(draft).length - 1).toBe(rows.filter((r) => r.status === "draft" && r.assignmentStatus !== "dispatched").length); // a sent load is under "Sent, waiting"
+    const sent = await buildExport("loads", { view: "open", status: "sent" });
+    expect(lines(sent).length - 1).toBe(rows.filter((r) => r.assignmentStatus === "dispatched").length);
 
     // History filters by outcome.
     const cancelled = await buildExport("loads", { view: "history", filter: "cancelled" });

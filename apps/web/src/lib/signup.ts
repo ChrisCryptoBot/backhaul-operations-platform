@@ -1,8 +1,11 @@
+import { PLANS } from "./plans";
+
 /**
  * Who signs themselves up and who gets a person. The line is one number: a fleet of ENTERPRISE_TRUCKS or more is set up by a person (it has terminals, imports and
  * connections that need hands), everyone under it creates their own account. The server decides from the truck count; a form can never choose its own kind.
  */
-export const ENTERPRISE_TRUCKS = 50;
+/** Where the Enterprise plan starts (src/lib/plans.ts): the one number, so the sign-up line and the plan cannot drift apart. */
+export const ENTERPRISE_TRUCKS = PLANS.find((p) => p.key === "enterprise")!.min;
 export const MAX_TRUCKS = 100_000;
 
 export type SignupKind = "self_serve" | "enterprise";

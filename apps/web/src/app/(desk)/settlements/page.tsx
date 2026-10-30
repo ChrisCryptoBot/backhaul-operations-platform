@@ -1,3 +1,4 @@
+import { currentTerminal } from "@/server/tl/terminal";
 import Link from "next/link";
 import React from "react";
 import { listSettlements, settlementCounts, STATEMENTS_PAGE, unsettledByDriver } from "@/server/tl/settlement";
@@ -40,13 +41,15 @@ export default async function SettlementsPage({ searchParams }: { searchParams?:
   const page = asPage(searchParams?.page);
   // A big fleet settles every driver every week, so each list is a page at a time: the drivers owed pay (the total above is for all of them), the drafts being
   // worked up, the finalized statements newest first, and the latest few voided.
-  const counts = await settlementCounts();
+  // The header's terminal narrows statements too, by the driver's terminal.
+  const terminal = await currentTerminal();
+  const counts = await settlementCounts(undefined, terminal);
   const draftPage = Math.min(asPage(searchParams?.drafts), Math.max(1, Math.ceil(counts.draft / DRAFT_PAGE)));
   const [unsettled, drafts, final, voided] = await Promise.all([
-    unsettledByDriver(),
-    listSettlements(undefined, { status: "draft", skip: (draftPage - 1) * DRAFT_PAGE, take: DRAFT_PAGE }),
-    listSettlements(undefined, { status: "final", skip: (page - 1) * STATEMENTS_PAGE, take: STATEMENTS_PAGE }),
-    listSettlements(undefined, { status: "void", take: STATEMENTS_PAGE })
+    unsettledByDriver(undefined, new Date(), terminal),
+    listSettlements(undefined, { status: "draft", terminal, skip: (draftPage - 1) * DRAFT_PAGE, take: DRAFT_PAGE }),
+    listSettlements(undefined, { status: "final", terminal, skip: (page - 1) * STATEMENTS_PAGE, take: STATEMENTS_PAGE }),
+    listSettlements(undefined, { status: "void", terminal, take: STATEMENTS_PAGE })
   ]);
   const presets = periodPresets(Date.now());
   const owed = unsettled.reduce((sum, u) => sum + u.amount, 0);

@@ -6,6 +6,17 @@ import { invoiceTotalDue } from "@/truelane/lib/invoice";
  */
 export type InvoiceLine = { label: string; amount: number };
 
+/**
+ * What a load bills on. A delivered load bills its rate, fuel surcharge and extras; a truck-ordered-not-used (TONU) load bills its fee and nothing else: no line haul, no fuel
+ * surcharge, no detention (nothing was hauled). Both can be invoiced; a cancelled load, one still on the road, and a saved quote cannot.
+ */
+export type BasisLoad = { status: string; quotedRevenue: number; fuelSurcharge: number; tonuRevenue: number | null };
+export const canInvoiceStatus = (status: string, tonuRevenue: number | null): boolean => status === "completed" || (status === "tonu" && (tonuRevenue ?? 0) > 0);
+export function invoiceBasis(l: BasisLoad): { tonu: boolean; rate: number; surcharge: number; label: string } {
+  const tonu = l.status === "tonu";
+  return tonu ? { tonu, rate: l.tonuRevenue ?? 0, surcharge: 0, label: "TONU fee" } : { tonu, rate: l.quotedRevenue, surcharge: l.fuelSurcharge, label: "Line haul" };
+}
+
 export type ReadinessLoad = {
   status: string;
   brokerName: string | null;
@@ -21,25 +32,29 @@ export type ReadinessLoad = {
 export function invoiceReadiness(l: ReadinessLoad): { blockers: string[]; cautions: string[] } {
   const blockers: string[] = [];
   const cautions: string[] = [];
-  if (l.status !== "completed") blockers.push("The load has to be delivered first.");
+  const tonu = l.status === "tonu";
+  if (l.status !== "completed" && !tonu) blockers.push("The load has to be delivered first.");
   if (!l.brokerName?.trim()) blockers.push("Who is it billed to? Add the customer on the load.");
   if (!l.loadNumber?.trim()) blockers.push("The invoice needs the load number. Add it on the load.");
-  if (!(l.quotedRevenue > 0)) blockers.push("The load has no rate to bill.");
+  if (!(l.quotedRevenue > 0)) blockers.push(tonu ? "The TONU has no fee to bill." : "The load has no rate to bill.");
   if (!l.brokerEmail?.trim() && !l.brokerPhone?.trim()) cautions.push("No contact for the customer's accounts team. Add an email or phone on the load so the invoice can be chased.");
+  // A TONU delivered nothing, so there is no proof of delivery to ask for.
+  if (tonu) return { blockers, cautions };
   if (l.closedWithoutPod) cautions.push("Closed without proof of delivery. Many customers hold payment until they have it.");
   else if (!l.podNote?.trim()) cautions.push("No note on the proof of delivery. Customers usually want it before they pay.");
   return { blockers, cautions };
 }
 
 export type InvoiceForm = { number: string; terms: string; detention: boolean; lumper: string; layover: string; otherLabel: string; other: string };
-export type InvoiceContext = { rate: number; surcharge: number; detention: number; defaultTerms: number };
+export type InvoiceContext = { rate: number; surcharge: number; detention: number; defaultTerms: number; /** What the rate is called on the invoice: "Line haul", or "TONU fee". */ rateLabel?: string };
 export type InvoiceCheck = { ok: true; value: { number: string; terms: number; lines: InvoiceLine[]; total: number } } | { ok: false; errors: Record<string, string> };
 
+/** Dollars and cents as typed: digits with at most two after the point. Read as text, never by multiplying by 100 (19.99 * 100 is 1998.9999999999998), so 19.99, 8.20 and 1.15 are all fine. */
 const dollars = (raw: string): { n: number; bad: boolean } => {
   const s = raw.trim().replace(/,/g, "");
   if (s === "") return { n: 0, bad: false };
   const n = Number(s);
-  const bad = !Number.isFinite(n) || n < 0 || n > 100000 || Math.abs(n * 100 - Math.trunc(n * 100)) > 1e-6;
+  const bad = !/^\d+(\.\d{1,2})?$/.test(s) || !Number.isFinite(n) || n > 100000;
   return { n: bad ? 0 : n, bad };
 };
 
@@ -67,8 +82,18 @@ export function validateInvoice(form: InvoiceForm, ctx: InvoiceContext): Invoice
   if (layover.n > 0) extras.push({ label: "Layover", amount: layover.n });
   if (other.n > 0) extras.push({ label: form.otherLabel.trim(), amount: other.n });
   const total = invoiceTotalDue({ quotedRevenue: ctx.rate, fuelSurcharge: ctx.surcharge > 0 ? ctx.surcharge : null }, extras);
-  const lines: InvoiceLine[] = [{ label: "Line haul", amount: ctx.rate }, ...(ctx.surcharge > 0 ? [{ label: "Fuel surcharge", amount: ctx.surcharge }] : []), ...extras];
+  const lines: InvoiceLine[] = [{ label: ctx.rateLabel ?? "Line haul", amount: ctx.rate }, ...(ctx.surcharge > 0 ? [{ label: "Fuel surcharge", amount: ctx.surcharge }] : []), ...extras];
   return { ok: true, value: { number, terms, lines, total } };
+}
+
+/**
+ * What is still owed on an invoice that is out: the invoice less what has come in so far, in whole cents. An invoice with no amount (billed before amounts were kept) has none to
+ * subtract from and is returned as it is, for the caller to fall back on the load's rate. Ageing, the KPI and the lists all count this, so a part-paid invoice is owed its balance.
+ */
+export function owedOf(invoiced: number | null, received: number | null): number | null {
+  if (invoiced == null) return null;
+  const cents = (n: number) => Number((n * 100).toFixed(0));
+  return Math.max(0, cents(invoiced) - cents(received ?? 0)) / 100;
 }
 
 /** The default invoice number for a load. */

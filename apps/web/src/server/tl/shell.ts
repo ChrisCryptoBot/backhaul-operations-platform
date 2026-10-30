@@ -1,5 +1,7 @@
 import { notQuote } from "@/lib/quote-status";
 import { prisma } from "@/lib/db";
+import type { Role } from "@/lib/roles";
+import { authOn, sessionIdentity } from "./identity";
 import { computeAnalytics } from "@/truelane/lib/analytics";
 import { computeAgingSummary } from "@/truelane/lib/invoice";
 import { deadheadMilesOf, deadheadPct, drivenMiles } from "@/truelane/lib/domain/loadEconomics";
@@ -26,6 +28,8 @@ export type ShellData = {
   terminal: string | null;
   /** The workspace's name, for the account block at the foot of the sidebar. */
   workspaceName: string;
+  /** Whether sign-in is on, and who is signed in (for the account block and its Sign out). */
+  account: { on: boolean; name: string; role: Role | null };
 };
 
 export function buildShellData(rows: ShellRow[], now: number = Date.now(), alertCounts: { block: number; warn: number } = { block: 0, warn: 0 }): ShellData {
@@ -56,7 +60,8 @@ export function buildShellData(rows: ShellRow[], now: number = Date.now(), alert
     totals: { open: open.length, needsDriver, gross: analytics.summary.grossRevenue, avgRpm: analytics.summary.avgRpm, emptyShare: dh == null ? null : dh / 100 },
     terminals: [],
     terminal: null,
-    workspaceName: ""
+    workspaceName: "",
+    account: { on: false, name: "", role: null }
   };
 }
 
@@ -75,7 +80,7 @@ export async function getShellData(workspaceId = currentWorkspaceId()): Promise<
     prisma.load.count({ where: { ...base, status: "draft", OR: [{ assignment: null }, { assignment: { status: { in: ["draft", "declined"] } } }] } }),
     prisma.load.count({ where: { ...base, ...notQuote, assignment: { status: "dispatched" } } }),
     prisma.load.count({ where: { ...base, status: "in_progress" } }),
-    prisma.load.count({ where: { ...base, status: "completed", paymentStatus: null } }),
+    prisma.load.count({ where: { ...base, paymentStatus: null, OR: [{ status: "completed" }, { status: "tonu", tonuRevenue: { gt: 0 } }] } }),
     agingSummary(now, workspaceId),
     getAlerts(new Date(now), workspaceId, "shell"),
     finishedTotals(workspaceId, new Date(now)),
@@ -84,12 +89,14 @@ export async function getShellData(workspaceId = currentWorkspaceId()): Promise<
     prisma.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } })
   ]);
   const terminal = await currentTerminal(workspaceId);
+  const who = sessionIdentity();
   const overdue = owed.overdueCount;
   return {
     counts: { needsDriver, sentWaiting, onTheRoad, readyToInvoice, overdue, alertsBlock: alerts.counts.block, alertsWarn: alerts.counts.warn, unreadMessages },
     totals: { open, needsDriver, gross: totals.gross, avgRpm: totals.avgRpm, emptyShare: totals.emptyShare },
     terminals,
     terminal,
-    workspaceName: workspace?.name ?? ""
+    workspaceName: workspace?.name ?? "",
+    account: { on: authOn(), name: who?.name ?? "", role: who?.role ?? null }
   };
 }

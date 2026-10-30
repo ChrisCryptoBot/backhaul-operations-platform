@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { currentTerminal } from "@/server/tl/terminal";
 import { currentWorkspaceId } from "@/server/tl/workspace";
+import { guardRoute } from "@/server/tl/access";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,8 @@ export const dynamic = "force-dynamic";
  * Only trucks in service, a dozen at most, by name. With nothing typed the box offers the header's terminal; once the dispatcher types, the search reaches every terminal.
  */
 export async function GET(request: Request) {
+  const denied = await guardRoute("viewer");
+  if (denied) return denied;
   const params = new URL(request.url).searchParams;
   const q = (params.get("q") ?? "").trim().slice(0, 60);
   const ready = params.get("ready") === "1";

@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
+import { NotSignedIn, authOn, sessionIdentity } from "./identity";
 
 /**
  * The tenancy seam. The demo has one workspace; TrueLane's user_id / Clerk org id replaces `currentWorkspaceId` later without touching callers.
@@ -8,13 +9,24 @@ import { prisma } from "@/lib/db";
  */
 export const DEMO_WORKSPACE_ID = "demo-workspace";
 
-/** The cookie that names the workspace, honoured only while DESK_WORKSPACE_COOKIE=on (a development and test seam; there is no login yet to make it safe to trust). */
+/**
+ * The cookie that names the workspace, honoured only while DESK_WORKSPACE_COOKIE=on AND not in production (a development and test seam: anyone can set it, so it is never
+ * trusted where it could be read as a way in). With sign-in on it is not read at all; the workspace comes from the signed-in person's desk session.
+ */
 export const WORKSPACE_COOKIE = "desk-workspace";
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** The workspace of the request being served, or the demo's when there is no request (a script, a test) or the seam is off. */
+/**
+ * The workspace of the request being served. With sign-in on it is the signed-in person's workspace, and when nobody is signed in it is an error, never the demo's data. With
+ * sign-in off it is the demo's, unless a development cookie names another, or when there is no request at all (a script, a test).
+ */
 export function currentWorkspaceId(): string {
-  if (process.env.DESK_WORKSPACE_COOKIE !== "on") return DEMO_WORKSPACE_ID;
+  if (authOn()) {
+    const id = sessionIdentity();
+    if (!id) throw new NotSignedIn();
+    return id.workspaceId;
+  }
+  if (process.env.DESK_WORKSPACE_COOKIE !== "on" || process.env.NODE_ENV === "production") return DEMO_WORKSPACE_ID;
   try {
     const v = cookies().get(WORKSPACE_COOKIE)?.value;
     return v && ID.test(v) ? v : DEMO_WORKSPACE_ID;
@@ -33,6 +45,6 @@ export async function currentWorkspace() {
   return prisma.workspace.upsert({
     where: { id: DEMO_WORKSPACE_ID },
     update: {},
-    create: { id: DEMO_WORKSPACE_ID, name: "Demo fleet" }
+    create: { id: DEMO_WORKSPACE_ID, name: "Demo fleet", plan: "pro" }
   });
 }

@@ -1,3 +1,4 @@
+import { LOAD_LIMITS } from "./load-limits";
 import { OTHER_TRAILER_MAX, OTHER_TRAILER_PREFIX, TRAILER_TYPES, isOtherTrailer } from "@/truelane/constants/trailerData";
 import { parseCentralLocal, toCentralLocal } from "./zoned";
 
@@ -53,6 +54,8 @@ export type LoadEditValues = {
   notes: string;
   stops: EditStopValues[];
   deal?: DealValues;
+  /** When the load was last changed, as it was when the form opened: a save made on an older version is refused, so a stale form cannot overwrite what someone else changed. */
+  version?: string;
 };
 
 export type DealInput = { vehicleId: string | null; rate: number; fuelSurcharge: number | null; loadedMiles: number; emptyToPickup: number; emptyHome: number };
@@ -121,10 +124,10 @@ export function validateLoadEdit(v: LoadEditValues): LoadEditCheck {
   // A listed trailer, equipment typed as "other:<text>" or the retired "hopper" a saved load can still carry (what the rate-confirmation reader produces) are all fine to save back.
   if (trailer !== "" && !TRAILER_TYPES.some((x) => x.value === trailer) && !isOtherTrailer(trailer) && trailer !== "hopper") errors.trailer = "Pick a trailer from the list.";
   if (isOtherTrailer(trailer) && trailer.length > OTHER_TRAILER_PREFIX.length + OTHER_TRAILER_MAX) errors.trailer = "That equipment name is too long.";
-  const weightLbs = num("weightLbs", v.weightLbs, "Weight", 1, 80000, true);
-  const lengthFt = num("lengthFt", v.lengthFt, "Length", 1, 100);
-  const widthFt = num("widthFt", v.widthFt, "Width", 1, 20);
-  const heightIn = num("heightIn", v.heightIn, "Height", 1, 200);
+  const weightLbs = num("weightLbs", v.weightLbs, "Weight", 1, LOAD_LIMITS.weightLbs, true);
+  const lengthFt = num("lengthFt", v.lengthFt, "Length", 1, LOAD_LIMITS.lengthFt);
+  const widthFt = num("widthFt", v.widthFt, "Width", 1, LOAD_LIMITS.widthFt);
+  const heightIn = num("heightIn", v.heightIn, "Height", 1, LOAD_LIMITS.heightIn);
   len("hazmat", v.hazmat, "The hazmat class", 20);
   const payTermsDays = num("payTermsDays", v.payTermsDays, "Pay terms", 0, 120, true);
   len("notes", v.notes, "Notes", 1000);
@@ -199,6 +202,8 @@ export function validateLoadEdit(v: LoadEditValues): LoadEditCheck {
 }
 
 type StoredLoad = {
+  /** When the load was last changed: kept on the form as its version. */
+  updatedAt?: Date | null;
   vehicleId?: string | null;
   quotedRevenue?: unknown;
   fuelSurcharge?: unknown;
@@ -236,6 +241,7 @@ export function toEditValues(load: StoredLoad): LoadEditValues {
     return Number.isFinite(n) && n !== 0 ? String(n) : "";
   };
   return {
+    version: load.updatedAt ? String(load.updatedAt.getTime()) : undefined,
     brokerName: s(load.brokerName),
     brokerMc: s(load.brokerMcNumber),
     brokerPhone: s(load.brokerPhone),

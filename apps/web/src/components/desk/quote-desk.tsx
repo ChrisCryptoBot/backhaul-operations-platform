@@ -52,10 +52,24 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
   const [passNotes, setPassNotes] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [done, setDone] = React.useState<{ loadId: string; loadNumber: string | null; note: string | null; assigned: boolean; truck: string } | null>(null);
+  // What was last saved (or opened): a form that differs from it, and has not been booked, is work that leaving the page would lose.
+  const savedAs = React.useRef(JSON.stringify(initial?.values ?? BLANK_QUOTE));
+  const unsaved = !done && JSON.stringify(values) !== savedAs.current;
+  React.useEffect(() => {
+    if (!unsaved) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [unsaved]);
   const seq = React.useRef(0);
   // Miles the map filled in are suggestions: a field somebody typed in is theirs, and a later measure leaves it alone.
   const manual = React.useRef(new Set<string>());
   const measureSeq = React.useRef(0);
+  // Blanking a measured figure hands it back to the map: this bumps so the route is measured again.
+  const [remeasure, setRemeasure] = React.useState(0);
   const routeKey = (stops: QuoteStop[]) => stops.map((s) => `${s.role}|${s.address.trim().toLowerCase()}`).join("~");
   const lastRoute = React.useRef(initial ? routeKey(initial.values.stops) : "");
   const [measure, setMeasure] = React.useState<{ state: "idle" | "busy" | "ok" | "error"; text: string }>({ state: "idle", text: "" });
@@ -129,13 +143,25 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
     }, 900);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeNow, done]);
+  }, [routeNow, done, remeasure]);
 
-  /** A figure typed by hand is the dispatcher's from then on; blanking it hands it back to the map. */
+  /**
+   * A figure typed by hand is the dispatcher's from then on; blanking it hands it back to the map, which measures the route again. Typing the shared "empty to the pickup" clears
+   * the per-truck figures the map measured (as typing "empty home" always did), and keeps the ones typed by hand against a truck.
+   */
   const typedMiles = (field: "loadedMiles" | "emptyToPickup" | "emptyHome", v: string) => {
-    if (v.trim() === "") manual.current.delete(field);
-    else manual.current.add(field);
-    setValues((cur) => ({ ...cur, [field]: v, ...(field === "loadedMiles" ? { loadedHours: "" } : {}), ...(field === "emptyHome" && v.trim() !== "" ? { emptyHomeByTruck: {} } : {}) }));
+    if (v.trim() === "") {
+      manual.current.delete(field);
+      lastRoute.current = "";
+      setRemeasure((n) => n + 1);
+    } else manual.current.add(field);
+    setValues((cur) => ({
+      ...cur,
+      [field]: v,
+      ...(field === "loadedMiles" ? { loadedHours: "" } : {}),
+      ...(field === "emptyHome" && v.trim() !== "" ? { emptyHomeByTruck: {} } : {}),
+      ...(field === "emptyToPickup" && v.trim() !== "" ? { emptyByTruck: Object.fromEntries(Object.entries(cur.emptyByTruck).filter(([id]) => manual.current.has(`empty:${id}`))) } : {})
+    }));
   };
 
   const rows: FitRow[] = priced?.ok ? priced.fit.rows : [];
@@ -216,7 +242,10 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
     setBusy(false);
     if (out.ok) {
       setQuoteId(out.id);
+      savedAs.current = JSON.stringify(values);
       setMessage(null);
+      // The address now names the quote, so a reload (or a bookmark) opens it instead of an empty form.
+      window.history.replaceState(null, "", `/quote?quote=${out.id}`);
       toast({ text: "Quote saved. It is not on the board until you book it.", tone: "ok" });
       router.refresh();
     } else {
@@ -704,6 +733,7 @@ export function QuoteDesk({ quotes, brokers, initial }: { quotes: QuoteListRow[]
                           type="button"
                           className="tl-btn ghost sm"
                           onClick={async () => {
+                            if (!window.confirm(`Throw away the quote for ${q.lane}${q.broker ? ` (${q.broker})` : ""}? It is kept in the audit trail, but it cannot be opened again.`)) return;
                             const out = await discardQuoteAction(q.id);
                             if (out.ok) {
                               if (q.id === quoteId) setQuoteId(null);

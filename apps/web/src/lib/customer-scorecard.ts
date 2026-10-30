@@ -46,7 +46,8 @@ export function customerScorecard(loads: CustomerLoad[], now: Date, fallbackTerm
     }
     if (l.paymentStatus === "invoiced" && l.invoicedAt) {
       count += 1;
-      total += l.invoicedAmount ?? 0;
+      // Still owed: the invoice less what has come in so far.
+      total += Math.max(0, (l.invoicedAmount ?? 0) - (l.paidAmount ?? 0));
       const late = Math.floor((now.getTime() - (l.invoicedAt.getTime() + terms * DAY)) / DAY);
       if (late > 0) {
         overdue += 1;

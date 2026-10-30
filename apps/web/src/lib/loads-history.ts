@@ -102,7 +102,8 @@ export function payRecord(rows: HistoryRow[]): PayRecord | null {
     paid: paid.length,
     shortPaid: paid.filter((r) => r.paidAmount != null && r.paidAmount < billed(r) - 0.005).length,
     averageDaysToPay: days.length > 0 ? days.reduce((a, b) => a + b, 0) / days.length : null,
-    outstanding: rows.filter((r) => r.paymentStatus === "invoiced").reduce((s, r) => s + billed(r), 0),
+    // What is still owed: the invoice less what has come in (a part-paid invoice is owed its balance).
+    outstanding: rows.filter((r) => r.paymentStatus === "invoiced").reduce((s, r) => s + Math.max(0, billed(r) - (r.paidAmount ?? 0)), 0),
     fellThrough: rows.filter(fellThrough).length
   };
 }

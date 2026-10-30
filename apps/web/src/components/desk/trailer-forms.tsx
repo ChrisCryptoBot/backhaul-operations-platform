@@ -1,5 +1,7 @@
 "use client";
 
+import type { UnitUse } from "@/lib/plans";
+import { AtLimit, countText } from "./plan-limit";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React from "react";
@@ -172,12 +174,13 @@ export function TrailerForm({ trailer, onDone, inline }: { trailer?: TrailerInfo
   );
 }
 
-export function AddTrailer() {
+export function AddTrailer({ use }: { use?: UnitUse }) {
   const [open, setOpen] = React.useState(false);
+  if (use?.full) return <AtLimit use={use} label="Add a trailer" />;
   return (
     <>
       <button type="button" className="tl-btn primary" onClick={() => setOpen(true)}>
-        Add a trailer
+        Add a trailer{countText(use)}
       </button>
       <Modal open={open} onClose={() => setOpen(false)} eyebrow="New trailer" title="Add a trailer" wide>
         <TrailerForm onDone={() => setOpen(false)} />

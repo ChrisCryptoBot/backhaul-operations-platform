@@ -16,6 +16,10 @@ import { extractionToLoadDraft, type RateConLoadDraft } from "./map";
  */
 export type ReadInput = { fileName: string; mime?: string; bytes?: Uint8Array };
 
+/** One read has this long (under a request's own wall clock) and this many output tokens: the bounds on what a single call can cost. */
+export const READ_TIMEOUT_MS = 55_000;
+export const MAX_OUTPUT_TOKENS = 8000;
+
 export type ReadOutcome =
   | { ok: true; source: "demo" | "live"; draft: RateConLoadDraft }
   | { ok: false; reason: "no_key" | "unsupported_file" | "unreadable" | "refused" | "upstream_error" };
@@ -33,7 +37,9 @@ export function demoKeyOf(fileName: string): string | null {
 }
 
 export async function readRateCon(input: ReadInput, env: { ANTHROPIC_API_KEY?: string | undefined } = { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY }): Promise<ReadOutcome> {
-  const demo = demoKeyOf(input.fileName);
+  // The two samples are read by their buttons (no bytes). A file that is uploaded is always read as the file it is, whatever it is called: one that happens to be named like a
+  // sample must not come back with the sample's canned answer.
+  const demo = input.bytes ? null : demoKeyOf(input.fileName);
   if (demo) {
     const draft = await draftWithZones(normalizeExtraction(DEMO_RATE_CON_READINGS[demo]!));
     return draft ? { ok: true, source: "demo", draft } : { ok: false, reason: "unreadable" };
@@ -41,8 +47,9 @@ export async function readRateCon(input: ReadInput, env: { ANTHROPIC_API_KEY?: s
   if (!env.ANTHROPIC_API_KEY) return { ok: false, reason: "no_key" };
   if (!input.bytes || !isSupportedMime(input.mime)) return { ok: false, reason: "unsupported_file" };
 
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 0 });
-  const params = buildExtractionParams(input.mime, Buffer.from(input.bytes).toString("base64"));
+  // A deadline (the SDK's own default is 10 minutes) and the phone function's output cap (8,000 tokens; the vendored builder may still carry the older 16,000 until it is refreshed).
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 0, timeout: READ_TIMEOUT_MS });
+  const params = { ...buildExtractionParams(input.mime, Buffer.from(input.bytes).toString("base64")), max_tokens: MAX_OUTPUT_TOKENS };
   try {
     // The SDK version here predates the fallbacks/betas fields; the call shape is TrueLane's.
     const res = await (client.beta.messages as unknown as { create: (p: unknown) => Promise<unknown> }).create(params);

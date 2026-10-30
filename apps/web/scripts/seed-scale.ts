@@ -58,7 +58,7 @@ async function chunked<T>(rows: T[], size: number, write: (part: T[]) => Promise
 async function main() {
   const t0 = Date.now();
   await prisma.workspace.deleteMany({ where: { id: WORKSPACE_ID } });
-  await prisma.workspace.create({ data: { id: WORKSPACE_ID, name: "Scale fleet" } });
+  await prisma.workspace.create({ data: { id: WORKSPACE_ID, name: "Scale fleet", plan: "enterprise" } });
   const now = Date.now();
 
   const vehicleIds: string[] = [];

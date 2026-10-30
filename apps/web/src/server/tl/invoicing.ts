@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { defaultInvoiceNumber, invoiceReadiness, validateInvoice, type InvoiceForm } from "@/lib/invoicing";
+import { canInvoiceStatus, defaultInvoiceNumber, invoiceBasis, invoiceReadiness, validateInvoice, type InvoiceForm } from "@/lib/invoicing";
 import { isPaidMethod, paidMethodLabel } from "@/lib/pay-method";
 import { parseCentralLocal, toCentralLocal } from "@/lib/zoned";
 import { customerTermsMap } from "./customers";
@@ -21,25 +21,29 @@ export type InvoiceOut = { ok: boolean; detention: number; total?: number; error
 
 export async function invoiceLoad(loadId: string, opts: { includeDetention?: boolean; form?: InvoiceForm } = {}, now = new Date(), workspaceId = currentWorkspaceId()): Promise<InvoiceOut> {
   const load = await prisma.load.findFirstOrThrow({ where: { id: loadId, workspaceId, deletedAt: null }, include: { stops: true, vehicle: { include: { costProfile: true } } } });
-  if (load.status !== "completed" || load.paymentStatus) return { ok: false, detention: 0 };
-  const ready = invoiceReadiness({ ...load, quotedRevenue: num(load.quotedRevenue) });
+  if (!canInvoiceStatus(load.status, numOrNull(load.tonuRevenue)) || load.paymentStatus) return { ok: false, detention: 0 };
+  const basis = invoiceBasis({ status: load.status, quotedRevenue: num(load.actualRevenue ?? load.quotedRevenue), fuelSurcharge: num(load.fuelSurcharge), tonuRevenue: numOrNull(load.tonuRevenue) });
+  const ready = invoiceReadiness({ ...load, quotedRevenue: basis.rate });
   if (ready.blockers.length > 0) return { ok: false, detention: 0, error: ready.blockers[0] };
 
   const thresholds = await getThresholds();
-  const billable = detentionOfLoad(load, thresholds.detentionGraceMinutes).billable;
+  // A TONU hauled nothing, so there is no detention to bill on it.
+  const billable = basis.tonu ? 0 : detentionOfLoad(load, thresholds.detentionGraceMinutes).billable;
   const form: InvoiceForm = opts.form ?? { number: defaultInvoiceNumber(load.loadNumber, loadId), terms: "", detention: !!opts.includeDetention, lumper: "", layover: "", otherLabel: "", other: "" };
-  const check = validateInvoice(form, { rate: num(load.quotedRevenue), surcharge: num(load.fuelSurcharge), detention: billable, defaultTerms: load.payTermsDays ?? (await customerTermsMap(load.workspaceId)).get((load.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays });
+  const check = validateInvoice(form, { rate: basis.rate, surcharge: basis.surcharge, detention: billable, rateLabel: basis.label, defaultTerms: load.payTermsDays ?? (await customerTermsMap(load.workspaceId)).get((load.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays });
   if (!check.ok) return { ok: false, detention: 0, errors: check.errors };
   const { number, terms, lines, total } = check.value;
   const detention = lines.find((l) => l.label === "Detention")?.amount ?? 0;
-  const extra = lines.filter((l) => l.label !== "Line haul" && l.label !== "Fuel surcharge");
+  const extra = lines.filter((l) => l.label !== basis.label && l.label !== "Fuel surcharge");
   const takenMessage = (on: string | null) => ({ ok: false as const, detention: 0, errors: { number: `${number} is already on ${on ?? "another load"}. Use another number.` } });
   try {
     await prisma.$transaction(async (tx) => {
       // Checked inside the transaction that writes it, and backed by a unique index, so two invoices saved at once cannot share a number.
       const taken = await tx.load.findFirst({ where: { workspaceId: load.workspaceId, invoiceNumber: number, deletedAt: null, id: { not: loadId } }, select: { loadNumber: true } });
       if (taken) throw new NumberTaken(taken.loadNumber);
-      await tx.load.update({ where: { id: loadId }, data: { paymentStatus: "invoiced", invoicedAt: now, invoicedAmount: total, invoiceNumber: number, payTermsDays: terms, invoiceLines: lines } });
+      // Only a load that is not invoiced yet is invoiced: two clicks, or two tabs, make one invoice and leave its date and its audit entry alone.
+      const claimed = await tx.load.updateMany({ where: { id: loadId, paymentStatus: null }, data: { paymentStatus: "invoiced", invoicedAt: now, invoicedAmount: total, invoiceNumber: number, payTermsDays: terms, invoiceLines: lines } });
+      if (claimed.count !== 1) throw new AlreadyInvoiced();
       await recordAudit(
         {
           entity: "invoice",
@@ -55,11 +59,18 @@ export async function invoiceLoad(loadId: string, opts: { includeDetention?: boo
       );
     });
   } catch (e) {
+    if (e instanceof AlreadyInvoiced) return { ok: false, detention: 0 };
     if (e instanceof NumberTaken) return takenMessage(e.on);
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return takenMessage(null);
     throw e;
   }
   return { ok: true, detention, total };
+}
+
+class AlreadyInvoiced extends Error {
+  constructor() {
+    super("already invoiced");
+  }
 }
 
 class NumberTaken extends Error {
@@ -68,76 +79,185 @@ class NumberTaken extends Error {
   }
 }
 
-export type PaidOut = { ok: boolean; error?: string; difference?: number };
+export type PaidOut = {
+  ok: boolean;
+  error?: string;
+  /** Negative when the invoice was closed for less than it was billed (the rest written off); positive when more came in than was owed. */
+  difference?: number;
+  /** The payment was part of what is owed: the invoice stays out, and this is what is still owed. */
+  balance?: number;
+  /** A write-off was asked for and no reason was given. */
+  needsShortReason?: boolean;
+};
 
-/** Mark an invoice paid. With an amount, a payment that is not the invoice total is recorded as it came, and the audit entry says by how much. */
-export async function markLoadPaid(loadId: string, now = new Date(), opts: { amount?: number; /** The day it came in, "2026-10-29" on the Dallas calendar; today when blank. */ paidOn?: string; method?: string } = {}, workspaceId = currentWorkspaceId()): Promise<PaidOut> {
+/** What to do with the part of the invoice a payment does not cover: keep it open as a balance (the default), or close the invoice and write it off. */
+export type ShortAction = "balance" | "writeoff";
+
+const dayOf = (d: Date) => toCentralLocal(d.getTime()).slice(0, 10);
+const dec = (n: number) => new Prisma.Decimal(n).toDecimalPlaces(2);
+
+/**
+ * Record a payment against an invoice. The amount defaults to what is still owed. Paying all of it (or more) closes the invoice. Paying LESS keeps the invoice out with the balance
+ * still owed, and ageing, the KPI and the lists all count the balance, not the invoice; or, with `shortAction: "writeoff"` and a reason, closes it and writes the rest off (the reason
+ * is kept in the audit entry). Each payment is a row of its own (what came in, on which day, how), and the load's paid amount is their sum.
+ */
+export async function markLoadPaid(
+  loadId: string,
+  now = new Date(),
+  opts: { amount?: number; /** The day it came in, "2026-10-29" on the Dallas calendar; today when blank. */ paidOn?: string; method?: string; shortAction?: ShortAction; /** Why the rest is written off (needed with "writeoff"). */ shortReason?: string } = {},
+  workspaceId = currentWorkspaceId()
+): Promise<PaidOut> {
   const load = await prisma.load.findFirstOrThrow({ where: { id: loadId, workspaceId, deletedAt: null } });
   if (load.paymentStatus !== "invoiced") return { ok: false };
   const billed = num(load.invoicedAmount ?? load.quotedRevenue);
-  const amount = opts.amount ?? billed;
+  const before = numOrNull(load.paidAmount) ?? 0;
+  const owing = dec(billed).minus(dec(before)).toNumber();
+  const amount = opts.amount ?? owing;
   if (!Number.isFinite(amount) || !(amount > 0) || amount > 1_000_000) return { ok: false, error: "Type the amount that came in, above zero." };
+  if (dec(amount).toNumber() !== amount) return { ok: false, error: "Dollars and cents, like 1,250.50." };
   const method = (opts.method ?? "").trim();
   if (method !== "" && !isPaidMethod(method)) return { ok: false, error: "Pick how it was paid from the list." };
   // A payment can be entered late: the day it actually came in, never before the invoice and never in the future. Days-to-pay counts from it.
-  const day = (d: Date) => toCentralLocal(d.getTime()).slice(0, 10);
-  const today = day(now);
+  const today = dayOf(now);
   const paidOn = (opts.paidOn ?? "").trim() || today;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn) || parseCentralLocal(`${paidOn}T12:00`) == null) return { ok: false, error: "Type the day it was paid, like 2026-10-29." };
   if (paidOn > today) return { ok: false, error: "A payment cannot come in on a day that has not happened." };
-  if (load.invoicedAt && paidOn < day(load.invoicedAt)) return { ok: false, error: `The invoice went out on ${day(load.invoicedAt)}, so it cannot be paid before that.` };
+  if (load.invoicedAt && paidOn < dayOf(load.invoicedAt)) return { ok: false, error: `The invoice went out on ${dayOf(load.invoicedAt)}, so it cannot be paid before that.` };
   const paidAt = paidOn === today ? now : new Date(parseCentralLocal(`${paidOn}T12:00`)!);
-  const diff = new Prisma.Decimal(amount).minus(billed).toDecimalPlaces(2).toNumber();
-  const gap = new Prisma.Decimal(diff).abs().toFixed(2);
-  await prisma.$transaction(async (tx) => {
-    await tx.load.update({ where: { id: loadId }, data: { paymentStatus: "paid", paidAt, paidAmount: amount, paidMethod: method || null } });
+
+  const after = dec(before).plus(dec(amount));
+  const diff = after.minus(dec(billed)).toNumber(); // < 0 short, > 0 over
+  const short = diff < 0;
+  const shortBy = dec(diff).abs().toNumber();
+  const writeoff = short && opts.shortAction === "writeoff";
+  const shortWhy = (opts.shortReason ?? "").trim();
+  if (writeoff && shortWhy.length < 3) {
+    return { ok: false, needsShortReason: true, error: `Closing the invoice $${shortBy.toFixed(2)} short writes the $${shortBy.toFixed(2)} off, so say why (the customer's deduction, a damage claim, a negotiated discount).` };
+  }
+  const partial = short && !writeoff;
+  const gap = shortBy.toFixed(2);
+  const what = `${load.invoiceNumber ?? "Invoice"}`;
+  const how = method ? ` by ${paidMethodLabel(method).toLowerCase()}` : "";
+  const onDay = paidOn !== today ? ` on ${paidOn}` : "";
+
+  const done = await prisma.$transaction(async (tx) => {
+    // Only the invoice as it was read is changed: a second click, or a payment entered in another tab a moment ago, finds the amount received has moved and records nothing twice.
+    const claimed = await tx.load.updateMany({
+      where: { id: loadId, paymentStatus: "invoiced", paidAmount: load.paidAmount },
+      data: partial ? { paidAmount: after, paidMethod: method || null } : { paymentStatus: "paid", paidAt, paidAmount: after, paidMethod: method || null }
+    });
+    if (claimed.count !== 1) return false;
+    await tx.loadPayment.create({ data: { workspaceId, loadId, amount: dec(amount), paidAt, method: method || null } });
+    await recordAudit(
+      partial
+        ? {
+            entity: "invoice",
+            action: "payment_part",
+            loadId,
+            loadNumber: load.loadNumber,
+            summary: `${what}: $${amount.toFixed(2)} received${how}${onDay}; $${gap} still owed of $${billed.toFixed(2)}`,
+            before: { Status: "Invoiced", Received: `$${before.toFixed(2)}`, Owed: `$${owing.toFixed(2)}` },
+            after: { Status: "Invoiced, part paid", Received: `$${after.toNumber().toFixed(2)}`, Owed: `$${gap}` },
+            at: now, workspaceId
+          }
+        : {
+            entity: "invoice",
+            action: "paid",
+            loadId,
+            loadNumber: load.loadNumber,
+            summary: `${what} paid${how}${onDay}, $${after.toNumber().toFixed(2)} in all${before > 0 ? ` ($${amount.toFixed(2)} this time)` : ""}${short ? `, $${gap} short of $${billed.toFixed(2)}, written off` : diff > 0 ? `, $${diff.toFixed(2)} over $${billed.toFixed(2)}` : ""}`,
+            reason: short ? shortWhy : null,
+            before: { Status: before > 0 ? "Invoiced, part paid" : "Invoiced", Billed: `$${billed.toFixed(2)}` },
+            after: { Status: "Paid", Amount: `$${after.toNumber().toFixed(2)}`, ...(method ? { Method: paidMethodLabel(method) } : {}), ...(paidOn !== today ? { "Paid on": paidOn } : {}), ...(diff !== 0 ? { Difference: `${diff < 0 ? "-" : "+"}$${gap}` } : {}) },
+            at: now, workspaceId
+          },
+      tx
+    );
+    return true;
+  });
+  if (!done) return { ok: false, error: "That invoice changed while you were looking at it. Reload and try again." };
+  if (partial) return { ok: true, balance: shortBy };
+  return diff === 0 ? { ok: true } : { ok: true, difference: diff };
+}
+
+/**
+ * Take an invoice back: it was made for the wrong amount, the wrong customer, or on a load that should not have been billed. The invoice goes away (its number, date, lines and
+ * amount are cleared) and the load is ready to invoice again, with the reason kept in the audit entry. A paid invoice is taken back first ("Undo payment"); one that has gone to a
+ * factoring company is not the desk's to take back.
+ */
+export async function voidInvoice(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<PaidOut> {
+  const why = reason.trim();
+  if (why.length < 3) return { ok: false, error: "Say why the invoice is being taken back." };
+  const load = await prisma.load.findFirstOrThrow({ where: { id: loadId, workspaceId, deletedAt: null } });
+  if (load.paymentStatus === "paid") return { ok: false, error: "This invoice is marked paid. Take the payment back first." };
+  if (load.paymentStatus !== "invoiced") return { ok: false, error: "This load has no invoice." };
+  if ((numOrNull(load.paidAmount) ?? 0) > 0) return { ok: false, error: "Payments have been recorded on this invoice. Take them back first." };
+  if (load.factoringStatus !== "none") return { ok: false, error: "This invoice has gone to a factoring company. It cannot be taken back here." };
+  const was = num(load.invoicedAmount ?? load.quotedRevenue);
+  const voided = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.load.updateMany({ where: { id: loadId, paymentStatus: "invoiced", factoringStatus: "none" }, data: { paymentStatus: null, invoicedAt: null, invoicedAmount: null, invoiceNumber: null, invoiceLines: Prisma.JsonNull } });
+    if (claimed.count !== 1) return false;
     await recordAudit(
       {
         entity: "invoice",
-        action: "paid",
+        action: "invoice_voided",
         loadId,
         loadNumber: load.loadNumber,
-        summary: `${load.invoiceNumber ?? "Invoice"} paid${method ? ` by ${paidMethodLabel(method).toLowerCase()}` : ""}${paidOn !== today ? ` on ${paidOn}` : ""}, $${amount.toFixed(2)}${diff < 0 ? `, $${gap} short of $${billed.toFixed(2)}` : diff > 0 ? `, $${diff.toFixed(2)} over $${billed.toFixed(2)}` : ""}`,
-        before: { Status: "Invoiced", Billed: `$${billed.toFixed(2)}` },
-        after: { Status: "Paid", Amount: `$${amount.toFixed(2)}`, ...(method ? { Method: paidMethodLabel(method) } : {}), ...(paidOn !== today ? { "Paid on": paidOn } : {}), ...(diff !== 0 ? { Difference: `${diff < 0 ? "-" : "+"}$${gap}` } : {}) },
+        summary: `${load.invoiceNumber ?? "Invoice"} for $${was.toFixed(2)} taken back`,
+        reason: why,
+        before: { Status: "Invoiced", Invoice: load.invoiceNumber, Amount: `$${was.toFixed(2)}` },
+        after: { Status: "Ready to invoice", Invoice: null, Amount: null },
         at: now, workspaceId
       },
       tx
     );
+    return true;
   });
-  return diff === 0 ? { ok: true } : { ok: true, difference: diff };
+  return voided ? { ok: true } : { ok: false, error: "That invoice changed while you were looking at it. Reload the load." };
 }
 
-/** Take a payment back: a payment entered against the wrong invoice, or one that bounced. The invoice is out again, and the reason is kept. */
+/**
+ * Take the latest payment back: one entered against the wrong invoice, or one that bounced. Its row is removed and the amount received is what the others add up to; if the invoice
+ * was closed it is out again, with whatever is then owed. The reason is kept. (An invoice marked paid before payments were kept one by one has no rows: taking it back clears it.)
+ */
 export async function undoPaid(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<PaidOut> {
   const why = reason.trim();
   if (why.length < 3) return { ok: false, error: "Say why the payment is being taken back." };
   const load = await prisma.load.findFirstOrThrow({ where: { id: loadId, workspaceId, deletedAt: null } });
-  if (load.paymentStatus !== "paid") return { ok: false, error: "This invoice is not marked paid." };
-  const was = numOrNull(load.paidAmount) ?? 0;
-  await prisma.$transaction(async (tx) => {
-    await tx.load.update({ where: { id: loadId }, data: { paymentStatus: "invoiced", paidAt: null, paidAmount: null, paidMethod: null } });
+  const received = numOrNull(load.paidAmount) ?? 0;
+  const hasPayment = load.paymentStatus === "paid" || (load.paymentStatus === "invoiced" && received > 0);
+  if (!hasPayment) return { ok: false, error: "No payment has been recorded on this invoice." };
+  const billed = num(load.invoicedAmount ?? load.quotedRevenue);
+  const out = await prisma.$transaction(async (tx) => {
+    const last = await tx.loadPayment.findFirst({ where: { loadId, workspaceId }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
+    if (last) await tx.loadPayment.delete({ where: { id: last.id } });
+    const rest = last ? await tx.loadPayment.aggregate({ _sum: { amount: true }, where: { loadId, workspaceId } }) : null;
+    const left = last ? dec(rest?._sum.amount ? rest._sum.amount.toNumber() : 0) : dec(0);
+    const lastTaken = last ? last.amount.toNumber() : received;
+    const lastPaid = last ? await tx.loadPayment.findFirst({ where: { loadId, workspaceId }, orderBy: [{ paidAt: "desc" }, { id: "desc" }] }) : null;
+    await tx.load.update({ where: { id: loadId }, data: { paymentStatus: "invoiced", paidAt: null, paidAmount: left.toNumber() > 0 ? left : null, paidMethod: lastPaid?.method ?? null } });
     await recordAudit(
       {
         entity: "invoice",
         action: "payment_undone",
         loadId,
         loadNumber: load.loadNumber,
-        summary: `${load.invoiceNumber ?? "Invoice"} payment of $${was.toFixed(2)} taken back`,
+        summary: `${load.invoiceNumber ?? "Invoice"} payment of $${lastTaken.toFixed(2)} taken back${left.toNumber() > 0 ? `; $${left.toNumber().toFixed(2)} still counted as received` : ""}`,
         reason: why,
-        before: { Status: "Paid", Amount: `$${was.toFixed(2)}` },
-        after: { Status: "Invoiced", Amount: null },
+        before: { Status: load.paymentStatus === "paid" ? "Paid" : "Invoiced, part paid", Amount: `$${received.toFixed(2)}` },
+        after: { Status: left.toNumber() > 0 ? "Invoiced, part paid" : "Invoiced", Amount: left.toNumber() > 0 ? `$${left.toNumber().toFixed(2)}` : null, Owed: `$${dec(billed).minus(left).toNumber().toFixed(2)}` },
         at: now, workspaceId
       },
       tx
     );
+    return true;
   });
-  return { ok: true };
+  return { ok: out };
 }
 
 /** The invoice as billed, for printing: its lines, who it is for, and the load it came from. */
 export async function getInvoice(loadId: string, workspaceId = currentWorkspaceId()) {
-  const l = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, paymentStatus: { not: null } }, include: { stops: { orderBy: { stopSequence: "asc" } }, workspace: true } });
+  const l = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, paymentStatus: { not: null } }, include: { stops: { orderBy: { stopSequence: "asc" } }, workspace: true, payments: { orderBy: [{ paidAt: "asc" }, { id: "asc" }] } } });
   if (!l || !l.invoicedAt) return null;
   const lines = Array.isArray(l.invoiceLines) ? (l.invoiceLines as Array<{ label: string; amount: number }>) : null;
   const total = num(l.invoicedAmount ?? l.quotedRevenue);
@@ -159,6 +279,9 @@ export async function getInvoice(loadId: string, workspaceId = currentWorkspaceI
     status: l.paymentStatus,
     paidAt: l.paidAt,
     paidAmount: numOrNull(l.paidAmount),
+    /** What is still owed on an invoice that is out (the total less what has come in so far); 0 when it is paid. */
+    balance: l.paymentStatus === "paid" ? 0 : dec(total).minus(dec(numOrNull(l.paidAmount) ?? 0)).toNumber(),
+    payments: l.payments.map((p) => ({ amount: p.amount.toNumber(), paidAt: p.paidAt, method: p.method })),
     paidMethod: l.paidMethod,
     poNumber: l.poNumber
   };

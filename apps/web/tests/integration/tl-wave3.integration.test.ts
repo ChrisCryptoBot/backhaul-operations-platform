@@ -112,7 +112,8 @@ describe.skipIf(!run)("thresholds, KPI totals and exports on the demo database",
   });
 
   test("exports: a header and one row per record, a BOM, a name with the date, and the Loads filter applied", async () => {
-    const drafts = await prisma.load.count({ where: { workspaceId: WS, deletedAt: null, status: "draft" } });
+    // "Needs a driver" is a draft load that has not been sent (a sent one is under "Sent, waiting").
+    const drafts = await prisma.load.count({ where: { workspaceId: WS, deletedAt: null, status: "draft", NOT: { assignment: { status: "dispatched" } } } });
     const loads = (await buildExport("loads", { status: "draft" }))!;
     expect(loads.filename).toMatch(/^truelane-desk-loads-\d{4}-\d{2}-\d{2}\.csv$/);
     expect(loads.csv.startsWith("﻿Load,Status,Customer")).toBe(true);

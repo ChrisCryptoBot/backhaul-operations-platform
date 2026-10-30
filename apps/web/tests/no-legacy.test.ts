@@ -3,8 +3,9 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * Guards for the rebuild. The old coordinator-task app (copilot, regions and weeks, drop lots, AWS queues, Clerk) and the
+ * Guards for the rebuild. The old coordinator-task app (copilot, regions and weeks, drop lots, AWS queues) and the
  * employer it was built for are gone on purpose. This fails if their names or their architecture come back into the code.
+ * Clerk is back on purpose (2026-10-30, Part B of the audit plan: sign-in behind DESK_AUTH, off by default); tests/auth-guard.test.ts keeps it in the few files that need it.
  * Migrations are history and are not scanned; docs may tell the story but never name the employer.
  */
 const repo = path.join(__dirname, "../../..");
@@ -14,7 +15,7 @@ const web = path.join(__dirname, "..");
 const j = (...p: string[]) => p.join("");
 const EMPLOYER = new RegExp([j("Mile", "Max"), j("Carl", "isle"), j("Lees", "port"), j("Sealed", " Air"), j("Ash", "ley"), j("AW", "LE"), j("Drop", " ?Bucket")].join("|"), "i");
 const LEGACY = new RegExp(
-  [j("co", "pilot"), j("Phase", "1"), j("mg", "Status"), j("tmw", "Status"), j("manual_", "tuesday"), j("Week", "Snapshot"), j("Drop", "Lot"), j("runIn", "RegionScope"), j("@cl", "erk"), j("@aws", "-sdk"), j("S3_", "BUCKET"), j("SQS", "_"), j("AWS", "_REGION")].join("|"),
+  [j("co", "pilot"), j("Phase", "1"), j("mg", "Status"), j("tmw", "Status"), j("manual_", "tuesday"), j("Week", "Snapshot"), j("Drop", "Lot"), j("runIn", "RegionScope"), j("@aws", "-sdk"), j("S3_", "BUCKET"), j("SQS", "_"), j("AWS", "_REGION")].join("|"),
   "i"
 );
 
@@ -47,7 +48,7 @@ describe("the old app and its employer are gone", () => {
   });
 
   it("has no old route, module or component on disk", () => {
-    for (const p of ["src/app/api", "src/app/(auth)", "src/server/copilot", "src/components/copilot", "src/middleware.ts", "src/domain", "src/contracts"]) {
+    for (const p of ["src/app/api", "src/app/(auth)", "src/server/copilot", "src/components/copilot", "src/domain", "src/contracts"]) {
       expect(fs.existsSync(path.join(web, p)), p).toBe(false);
     }
   });
@@ -57,7 +58,7 @@ describe("the old app and its employer are gone", () => {
     const models = [...schema.matchAll(/^model (\w+) \{/gm)].map((m) => m[1]).sort();
     // The models that are not TrueLane's are the desk's own: AuditEvent, its record of what it did and why (Wave 2), and Settlement and
     // SettlementLoad, the driver pay statements and the one-row-per-load tie that stops a load being paid twice (Wave 7b), and Customer, the profile
-    // attached to the name a load carries (Wave C3), and Trailer, the trailer registry (Wave E2), and PartnerConnection, which company a workspace has connected for each partner capability (Wave E4). Thread and Message are the desk's messages with its drivers (front-end reconciliation, Wave 4): one thread per driver, saved on the desk only; MessageAttachment, a picture or file on one; and SignupRequest, a request for an account (Wave 5).
-    expect(models).toEqual(["Assignment", "AuditEvent", "CostProfile", "Customer", "Driver", "Load", "LoadDecision", "Message", "MessageAttachment", "PartnerConnection", "Settlement", "SettlementLoad", "SignupRequest", "Stop", "Thread", "Trailer", "TripSegment", "Vehicle", "Workspace"]);
+    // attached to the name a load carries (Wave C3), and Trailer, the trailer registry (Wave E2), and PartnerConnection, which company a workspace has connected for each partner capability (Wave E4). Thread and Message are the desk's messages with its drivers (front-end reconciliation, Wave 4): one thread per driver, saved on the desk only; MessageAttachment, a picture or file on one; and SignupRequest, a request for an account (Wave 5), and ServiceUsage, the ledger of paid calls (spend-guardrails plan). Member is a person on a desk (sign-in, Part B of the audit plan). LoadDocument is a file kept on a load (Part C: factoring is made of what is kept). LoadPayment is a payment received against an invoice (an invoice can be part paid).
+    expect(models).toEqual(["Assignment", "AuditEvent", "CostProfile", "Customer", "Driver", "Load", "LoadDecision", "LoadDocument", "LoadPayment", "Member", "Message", "MessageAttachment", "PartnerConnection", "ServiceUsage", "Settlement", "SettlementLoad", "SignupRequest", "Stop", "Thread", "Trailer", "TripSegment", "Vehicle", "Workspace"]);
   });
 });
