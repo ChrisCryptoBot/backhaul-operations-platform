@@ -11,6 +11,8 @@ import { AssignButton } from "@/components/desk/assign-modal";
 import { EmptyState } from "@/components/desk/kit/states";
 import { miles, shortDate, usd } from "@/lib/desk-format";
 
+export const metadata = { title: "Dispatch queue · TrueLane" };
+
 /**
  * One signal per load: the most serious thing the alert rules say about it, else the verdict when it is not a plain "covers your cost", else
  * nothing. A load that is fine does not need a word. The driver, when there is one, is plain text beside it.

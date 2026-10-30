@@ -48,6 +48,7 @@ export default async function DriverPage({ params }: { params: { id: string } })
     <>
       <PageHead title={p.name} sub={`${p.active ? "Active" : "Out of service"}${p.assignedVehicle ? ` · drives ${p.assignedVehicle.name}` : ""} · ${d.open.length} open ${d.open.length === 1 ? "load" : "loads"}`}>
         <Link href="/drivers" className="tl-btn">All drivers</Link>
+        <Link href={`/messages?driver=${p.id}`} className="tl-btn">Message driver</Link>
         <DriverRowActions driver={row} />
       </PageHead>
 

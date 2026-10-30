@@ -5,6 +5,7 @@
  *
  *   DATABASE_URL=postgresql://demo:demo@localhost:54330/demo npx tsx scripts/seed-demo.ts
  */
+import { seedMessages } from "./seed-messages";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { computeBreakEvenRpm, computeSurvivalFloorRpm } from "../src/truelane/lib/domain/calculators";
 import { reasonLabel } from "../src/lib/disruptions";
@@ -440,6 +441,7 @@ async function main() {
     }
   }
   await prisma.auditEvent.createMany({ data: audits });
+  await seedMessages(prisma, WORKSPACE_ID);
 
   const counts = {
     vehicles: await prisma.vehicle.count(),

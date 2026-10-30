@@ -10,6 +10,8 @@ import { EmptyState } from "@/components/desk/kit/states";
 import { dateTime } from "@/lib/desk-format";
 import { DateInput } from "@/components/desk/date-input";
 
+export const metadata = { title: "Audit log · TrueLane" };
+
 const COLUMNS: Column[] = [
   { key: "when", label: "When", sticky: true, width: 170 },
   { key: "load", label: "Load" },

@@ -10,6 +10,7 @@ import { finishedTotals } from "./finished-totals";
 import { currentTerminal, listTerminals } from "./terminal";
 import { agingSummary } from "./aging";
 import { currentWorkspaceId } from "./workspace";
+import { unreadMessageCount } from "./messages";
 
 /**
  * What the shell shows on every screen: live counts on the sidebar and the totals strip in the header.
@@ -18,11 +19,13 @@ import { currentWorkspaceId } from "./workspace";
 export type ShellRow = LoadRow & { assignment: { status: string } | null };
 
 export type ShellData = {
-  counts: { needsDriver: number; sentWaiting: number; onTheRoad: number; readyToInvoice: number; overdue: number; alertsBlock: number; alertsWarn: number };
+  counts: { needsDriver: number; sentWaiting: number; onTheRoad: number; readyToInvoice: number; overdue: number; alertsBlock: number; alertsWarn: number; unreadMessages: number };
   totals: { open: number; needsDriver: number; gross: number; avgRpm: number | null; emptyShare: number | null };
   /** The terminals trucks and drivers are assigned to, and the one the header is scoped to (null = all). The counts above are the whole fleet's. */
   terminals: string[];
   terminal: string | null;
+  /** The workspace's name, for the account block at the foot of the sidebar. */
+  workspaceName: string;
 };
 
 export function buildShellData(rows: ShellRow[], now: number = Date.now(), alertCounts: { block: number; warn: number } = { block: 0, warn: 0 }): ShellData {
@@ -49,10 +52,11 @@ export function buildShellData(rows: ShellRow[], now: number = Date.now(), alert
   const dh = deadheadPct(finished.map((l) => ({ drivenMiles: drivenMiles(milesIn(l)), deadheadMiles: deadheadMilesOf(milesIn(l)) })));
 
   return {
-    counts: { needsDriver, sentWaiting, onTheRoad, readyToInvoice, overdue, alertsBlock: alertCounts.block, alertsWarn: alertCounts.warn },
+    counts: { needsDriver, sentWaiting, onTheRoad, readyToInvoice, overdue, alertsBlock: alertCounts.block, alertsWarn: alertCounts.warn, unreadMessages: 0 },
     totals: { open: open.length, needsDriver, gross: analytics.summary.grossRevenue, avgRpm: analytics.summary.avgRpm, emptyShare: dh == null ? null : dh / 100 },
     terminals: [],
-    terminal: null
+    terminal: null,
+    workspaceName: ""
   };
 }
 
@@ -66,7 +70,7 @@ const OPEN = ["draft", "accepted", "in_progress"];
 export async function getShellData(workspaceId = currentWorkspaceId()): Promise<ShellData> {
   const now = Date.now();
   const base = { workspaceId, deletedAt: null };
-  const [open, needsDriver, sentWaiting, onTheRoad, readyToInvoice, owed, alerts, totals, terminals] = await Promise.all([
+  const [open, needsDriver, sentWaiting, onTheRoad, readyToInvoice, owed, alerts, totals, terminals, unreadMessages, workspace] = await Promise.all([
     prisma.load.count({ where: { ...base, status: { in: OPEN } } }),
     prisma.load.count({ where: { ...base, status: "draft", OR: [{ assignment: null }, { assignment: { status: { in: ["draft", "declined"] } } }] } }),
     prisma.load.count({ where: { ...base, ...notQuote, assignment: { status: "dispatched" } } }),
@@ -75,14 +79,17 @@ export async function getShellData(workspaceId = currentWorkspaceId()): Promise<
     agingSummary(now, workspaceId),
     getAlerts(new Date(now), workspaceId, "shell"),
     finishedTotals(workspaceId, new Date(now)),
-    listTerminals(workspaceId)
+    listTerminals(workspaceId),
+    unreadMessageCount(workspaceId),
+    prisma.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } })
   ]);
   const terminal = await currentTerminal(workspaceId);
   const overdue = owed.overdueCount;
   return {
-    counts: { needsDriver, sentWaiting, onTheRoad, readyToInvoice, overdue, alertsBlock: alerts.counts.block, alertsWarn: alerts.counts.warn },
+    counts: { needsDriver, sentWaiting, onTheRoad, readyToInvoice, overdue, alertsBlock: alerts.counts.block, alertsWarn: alerts.counts.warn, unreadMessages },
     totals: { open, needsDriver, gross: totals.gross, avgRpm: totals.avgRpm, emptyShare: totals.emptyShare },
     terminals,
-    terminal
+    terminal,
+    workspaceName: workspace?.name ?? ""
   };
 }

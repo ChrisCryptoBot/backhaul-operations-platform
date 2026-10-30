@@ -33,6 +33,7 @@ import { syncEld, type SyncResult } from "@/server/partners/eld";
 import { importFuelForLoad, saveFuelCard, type FuelCardResult, type SaveFuelCard } from "@/server/partners/fuel-card";
 import { vetDriverCarrier, type VetResult } from "@/server/partners/vetting";
 import { sendToPayroll, type SendResult } from "@/server/partners/payroll";
+import { markThreadRead, sendMessage, type SendResult as SendMessageResult } from "@/server/tl/messages";
 import { commitImport, locateHomeBases, previewImport, type ImportPreview, type ImportResult, type LocateResult } from "@/server/tl/import";
 import type { ImportKind } from "@/lib/import-csv";
 import { deleteLoad, restoreLoad, type RemoveResult } from "@/server/tl/remove";
@@ -541,3 +542,17 @@ export async function disconnectPartnerAction(capability: string, provider: stri
   return out;
 }
 
+
+/** Save a message to a driver (the desk's record only: nothing carries it to a phone yet). `clientId` makes a double send save once. */
+export async function sendMessageAction(input: { driverId: string; body: string; loadId?: string | null; clientId?: string | null }): Promise<SendMessageResult> {
+  const out = await sendMessage({ driverId: String(input.driverId), body: String(input.body ?? ""), loadId: input.loadId ? String(input.loadId) : null, clientId: input.clientId ? String(input.clientId) : null });
+  if (out.ok) revalidatePath("/messages");
+  return out;
+}
+
+/** The dispatcher opened a conversation: the driver's messages in it count as read, and the sidebar number drops. */
+export async function markThreadReadAction(driverId: string): Promise<number> {
+  const n = await markThreadRead(String(driverId));
+  if (n > 0) revalidatePath("/", "layout");
+  return n;
+}

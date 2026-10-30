@@ -1,0 +1,29 @@
+/* The launch screen: the phone app's intro (components/SplashOverlay.tsx) on the web. Same ground, same order, same timings (all in ms from the first frame):
+   bar 0/300, upper stem 150/300, lower stem 280/280, wordmark 520/300, hairline 760/280, slogan 900/300, button 1200/320. One ease, the phone's EASE_OUT. */
+.sp { --sp-ease: cubic-bezier(0.33, 1, 0.68, 1); position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: #0e1117; color: #e8edf2; transition: transform 320ms var(--sp-ease), opacity 320ms ease; }
+.sp[data-leaving="true"] { transform: translateY(-100%); opacity: 0; pointer-events: none; }
+.sp-inner { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 24px; }
+.sp-mark { display: block; width: 136px; height: 136px; overflow: visible; }
+.sp-mark .bm-bar, .sp-mark .bm-up, .sp-mark .bm-low { transform-box: fill-box; animation-duration: 300ms; animation-timing-function: var(--sp-ease); animation-fill-mode: both; }
+.sp-mark .bm-bar { transform-origin: 50% 50%; animation-name: sp-x; animation-delay: 0ms; }
+.sp-mark .bm-up { transform-origin: 50% 0%; animation-name: sp-y; animation-delay: 150ms; }
+.sp-mark .bm-low { transform-origin: 50% 100%; animation-name: sp-y; animation-delay: 280ms; animation-duration: 280ms; }
+.sp-word { margin: 20px 0 0; font-family: var(--db-font-head); font-weight: 600; font-size: 34px; line-height: 1; letter-spacing: 0.02em; color: #e8edf2; animation: sp-rise 300ms var(--sp-ease) 520ms both; }
+.sp-rule { display: block; width: 68px; height: 2px; margin-top: 14px; background: #e8a020; transform-origin: 0 50%; animation: sp-x 280ms var(--sp-ease) 760ms both; }
+.sp-slogan { margin: 12px 0 0; font-family: var(--db-font-head); font-weight: 600; font-size: 16px; letter-spacing: 0.02em; color: #9aa7b4; animation: sp-fade 300ms var(--sp-ease) 900ms both; }
+.sp-cta { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-width: 220px; min-height: 52px; margin-top: 40px; padding: 0 28px; border: 0; border-radius: 6px; cursor: pointer; font-family: var(--db-font-head); font-weight: 600; font-size: 16px; letter-spacing: 0.14em; text-transform: uppercase; color: #0e1117; background: linear-gradient(to bottom, #f2b642 0%, #e8a020 55%, #d58c16 100%); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -1px 0 rgba(0, 0, 0, 0.22), 0 8px 24px rgba(232, 160, 32, 0.18); animation: sp-lift 320ms var(--sp-ease) 1200ms both; }
+.sp-cta:hover { filter: brightness(1.06); }
+.sp-cta:focus-visible { outline: 2px solid #f2b642; outline-offset: 4px; }
+.sp-cta i { font-style: normal; display: inline-block; animation: sp-nudge 700ms ease-in-out 1600ms infinite alternate; }
+@keyframes sp-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes sp-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes sp-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes sp-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sp-lift { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes sp-nudge { from { transform: translateX(0); } to { transform: translateX(5px); } }
+
+/* Reduce Motion: the lockup is simply there, the button is there, and leaving is a plain fade. */
+@media (prefers-reduced-motion: reduce) {
+  .sp-mark .bm-bar, .sp-mark .bm-up, .sp-mark .bm-low, .sp-word, .sp-rule, .sp-slogan, .sp-cta, .sp-cta i { animation: none; }
+  .sp, .sp[data-leaving="true"] { transition: opacity 120ms linear; transform: none; }
+}

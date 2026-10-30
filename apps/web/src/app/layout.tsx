@@ -9,7 +9,7 @@ const barlow = Barlow({ subsets: ["latin"], weight: ["400", "500", "600", "700"]
 const barlowCondensed = Barlow_Condensed({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-barlow-cond", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Dispatch desk",
+  title: "Dispatch · TrueLane",
   description: "A dispatcher's desk built on TrueLane's data model, with sample data."
 };
 

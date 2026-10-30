@@ -9,6 +9,8 @@ import { EmptyState } from "@/components/desk/kit/states";
 import { PayrollSend } from "@/components/desk/partner-actions";
 import { shortDate, usd } from "@/lib/desk-format";
 
+export const metadata = { title: "Payroll · TrueLane" };
+
 export const dynamic = "force-dynamic";
 
 const COLUMNS: Column[] = [

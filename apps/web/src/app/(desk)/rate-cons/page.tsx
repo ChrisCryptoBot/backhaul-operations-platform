@@ -8,6 +8,8 @@ import { perMile, shortDate, usd } from "@/lib/desk-format";
 import { cityState } from "@/lib/city-state";
 import { listRecentRateCons } from "@/server/ratecon/recent";
 
+export const metadata = { title: "Rate confirmations · TrueLane" };
+
 const COLUMNS: Column[] = [
   { key: "load", label: "Load", group: "Load", sticky: true, width: 200 },
   { key: "lane", label: "Lane", group: "Load" },

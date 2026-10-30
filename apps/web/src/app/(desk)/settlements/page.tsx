@@ -10,6 +10,8 @@ import { StartStatement } from "@/components/desk/settlement-forms";
 import { shortDate, usd } from "@/lib/desk-format";
 import { periodPresets } from "@/lib/settlement";
 
+export const metadata = { title: "Settlements · TrueLane" };
+
 export const dynamic = "force-dynamic";
 
 const UNSETTLED: Column[] = [

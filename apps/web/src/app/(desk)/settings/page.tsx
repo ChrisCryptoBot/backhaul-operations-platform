@@ -16,6 +16,8 @@ import { partnerStatus } from "@/server/partners/connections";
 import { IntegrationsList } from "@/components/desk/partner-actions";
 import { PLANS, priceText } from "@/lib/plans";
 
+export const metadata = { title: "Settings · TrueLane" };
+
 /** Settings: appearance (theme, row density) and the thresholds the desk judges by. Appearance buttons save straight away. */
 export default async function SettingsPage() {
   const jar = cookies();
@@ -97,6 +99,11 @@ export default async function SettingsPage() {
       <Card title="Alert rules" className="tl-card">
         <p className="tl-note" style={{ marginBottom: 10 }}>What raises a block, warn or info alert on a load, with the timings above.</p>
         <Link href="/settings/rules" className="tl-btn">See the rules</Link>
+      </Card>
+
+      <Card title="Sign-up requests" className="tl-card">
+        <p className="tl-note" style={{ marginBottom: 10 }}>Who has asked for an account, and which large fleets are waiting for a person to set them up.</p>
+        <Link href="/settings/requests" className="tl-btn">See the requests</Link>
       </Card>
     </>
   );

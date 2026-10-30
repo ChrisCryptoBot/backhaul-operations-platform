@@ -14,6 +14,8 @@ import { hasFilters, kpiHref, parseKpiParams } from "@/lib/kpi-params";
 import { KPI_PERIODS, windowLabel } from "@/lib/kpi-periods";
 import { usd } from "@/lib/desk-format";
 
+export const metadata = { title: "KPI dashboard · TrueLane" };
+
 const FILTER_LABEL = { lane: "Lane", broker: "Customer", driver: "Driver", truck: "Truck" } as const;
 
 export default async function KpiPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {

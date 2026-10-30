@@ -3,6 +3,8 @@ import { QuoteDesk } from "@/components/desk/quote-desk";
 import { PageHead } from "@/components/desk/ui";
 import { brokerNames, getQuote, getQuoteLike, listQuotes } from "@/server/tl/quote";
 
+export const metadata = { title: "Quote a load · TrueLane" };
+
 export default async function QuotePage({ searchParams }: { searchParams: { quote?: string; like?: string } }) {
   const id = searchParams.quote ?? null;
   const likeId = id ? null : (searchParams.like ?? null);

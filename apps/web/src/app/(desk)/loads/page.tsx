@@ -18,6 +18,8 @@ import { reasonLabel } from "@/lib/disruptions";
 import { asHistoryFilter, asHistorySort, fellThrough, HISTORY_FILTERS, HISTORY_SORTS, historyDate, monthGroups } from "@/lib/loads-history";
 import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
 
+export const metadata = { title: "Loads · TrueLane" };
+
 const OPEN_FILTERS = BOARD_STATUSES.filter((s) => s.key !== "completed");
 /** Open loads shown at a time; a big fleet has hundreds moving at once. */
 const OPEN_PAGE = 50;

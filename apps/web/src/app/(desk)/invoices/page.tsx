@@ -13,6 +13,8 @@ import { EmptyState } from "@/components/desk/kit/states";
 import { shortDate, usd } from "@/lib/desk-format";
 import { spanText } from "@/lib/planner";
 
+export const metadata = { title: "Invoices · TrueLane" };
+
 type Inv = Awaited<ReturnType<typeof listInvoiceRows>>[number];
 
 const DETENTION: Column[] = [

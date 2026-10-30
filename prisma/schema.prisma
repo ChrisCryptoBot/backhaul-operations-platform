@@ -48,6 +48,7 @@ model Workspace {
   /// The plan the workspace is on (starter | growth | pro | enterprise), or none chosen yet: then the price follows the fleet's size and nothing is limited.
   plan               String?
   partnerConnections PartnerConnection[]
+  threads            Thread[]
   vehicles           Vehicle[]
   trailers           Trailer[]
   loads              Load[]
@@ -278,6 +279,7 @@ model Load {
   segments   TripSegment[]
   decisions  LoadDecision[]
   assignment Assignment?
+  messages   Message[]
   settlement SettlementLoad?
 
   // The lists a big fleet reads: by state, by day, by money, by customer, by number, and a truck's own loads. Trigram (search) indexes are in the
@@ -392,6 +394,7 @@ model Driver {
   workspace       Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   assignedVehicle Vehicle?     @relation(fields: [assignedVehicleId], references: [id], onDelete: SetNull)
   assignments     Assignment[]
+  thread          Thread?
   settlements     Settlement[]
 
   @@index([workspaceId, active, name])
@@ -565,4 +568,87 @@ model PartnerConnection {
 
   @@unique([workspaceId, capability, provider])
   @@map("partner_connections")
+}
+
+/// The desk's conversation with one driver: one thread per driver, newest message last. A message can be about a load (its chip links to it).
+/// Today nothing carries a message to the driver's phone, so `Message.deliveredAt` stays empty and the screen says the message is saved on the desk only.
+model Thread {
+  id            String   @id @default(cuid())
+  workspaceId   String   @map("workspace_id")
+  driverId      String   @unique @map("driver_id")
+  lastMessageAt DateTime @default(now()) @map("last_message_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  driver    Driver    @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  messages  Message[]
+
+  @@index([workspaceId, lastMessageAt])
+  @@map("threads")
+}
+
+/// One message in a thread. direction: out (the dispatcher wrote it) | in (the driver wrote it) | system (the desk noted something, such as a load being sent).
+/// `clientId` is the browser's own id for a send, so a double click or a retry saves it once. `readAt` matters for `in`: empty means the dispatcher has not opened it.
+model Message {
+  id          String    @id @default(cuid())
+  threadId    String    @map("thread_id")
+  direction   String
+  body        String
+  loadId      String?   @map("load_id")
+  clientId    String?   @map("client_id")
+  sentAt      DateTime  @default(now()) @map("sent_at")
+  deliveredAt DateTime? @map("delivered_at")
+  readAt      DateTime? @map("read_at")
+
+  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  load   Load?  @relation(fields: [loadId], references: [id], onDelete: SetNull)
+  attachments MessageAttachment[]
+
+  @@unique([threadId, clientId])
+  @@index([threadId, sentAt])
+  @@index([direction, readAt])
+  @@map("messages")
+}
+
+/// Someone who asked for an account. Not tied to a workspace: it exists before one does. kind: self_serve (under 50 trucks) | enterprise (50 or more: a person sets
+/// them up). The kind is worked out from `trucks` on the server, never taken from the form. status: open | contacted | provisioned | declined; `workspaceId`
+/// names the workspace made for them once provisioned (a plain column, so removing a workspace never removes the record that it was asked for).
+model SignupRequest {
+  id          String   @id @default(cuid())
+  kind        String
+  name        String
+  company     String
+  role        String?
+  email       String
+  phone       String?
+  trucks      Int
+  mcNumber    String?  @map("mc_number")
+  bestTime    String?  @map("best_time")
+  note        String?
+  status      String   @default("open")
+  workspaceId String?  @map("workspace_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([status, kind, createdAt])
+  @@map("signup_requests")
+}
+
+/// A picture or a file on a message (the phone's own limits: up to 4 a message, 10 MB each). kind: image | file. `storageKey` names the bytes in the desk's private
+/// storage (never a public address); `sha256` is of the stored bytes. The type was checked against the file's real signature before it was kept.
+model MessageAttachment {
+  id         String   @id @default(cuid())
+  messageId  String   @map("message_id")
+  kind       String
+  name       String?
+  mime       String
+  bytes      Int
+  sha256     String
+  storageKey String   @map("storage_key")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@map("message_attachments")
 }

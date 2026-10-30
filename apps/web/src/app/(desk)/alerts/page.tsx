@@ -7,6 +7,8 @@ import { AlertList } from "@/components/desk/alert-bits";
 import { EmptyState } from "@/components/desk/kit/states";
 import { Pager } from "@/components/desk/pager";
 
+export const metadata = { title: "Alerts · TrueLane" };
+
 const LEVELS: AlertLevel[] = ["block", "warn", "info"];
 const PAGE = 100;
 const HEADING: Record<AlertLevel, string> = { block: "Fix before it goes out", warn: "Look at these soon", info: "For your information" };

@@ -13,6 +13,8 @@ import { currentTerminal } from "@/server/tl/terminal";
 import { partnerState } from "@/server/partners/call";
 import { SyncEldButton } from "@/components/desk/partner-actions";
 
+export const metadata = { title: "Trucks · TrueLane" };
+
 const COLUMNS: Column[] = [
   { key: "truck", sortable: true, label: "Truck", group: "Truck", sticky: true, width: 200 },
   { key: "type", sortable: true, label: "Type", group: "Truck" },

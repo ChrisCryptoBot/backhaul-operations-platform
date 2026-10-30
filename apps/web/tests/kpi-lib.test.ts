@@ -3,7 +3,7 @@ import { centralInstant, centralMidnight, centralParts, parseCentralLocal, toCen
 import { asKpiPeriod, DAY_MS, inWindow, periodWindow, previousWindow, weekBuckets, WEEK_MS, windowLabel } from "../src/lib/kpi-periods";
 import { emptyZone, resolveThresholds, THRESHOLD_DEFAULTS, validateThresholds, alertThresholds } from "../src/lib/thresholds";
 import { csvCell, toCsv } from "../src/lib/csv";
-import { binVariances, changeFraction, combineWeeks, deltaOf, growthOf, sparkPath, VARIANCE_BINS } from "../src/lib/kpi-view";
+import { binVariances, changeFraction, combineWeeks, deltaOf, growthOf, sparkPath, sparkPoints, VARIANCE_BINS } from "../src/lib/kpi-view";
 import { hasFilters, kpiHref, kpiQuery, parseKpiParams } from "../src/lib/kpi-params";
 import { filterBoard, isBelowCost, searchBoard } from "../src/lib/board-filter";
 
@@ -228,6 +228,15 @@ describe("chart helpers", () => {
     expect(sparkPath([5, 5, 5], 100, 40, 0).d).toBe("M0.0 20.0 L50.0 20.0 L100.0 20.0");
     expect(sparkPath([null, null], 100, 40)).toEqual({ d: "", last: null, min: null, max: null });
     expect(sparkPath([7], 100, 40, 0).d).toBe("M50.0 20.0");
+  });
+
+  test("sparkline points: the hover marker lands exactly where the line is, and a gap has no point", () => {
+    const vals = [1, null, 3, 2];
+    const pts = sparkPoints(vals, 100, 40, 0);
+    expect(pts).toEqual([{ x: 0, y: 40 }, null, { x: 200 / 3, y: 0 }, { x: 100, y: 20 }]);
+    // the last point is the one sparkPath draws its end dot on
+    expect(pts[pts.length - 1]).toEqual(sparkPath(vals, 100, 40, 0).last);
+    expect(sparkPoints([null, null], 100, 40)).toEqual([null, null]);
   });
 });
 

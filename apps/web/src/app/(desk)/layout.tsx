@@ -7,7 +7,7 @@ import { getShellData } from "@/server/tl/shell";
 import "./desk.css";
 
 export const metadata: Metadata = {
-  title: "Dispatch desk",
+  title: "Dispatch · TrueLane",
   description: "A dispatcher's desk built on TrueLane's data model, with sample data."
 };
 

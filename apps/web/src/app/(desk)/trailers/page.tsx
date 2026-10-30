@@ -14,6 +14,8 @@ import { TRAILER_STATUSES, statusLabel } from "@/lib/trailer-clearance";
 import { TRAILER_TYPES, trailerLabel } from "@/truelane/constants/trailerData";
 import { shortDate } from "@/lib/desk-format";
 
+export const metadata = { title: "Trailers · TrueLane" };
+
 export const dynamic = "force-dynamic";
 
 const COLUMNS: Column[] = [

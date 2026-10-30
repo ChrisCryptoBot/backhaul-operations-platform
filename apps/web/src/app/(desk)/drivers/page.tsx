@@ -15,6 +15,8 @@ import { partnerState } from "@/server/partners/call";
 import { vetLabel } from "@/server/partners/vetting";
 import { VetButton } from "@/components/desk/partner-actions";
 
+export const metadata = { title: "Drivers · TrueLane" };
+
 const COLUMNS: Column[] = [
   { key: "driver", sortable: true, label: "Driver", group: "Driver", sticky: true, width: 220 },
   { key: "truck", sortable: true, label: "Truck", group: "Driver" },

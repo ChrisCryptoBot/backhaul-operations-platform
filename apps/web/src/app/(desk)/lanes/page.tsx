@@ -6,6 +6,8 @@ import { DataTableTools } from "@/components/desk/data-table-tools";
 import { parseKpiParams } from "@/lib/kpi-params";
 import { KPI_PERIODS, windowLabel } from "@/lib/kpi-periods";
 
+export const metadata = { title: "Lanes · TrueLane" };
+
 /** Every lane that finished a load in the period: what it paid per mile, against the market, and where the empty miles are. */
 export default async function LanesPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const params = parseKpiParams({ ...searchParams, period: searchParams?.period ?? "all" });

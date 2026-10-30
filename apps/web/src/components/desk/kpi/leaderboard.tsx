@@ -2,7 +2,8 @@ import Link from "next/link";
 import React from "react";
 import type { DriverKpi } from "@/server/tl/kpi";
 import { emptyZone, type Thresholds } from "@/lib/thresholds";
-import { miles, pct, perMile } from "@/lib/desk-format";
+import { miles, pct, perMile, usd } from "@/lib/desk-format";
+import { Tip } from "../kit/tooltip";
 import { ChartFrame } from "./parts";
 
 /**
@@ -31,7 +32,11 @@ export function DriverLeaderboard({ drivers, thresholds, mode, hrefFor }: { driv
             : `The average driver ran ${miles(avg)} empty in this period.`
           : undefined
       }
-      formula={mode === "pct" ? "A driver's empty miles ÷ every mile that driver drove, over finished loads with that driver assigned. Lines are set in Settings." : "Pickup deadhead + return deadhead, summed over the driver's finished loads."}>
+      formula={mode === "pct" ? "A driver's empty miles ÷ every mile that driver drove, over finished loads with that driver assigned. Lines are set in Settings." : "Pickup deadhead + return deadhead, summed over the driver's finished loads."}
+      table={{
+        head: ["Driver", "Loads", "Gross", "Per mile", "Miles driven", "Empty miles", "Empty %", "Pay owed"],
+        rows: drivers.map((d) => [d.name, String(d.loads), usd(d.gross), perMile(d.rpm), miles(d.drivenMiles), miles(d.emptyMiles), pct(d.emptyShare, 1), usd(d.payOwed)])
+      }}>
       <div className="lb-head">
         <div className="tl-seg" role="group" aria-label="Show empty miles as">
           <Link href={hrefFor("pct")} aria-current={mode === "pct" ? "true" : undefined} replace scroll={false}>Empty %</Link>
@@ -50,7 +55,22 @@ export function DriverLeaderboard({ drivers, thresholds, mode, hrefFor }: { driv
         {rows.map(({ d, v }) => {
           const zone = mode === "pct" ? emptyZone(v / 100, thresholds) : null;
           return (
-            <li className="lb-row" key={d.name}>
+            <Tip
+              as="li"
+              focusable
+              className="lb-row"
+              key={d.name}
+              tip={{
+                title: d.name,
+                rows: [
+                  ["Loads finished", String(d.loads)],
+                  ["Gross", usd(d.gross)],
+                  ["Per revenue mile", perMile(d.rpm)],
+                  ["Miles driven", miles(d.drivenMiles)],
+                  ["Empty miles", `${miles(d.emptyMiles)}  (${pct(d.emptyShare, 1)})`],
+                  ["Pay owed", usd(d.payOwed)]
+                ]
+              }}>
               <span className="lb-name">{d.name}</span>
               <div className="lb-track">
                 <i className={`lb-fill ${zone ?? "plain"}`} style={{ width: at(v) }} />
@@ -66,7 +86,7 @@ export function DriverLeaderboard({ drivers, thresholds, mode, hrefFor }: { driv
               <span className="lb-meta">
                 {d.loads} {d.loads === 1 ? "load" : "loads"} · {perMile(d.rpm)}
               </span>
-            </li>
+            </Tip>
           );
         })}
       </ol>

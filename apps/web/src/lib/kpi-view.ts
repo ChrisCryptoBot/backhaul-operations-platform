@@ -65,15 +65,22 @@ export function binVariances(values: Array<number | null | undefined>): { bins: 
 
 export type Spark = { d: string; last: { x: number; y: number } | null; min: number | null; max: number | null };
 
-/** Sparkline geometry in a w x h box. A null breaks the line; a flat series sits in the middle; one point is just a dot. */
-export function sparkPath(values: Array<number | null>, w: number, h: number, pad = 3): Spark {
+function sparkScale(values: Array<number | null>, w: number, h: number, pad: number) {
   const real = values.filter((v): v is number => v != null && Number.isFinite(v));
-  if (real.length === 0) return { d: "", last: null, min: null, max: null };
+  if (real.length === 0) return null;
   const min = Math.min(...real);
   const max = Math.max(...real);
   const span = max - min;
   const x = (i: number) => (values.length === 1 ? w / 2 : pad + (i * (w - 2 * pad)) / (values.length - 1));
   const y = (v: number) => (span === 0 ? h / 2 : h - pad - ((v - min) / span) * (h - 2 * pad));
+  return { min, max, x, y };
+}
+
+/** Sparkline geometry in a w x h box. A null breaks the line; a flat series sits in the middle; one point is just a dot. */
+export function sparkPath(values: Array<number | null>, w: number, h: number, pad = 3): Spark {
+  const sc = sparkScale(values, w, h, pad);
+  if (!sc) return { d: "", last: null, min: null, max: null };
+  const { min, max, x, y } = sc;
   let d = "";
   let pen = false;
   let last: Spark["last"] = null;
@@ -87,6 +94,12 @@ export function sparkPath(values: Array<number | null>, w: number, h: number, pa
     last = { x: x(i), y: y(v) };
   });
   return { d: d.trim(), last, min, max };
+}
+
+/** Where every point of the same sparkline sits (null for a gap), so a hover can land a marker on the week under the pointer. */
+export function sparkPoints(values: Array<number | null>, w: number, h: number, pad = 3): Array<{ x: number; y: number } | null> {
+  const sc = sparkScale(values, w, h, pad);
+  return values.map((v, i) => (!sc || v == null || !Number.isFinite(v) ? null : { x: sc.x(i), y: sc.y(v) }));
 }
 
 /** Sum of a slice, for "the last four weeks against the four before". */

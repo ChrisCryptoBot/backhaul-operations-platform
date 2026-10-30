@@ -1,6 +1,7 @@
 import React from "react";
 import type { DeskKpi } from "@/server/tl/kpi";
 import { pct } from "@/lib/desk-format";
+import { Tip, type TipData } from "../kit/tooltip";
 import { ChartFrame } from "./parts";
 
 type BulletProps = {
@@ -14,12 +15,13 @@ type BulletProps = {
   markLabel: string;
   note: string;
   over?: boolean;
+  tip: TipData;
 };
 
-function Bullet({ label, text, value, max, mark, markLabel, note, over }: BulletProps) {
+function Bullet({ label, text, value, max, mark, markLabel, note, over, tip }: BulletProps) {
   const at = (v: number) => `${Math.min(100, (v / max) * 100)}%`;
   return (
-    <div className="bl">
+    <Tip as="div" focusable className="bl" tip={tip}>
       <div className="bl-head">
         <span>{label}</span>
         <b>{text}</b>
@@ -32,7 +34,7 @@ function Bullet({ label, text, value, max, mark, markLabel, note, over }: Bullet
         <span>{note}</span>
         <span>{mark != null ? `| ${markLabel}` : ""}</span>
       </div>
-    </div>
+    </Tip>
   );
 }
 
@@ -42,6 +44,7 @@ export function Bullets({ k }: { k: DeskKpi }) {
   const p = k.prior;
   const grace = k.thresholds.detentionGraceMinutes;
   const waitMax = Math.max(grace * 1.6, (c.avgWaitMinutes ?? 0) * 1.2, 60);
+  const of = (share: number | null | undefined, n: number) => (share == null || n === 0 ? "—" : `${Math.round(share * n)} of ${n}`);
   const none = c.judgedLoads === 0 && c.paidLoads === 0 && c.waitStops === 0 && c.arrivalStops === 0;
   return (
     <ChartFrame
@@ -58,6 +61,7 @@ export function Bullets({ k }: { k: DeskKpi }) {
         mark={p?.onTimeArrivals == null ? null : p.onTimeArrivals * 100}
         markLabel={`previous ${pct(p?.onTimeArrivals)}`}
         note={c.arrivalStops > 0 ? `${c.arrivalStops} stops with an arrival` : "no arrivals recorded"}
+        tip={{ title: "Arrived on time", rows: [["On time", of(c.onTimeArrivals, c.arrivalStops)], ["Share", pct(c.onTimeArrivals)], ["Previous period", pct(p?.onTimeArrivals)]], note: "Stops reached by the time their window closed." }}
       />
       <Bullet
         label="Cleared the floor"
@@ -67,6 +71,7 @@ export function Bullets({ k }: { k: DeskKpi }) {
         mark={p?.clearedFloor == null ? null : p.clearedFloor * 100}
         markLabel={`previous ${pct(p?.clearedFloor)}`}
         note={c.judgedLoads > 0 ? `${c.judgedLoads} loads judged` : "no loads with a floor"}
+        tip={{ title: "Cleared the floor", rows: [["Cleared", of(c.clearedFloor, c.judgedLoads)], ["Share", pct(c.clearedFloor)], ["Previous period", pct(p?.clearedFloor)]] }}
       />
       <Bullet
         label="Paid within terms"
@@ -76,6 +81,7 @@ export function Bullets({ k }: { k: DeskKpi }) {
         mark={p?.paidWithinTerms == null ? null : p.paidWithinTerms * 100}
         markLabel={`previous ${pct(p?.paidWithinTerms)}`}
         note={c.paidLoads > 0 ? `${c.paidLoads} paid invoices` : "no paid invoices"}
+        tip={{ title: "Paid within terms", rows: [["Paid in time", of(c.paidWithinTerms, c.paidLoads)], ["Share", pct(c.paidWithinTerms)], ["Previous period", pct(p?.paidWithinTerms)]] }}
       />
       <Bullet
         label="Average wait at a stop"
@@ -86,6 +92,7 @@ export function Bullets({ k }: { k: DeskKpi }) {
         markLabel={`${grace} min free`}
         note={c.waitStops > 0 ? `${c.waitStops} stops with a wait` : "no waits recorded"}
         over={c.avgWaitMinutes != null && c.avgWaitMinutes > grace}
+        tip={{ title: "Average wait at a stop", rows: [["Average", c.avgWaitMinutes == null ? "—" : `${c.avgWaitMinutes.toFixed(0)} min`], ["Stops with a wait", String(c.waitStops)], ["Free time", `${grace} min`], ["Previous period", p?.avgWaitMinutes == null ? "—" : `${p.avgWaitMinutes.toFixed(0)} min`]] }}
       />
     </ChartFrame>
   );

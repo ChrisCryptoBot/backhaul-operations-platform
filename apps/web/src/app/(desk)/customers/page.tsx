@@ -11,6 +11,8 @@ import { parseKpiParams } from "@/lib/kpi-params";
 import { KPI_PERIODS, windowLabel } from "@/lib/kpi-periods";
 import { perMile, signedPct, usd } from "@/lib/desk-format";
 
+export const metadata = { title: "Customers · TrueLane" };
+
 export const dynamic = "force-dynamic";
 
 const COLUMNS: Column[] = [

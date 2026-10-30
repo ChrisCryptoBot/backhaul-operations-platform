@@ -10,6 +10,8 @@ import { Pager } from "@/components/desk/pager";
 import { asPage } from "@/lib/paging";
 import { parseCentralLocal } from "@/lib/zoned";
 
+export const metadata = { title: "Planner · TrueLane" };
+
 const WEEK = 7 * 86_400_000;
 /** Driver rows shown at a time: a big fleet has far more drivers than fit on a screen. */
 const ROWS_PER_PAGE = 50;
