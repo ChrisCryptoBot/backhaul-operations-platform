@@ -1247,7 +1247,7 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .qt-table .qt-mini { width: 60px; }
 
 /* The whole card is always on screen: it is pinned under the header, never taller than what is left of the window (it scrolls inside itself past that), and the column beside it runs to the end of the page so nothing below pushes it away. */
-@media (min-width: 1101px) { .qt-side { top: 76px; } .qt-side .qt-glass { max-height: calc(100vh - 124px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; } }
+@media (min-width: 1101px) { .qt-side { top: 76px; } .qt-side .qt-glass { max-height: var(--qt-glass-max, calc(100vh - 124px)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; } }
 
 /* Saved quotes: a way to find one. A passed quote is read, not edited: its actions are not offered. */
 .qt-list-tools { display: flex; flex-wrap: wrap; gap: var(--db-3); align-items: center; margin-bottom: var(--db-3); }

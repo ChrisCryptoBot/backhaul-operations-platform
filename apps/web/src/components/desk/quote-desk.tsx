@@ -121,6 +121,25 @@ export function QuoteDesk({ quotes: firstPage, brokers, initial, canWrite }: { q
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [values.weightLbs, values.lengthFt, values.widthFt, values.heightIn, values.hazmatClass, values.trailer, values.requiresLiftgate, values.requiresRamp, values.requiresPalletJack]);
 
+  // The verdict card is as tall as the room it has: from wherever its top is (below the title at the top of the page, under the header once scrolled) to the foot of the window, so
+  // there is never a gap under it, and what does not fit scrolls inside it.
+  React.useEffect(() => {
+    const fit = () => {
+      const side = document.getElementById("qt-verdict");
+      if (!side) return;
+      const top = side.getBoundingClientRect().top;
+      side.style.setProperty("--qt-glass-max", `${window.innerHeight - (top < 76 ? 76 : top) - 48}px`);
+    };
+    // Measured on every scroll, not on a frame: it is one rectangle and one style, and a frame callback is held back in a window that is not showing.
+    fit();
+    window.addEventListener("scroll", fit, { passive: true });
+    window.addEventListener("resize", fit);
+    return () => {
+      window.removeEventListener("scroll", fit);
+      window.removeEventListener("resize", fit);
+    };
+  }, []);
+
   const check = validateQuote(values);
   // A customer the desk has a record of fills its paperwork in, once, into what is still blank (or still what the last customer put there), and its spelling is the record's.
   const customer = brokers.find((b) => b.name.trim().toLowerCase() === values.broker.trim().toLowerCase()) ?? null;
