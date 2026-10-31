@@ -5,6 +5,7 @@ import React from "react";
 import { saveCompanyAction } from "@/app/(desk)/actions";
 import { validateCompany, type CompanyValues } from "@/lib/company";
 import { useToast } from "./kit/toast";
+import { DraftNote, useDraft } from "./kit/use-draft";
 
 const FIELDS: Array<{ key: keyof CompanyValues; label: string; hint?: string; wide?: boolean; area?: boolean; inputMode?: "numeric" | "tel" | "email" }> = [
   { key: "name", label: "Company name", hint: "As it prints on an invoice and a driver's statement." },
@@ -22,13 +23,15 @@ export function CompanyForm({ stored }: { stored: CompanyValues }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
-  const [values, setValues] = React.useState<CompanyValues>(stored);
+  const [values, setValues, draft] = useDraft<CompanyValues>("company", stored);
   const [serverErrors, setServerErrors] = React.useState<Partial<Record<keyof CompanyValues, string>>>({});
   const check = React.useMemo(() => validateCompany(values), [values]);
   const shown = { ...serverErrors, ...(check.ok ? {} : check.errors) };
   const unchanged = (Object.keys(stored) as Array<keyof CompanyValues>).every((k) => values[k].trim() === stored[k].trim());
 
   return (
+    <>
+    <DraftNote draft={draft} what="the company details" />
     <form
       onSubmit={(e) => {
         e.preventDefault();
@@ -37,6 +40,7 @@ export function CompanyForm({ stored }: { stored: CompanyValues }) {
         start(async () => {
           const out = await saveCompanyAction(values);
           if (out.ok) {
+            draft.saved();
             toast({ text: out.changed ? "Company details saved." : "Nothing changed.", tone: "ok" });
             router.refresh();
           } else setServerErrors(out.errors);
@@ -70,5 +74,6 @@ export function CompanyForm({ stored }: { stored: CompanyValues }) {
         {unchanged ? <span className="tl-sub">Saved.</span> : null}
       </div>
     </form>
+    </>
   );
 }

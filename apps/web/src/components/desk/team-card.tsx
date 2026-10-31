@@ -5,6 +5,7 @@ import React from "react";
 import { addMemberAction, removeMemberAction, setMemberRoleAction } from "@/app/(desk)/actions";
 import { ROLES, ROLE_LABEL, ROLE_NOTE, type Role } from "@/lib/roles";
 import { useToast } from "./kit/toast";
+import { DraftNote, useDraft } from "./kit/use-draft";
 
 export type TeamRow = { id: string; email: string; name: string; role: Role; signedIn: boolean; you: boolean };
 
@@ -16,9 +17,11 @@ export function TeamCard({ rows, canEdit, seats }: { rows: TeamRow[]; canEdit: b
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
-  const [email, setEmail] = React.useState("");
-  const [name, setName] = React.useState("");
-  const [role, setRole] = React.useState<Role>("dispatcher");
+  const [person, setPerson, draft] = useDraft<{ email: string; name: string; role: Role }>("team:add", { email: "", name: "", role: "dispatcher" });
+  const { email, name, role } = person;
+  const setEmail = (v: string) => setPerson((p) => ({ ...p, email: v }));
+  const setName = (v: string) => setPerson((p) => ({ ...p, name: v }));
+  const setRole = (v: Role) => setPerson((p) => ({ ...p, role: v }));
   const full = seats.limit != null && seats.used >= seats.limit;
 
   const run = (job: () => Promise<{ ok: true } | { ok: false; error: string }>, done: string) =>
@@ -78,6 +81,7 @@ export function TeamCard({ rows, canEdit, seats }: { rows: TeamRow[]; canEdit: b
           ))}
         </tbody>
       </table>
+      {canEdit ? <DraftNote draft={draft} what="the new person" /> : null}
       {canEdit ? (
         <form
           className="tm-form"
@@ -86,8 +90,7 @@ export function TeamCard({ rows, canEdit, seats }: { rows: TeamRow[]; canEdit: b
             run(async () => {
               const out = await addMemberAction({ email, name, role });
               if (out.ok) {
-                setEmail("");
-                setName("");
+                draft.discard();
               }
               return out;
             }, `${name || "That person"} added.`);

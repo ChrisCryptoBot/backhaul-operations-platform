@@ -5,6 +5,7 @@ import { fuelSurchargeDollars, type FuelSurchargeUnit } from "@/truelane/lib/fue
 import { isUnusualValue } from "@/truelane/lib/formatNumbers";
 import { parseCentralLocal } from "./zoned";
 import type { LoadSpecs } from "./load-fit";
+import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
 
 /**
  * A quote is the phone's Calculate screen as a dispatcher uses it: an offer on a load that is not booked yet, priced against a truck's cost
@@ -54,8 +55,24 @@ export type QuoteValues = {
   emptyHomeByTruck: Record<string, string>;
   /** Drive hours for the loaded miles as measured on the road. Blank: the verdict assumes 50 mph over every mile. Cleared when the loaded miles are typed by hand. */
   loadedHours: string;
-  /** A fuel price to price this check with, in place of each truck's own. Blank uses theirs. Never saved with the quote or the load. */
+  /** A fuel price to price this check with, in place of each truck's own. Blank uses theirs. Kept with the quote and written into the booking record, so what a load was judged on is never lost. */
   fuelPrice: string;
+  /** Where the fuel price came from: typed by hand, or filled with the regional price. Blank when there is none. */
+  fuelSource: "" | "typed" | "regional";
+  /** What the verdict also counts, as the phone does (all optional, blank is none): time at the docks, a trailer or towing cost, a permit or escort, and an insurance rider. */
+  dockWaitMinutes: string;
+  /** Dollars a mile added to the truck's cost while it tows or hauls this trailer. */
+  towingPerMile: string;
+  /** Dollars for the load, spread over its miles. */
+  permitEscort: string;
+  /** Dollars for the load, taken out of the pay. */
+  insuranceRider: string;
+  /** How wide "at the market" is drawn: "5" tight, blank the usual 10, "15" wide. The rule that asks for a reason stays at 10%. */
+  marketBand: "" | "5" | "15";
+  /** The driver picked for the quote, kept with it so a reopened quote comes back on the same driver. */
+  driverId: string;
+  /** The figures somebody typed by hand ("loadedMiles", "emptyToPickup", "emptyHome", "empty:<truck>"): a later measure leaves these alone. Kept with the quote. */
+  manual: string[];
 };
 
 export const BLANK_QUOTE: QuoteValues = {
@@ -91,7 +108,15 @@ export const BLANK_QUOTE: QuoteValues = {
   emptyByTruck: {},
   emptyHomeByTruck: {},
   loadedHours: "",
-  fuelPrice: ""
+  fuelPrice: "",
+  fuelSource: "",
+  dockWaitMinutes: "",
+  towingPerMile: "",
+  permitEscort: "",
+  insuranceRider: "",
+  marketBand: "",
+  driverId: "",
+  manual: []
 };
 
 export type QuoteInput = {
@@ -119,9 +144,33 @@ export type QuoteInput = {
   loadedHours: number | null;
   /** Dollars a gallon to use for every diesel truck in this check, or null for each truck's own. */
   fuelPrice: number | null;
+  fuelSource: "typed" | "regional" | null;
+  dockWaitMinutes: number;
+  towingPerMile: number;
+  permitEscort: number;
+  insuranceRider: number;
+  /** Half-width of the "at market" band, 0.05, 0.10 or 0.15. */
+  marketBandFraction: number;
+  driverId: string | null;
+  manual: string[];
 };
 
 export type QuoteErrors = Record<string, string>;
+/** The most stops a quote holds: the road measure takes no more. */
+export const MAX_QUOTE_STOPS = 10;
+
+/** The nine US DOT hazard classes, as a list to pick from (a free-text field invited "None", which then read as hazmat). */
+export const HAZMAT_CLASSES = [
+  { value: "1", label: "Class 1: Explosives" },
+  { value: "2", label: "Class 2: Gases" },
+  { value: "3", label: "Class 3: Flammable liquids" },
+  { value: "4", label: "Class 4: Flammable solids" },
+  { value: "5", label: "Class 5: Oxidizers and peroxides" },
+  { value: "6", label: "Class 6: Toxic and infectious" },
+  { value: "7", label: "Class 7: Radioactive" },
+  { value: "8", label: "Class 8: Corrosives" },
+  { value: "9", label: "Class 9: Miscellaneous" }
+] as const;
 export type QuoteCheck = { ok: true; input: QuoteInput; warnings: string[] } | { ok: false; errors: QuoteErrors };
 
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
@@ -197,7 +246,15 @@ export function readQuote(values: QuoteValues): QuoteInput | null {
     emptyByTruck: byTruck,
     emptyHomeByTruck: homeByTruck,
     loadedHours: positive(values.loadedHours ?? ""),
-    fuelPrice: fuelOverride(values.fuelPrice ?? "")
+    fuelPrice: fuelOverride(values.fuelPrice ?? ""),
+    fuelSource: fuelOverride(values.fuelPrice ?? "") == null ? null : values.fuelSource === "regional" ? "regional" : "typed",
+    dockWaitMinutes: nonNeg(values.dockWaitMinutes ?? ""),
+    towingPerMile: nonNeg(values.towingPerMile ?? ""),
+    permitEscort: nonNeg(values.permitEscort ?? ""),
+    insuranceRider: nonNeg(values.insuranceRider ?? ""),
+    marketBandFraction: values.marketBand === "5" ? 0.05 : values.marketBand === "15" ? 0.15 : 0.1,
+    driverId: str(values.driverId ?? "") || null,
+    manual: Array.isArray(values.manual) ? values.manual.filter((m): m is string => typeof m === "string").slice(0, 60) : []
   };
 }
 
@@ -206,14 +263,27 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
   const errors: QuoteErrors = {};
   const stops = values.stops;
   if (stops.length < 2) errors.stops = "A load needs a pickup and a delivery.";
+  else if (stops.length > MAX_QUOTE_STOPS) errors.stops = `At most ${MAX_QUOTE_STOPS} stops.`;
   else {
     if (stops[0]!.role !== "pickup") errors.stops = "The first stop is the pickup.";
     else if (stops[stops.length - 1]!.role !== "delivery") errors.stops = "The last stop is a delivery.";
   }
   stops.forEach((s, i) => {
     if (str(s.address).length < 2) errors[`stop${i}`] = "Where is this stop? A city and state is enough.";
+    else if (str(s.address).length > 200) errors[`stop${i}`] = "At most 200 characters.";
     if (s.appointment && parseCentralLocal(s.appointment) == null) errors[`stop${i}Time`] = "A real date and time.";
   });
+  // Stops in order: a stop cannot be due before the one ahead of it.
+  let earlier: number | null = null;
+  stops.forEach((s, i) => {
+    const t = s.appointment ? parseCentralLocal(s.appointment) : null;
+    if (t == null) return;
+    if (earlier != null && t < earlier && !errors[`stop${i}Time`]) errors[`stop${i}Time`] = "This is before the stop ahead of it. Check the date and time.";
+    else earlier = t;
+  });
+  if (str(values.broker).length > 120) errors.broker = "At most 120 characters.";
+  const trailerRaw = str(values.trailer ?? "");
+  if (trailerRaw !== "" && !TRAILER_TYPES.some((t) => t.value === trailerRaw)) errors.trailer = "Pick a trailer from the list.";
   const mc = str(values.brokerMc).replace(/^mc[\s-]*/i, "");
   if (mc !== "" && !/^\d{3,8}$/.test(mc)) errors.brokerMc = "Digits only, for example 123456.";
   if (str(values.loadNumber).length > 40) errors.loadNumber = "At most 40 characters.";
@@ -263,6 +333,12 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
     const n = num(hoursRaw);
     if (n == null || !(n > 0) || n > 200) errors.loadedHours = "Drive hours, above 0 and under 200.";
   }
+  for (const [key, label, max] of [["dockWaitMinutes", "Dock wait in minutes", 1440], ["towingPerMile", "Towing cost a mile", 10], ["permitEscort", "Permit or escort cost", 50000], ["insuranceRider", "Insurance rider", 50000]] as const) {
+    const raw = str(values[key] ?? "");
+    if (raw === "") continue;
+    const n = num(raw);
+    if (n == null || n < 0 || n > max) errors[key] = `${label}: a number from 0 to ${max.toLocaleString("en-US")}.`;
+  }
   const fscRaw = str(values.fsc);
   if (fscRaw !== "") {
     const n = num(fscRaw);
@@ -287,7 +363,10 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   const input = readQuote(values)!;
-  return { ok: true, input, warnings: quoteWarnings(input) };
+  const warnings = quoteWarnings(input);
+  const first = input.stops[0]?.appointment;
+  if (first != null && first < Date.now() - 24 * 3_600_000) warnings.push("The pickup time is in the past. Check the date, or the year.");
+  return { ok: true, input, warnings };
 }
 
 /**
@@ -302,6 +381,10 @@ export function quoteWarnings(input: QuoteInput): string[] {
     if (perMile < 0.5 || perMile > 15) out.push(`A market rate of $${input.marketTotal.toLocaleString("en-US")} over ${Math.round(miles).toLocaleString("en-US")} miles is $${perMile.toFixed(2)} a mile. The market rate is the total for the load, not a rate per mile.`);
   }
   if (input.fscUnit === "per_mile" && isUnusualValue("fscPerMile", input.fsc)) out.push(`A fuel surcharge of $${input.fsc} a loaded mile is above the usual range (under $3).`);
+  // The phone's softer nudges: a surcharge that is half the offer, or over $2 a loaded mile, is more often a slip than a rate.
+  else if (input.fscUnit === "percent" && input.fsc >= 50) out.push(`A fuel surcharge of ${input.fsc}% of the offer is very high. Did you mean ${input.fsc / 10}% or ${input.fsc / 100}%?`);
+  else if (input.fscUnit === "per_mile" && input.fsc > 2) out.push(`A fuel surcharge of $${input.fsc} a loaded mile looks high. Check it.`);
+  if (input.factoringFraction != null && input.factoringFraction >= 0.5) out.push(`A factoring fee of ${(input.factoringFraction * 100).toFixed(0)}% is very high. Did you mean ${(input.factoringFraction * 10).toFixed(1)}%?`);
   return out;
 }
 

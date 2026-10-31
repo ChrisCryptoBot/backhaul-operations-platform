@@ -38,6 +38,15 @@ describe("every server action asks who is calling", () => {
     expect(bare, "Start the action with `await requireMember(role)` (src/server/tl/access.ts).").toEqual([]);
   });
 
+  it("pins the role each Quote action needs: pricing is for a viewer, everything that writes is for a dispatcher", () => {
+    const roles: Record<string, "viewer" | "dispatcher"> = { priceQuoteAction: "viewer", listQuotesAction: "viewer", saveQuoteAction: "dispatcher", bookQuoteAction: "dispatcher", passQuoteAction: "dispatcher", discardQuoteAction: "dispatcher" };
+    for (const [n, role] of Object.entries(roles)) {
+      const at = text.indexOf(`export async function ${n}`);
+      expect(at, n).toBeGreaterThan(-1);
+      expect(text.slice(at, at + 400), n).toContain(`requireMember("${role}")`);
+    }
+  });
+
   it("keeps the changes that reach the company, the rules, the connections and the team to owners", () => {
     for (const n of ["saveThresholdsAction", "saveCompanyAction", "connectPartnerAction", "disconnectPartnerAction", "addMemberAction", "setMemberRoleAction", "removeMemberAction"]) {
       const at = text.indexOf(`export async function ${n}`);

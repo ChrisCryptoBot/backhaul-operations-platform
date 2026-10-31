@@ -122,6 +122,19 @@ export async function driverClashesIn(driverIds: string[], exceptLoadId: string,
   return out;
 }
 
+/** Which trucks are already on another open load at that time, for many trucks at once (one query): truck id to the other load's number. */
+export async function truckClashesIn(vehicleIds: string[], exceptLoadId: string, win: Window | null, workspaceId = currentWorkspaceId()): Promise<Map<string, string | null>> {
+  const out = new Map<string, string | null>();
+  if (!win || vehicleIds.length === 0) return out;
+  const others = await prisma.load.findMany({ where: { workspaceId, vehicleId: { in: vehicleIds }, ...(exceptLoadId ? { id: { not: exceptLoadId } } : {}), deletedAt: null, status: { in: OPEN_LOAD } }, select: { vehicleId: true, loadNumber: true, stops: { select: { timeWindowEarliest: true, timeWindowLatest: true } } } });
+  for (const o of others) {
+    if (!o.vehicleId || out.has(o.vehicleId)) continue;
+    const w = loadWindow(o.stops);
+    if (w && windowsOverlap(win, w)) out.set(o.vehicleId, o.loadNumber);
+  }
+  return out;
+}
+
 const money = (n: number) => `$${n.toFixed(2)}`;
 
 /**

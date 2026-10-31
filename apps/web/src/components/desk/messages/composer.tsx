@@ -5,6 +5,7 @@ import React from "react";
 import { markThreadReadAction } from "@/app/(desk)/actions";
 import { ACCEPT, ATTACHMENTS_PER_MESSAGE, ATTACHMENT_MAX_BYTES, REFUSAL, safeName, sizeLabel, typeOf } from "@/lib/attachments";
 import { CANNED, MAX_BODY, cleanBody } from "@/lib/messages";
+import { useDraft } from "../kit/use-draft";
 
 type LoadChoice = { id: string; loadNumber: string | null; customer: string | null };
 type Picked = { key: string; file: File; preview: string | null };
@@ -36,8 +37,11 @@ export function Composer({ driverId, driverName, loads }: { driverId: string; dr
   const router = useRouter();
   const box = React.useRef<HTMLTextAreaElement>(null);
   const input = React.useRef<HTMLInputElement>(null);
-  const [text, setText] = React.useState("");
-  const [loadId, setLoadId] = React.useState("");
+  // A message half-written to a driver is kept until it is sent, however the person leaves the page.
+  const [msg, setMsg, kept] = useDraft<{ text: string; loadId: string }>(`message:${driverId}`, { text: "", loadId: "" });
+  const { text, loadId } = msg;
+  const setText = (v: React.SetStateAction<string>) => setMsg((m) => ({ ...m, text: typeof v === "function" ? v(m.text) : v }));
+  const setLoadId = (v: string) => setMsg((m) => ({ ...m, loadId: v }));
   const [picked, setPicked] = React.useState<Picked[]>([]);
   const [error, setError] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
@@ -52,8 +56,7 @@ export function Composer({ driverId, driverName, loads }: { driverId: string; dr
   }, []);
 
   React.useEffect(() => {
-    setText("");
-    setLoadId("");
+    // The text and load for a driver are kept by the draft under that driver's name, so only what cannot be kept is cleared here.
     setError(null);
     dropAll();
     clientId.current = newId();
@@ -124,8 +127,7 @@ export function Composer({ driverId, driverName, loads }: { driverId: string; dr
         setError(out?.error ?? "Could not save that. Check the connection and try again.");
         return;
       }
-      setText("");
-      setLoadId("");
+      kept.discard();
       dropAll();
       clientId.current = newId();
       router.refresh();

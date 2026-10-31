@@ -12,6 +12,8 @@ import { OWNERSHIPS } from "@/lib/trailer-forms";
 import { statusLabel } from "@/lib/trailer-clearance";
 import { trailerLabel } from "@/truelane/constants/trailerData";
 import { getDeskKpi } from "./kpi";
+import { listQuoteDecisions, reportScope } from "./quote-report";
+import { asKpiPeriod } from "@/lib/kpi-periods";
 import { listHistory } from "./history";
 import { listBoardRows, listInvoiceRows, type BoardRow } from "./queries";
 
@@ -19,7 +21,7 @@ import { listBoardRows, listInvoiceRows, type BoardRow } from "./queries";
  * The CSV files the desk offers. Each is built from the same functions the screen uses (the Loads filter, the KPI engine),
  * so a file always matches what was on screen when it was asked for. Dates are the Central calendar date.
  */
-export const EXPORT_KINDS = ["loads", "invoices", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks"] as const;
+export const EXPORT_KINDS = ["loads", "invoices", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "quote-decisions"] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
 type Query = Record<string, string | string[] | undefined>;
@@ -32,6 +34,19 @@ const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v
 export async function buildExport(kind: string, query: Query, now = new Date()): Promise<{ filename: string; csv: string } | null> {
   const day = ymd(now)!;
   const name = (part: string) => `truelane-desk-${part}-${day}.csv`;
+
+  if (kind === "quote-decisions") {
+    const scope = reportScope();
+    if (scope == null) return null;
+    const { rows } = await listQuoteDecisions({ period: asKpiPeriod(first(query.period)), by: scope === "all" ? null : scope }, now);
+    return {
+      filename: name("quote-decisions"),
+      csv: toCsv(
+        ["Date", "Decision", "By", "Customer", "Lane", "Offer", "First offer", "Verdict", "Read against", "Left over per mile", "Left over", "Market variance", "Truck", "Fuel price", "Fuel source", "Reason", "Notes"],
+        rows.map((r) => [ymd(r.at), r.kind === "passed" ? "Passed" : r.kind === "overridden" ? "Booked, an override" : "Booked", r.by, r.customer, r.lane, two(r.offer), two(r.firstOffer), r.verdict, r.benchmark, two(r.marginPerMile), two(r.leftOver), pctOf(r.marketVariancePct), r.truck, two(r.fuelPrice), r.fuelSource, r.reason, r.notes])
+      )
+    };
+  }
 
   if (kind === "loads") {
     // Asked from Loads, the file is the list on screen: the Open board with its status tab, below-cost flag and search, or History with its filter,

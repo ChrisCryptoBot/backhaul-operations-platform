@@ -29,6 +29,7 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
     <>
       <PageHead title="KPI dashboard" sub="Revenue, miles, empty miles, market and money owed, computed from the loads with the same math the phone uses.">
         <Link href={kpiHref("/kpi/report", params)} className="tl-btn">Management report</Link>
+        <Link href="/kpi/quotes" className="tl-btn">Quote decisions</Link>
         <details className="menu">
           <summary className="tl-btn">Export CSV</summary>
           <div className="menu-pop">

@@ -1231,3 +1231,36 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .vc-key-market { display: inline-block; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 6px solid var(--db-fg-mid); }
 .vc-trust { margin: 0; font-size: var(--db-text-xs, 11px); line-height: 1.5; color: var(--db-fg-dim); }
 @media (prefers-reduced-motion: reduce) { .vc-offer { transition: none; } }
+
+/* The verdict card explains itself: every part is hoverable (and reachable by Tab), with a larger hit area on the thin parts of the line. */
+[data-learn] { cursor: help; }
+[data-learn]:focus-visible { outline: 2px solid var(--db-accent); outline-offset: 3px; border-radius: 4px; }
+.vc-line > [data-learn]::before { content: ""; position: absolute; inset: -9px -5px; }
+.vc-explain { position: fixed; z-index: 120; width: max-content; max-width: min(320px, calc(100vw - 24px)); display: grid; gap: 4px; padding: 10px 12px; border-radius: var(--db-r-md); background: var(--db-bg-elev-3); color: var(--db-fg); border: 1px solid var(--db-border-strong); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); font-size: var(--db-text-sm); line-height: 1.45; pointer-events: none; }
+.vc-explain b { font-weight: 700; }
+.vc-explain span { color: var(--db-fg-dim); }
+
+/* The truck table sits in the left column beside the verdict card, so it is compact: every mile and its floor share a column, and the card is never covered. */
+.qt-main .qt-fit { margin-top: var(--db-2); }
+.qt-table td, .qt-table th { padding-left: 8px; padding-right: 8px; }
+.qt-table th:first-child, .qt-table td:first-child { width: 28px; padding-right: 0; }
+.qt-table .qt-mini { width: 60px; }
+
+/* The whole card is always on screen: it is pinned under the header, never taller than what is left of the window (it scrolls inside itself past that), and the column beside it runs to the end of the page so nothing below pushes it away. */
+@media (min-width: 1101px) { .qt-side { top: 76px; } .qt-side .qt-glass { max-height: calc(100vh - 144px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; } }
+
+/* Saved quotes: a way to find one. A passed quote is read, not edited: its actions are not offered. */
+.qt-list-tools { display: flex; flex-wrap: wrap; gap: var(--db-3); align-items: center; margin-bottom: var(--db-3); }
+.qt-list-search { flex: 1 1 220px; min-height: 36px; padding: 0 var(--db-3); background: var(--db-bg-input); color: var(--db-fg); border: 1px solid var(--db-border-strong); border-radius: var(--db-r-md); font-size: var(--db-text-base); }
+.qt-side[data-readonly="true"] .qt-actions { display: none; }
+
+/* The Quote decisions report: cards in a two-up grid, and the grade as a large letter. */
+.qd { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--db-4); align-items: start; }
+.qd > :nth-last-child(-n + 2) { grid-column: 1 / -1; }
+.qd-grade { display: flex; align-items: center; gap: var(--db-4); margin-bottom: var(--db-3); }
+.qd-letter { font-size: 44px; font-weight: 800; line-height: 1; min-width: 48px; text-align: center; }
+.qd-letter[data-grade="A"], .qd-letter[data-grade="B"] { color: var(--db-pos); }
+.qd-letter[data-grade="C"] { color: var(--db-warn); }
+.qd-letter[data-grade="D"], .qd-letter[data-grade="F"] { color: var(--db-neg); }
+@media (max-width: 1100px) { .qd { grid-template-columns: 1fr; } }
+.qd .tl-table .sub { display: block; font-size: var(--db-text-sm); color: var(--db-fg-dim); font-weight: 400; }

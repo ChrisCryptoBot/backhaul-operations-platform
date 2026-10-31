@@ -8,6 +8,7 @@ import { shortDate, usd } from "@/lib/desk-format";
 import { computeStatement, MAX_ADJUSTMENTS, validatePeriod, type AdjustmentInput, type PeriodPreset, type SettlementLoad } from "@/lib/settlement";
 import { ConfirmDialog, Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
+import { DraftNote, useDraft } from "./kit/use-draft";
 import { DateInput } from "./date-input";
 import { DriverPicker } from "./driver-picker";
 
@@ -142,8 +143,11 @@ const BROKER: Record<string, string> = { paid: "Customer paid", invoiced: "Invoi
 export function SettlementEditor({ id, number, driverName, loads, initialHours, initialAdjustments }: { id: string; number: string; driverName: string; loads: SettlementLoad[]; initialHours: Record<string, string>; initialAdjustments: AdjustmentInput[] }) {
   const router = useRouter();
   const toast = useToast();
-  const [hours, setHours] = React.useState(initialHours);
-  const [rows, setRows] = React.useState<AdjustmentInput[]>(initialAdjustments.length > 0 ? initialAdjustments : [{ label: "", amount: "" }]);
+  // The hours and adjustments typed are kept until the draft is saved, finalized or started over.
+  const [form, setForm, kept] = useDraft<{ hours: typeof initialHours; rows: AdjustmentInput[] }>(`settlement:${id}`, { hours: initialHours, rows: initialAdjustments.length > 0 ? initialAdjustments : [{ label: "", amount: "" }] });
+  const { hours, rows } = form;
+  const setHours = (u: React.SetStateAction<typeof initialHours>) => setForm((f) => ({ ...f, hours: typeof u === "function" ? u(f.hours) : u }));
+  const setRows = (u: React.SetStateAction<AdjustmentInput[]>) => setForm((f) => ({ ...f, rows: typeof u === "function" ? u(f.rows) : u }));
   const [tried, setTried] = React.useState(false);
   const [busy, setBusy] = React.useState<null | "save" | "finalize" | "discard">(null);
   const [confirm, setConfirm] = React.useState<null | "finalize" | "discard">(null);
@@ -164,6 +168,7 @@ export function SettlementEditor({ id, number, driverName, loads, initialHours, 
     if (out.ok) {
       setServerErrors({});
       setMessage(null);
+      kept.saved();
       toast({ text: "Draft saved.", tone: "ok" });
       then?.();
       router.refresh();
@@ -180,6 +185,7 @@ export function SettlementEditor({ id, number, driverName, loads, initialHours, 
     const out = await finalizeSettlementAction(id, draft);
     setBusy(null);
     if (out.ok) {
+      kept.saved();
       toast({ text: `${number} finalized for ${usd(st.total, 2)}.`, tone: "ok" });
       router.refresh();
     } else {
@@ -201,6 +207,7 @@ export function SettlementEditor({ id, number, driverName, loads, initialHours, 
 
   return (
     <>
+      <DraftNote draft={kept} what="this statement" />
       <section className="tl-card">
         <h2>{`Loads · ${loads.length}`}</h2>
         {loads.length === 0 ? (

@@ -39,6 +39,19 @@ export const NO_SPECS: LoadSpecs = { weightLbs: null, lengthFt: null, widthFt: n
 export const hasAnySpec = (s: LoadSpecs): boolean =>
   s.weightLbs != null || s.lengthFt != null || s.widthFt != null || s.heightIn != null || !!s.hazmatClass || s.requiresLiftgate || s.requiresRamp || s.requiresPalletJack;
 
+/**
+ * A load that needs a trailer a straight truck or van does not pull: a note, never a stop (a pickup can haul a flatbed's worth, and the desk does not know the body). Tractors and
+ * trucks with no type are not second-guessed, and a dry van is what every box truck and van is.
+ */
+const OWN_BODY = new Set(["cargo_van", "passenger_van", "pickup", "sprinter", "box_truck"]);
+export function truckBodyNote(trailer: string | null, truckType: string | null, truckName: string): string | null {
+  const wanted = (trailer ?? "").trim();
+  const type = (truckType ?? "").trim();
+  if (!wanted || wanted === "dry_van" || wanted.startsWith("other:") || !OWN_BODY.has(type)) return null;
+  const label = wanted.replace(/_/g, " ");
+  return `${truckName} carries its own body; this load wants a ${label} trailer. Check that it can haul it.`;
+}
+
 const OVERSIZE_WORD: Record<OversizeReason, string> = { width: "wide", height: "tall", length: "long" };
 
 /** The load's oversize reasons in a phrase, or null: "wide and tall". */

@@ -1,3 +1,4 @@
+import { toCentralLocal } from "@/lib/zoned";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { GET as partnersStatus } from "@/app/(desk)/partners/status/route";
 import { prisma } from "@/lib/db";
@@ -194,13 +195,16 @@ describe.skipIf(!run)("the partner seams", () => {
   });
 
   test("the Quote cautions about hours left on the clock but prices the same: the verdict never reads them", async () => {
-    const input = readQuote({ ...BLANK_QUOTE, stops: [{ role: "pickup", address: "Dallas, TX", appointment: "2027-06-09T08:00" }, { role: "delivery", address: "Tulsa, OK", appointment: "2027-06-09T17:00" }], broker: "E4 B", offer: "1500", loadedMiles: "260", emptyToPickup: "40", emptyHome: "240", marketRate: "1500" });
+    const input = readQuote({ ...BLANK_QUOTE, stops: [{ role: "pickup", address: "Dallas, TX", appointment: toCentralLocal(Date.now() + 3 * 3_600_000) }, { role: "delivery", address: "Tulsa, OK", appointment: toCentralLocal(Date.now() + 12 * 3_600_000) }], broker: "E4 B", offer: "1500", loadedMiles: "260", emptyToPickup: "40", emptyHome: "240", marketRate: "1500" });
     if (!input) throw new Error("not priceable");
     const row = async () => (await fitQuote(input, W)).rows.find((r) => r.truckId === ids.truck)!;
     await prisma.vehicle.update({ where: { id: ids.truck }, data: { hosAvailableHours: 1 } });
     const short = await row();
     expect(short.hos).toMatchObject({ availableHours: 1, caution: { level: "short" } });
     expect(short.warnings.some((w) => /left on the clock/.test(w))).toBe(true);
+    // The ELD's hours are as of now: a pickup next week is not cautioned about them.
+    const far = readQuote({ ...BLANK_QUOTE, stops: [{ role: "pickup", address: "Dallas, TX", appointment: "2027-06-09T08:00" }, { role: "delivery", address: "Tulsa, OK", appointment: "2027-06-09T17:00" }], offer: input.offer.toString(), loadedMiles: input.loadedMiles.toString() })!;
+    expect((await fitQuote(far, W)).rows.find((r) => r.truckId === ids.truck)!.hos.caution.level).toBe("none");
     await prisma.vehicle.update({ where: { id: ids.truck }, data: { hosAvailableHours: null } });
     const none = await row();
     expect(none.hos.caution.level).toBe("none");

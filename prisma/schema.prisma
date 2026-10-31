@@ -219,6 +219,8 @@ model Load {
   dockWaitMinutes               Int?      @map("dock_wait_minutes")
   /// Drive time for the loaded miles as measured on the road when the load was quoted. Blank means the desk assumes 50 mph over every mile.
   estimatedLoadedHours          Decimal?  @map("estimated_loaded_hours") @db.Decimal(8, 2)
+  /// What a saved quote keeps that a load has no column for: the fuel price and where it came from, each truck's measured or typed empty miles, which figures were typed by hand, and the driver picked.
+  quoteExtras                   Json?     @map("quote_extras")
   factoringFeePct               Decimal?  @map("factoring_fee_pct") @db.Decimal(6, 4)
   insuranceRiderFlat            Decimal?  @map("insurance_rider_flat") @db.Decimal(12, 2)
   marketBenchmark               Decimal?  @map("market_benchmark") @db.Decimal(12, 4)
@@ -354,6 +356,10 @@ model LoadDecision {
   decisionType   String   @map("decision_type")
   overrideReason String?  @map("override_reason")
   overrideNotes  String?  @map("override_notes")
+  /// What the decision was made on, for the Quote decisions report: the verdict, what it was read against, the money, the first offer, the truck and the fuel price. Blank on decisions made before it was kept.
+  details        Json?
+  /// Who decided (the signed-in person, or "Dispatcher" with sign-in off).
+  decidedBy      String?  @map("decided_by")
   decidedAt      DateTime @map("decided_at")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")

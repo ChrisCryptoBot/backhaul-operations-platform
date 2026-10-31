@@ -1,3 +1,4 @@
+import { refusalText } from "@/lib/spend";
 import { parseRoute, parseSuggestions, type Drive, type Place } from "@/lib/geo";
 import type { UsageService } from "@/lib/spend";
 import { claimUsage } from "@/server/tl/usage";
@@ -22,8 +23,20 @@ export const mapboxConfigured = (): boolean => token() !== "";
  * Every real call to Mapbox is claimed in the desk's ledger first (server/tl/usage.ts), so the desk's own day and everyone's month are bounded: Mapbox cannot cap spending at its end, so this
  * is the only cap there is. Over the allowance (or switched off) it fails soft like a missing key: no suggestions, no coordinates, no route; the form still works on typed values.
  */
+let lastRefusal: string | null = null;
+/** Why the last lookup was not made (over the allowance, or switched off), once: so a caller can say that instead of "not found". Cleared when read. */
+export function takeRefusal(): string | null {
+  const r = lastRefusal;
+  lastRefusal = null;
+  return r;
+}
+
 async function getJson(url: string, service: UsageService): Promise<unknown | null> {
-  if (!(await claimUsage(service)).ok) return null;
+  const claim = await claimUsage(service);
+  if (!claim.ok) {
+    lastRefusal = claim.reason === "switched_off" ? "Live lookups are switched off on this desk. Type the miles." : refusalText(claim.reason);
+    return null;
+  }
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS), cache: "no-store" });
     return res.ok ? await res.json() : null;

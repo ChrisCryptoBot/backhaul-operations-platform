@@ -20,6 +20,7 @@ import { ConfirmDialog, Modal } from "./kit/modal";
 import { fuelKindOf } from "@/lib/eia";
 import { useToast } from "./kit/toast";
 import { LiveFuelPrice } from "./live-fuel-price";
+import { DraftNote, useDraft } from "./kit/use-draft";
 import { DateInput } from "./date-input";
 import { TERMINAL_LIST_ID, TERMINAL_MAX_LENGTH } from "@/lib/terminal";
 
@@ -71,13 +72,12 @@ function DriverDialog({ open, onClose, driver }: { open: boolean; onClose: () =>
   const [pending, start] = React.useTransition();
   const blank: Record<keyof DriverValues, string> = { name: "", phone: "", email: "", cdlClass: "A", cdlExpiry: "", medicalCardExpiry: "", assignedVehicleId: "", payKind: "", payRate: "", terminal: "", carrierMc: "", carrierDot: "", payrollWorkerType: "", payrollEmployeeId: "" };
   const initial = driver ? { name: driver.name, phone: driver.phone ?? "", email: driver.email ?? "", cdlClass: driver.cdlClass ?? "", cdlExpiry: driver.cdlExpiry, medicalCardExpiry: driver.medicalCardExpiry, assignedVehicleId: driver.truckId ?? "", payKind: driver.payKind, payRate: driver.payRate, terminal: driver.terminal, carrierMc: driver.carrierMc, carrierDot: driver.carrierDot, payrollWorkerType: driver.payrollWorkerType, payrollEmployeeId: driver.payrollEmployeeId } : blank;
-  const [values, setValues] = React.useState<Record<keyof DriverValues, string>>(initial);
+  const [values, setValues, draft] = useDraft<Record<keyof DriverValues, string>>(`driver:${driver?.id ?? "new"}`, initial);
   const [serverErrors, setServerErrors] = React.useState<Partial<Record<keyof DriverValues, string>>>({});
   const [message, setMessage] = React.useState("");
   const shown = useShownErrors<keyof DriverValues>();
   React.useEffect(() => {
     if (open) {
-      setValues(initial);
       setServerErrors({});
       setMessage("");
       shown.reset();
@@ -94,6 +94,7 @@ function DriverDialog({ open, onClose, driver }: { open: boolean; onClose: () =>
 
   return (
     <Modal open={open} onClose={onClose} eyebrow={driver ? "Edit driver" : "New driver"} title={driver ? driver.name : "Add a driver"}>
+      <DraftNote draft={draft} what="this driver" />
       <form
         className="dlg-form"
         onSubmit={(e) => {
@@ -103,6 +104,7 @@ function DriverDialog({ open, onClose, driver }: { open: boolean; onClose: () =>
           start(async () => {
             const out = await saveDriverAction(values, driver?.id ?? null);
             if (out.ok) {
+              draft.saved();
               toast({ text: out.changed ? (driver ? `${values.name} saved.` : `${values.name} added.`) : "Nothing changed.", tone: "ok" });
               router.refresh();
               onClose();
@@ -491,7 +493,7 @@ export function TruckForm({ truck, onDone, inline }: { truck?: TruckInfo; onDone
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
-  const [values, setValues] = React.useState(truckValues(truck));
+  const [values, setValues, draft] = useDraft(`truck:${truck?.id ?? "new"}`, truckValues(truck));
   const [serverErrors, setServerErrors] = React.useState<Partial<Record<keyof TruckValues, string>>>({});
   const [message, setMessage] = React.useState("");
   const shown = useShownErrors<keyof TruckValues>();
@@ -511,6 +513,8 @@ export function TruckForm({ truck, onDone, inline }: { truck?: TruckInfo; onDone
   };
   const unchanged = truck != null && JSON.stringify(values) === JSON.stringify(truckValues(truck));
   return (
+    <>
+    <DraftNote draft={draft} what="this truck" />
     <form
       className="dlg-form"
       onSubmit={(e) => {
@@ -520,6 +524,7 @@ export function TruckForm({ truck, onDone, inline }: { truck?: TruckInfo; onDone
         start(async () => {
           const out = await saveTruckAction(values, truck?.id ?? null);
           if (out.ok) {
+            draft.saved();
             toast({ text: out.changed ? (truck ? `${values.name} saved.` : `${values.name} added.`) : "Nothing changed.", tone: "ok" });
             router.refresh();
             if (!truck) router.push(`/fleet/${out.id}`);
@@ -547,6 +552,7 @@ export function TruckForm({ truck, onDone, inline }: { truck?: TruckInfo; onDone
         </button>
       </div>
     </form>
+    </>
   );
 }
 
@@ -660,7 +666,7 @@ export function CostProfileForm({
     if (isNew) Object.assign(v, industryValues(vehicleType));
     return { ...v, archetype: choices.archetype, payKind: choices.payKind, fscCut: choices.fscCut ?? "", insuranceItemised: choices.insuranceItemised ? "1" : "", routeMinimumOn: choices.routeMinimumOn ? "1" : "" } as ProfileValues;
   }, [numbers, choices, isNew, vehicleType]);
-  const [values, setValues] = React.useState<ProfileValues>(start0);
+  const [values, setValues, draft] = useDraft<ProfileValues>(`cost-profile:${vehicleId}`, start0);
   const [serverErrors, setServerErrors] = React.useState<Partial<Record<ProfileErrorKey, string>>>({});
   const [warnings, setWarnings] = React.useState<string[] | null>(null);
   const shown = useShownErrors<ProfileErrorKey>();
@@ -692,6 +698,7 @@ export function CostProfileForm({
     start(async () => {
       const out = await saveCostProfileAction(vehicleId, values);
       if (out.ok) {
+        draft.saved();
         toast({ text: out.changed ? `Cost profile saved. The floor is ${perMile(out.floors?.breakEven)}.` : "Nothing changed.", tone: "ok" });
         router.refresh();
       } else {
@@ -759,6 +766,8 @@ export function CostProfileForm({
   const targetLabel = live.archetype === "hired_driver" ? "Truck profit target" : "Driver pay target";
 
   return (
+    <>
+    <DraftNote draft={draft} what="this cost profile" />
     <form
       className="cp"
       onSubmit={(e) => {
@@ -827,7 +836,7 @@ export function CostProfileForm({
 
         <h3 className="th-group">Fuel</h3>
         <div className="th-grid">{field("lastFuelPricePerGallon", { hint: `${truckMpgInfo.typical ? `No mpg is set on the truck, so a typical ${truckMpgInfo.mpg} mpg is used.` : `Uses the truck's ${truckMpgInfo.mpg} mpg.`} Blank gives no verdict until fuel is known.` })}</div>
-        <LiveFuelPrice fuel={fuelKindOf(fuelType)} origin={homeBase ?? ""} typed={values.lastFuelPricePerGallon} onUse={(price) => set("lastFuelPricePerGallon", price)} idle={homeBase ? "Looks up this week's price for the truck's home base region. It fills the box; you still save." : "No home base is set, so this is the national price. It fills the box; you still save."} />
+        <LiveFuelPrice fuel={fuelKindOf(fuelType)} origin={homeBase ?? ""} typed={values.lastFuelPricePerGallon} onUse={(price) => set("lastFuelPricePerGallon", price)} auto idle={homeBase ? "Looks up this week's price for the truck's home base region. It fills the box; you still save." : "No home base is set, so this is the national price. It fills the box; you still save."} />
 
         <h3 className="th-group">Who drives</h3>
         {choice("This truck is run", "archetype", COST_ARCHETYPES.map((a) => ({ key: a.value, label: a.value === "hired_driver" ? "By a paid driver" : a.value === "leased_on" ? "Leased on to a carrier" : "By its owner" })), errors.archetype)}
@@ -938,5 +947,6 @@ export function CostProfileForm({
         <p className="tl-note">A typo is the usual cause: a comma read as a decimal point, or 100 typed for 10. Go back to change them, or save them as typed.</p>
       </ConfirmDialog>
     </form>
+    </>
   );
 }

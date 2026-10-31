@@ -6,6 +6,7 @@ import { saveCustomerAction } from "@/app/(desk)/actions";
 import { CUSTOMER_KINDS, validateCustomer, type CustomerValues } from "@/lib/customer";
 import { AuthorityStatus, useAuthorityLookup } from "./customer-authority";
 import { useToast } from "./kit/toast";
+import { DraftNote, useDraft } from "./kit/use-draft";
 
 /**
  * A customer's record: what kind it is, its MC (a broker or carrier has one; a shipper or direct customer has none, and leaving it blank is
@@ -16,7 +17,7 @@ export function CustomerForm({ id, stored, loads }: { id: string | null; stored:
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
-  const [values, setValues] = React.useState<CustomerValues>(stored);
+  const [values, setValues, draft] = useDraft<CustomerValues>(`customer:${id ?? "new"}`, stored);
   const [serverErrors, setServerErrors] = React.useState<Partial<Record<keyof CustomerValues, string>>>({});
   const authority = useAuthorityLookup();
   const check = React.useMemo(() => validateCustomer(values), [values]);
@@ -59,6 +60,8 @@ export function CustomerForm({ id, stored, loads }: { id: string | null; stored:
   );
 
   return (
+    <>
+    <DraftNote draft={draft} what="this customer" />
     <form
       onSubmit={(e) => {
         e.preventDefault();
@@ -71,6 +74,7 @@ export function CustomerForm({ id, stored, loads }: { id: string | null; stored:
             if (out.error) toast({ text: out.error, tone: "bad" });
             return;
           }
+          draft.saved();
           toast({ text: out.changed ? "Customer saved." : "Nothing changed.", tone: "ok" });
           if (id == null) router.push(`/customers/${out.id}`);
           else router.refresh();
@@ -108,5 +112,6 @@ export function CustomerForm({ id, stored, loads }: { id: string | null; stored:
         {unchanged ? <span className="tl-sub">Saved.</span> : null}
       </div>
     </form>
+    </>
   );
 }

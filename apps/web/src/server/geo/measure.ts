@@ -1,5 +1,5 @@
 import { loadedLegHours, nearestHomes, roundMiles, splitRouteMiles, METERS_TO_MILES, type Place, type StopRole } from "@/lib/geo";
-import { drive, geocode, mapboxConfigured } from "./mapbox";
+import { drive, geocode, mapboxConfigured, takeRefusal } from "./mapbox";
 
 /**
  * Measuring a quote: the loaded miles and drive hours of its route, the empty miles in the middle of it, and for every truck with a base the
@@ -37,8 +37,12 @@ async function legMiles(from: Place | null, to: Place | null): Promise<number | 
 export async function measureQuote(input: MeasureInput): Promise<Measured> {
   if (!mapboxConfigured()) return { ok: false, error: "Live lookup is off: no Mapbox key is set. Type the miles." };
   if (input.stops.length < 2) return { ok: false, error: "Add a pickup and a delivery to measure it." };
+  takeRefusal();
   const found = await Promise.all(input.stops.map((s) => geocode(s.address)));
   const missing = found.map((p, i) => (p ? null : input.stops[i]!.address.trim())).filter((x): x is string => x != null);
+  // A lookup the desk did not make (over its allowance, switched off) is not a place that could not be found.
+  const refused = takeRefusal();
+  if (missing.length > 0 && refused) return { ok: false, error: refused };
   if (missing.length > 0) return { ok: false, error: `Could not find ${missing.join(" or ")}. Pick it from the list, or type the miles.` };
   const points = found as Place[];
 

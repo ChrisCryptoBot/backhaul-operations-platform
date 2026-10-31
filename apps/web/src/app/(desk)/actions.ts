@@ -22,7 +22,7 @@ import type { DriverValues, ProfileKey, TruckValues } from "@/lib/fleet-forms";
 import type { Thresholds } from "@/lib/thresholds";
 import type { PayKind } from "@/server/tl/projector";
 import { quoteWarnings, readQuote, type QuoteValues } from "@/lib/quote";
-import { bookQuote, discardQuote, fitQuote, passQuote, quoteContext, saveQuote, type BookResult, type FitResult, type Override, type QuoteContext, type QuoteSave } from "@/server/tl/quote";
+import { bookQuote, discardQuote, fitQuote, listQuotes, passQuote, quoteContext, saveQuote, type BookResult, type FitResult, type Override, type QuoteContext, type QuoteListRow, type QuoteSave } from "@/server/tl/quote";
 import type { LoadEditValues } from "@/lib/load-edit";
 import type { InvoiceForm } from "@/lib/invoicing";
 import type { CompleteValues, ExpenseValues, StartValues } from "@/lib/trip";
@@ -375,6 +375,12 @@ export async function priceQuoteAction(values: QuoteValues): Promise<PricedQuote
   if (!input) return { ok: false };
   const [fit, context] = await Promise.all([fitQuote(input, undefined, undefined, await currentTerminal()), quoteContext(input)]);
   return { ok: true, fit, context, warnings: quoteWarnings(input) };
+}
+
+/** Saved quotes, a page at a time, for the list's search and filter. */
+export async function listQuotesAction(q: string, status: "open" | "passed" | "all", offset: number): Promise<{ rows: QuoteListRow[]; total: number }> {
+  await requireMember("viewer");
+  return listQuotes(undefined, { q, status, offset });
 }
 
 export async function saveQuoteAction(values: QuoteValues, quoteId: string | null, vehicleId: string | null): Promise<QuoteSave> {

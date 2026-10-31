@@ -16,6 +16,7 @@ import { AuthorityStatus, useAuthorityLookup } from "./customer-authority";
 import { Modal } from "./kit/modal";
 import { FuelImport } from "./partner-actions";
 import { useToast } from "./kit/toast";
+import { DraftNote, useDraft } from "./kit/use-draft";
 import { DateInput } from "./date-input";
 
 type Errors = Record<string, string>;
@@ -49,13 +50,12 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
   const router = useRouter();
   const toast = useToast();
   const [open, setOpen] = React.useState(false);
-  const [v, setV] = React.useState<LoadEditValues>(initial);
+  const [v, setV, kept] = useDraft<LoadEditValues>(`load-edit:${loadId}`, initial);
   const [errors, setErrors] = React.useState<Errors>({});
   const [message, setMessage] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   React.useEffect(() => {
     if (open) {
-      setV(initial);
       authority.reset();
       setErrors({});
       setMessage(null);
@@ -89,6 +89,7 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
     const out = await saveLoadDetailsAction(loadId, v);
     setBusy(false);
     if (out.ok) {
+      kept.saved();
       setOpen(false);
       toast({ text: out.changed ? "Details saved." : "Nothing changed.", tone: "ok" });
       if (out.note) toast({ text: out.note, tone: "ok" });
@@ -122,6 +123,7 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
           </>
         }>
         <div className="le">
+          <DraftNote draft={kept} what="this load" />
           {v.deal ? (
             <>
               <h3 className="th-group">The deal</h3>
@@ -289,9 +291,10 @@ export function TripEntry({
   const [busy, setBusy] = React.useState(false);
   const [errors, setErrors] = React.useState<Errors>({});
   const [message, setMessage] = React.useState<string | null>(null);
-  const [start, setStart] = React.useState<StartValues>({ arrivedAt: "", waitMinutes: "", seal: "" });
-  const [done, setDone] = React.useState<CompleteValues>({ stops: [], deliveredAt: "", pod: "received", podNote: "", fuel: "", tolls: "", misc: "", actualRevenue: "" });
-  const [spent, setSpent] = React.useState<ExpenseValues>(expenses);
+  // What is typed for the driver is kept until it is saved: leaving the load or refreshing does not lose it.
+  const [start, setStart, startDraft] = useDraft<StartValues>(`trip-start:${loadId}`, { arrivedAt: "", waitMinutes: "", seal: "" });
+  const [done, setDone, doneDraft] = useDraft<CompleteValues>(`trip-done:${loadId}`, { stops: [], deliveredAt: "", pod: "received", podNote: "", fuel: "", tolls: "", misc: "", actualRevenue: "" });
+  const [spent, setSpent, spentDraft] = useDraft<ExpenseValues>(`trip-spent:${loadId}`, expenses);
 
   const canStart = status === "accepted" && assignmentStatus === "accepted";
   const canComplete = status === "in_progress";
@@ -301,17 +304,18 @@ export function TripEntry({
   function open(next: "start" | "complete" | "expenses") {
     setErrors({});
     setMessage(null);
-    if (next === "start") setStart({ arrivedAt: nowLocal(), waitMinutes: "", seal: "" });
-    if (next === "complete") setDone({ stops: later.map((s) => ({ id: s.id, arrivedAt: s.arrivedLocal, waitMinutes: s.waitMinutes, seal: s.seal })), deliveredAt: nowLocal(), pod: "received", podNote: "", fuel: expenses.fuel, tolls: expenses.tolls, misc: expenses.misc, actualRevenue: "" });
-    if (next === "expenses") setSpent(expenses);
+    // The starting figures go in only when nothing has been typed; what was typed stays.
+    if (next === "start" && start.arrivedAt === "" && start.waitMinutes === "" && start.seal === "") setStart({ arrivedAt: nowLocal(), waitMinutes: "", seal: "" });
+    if (next === "complete" && done.deliveredAt === "") setDone({ stops: later.map((s) => ({ id: s.id, arrivedAt: s.arrivedLocal, waitMinutes: s.waitMinutes, seal: s.seal })), deliveredAt: nowLocal(), pod: "received", podNote: "", fuel: expenses.fuel, tolls: expenses.tolls, misc: expenses.misc, actualRevenue: "" });
     setMode(next);
   }
 
-  async function run<T extends { ok: boolean; error?: string; errors?: Errors }>(call: () => Promise<T>, success: string) {
+  async function run<T extends { ok: boolean; error?: string; errors?: Errors }>(call: () => Promise<T>, success: string, kept: { saved: () => void }) {
     setBusy(true);
     const out = await call();
     setBusy(false);
     if (out.ok) {
+      kept.saved();
       setMode(null);
       toast({ text: success, tone: "ok" });
       router.refresh();
@@ -404,7 +408,7 @@ export function TripEntry({
               onClick={() => {
                 const c = validateStart(start);
                 if (!c.ok) return setErrors(c.errors);
-                void run(() => startTripAction(loadId, start), "Picked up. The load is on the road.");
+                void run(() => startTripAction(loadId, start), "Picked up. The load is on the road.", startDraft);
               }}>
               Record the pickup
             </button>
@@ -445,7 +449,7 @@ export function TripEntry({
               onClick={() => {
                 const c = validateComplete(done);
                 if (!c.ok) return setErrors(c.errors);
-                void run(() => completeTripAction(loadId, done), "Delivered. It is ready to invoice.");
+                void run(() => completeTripAction(loadId, done), "Delivered. It is ready to invoice.", doneDraft);
               }}>
               Record the delivery
             </button>
@@ -515,7 +519,7 @@ export function TripEntry({
               onClick={() => {
                 const c = validateExpenses(spent);
                 if (!c.ok) return setErrors(c.errors);
-                void run(() => saveExpensesAction(loadId, spent), "Expenses saved.");
+                void run(() => saveExpensesAction(loadId, spent), "Expenses saved.", spentDraft);
               }}>
               Save expenses
             </button>
@@ -561,7 +565,7 @@ export function InvoiceDialog({
   const router = useRouter();
   const toast = useToast();
   const [open, setOpen] = React.useState(false);
-  const [f, setF] = React.useState<InvoiceForm>({ number: defaults.number, terms: "", detention: context.detention > 0, lumper: "", layover: "", otherLabel: "", other: "" });
+  const [f, setF, kept] = useDraft<InvoiceForm>(`invoice:${loadId}`, { number: defaults.number, terms: "", detention: context.detention > 0, lumper: "", layover: "", otherLabel: "", other: "" });
   const [errors, setErrors] = React.useState<Errors>({});
   const [message, setMessage] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -577,6 +581,7 @@ export function InvoiceDialog({
     const out = await invoiceLoadAction(loadId, f);
     setBusy(false);
     if (out.ok) {
+      kept.saved();
       setOpen(false);
       toast({ text: `${f.number} created for ${usd(out.total ?? 0, 2)}.`, tone: "ok" });
       router.refresh();
@@ -618,6 +623,7 @@ export function InvoiceDialog({
               {c}
             </p>
           ))}
+          <DraftNote draft={kept} what="this invoice" />
           <div className="dlg-two">
             <Fld label="Invoice number" error={errors.number}>
               <input value={f.number} onChange={(e) => setF({ ...f, number: e.target.value })} autoComplete="off" />

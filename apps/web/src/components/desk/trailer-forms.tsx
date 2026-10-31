@@ -13,6 +13,7 @@ import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
 import { DateInput } from "./date-input";
 import { Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
+import { DraftNote, useDraft } from "./kit/use-draft";
 import { TruckPicker } from "./truck-picker";
 
 function Field({ label, error, hint, children }: { label: string; error?: string; hint?: string; children: React.ReactNode }) {
@@ -38,7 +39,7 @@ export function TrailerForm({ trailer, onDone, inline }: { trailer?: TrailerInfo
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
-  const [values, setValues] = React.useState<TrailerValues>(trailer ?? BLANK_TRAILER);
+  const [values, setValues, draft] = useDraft<TrailerValues>(`trailer:${trailer?.id ?? "new"}`, trailer ?? BLANK_TRAILER);
   const [serverErrors, setServerErrors] = React.useState<Partial<Record<keyof TrailerValues, string>>>({});
   const [message, setMessage] = React.useState("");
   const [touched, setTouched] = React.useState<Array<keyof TrailerValues>>([]);
@@ -53,6 +54,8 @@ export function TrailerForm({ trailer, onDone, inline }: { trailer?: TrailerInfo
   const tick = (k: "hasLiftgate" | "hasETrack") => (e: React.ChangeEvent<HTMLInputElement>) => setValues((v) => ({ ...v, [k]: e.target.checked ? "yes" : "" }));
 
   return (
+    <>
+    <DraftNote draft={draft} what="this trailer" />
     <form
       className="dlg-form"
       onSubmit={(e) => {
@@ -62,6 +65,7 @@ export function TrailerForm({ trailer, onDone, inline }: { trailer?: TrailerInfo
         start(async () => {
           const out = await saveTrailerAction(values, trailer?.id ?? null);
           if (out.ok) {
+            draft.saved();
             toast({ text: out.changed ? (trailer ? `${values.number} saved.` : `${values.number} added.`) : "Nothing changed.", tone: "ok" });
             router.refresh();
             if (!trailer) router.push(`/trailers/${out.id}`);
@@ -171,6 +175,7 @@ export function TrailerForm({ trailer, onDone, inline }: { trailer?: TrailerInfo
         </button>
       </div>
     </form>
+    </>
   );
 }
 

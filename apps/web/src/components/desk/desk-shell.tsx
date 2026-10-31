@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import React from "react";
 import { AuthSignOutButton } from "./auth-sign-out";
 import { BrandMark } from "./kit/brand-mark";
 import { Icon, type IconName } from "./kit/icons";
 import { ToastProvider } from "./kit/toast";
+import { DraftScope } from "./kit/use-draft";
+import { VIEW_PREFIX, rememberedQuery } from "@/lib/draft";
 import { GlobalSearch } from "./global-search";
 import { TerminalScope } from "./terminal-scope";
 import { TERMINAL_LIST_ID } from "@/lib/terminal";
@@ -72,6 +74,26 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
   const here = usePathname() ?? "";
   const pathname = /^\/loads\/[^/]+$/.test(here) ? (underlay.current.split("?")[0] ?? "/loads") : here;
   const [collapsed, setCollapsed] = React.useState(initialCollapsed);
+  // Where each module was left (its search, filter and sort): the sidebar returns to it as it was, not as a blank list.
+  const query = useSearchParams()?.toString() ?? "";
+  const viewScope = `${data.workspaceName}:${data.account.name}`;
+  const [views, setViews] = React.useState<Record<string, string>>({});
+  React.useEffect(() => {
+    try {
+      const key = (href: string) => `${VIEW_PREFIX}${viewScope}:${href}`;
+      const section = NAV.flatMap((g) => g.items).find((i) => here === i.href || here.startsWith(`${i.href}/`));
+      if (section && here === section.href) {
+        const q = rememberedQuery(query);
+        if (q === "") window.localStorage.removeItem(key(section.href));
+        else window.localStorage.setItem(key(section.href), q);
+      }
+      const next: Record<string, string> = {};
+      for (const i of NAV.flatMap((g) => g.items)) next[i.href] = window.localStorage.getItem(key(i.href)) ?? "";
+      setViews((v) => (JSON.stringify(v) === JSON.stringify(next) ? v : next));
+    } catch {
+      /* storage blocked: the links go to the plain module */
+    }
+  }, [here, query, viewScope]);
   const toggle = React.useCallback(() => {
     setTip(null);
     setCollapsed((was) => {
@@ -157,6 +179,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
 
   return (
     <ToastProvider>
+    <DraftScope value={`${data.workspaceName}:${data.account.name}`}>
       <div className="tl-app" data-collapsed={collapsed ? "true" : "false"}>
         <a className="skip-link" href="#main">
           Skip to content
@@ -178,7 +201,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
                   const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
                   const pill = item.pill?.(data.counts) ?? null;
                   return (
-                    <Link key={item.href} href={item.href} aria-current={active ? "page" : undefined} data-tip={collapsed ? item.label : undefined}>
+                    <Link key={item.href} href={`${item.href}${active ? "" : (views[item.href] ?? "")}`} aria-current={active ? "page" : undefined} data-tip={collapsed ? item.label : undefined}>
                       <Icon name={item.icon} className="ico" />
                       <span className="lbl">{item.label}</span>
                       {pill ? <span className={`tl-pill-n${pill.tone ? ` ${pill.tone}` : ""}`}>{pill.n}</span> : null}
@@ -240,6 +263,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
         </div>
       ) : null}
       {drawer}
+    </DraftScope>
     </ToastProvider>
   );
 }

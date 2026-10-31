@@ -120,14 +120,14 @@ describe.skipIf(!run)("quoting a load on the demo database", () => {
     expect(covered.rows.find((r) => r.truckId === truckId && r.driverId === driverId)!.totalMiles).toBe(300);
   });
 
-  test("an offer that does not cover its costs needs a reason; a clean one does not, and neither does one with no market rate", async () => {
+  test("an offer that does not cover its costs needs a reason; a clean one does not, and one with no market rate and no lane record does", async () => {
     const low = await fitQuote(input(quote({ offer: "300", marketRate: "300" })));
     const row = low.rows.find((r) => r.truckId === truckId && r.driverId === driverId)!;
     expect(row.decision).toBe("reject");
     expect(row.gate).toBe("below_floor");
     expect(row.detail.payNeeded).toBeGreaterThan(300);
     const noMarket = await fitQuote(input(quote({ marketRate: "" })));
-    expect(noMarket.rows.find((r) => r.truckId === truckId && r.driverId === driverId)!).toMatchObject({ gate: null, band: "no_benchmark" });
+    expect(noMarket.rows.find((r) => r.truckId === truckId && r.driverId === driverId)!).toMatchObject({ gate: "no_market", band: "no_benchmark" });
     const clean = await fitQuote(input(quote()));
     const ok = clean.rows.find((r) => r.truckId === truckId && r.driverId === driverId)!;
     expect(ok.gate).toBeNull();
@@ -141,7 +141,7 @@ describe.skipIf(!run)("quoting a load on the demo database", () => {
     if (!saved.ok) throw new Error(JSON.stringify(saved));
     loadIds.push(saved.id);
 
-    expect((await listQuotes()).map((q) => q.id)).toContain(saved.id);
+    expect(((await listQuotes()).rows).map((q) => q.id)).toContain(saved.id);
     expect((await listBoardRows()).length).toBe(boardBefore);
     expect((await listBoardRows()).some((r) => r.id === saved.id)).toBe(false);
     expect((await getShellData()).counts).toEqual(countsBefore);
@@ -174,7 +174,7 @@ describe.skipIf(!run)("quoting a load on the demo database", () => {
     expect(again).toEqual({ ok: true, id: saved.id });
     expect((await getQuote(saved.id))!.values.offer).toBe("1850");
     expect((await getQuote(saved.id))!.vehicleId).toBe(truckId);
-    expect((await listQuotes()).filter((q) => q.id === saved.id)).toHaveLength(1);
+    expect(((await listQuotes()).rows).filter((q) => q.id === saved.id)).toHaveLength(1);
   });
 
   test("a discarded quote is gone from the list and cannot be reopened", async () => {
@@ -183,7 +183,7 @@ describe.skipIf(!run)("quoting a load on the demo database", () => {
     loadIds.push(saved.id);
     expect(await discardQuote(saved.id)).toBe(true);
     expect(await getQuote(saved.id)).toBeNull();
-    expect((await listQuotes()).some((q) => q.id === saved.id)).toBe(false);
+    expect(((await listQuotes()).rows).some((q) => q.id === saved.id)).toBe(false);
     expect(await discardQuote(saved.id)).toBe(false);
   });
 
@@ -246,23 +246,27 @@ describe.skipIf(!run)("quoting a load on the demo database", () => {
     const l = await prisma.load.findUniqueOrThrow({ where: { id: out.loadId } });
     expect(l.status).toBe("draft");
     expect(num(l.snapshotLaborCpm)).toBeCloseTo(0.6 * 1.18, 3); // the assignment froze the pay
-    expect(await listQuotes().then((q) => q.some((x) => x.id === saved.id))).toBe(false);
-    expect(await bookQuote(quote({ broker: "W6 Broker" }, "2027-02-23"), { vehicleId: truckId, driverId: null }, null, saved.id)).toMatchObject({ ok: false, error: "That quote is gone." });
+    expect((await listQuotes()).rows.some((x) => x.id === saved.id)).toBe(false);
+    expect(await bookQuote(quote({ broker: "W6 Broker" }, "2027-02-23"), { vehicleId: truckId, driverId: null }, null, saved.id)).toMatchObject({ ok: false, error: "That quote was already booked or thrown away. Look for it on the board." });
   });
 
   test("a driver who is already on a load at that time cannot take it: the row says so, and booking with them still books the load", async () => {
     // The driver is on the 23 Feb load from the test above, 08:00 to 17:00 Dallas time.
     const fit = await fitQuote(input(quote({}, "2027-02-23")));
     const row = fit.rows.find((r) => r.truckId === truckId && r.driverId === driverId)!;
-    expect(row.blocked).toMatch(/Already on QT-/);
+    expect(row.blocked).toMatch(/already on QT-/i);
     // The same truck is on that load too, and a truck is on one load at a time: booking it again is refused, with the other load named.
     const again = await bookQuote(quote({ broker: "W6 Broker", offer: "1600" }, "2027-02-23"), { vehicleId: truckId, driverId }, null, null);
     expect(again).toMatchObject({ ok: false, error: expect.stringMatching(/already on .*Pick another truck/) });
-    // On a second truck the load is booked, and the driver, who is on the first one at that time, is not assigned.
+    // A driver who runs another truck cannot be put on this one: the browser's word for the pairing is not taken.
     const second = await saveTruck({ name: "W6 Truck Two", type: "box_truck", mpg: "10", fuelType: "diesel" }, null);
     if (!second.ok) throw new Error("setup");
     await saveCostProfile(second.id, profile);
+    expect(await bookQuote(quote({ broker: "W6 Broker" }, "2027-02-23"), { vehicleId: second.id, driverId }, null, null)).toMatchObject({ ok: false, error: "That driver is not available on this truck." });
+    // Moved onto the second truck, the driver is on the first one's load at that time: the load is booked and the driver is not assigned.
+    await prisma.driver.update({ where: { id: driverId }, data: { assignedVehicleId: second.id } });
     const out = await bookQuote(quote({ broker: "W6 Broker" }, "2027-02-23"), { vehicleId: second.id, driverId }, null, null);
+    await prisma.driver.update({ where: { id: driverId }, data: { assignedVehicleId: truckId } });
     if (!out.ok) throw new Error(JSON.stringify(out));
     loadIds.push(out.loadId);
     expect(out.assigned).toBe(false);
@@ -288,15 +292,20 @@ describe.skipIf(!run)("quoting a load on the demo database", () => {
     expect(ctx.broker!.loads).toBeGreaterThanOrEqual(ctx.broker!.finished + ctx.broker!.fellThrough);
     // A lane and a broker the desk has never seen have nothing to say.
     const none = await quoteContext(input(quote({ stops: [{ role: "pickup", address: "Nowhereville, ZZ", appointment: "" }, { role: "delivery", address: "Elsewhere, ZZ", appointment: "" }], broker: "No Such Broker" })));
-    expect(none).toEqual({ lane: null, broker: null });
+    expect(none).toMatchObject({ lane: null, broker: null, passed: { lane: 0, broker: 0 } });
   });
 
-  test("a clean offer with no market rate books with no reason, and is kept as accepted, not overridden", async () => {
-    const out = await bookQuote(quote({ marketRate: "" }, "2027-03-02"), { vehicleId: truckId, driverId: null }, null, null);
+  test("an offer with no market rate and no lane record asks for a reason, and the reason is kept with the decision", async () => {
+    const refused = await bookQuote(quote({ marketRate: "" }, "2027-03-04"), { vehicleId: truckId, driverId: null }, null, null);
+    expect(refused).toMatchObject({ ok: false, gate: "no_market" });
+    const out = await bookQuote(quote({ marketRate: "" }, "2027-03-04"), { vehicleId: truckId, driverId: null }, { reason: "Relationship", notes: "" }, null);
     if (!out.ok) throw new Error(JSON.stringify(out));
     loadIds.push(out.loadId);
     const decision = await prisma.loadDecision.findFirstOrThrow({ where: { loadId: out.loadId } });
-    expect(decision).toMatchObject({ decisionType: "accepted", overrideReason: null });
+    expect(decision).toMatchObject({ decisionType: "overridden", overrideReason: "Relationship" });
+    // What it was judged against is written into the booking record.
+    const audit = await prisma.auditEvent.findFirstOrThrow({ where: { loadId: out.loadId, action: "booked" } });
+    expect(JSON.stringify(audit.after)).toContain("Cost alone");
   });
 
   describe("with no market rate typed, the desk's own lane stands in", () => {
@@ -323,7 +332,7 @@ describe.skipIf(!run)("quoting a load on the demo database", () => {
       await finished({ trailerType: "dry_van", revenue: 9000 });
       const out = await mine(onLane({ trailer: "reefer" }));
       expect(out.lane).toBeNull();
-      expect(out.row).toMatchObject({ band: "no_benchmark", gate: null });
+      expect(out.row).toMatchObject({ band: "no_benchmark", gate: "no_market" });
     });
 
     test("three recent loads are its average, on the loaded miles, read by the same rules as a market rate", async () => {

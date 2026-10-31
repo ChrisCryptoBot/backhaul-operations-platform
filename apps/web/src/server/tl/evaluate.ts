@@ -69,7 +69,23 @@ export type EvaluateLoadRow = LoadRow & {
   estimatedLoadedHours?: Dec | null;
   /** The driver's pay on this load, when one is assigned. It is the labour in the verdict (see resolveLabour). */
   assignment?: { payKind: string; payRate: Dec } | null;
+  /** Costs the verdict also counts (see the phone's Calculate): dollars a mile added while towing, a permit or escort for the load, and how wide "at market" is drawn. A load that came from a quote carries them in `quoteExtras`. */
+  towingCpmAdjustment?: number;
+  permitEscortCost?: number;
+  marketBandFraction?: number;
 };
+
+/** What a booked load kept of the quote's extra costs (`Load.quoteExtras`), for a row that did not come straight from the form. */
+function advancedOf(load: EvaluateLoadRow): { towing: number; permit: number; band: number } {
+  const raw = (load as { quoteExtras?: unknown }).quoteExtras;
+  const x = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as { towingPerMile?: unknown; permitEscort?: unknown; marketBandFraction?: unknown }) : {};
+  const pos = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
+  return {
+    towing: load.towingCpmAdjustment ?? pos(x.towingPerMile),
+    permit: load.permitEscortCost ?? pos(x.permitEscort),
+    band: load.marketBandFraction ?? (typeof x.marketBandFraction === "number" && x.marketBandFraction > 0 ? x.marketBandFraction : 0.1)
+  };
+}
 
 const n = (d: Dec) => num(d as never);
 
@@ -161,6 +177,7 @@ export function evaluateTlLoad(
   const returnDh = n(load.returnDeadheadMiles);
   const totalMiles = pickupDh + loaded + (load.isBackhaul ? 0 : returnDh);
   const labour = resolveLabour(profile, load.assignment, totalMiles, n(load.quotedRevenue) + n(load.fuelSurcharge));
+  const adv = advancedOf(load);
   const archetype = labour.archetype;
   // The market rate is stored per mile; evaluateLoad wants the total for the load.
   const benchmark = numOrNull(load.marketBenchmark as never);
@@ -190,7 +207,7 @@ export function evaluateTlLoad(
     routeOveragePerStop: numOrNull(profile.routeOveragePerStop as never),
     vehicleMpg: numOrNull(vehicle?.mpg as never),
     fuelPricePerGallon: numOrNull(profile.lastFuelPricePerGallon as never),
-    marketBandFraction: 0.1,
+    marketBandFraction: adv.band,
     offer: n(load.quotedRevenue),
     fuelSurchargeAmount: fscAmount,
     fuelSurchargeUnit: fscUnit,
@@ -202,9 +219,9 @@ export function evaluateTlLoad(
     isBackhaul: load.isBackhaul,
     driveHours: driveHoursFor(load, totalMiles),
     dockWaitMinutes: load.dockWaitMinutes ?? 0,
-    isTowing: false,
-    towingCpmAdjustment: 0,
-    permitEscortCost: 0,
+    isTowing: adv.towing > 0,
+    towingCpmAdjustment: adv.towing,
+    permitEscortCost: adv.permit,
     stopsCount: load.stopsCount ?? 2,
     marketTotal
   };

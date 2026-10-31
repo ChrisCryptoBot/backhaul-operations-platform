@@ -87,7 +87,7 @@ describe.skipIf(!run)("fuel price for one price check, on the demo database", ()
     expect(await left(quote({ fuelPrice: "7" }), gas)).toBeCloseTo(await left(quote(), gas), 6);
   });
 
-  test("is checked, and not kept: a saved quote reopens on each truck's own price, and a booked load carries no fuel price of its own", async () => {
+  test("is checked and kept: a saved quote reopens on the price it was judged on, a booked load records it, and the truck's own price is never changed", async () => {
     expect(validateQuote(quote({ fuelPrice: "0.1" }))).toMatchObject({ ok: false, errors: { fuelPrice: expect.any(String) } });
     expect(validateQuote(quote({ fuelPrice: "abc" }))).toMatchObject({ ok: false, errors: { fuelPrice: expect.any(String) } });
     expect(validateQuote(quote({ fuelPrice: "30" })).ok).toBe(false);
@@ -96,13 +96,15 @@ describe.skipIf(!run)("fuel price for one price check, on the demo database", ()
     const saved = await saveQuote(quote({ fuelPrice: "7" }), null, diesel);
     if (!saved.ok) throw new Error("save");
     loadIds.push(saved.id);
-    expect((await getQuote(saved.id))!.values.fuelPrice).toBe("");
+    expect((await getQuote(saved.id))!.values).toMatchObject({ fuelPrice: "7", fuelSource: "typed" });
 
     const booked = await bookQuote(quote({ fuelPrice: "7" }), { vehicleId: diesel, driverId: null }, null, null);
     if (!booked.ok) throw new Error(JSON.stringify(booked));
     loadIds.push(booked.loadId);
     const profileRow = await prisma.costProfile.findUniqueOrThrow({ where: { vehicleId: diesel } });
     expect(num(profileRow.lastFuelPricePerGallon)).toBe(3.9); // the truck's own price is untouched
+    const audit = await prisma.auditEvent.findFirstOrThrow({ where: { loadId: booked.loadId, action: "booked" } });
+    expect(JSON.stringify(audit.after)).toContain("$7.00 a gallon, typed"); // what the load was judged on is on the record
   });
 });
 

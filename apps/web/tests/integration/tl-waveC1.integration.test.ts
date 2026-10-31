@@ -179,9 +179,9 @@ describe.skipIf(!run)("wave C1: what a truck can carry, passing on a quote, quot
     expect(audit.summary).toMatch(/Passed on a quote: Dallas, TX to Tulsa, OK/);
     expect(audit.reason).toBe("Rate too low: Broker would not move");
 
-    const row = (await listQuotes()).find((q) => q.id === saved.id)!;
+    const row = ((await listQuotes()).rows).find((q) => q.id === saved.id)!;
     expect(row.passedFor).toBe("Rate too low");
-    expect((await listQuotes()).filter((q) => !q.passedFor).every((q) => q.id !== saved.id)).toBe(true);
+    expect(((await listQuotes()).rows).filter((q) => !q.passedFor).every((q) => q.id !== saved.id)).toBe(true);
     expect((await listBoardRows()).some((r) => r.id === saved.id)).toBe(false);
   });
 

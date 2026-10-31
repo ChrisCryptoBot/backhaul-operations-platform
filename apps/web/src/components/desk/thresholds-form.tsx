@@ -6,6 +6,7 @@ import { saveThresholdsAction } from "@/app/(desk)/actions";
 import { emptyZone, resolveThresholds, THRESHOLD_DEFAULTS, THRESHOLD_FIELDS, validateThresholds, type Thresholds } from "@/lib/thresholds";
 import { CARD_LINES } from "@/lib/verdict";
 import { useToast } from "./kit/toast";
+import { DraftNote, useDraft } from "./kit/use-draft";
 import { VerdictMark } from "./verdict-card";
 
 const GROUPS: Array<{ title: string; keys: Array<keyof Thresholds> }> = [
@@ -25,7 +26,7 @@ export function ThresholdsForm({ stored, fleetEmptyShare }: { stored: Record<key
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
-  const [values, setValues] = React.useState<Record<string, string>>(() => Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, text(stored[f.key])])));
+  const [values, setValues, draft] = useDraft<Record<string, string>>("thresholds", Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, text(stored[f.key])])));
   const [serverErrors, setServerErrors] = React.useState<Partial<Record<keyof Thresholds, string>>>({});
 
   const check = React.useMemo(() => validateThresholds(values), [values]);
@@ -49,6 +50,8 @@ export function ThresholdsForm({ stored, fleetEmptyShare }: { stored: Record<key
   const dirtyDefaults = THRESHOLD_FIELDS.some((f) => (values[f.key]?.trim() ?? "") !== "");
 
   return (
+    <>
+    <DraftNote draft={draft} what="the thresholds" />
     <form
       onSubmit={(e) => {
         e.preventDefault();
@@ -57,6 +60,7 @@ export function ThresholdsForm({ stored, fleetEmptyShare }: { stored: Record<key
         start(async () => {
           const out = await saveThresholdsAction(values);
           if (out.ok) {
+            draft.saved();
             toast({ text: out.changed ? "Thresholds saved." : "Nothing changed.", tone: "ok" });
             router.refresh();
           } else setServerErrors(out.errors);
@@ -147,5 +151,6 @@ export function ThresholdsForm({ stored, fleetEmptyShare }: { stored: Record<key
         {unchanged ? <span className="tl-sub">Saved.</span> : null}
       </div>
     </form>
+    </>
   );
 }

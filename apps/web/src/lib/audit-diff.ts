@@ -50,6 +50,7 @@ export type AuditAction =
   | "member_role_changed"
   | "member_removed"
   | "booked"
+  | "quote_saved"
   | "quote_passed"
   | "quote_discarded"
   | "load_edited"
@@ -118,6 +119,7 @@ export const ACTION_LABEL: Record<string, string> = {
   member_role_changed: "Role changed",
   member_removed: "Person removed from the desk",
   booked: "Booked from a quote",
+  quote_saved: "Quote saved",
   quote_passed: "Quote passed",
   quote_discarded: "Quote thrown away",
   load_edited: "Load details changed",
@@ -187,6 +189,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   member_role_changed: "warn",
   member_removed: "warn",
   booked: "ok",
+  quote_saved: "muted",
   quote_passed: "muted",
   quote_discarded: "muted",
   load_edited: "muted",
@@ -233,7 +236,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
 
 /** The filter chips on the audit page: which actions belong to which group. */
 export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[] }> = [
-  { key: "dispatch", label: "Dispatch", actions: ["booked", "quote_passed", "quote_discarded", "load_edited", "trip_started", "trip_undone", "delivered", "trip_reopened", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled"] },
+  { key: "dispatch", label: "Dispatch", actions: ["booked", "quote_saved", "quote_passed", "quote_discarded", "load_edited", "trip_started", "trip_undone", "delivered", "trip_reopened", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled"] },
   { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "invoice_voided", "paid", "payment_part", "payment_undone", "statement_started", "statement_finalized", "statement_voided", "statement_discarded"] },
   { key: "intake", label: "Intake", actions: ["rate_con_saved", "rate_con_read", "rate_con_read_failed", "document_added", "document_removed"] },
   { key: "team", label: "Team", actions: ["member_added", "member_role_changed", "member_removed"] },
