@@ -34,6 +34,8 @@ model Workspace {
   alertPickupHours      Int?     @map("alert_pickup_hours")
   alertSentHours        Int?     @map("alert_sent_hours")
   alertClearanceDays    Int?     @map("alert_clearance_days")
+  laneMinLoads          Int?     @map("lane_min_loads")
+  laneDays              Int?     @map("lane_days")
 
   // The company as it appears on invoices and driver statements. All optional: a sheet prints only what is filled in.
   mcNumber    String? @map("mc_number")

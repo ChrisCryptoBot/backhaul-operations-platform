@@ -13,6 +13,8 @@ type StoredColumns = {
   alertPickupHours: number | null;
   alertSentHours: number | null;
   alertClearanceDays: number | null;
+  laneMinLoads: number | null;
+  laneDays: number | null;
 };
 
 /** The workspace's stored columns as the thresholds' own keys (the alert columns are named for the screen they belong to). */
@@ -24,7 +26,9 @@ function toRow(ws: StoredColumns): ThresholdRow {
     detentionGraceMinutes: ws.detentionGraceMinutes,
     pickupAlertHours: ws.alertPickupHours,
     sentNoAnswerHours: ws.alertSentHours,
-    clearanceDays: ws.alertClearanceDays
+    clearanceDays: ws.alertClearanceDays,
+    laneMinLoads: ws.laneMinLoads,
+    laneDays: ws.laneDays
   };
 }
 
@@ -67,7 +71,9 @@ export async function saveThresholds(input: Record<string, unknown>, now = new D
         detentionGraceMinutes: check.stored.detentionGraceMinutes,
         alertPickupHours: check.stored.pickupAlertHours,
         alertSentHours: check.stored.sentNoAnswerHours,
-        alertClearanceDays: check.stored.clearanceDays
+        alertClearanceDays: check.stored.clearanceDays,
+        laneMinLoads: check.stored.laneMinLoads,
+        laneDays: check.stored.laneDays
       }
     });
     const shown = (t: Thresholds, only: Array<keyof Thresholds>) => Object.fromEntries(only.map((k) => [fieldLabel(k), t[k]]));

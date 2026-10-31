@@ -21,7 +21,7 @@ export function VerdictMark({ state, size = 34 }: { state: VerdictState; size?: 
           <path className="vc-fill" d="M18 1.5L34.5 18 18 34.5 1.5 18z" />
           <path className="vc-sign" d="M18 10v10M18 25.6v.4" />
         </>
-      ) : state === "below" ? (
+      ) : state === "reject" ? (
         <>
           <path className="vc-fill" d="M11.2 2h13.6L34 11.2v13.6L24.8 34H11.2L2 24.8V11.2z" />
           <path className="vc-sign" d="M12 12l12 12M24 12L12 24" />
@@ -48,10 +48,10 @@ export function VerdictTag({ state, word }: { state: VerdictState; word: string 
  * the floor pays, the hatched side loses.
  */
 export function VerdictRuler({ ruler, state }: { ruler: Ruler; state: VerdictState }) {
-  const { floor, offer, market } = ruler;
+  const { floor, offer, market, marketName } = ruler;
   const from = Math.min(floor.at, offer.at);
   const width = Math.abs(offer.at - floor.at);
-  const said = `This load pays ${rate(offer.value)} against a floor of ${rate(floor.value)}${market ? ` and a market of ${rate(market.value)}` : ""}.`;
+  const said = `This load pays ${rate(offer.value)} against a floor of ${rate(floor.value)}${market ? ` and ${marketName.toLowerCase()} at ${rate(market.value)}` : ""}.`;
   return (
     <div className="vc-ruler" data-state={state}>
       <div className="vc-line" role="img" aria-label={said}>
@@ -70,8 +70,8 @@ export function VerdictRuler({ ruler, state }: { ruler: Ruler; state: VerdictSta
           <dd>{rate(floor.value)}</dd>
         </div>
         <div>
-          <dt><i className="vc-key-market" />Market</dt>
-          <dd>{market ? rate(market.value) : "None given"}</dd>
+          <dt><i className="vc-key-market" />{marketName}</dt>
+          <dd>{market ? rate(market.value) : "Not checked"}</dd>
         </div>
         <div>
           <dt>This load</dt>

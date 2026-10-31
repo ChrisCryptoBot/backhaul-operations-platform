@@ -121,7 +121,7 @@ export default async function SettingsPage() {
 
       <Card title="Thresholds" className="tl-card">
         <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
-          The lines the dashboard, the alerts and the invoices judge by. They are shared by everyone using this desk, and each change is recorded in the audit log.
+          The lines the dashboard, the alerts, the invoices and the verdict card judge by. They are shared by everyone using this desk, and each change is recorded in the audit log.
         </p>
         <ThresholdsForm stored={stored} fleetEmptyShare={kpi.current.emptyShare} />
       </Card>

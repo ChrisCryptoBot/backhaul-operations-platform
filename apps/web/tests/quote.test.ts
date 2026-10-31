@@ -85,6 +85,7 @@ describe("the quote form", () => {
     expect(gateTitle("needs_fuel")).toBe("Book without knowing the fuel cost?");
     expect(gateTitle("no_market")).toBe("Book without knowing the market rate?");
     expect(gateTitle("under_market")).toBe("Book this below-market load?");
+    expect(gateTitle("under_market", "lane")).toBe("Book this well under what the lane pays you?");
     expect(gateTitle("below_floor")).toBe("Why book a load that does not cover its costs?");
     expect([...OVERRIDE_REASONS]).toEqual(["Relationship", "Positioning for return load", "Cash flow", "Other"]);
   });

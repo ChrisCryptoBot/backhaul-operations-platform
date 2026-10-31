@@ -110,7 +110,7 @@ export const RULES: RuleDef[] = [
     level: "warn",
     title: "Load pays below the truck's cost and has no driver sent",
     appliesTo: "Loads waiting for a driver",
-    trigger: () => "The verdict on the truck's own cost is Below your cost and the load has not been sent to a driver."
+    trigger: () => "The load pays less than the truck's own cost, so the verdict card says Reject, and it has not been sent to a driver."
   },
   {
     code: "INVOICE_OVERDUE",

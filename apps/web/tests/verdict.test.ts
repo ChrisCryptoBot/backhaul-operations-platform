@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
-import { FLOOR_AT, VERDICT_TONE, VERDICT_WORD, groundOf, marketPerMile, readVerdict, rulerOf, verdictState, type VerdictFacts } from "@/lib/verdict";
+import { FLOOR_AT, VERDICT_TONE, VERDICT_WORD, bookingGate, groundOf, marketPerMile, readVerdict, rulerOf, verdictState, type VerdictFacts } from "@/lib/verdict";
 
 const facts = (over: Partial<VerdictFacts> = {}): VerdictFacts => ({ band: "above_market", gate: null, allInPerMile: 2.34, floorPerMile: 1.5, marginPerMile: 0.84, leftOver: 287, totalMiles: 342, gross: 800, marketDollars: 379, marketPct: 0.9, payNeeded: 513, thinMargin: false, timeTrap: false, profitPerHour: 40, hourlyTarget: 25, ...over });
 
@@ -10,10 +10,19 @@ describe("the four states", () => {
     expect(verdictState(facts({ band: "above_market" }))).toBe("take");
     expect(verdictState(facts({ band: "at_market" }))).toBe("take");
     expect(verdictState(facts({ band: "negotiate" }))).toBe("think");
-    expect(verdictState(facts({ band: "strong_caution", gate: "under_market" }))).toBe("think");
-    expect(verdictState(facts({ band: "no_benchmark", gate: "no_market" }))).toBe("think");
-    expect(verdictState(facts({ band: "below_floor", gate: "below_floor" }))).toBe("below");
+    expect(verdictState(facts({ band: "strong_caution", gate: "under_market" }))).toBe("reject"); // more than 20% under: the audited hard stop
+    expect(verdictState(facts({ band: "no_benchmark", gate: "no_market" }))).toBe("take"); // no market rate: judged on cost alone
+    expect(verdictState(facts({ band: "below_floor", gate: "below_floor" }))).toBe("reject");
     expect(verdictState(facts({ band: "needs_fuel", gate: "needs_fuel" }))).toBe("unjudged");
+  });
+
+  test("Reject is the audited hard stops and nothing else: ten percent and twenty percent under are Think twice, past twenty is Reject", () => {
+    expect(verdictState(facts({ band: "at_market" }))).toBe("take");
+    expect(verdictState(facts({ band: "negotiate" }))).toBe("think");
+    expect(verdictState(facts({ band: "strong_caution", gate: "under_market" }))).toBe("reject");
+    // thin or slow money never rejects: they are a second look, not a stop
+    expect(verdictState(facts({ thinMargin: true }))).toBe("think");
+    expect(verdictState(facts({ timeTrap: true }))).toBe("think");
   });
 
   test("a good load the rules would pause on is never Take it: a gate, a thin margin, or slow money", () => {
@@ -23,13 +32,17 @@ describe("the four states", () => {
   });
 
   test("the market can never rescue a load below its cost, however far above the market it pays", () => {
-    expect(verdictState(facts({ band: "below_floor", gate: "below_floor", marketPct: 2 }))).toBe("below");
+    expect(verdictState(facts({ band: "below_floor", gate: "below_floor", marketPct: 2 }))).toBe("reject");
+  });
+
+  test("with the fuel unknown there is no cost to judge, so a far-under-market load is not rejected on the market alone", () => {
+    expect(verdictState(facts({ band: "needs_fuel", gate: "needs_fuel", marketPct: -0.4 }))).toBe("unjudged");
   });
 
   test("each state has its own word; the one with nothing to judge has no tone at all", () => {
-    expect(Object.keys(VERDICT_WORD).sort()).toEqual(["below", "take", "think", "unjudged"]);
+    expect(Object.keys(VERDICT_WORD).sort()).toEqual(["reject", "take", "think", "unjudged"]);
     expect(new Set(Object.values(VERDICT_WORD)).size).toBe(4);
-    expect(VERDICT_TONE).toEqual({ take: "ok", think: "warn", below: "bad", unjudged: "none" });
+    expect(VERDICT_TONE).toEqual({ take: "ok", think: "warn", reject: "bad", unjudged: "none" });
   });
 });
 
@@ -41,15 +54,15 @@ describe("the sentence", () => {
 
   test("names what is wrong with a load worth a second look", () => {
     expect(readVerdict(facts({ band: "negotiate", marketPct: -0.14 })).sentence).toBe("Clears your cost by $0.84/mi, $287 on this trip, but pays 14% under the market. Ask for more.");
-    expect(readVerdict(facts({ band: "strong_caution", gate: "under_market", marketPct: -0.31 })).sentence).toContain("31% under the market");
-    expect(readVerdict(facts({ band: "no_benchmark", gate: "no_market", marketPct: null })).sentence).toContain("no market rate");
+    expect(readVerdict(facts({ band: "strong_caution", gate: "under_market", marketPct: -0.31 })).sentence).toBe("Clears your cost by $0.84/mi, $287 on this trip, but pays 31% under the market. Too far under to take.");
+    expect(readVerdict(facts({ band: "strong_caution", gate: "under_market", marketPct: -0.31 })).word).toBe("Reject");
     expect(readVerdict(facts({ band: "at_market", thinMargin: true })).sentence).toBe("It clears your cost, but by less than five cents a mile.");
     expect(readVerdict(facts({ band: "at_market", timeTrap: true, profitPerHour: 12 })).sentence).toContain("$12 an hour against your $25 target");
   });
 
   test("below cost, it says how far and what would cover it", () => {
     const v = readVerdict(facts({ band: "below_floor", gate: "below_floor", marginPerMile: -0.31, leftOver: -106, payNeeded: 906 }));
-    expect(v.word).toBe("Below your cost");
+    expect(v.word).toBe("Reject");
     expect(v.sentence).toBe("Short of your cost by $0.31/mi, $106 on this trip. It would have to pay $906 to cover it.");
   });
 
@@ -57,6 +70,54 @@ describe("the sentence", () => {
     const v = readVerdict(facts({ band: "needs_fuel", gate: "needs_fuel", marginPerMile: null, leftOver: null }));
     expect(v.sentence).toContain("no mpg or fuel price");
     expect(v.sentence).not.toMatch(/\$/);
+  });
+});
+
+describe("a load with no market rate", () => {
+  const blank = facts({ band: "no_benchmark", gate: "no_market", marketDollars: null, marketPct: null });
+
+  test("is judged on its cost alone: it can be Take it, and the card says the market was not checked", () => {
+    const v = readVerdict(blank);
+    expect(v.state).toBe("take");
+    expect(v.sentence).toBe("Clears your cost by $0.84/mi, $287 on this trip. Market not checked.");
+    expect(v.ruler!.market).toBeNull();
+  });
+
+  test("needs no reason to book; every other gate still does", () => {
+    expect(bookingGate("no_market")).toBeNull();
+    for (const g of ["below_floor", "needs_fuel", "under_market"] as const) expect(bookingGate(g)).toBe(g);
+    expect(bookingGate(null)).toBeNull();
+  });
+
+  test("gets no free pass: below its cost, thin, or slow money it says so as it would with a market rate", () => {
+    expect(verdictState({ ...blank, band: "below_floor", gate: "below_floor" })).toBe("reject");
+    expect(verdictState({ ...blank, thinMargin: true })).toBe("think");
+    expect(verdictState({ ...blank, timeTrap: true })).toBe("think");
+    expect(verdictState({ ...blank, band: "needs_fuel", gate: "needs_fuel" })).toBe("unjudged");
+  });
+});
+
+describe("a load read against its own lane", () => {
+  const lane = (over: Partial<VerdictFacts> = {}) => facts({ benchmark: "lane", ...over });
+
+  test("says whose number it is: the lane's, never the market's", () => {
+    expect(readVerdict(lane()).sentence).toBe("Clears your cost by $0.84/mi, $287 on this trip, and pays above your lane average.");
+    expect(readVerdict(lane({ band: "at_market" })).sentence).toContain("about what this lane usually pays you");
+    expect(readVerdict(lane({ band: "negotiate", marketPct: -0.14 })).sentence).toBe("Clears your cost by $0.84/mi, $287 on this trip, but pays 14% under your lane average. Ask for more.");
+    expect(readVerdict(lane({ band: "strong_caution", gate: "under_market", marketPct: -0.31 })).sentence).toContain("31% under your lane average. Too far under to take.");
+    expect(readVerdict(lane()).ruler!.marketName).toBe("Your lane");
+    expect(readVerdict(facts()).ruler!.marketName).toBe("Market");
+  });
+
+  test("moves a good load as a market rate would, and can never rescue one below its cost", () => {
+    expect(readVerdict(lane({ band: "strong_caution", gate: "under_market" })).state).toBe("reject");
+    expect(readVerdict(lane({ band: "below_floor", gate: "below_floor", marketPct: 2 })).state).toBe("reject");
+  });
+
+  test("is the desk's own record, so it is not taken on trust", () => {
+    const market = groundOf({ miles: "measured", fuel: "own", market: { laneLoads: 3, laneDays: 90 }, driver: true })[2]!;
+    expect(market).toEqual({ label: "Your 3 loads on this lane in the last 90 days", firm: true });
+    expect(groundOf({ miles: "measured", fuel: "own", market: { laneLoads: 5, laneDays: 30 }, driver: true })[2]!.label).toBe("Your 5 loads on this lane in the last 30 days");
   });
 });
 
@@ -106,7 +167,7 @@ describe("what a verdict stands on", () => {
     expect(groundOf({ miles: "measured", fuel: "own", market: "typed", driver: true }).map((g) => g.firm)).toEqual([true, true, false, true]);
     const shaky = groundOf({ miles: "typed", fuel: "none", market: "none", driver: false });
     expect(shaky.every((g) => !g.firm)).toBe(true);
-    expect(shaky.map((g) => g.label)).toEqual(["Miles as typed", "No fuel price", "No market rate", "No driver on this truck"]);
+    expect(shaky.map((g) => g.label)).toEqual(["Miles as typed", "No fuel price", "Market not checked", "No driver on this truck"]);
   });
 });
 
@@ -137,9 +198,9 @@ describe("the card's skeleton (docs/VERDICT_CARD.md)", () => {
     expect(css).not.toMatch(/\.qt-side::after/);
   });
 
-  test("the buttons say the verdict too: below cost, passing is the main button and booking is Book anyway", () => {
+  test("the buttons say the verdict too: on a Reject, rejecting is the main button and booking is Book anyway", () => {
     const actions = desk.slice(desk.indexOf('<div className="qt-actions">'), desk.indexOf("</aside>"));
-    expect(actions).toMatch(/verdict\?\.state === "below" \? \(\s*<button type="button" className="tl-btn primary"[^>]*onClick=\{onOpenPass\}/);
+    expect(actions).toMatch(/verdict\?\.state === "reject" \? \(\s*<button type="button" className="tl-btn primary"[^>]*onClick=\{onOpenPass\}>\s*Reject it/);
     expect(actions).toContain("Book anyway");
     expect(desk).toContain('"Book with a reason"');
   });

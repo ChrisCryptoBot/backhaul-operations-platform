@@ -1,5 +1,6 @@
 import { LOAD_LIMITS } from "./load-limits";
 import type { AcceptGate, MarketBand } from "@/truelane/lib/domain/marketVerdict";
+import type { Benchmark } from "./verdict";
 import { fuelSurchargeDollars, type FuelSurchargeUnit } from "@/truelane/lib/fuelSurcharge";
 import { isUnusualValue } from "@/truelane/lib/formatNumbers";
 import { parseCentralLocal } from "./zoned";
@@ -321,10 +322,10 @@ export const BAND_LABEL: Record<MarketBand, { label: string; tone: "ok" | "warn"
 };
 
 /** The question asked before a load is accepted that needs a reason, as the phone words it. */
-export function gateTitle(gate: AcceptGate): string {
+export function gateTitle(gate: AcceptGate, benchmark: Benchmark = "market"): string {
   if (gate === "needs_fuel") return "Book without knowing the fuel cost?";
   if (gate === "no_market") return "Book without knowing the market rate?";
-  if (gate === "under_market") return "Book this below-market load?";
+  if (gate === "under_market") return benchmark === "lane" ? "Book this well under what the lane pays you?" : "Book this below-market load?";
   return "Why book a load that does not cover its costs?";
 }
 

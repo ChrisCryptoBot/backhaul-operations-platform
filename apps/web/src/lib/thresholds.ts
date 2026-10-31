@@ -1,5 +1,6 @@
 import { DEFAULT_FREE_GRACE_MINUTES } from "@/truelane/lib/domain/detention";
 import type { AlertThresholds } from "./alerts";
+import { LANE_DAYS, LANE_MIN_LOADS } from "./verdict";
 
 /**
  * The numbers the desk judges by, set in Settings. Each is optional in the database (null = the default below), so a new
@@ -18,6 +19,9 @@ export type Thresholds = {
   pickupAlertHours: number;
   sentNoAnswerHours: number;
   clearanceDays: number;
+  /** The verdict card with no market rate typed: how many finished loads on the lane it takes to stand in for one, and how recent they must be. */
+  laneMinLoads: number;
+  laneDays: number;
 };
 
 export const THRESHOLD_DEFAULTS: Thresholds = {
@@ -27,7 +31,9 @@ export const THRESHOLD_DEFAULTS: Thresholds = {
   detentionGraceMinutes: DEFAULT_FREE_GRACE_MINUTES,
   pickupAlertHours: 24,
   sentNoAnswerHours: 4,
-  clearanceDays: 30
+  clearanceDays: 30,
+  laneMinLoads: LANE_MIN_LOADS,
+  laneDays: LANE_DAYS
 };
 
 /** What is stored: a number, or null meaning "use the default". */
@@ -55,7 +61,10 @@ export const THRESHOLD_FIELDS: ThresholdField[] = [
   { key: "detentionGraceMinutes", label: "Free time at a dock", unit: "minutes", min: 0, max: 480, step: 15, whole: true, hint: "Waiting beyond this is detention." },
   { key: "pickupAlertHours", label: "Warn when a pickup with no driver is within", unit: "hours", min: 1, max: 168, step: 1, whole: true, hint: "Raises a block alert." },
   { key: "sentNoAnswerHours", label: "Warn when a sent load has no answer after", unit: "hours", min: 1, max: 72, step: 1, whole: true, hint: "Raises a warn alert." },
-  { key: "clearanceDays", label: "Warn when a CDL or medical card lapses within", unit: "days", min: 1, max: 180, step: 1, whole: true, hint: "Raises a warn alert." }
+  { key: "clearanceDays", label: "Warn when a CDL or medical card lapses within", unit: "days", min: 1, max: 180, step: 1, whole: true, hint: "Raises a warn alert." },
+  // The most loads read is 25 (LANE_SAMPLE in server/tl/quote.ts), so asking for more than that could never be met.
+  { key: "laneMinLoads", label: "A lane stands in for a market rate after", unit: "loads", min: 2, max: 25, step: 1, whole: true, hint: "Finished loads on the same two cities. With fewer, the card judges on your cost alone." },
+  { key: "laneDays", label: "Counting finished loads from the last", unit: "days", min: 14, max: 365, step: 1, whole: true, hint: "Older loads are left out, because rates move." }
 ];
 
 export type ThresholdCheck =

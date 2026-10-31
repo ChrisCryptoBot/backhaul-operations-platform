@@ -4,10 +4,13 @@ import { useRouter } from "next/navigation";
 import React from "react";
 import { saveThresholdsAction } from "@/app/(desk)/actions";
 import { emptyZone, resolveThresholds, THRESHOLD_DEFAULTS, THRESHOLD_FIELDS, validateThresholds, type Thresholds } from "@/lib/thresholds";
+import { CARD_LINES } from "@/lib/verdict";
 import { useToast } from "./kit/toast";
+import { VerdictMark } from "./verdict-card";
 
 const GROUPS: Array<{ title: string; keys: Array<keyof Thresholds> }> = [
   { title: "Empty miles", keys: ["emptyAmberPct", "emptyRedPct"] },
+  { title: "The verdict card", keys: ["laneMinLoads", "laneDays"] },
   { title: "Invoices and docks", keys: ["defaultPayTermsDays", "detentionGraceMinutes"] },
   { title: "Alerts", keys: ["pickupAlertHours", "sentNoAnswerHours", "clearanceDays"] }
 ];
@@ -113,6 +116,21 @@ export function ThresholdsForm({ stored, fleetEmptyShare }: { stored: Record<key
                 {fleetEmptyShare == null
                   ? "There are no finished loads in the last four weeks to place on this bar."
                   : `The last four weeks ran ${(fleetEmptyShare * 100).toFixed(1)}% empty (the black mark). With these lines that is ${zone === "red" ? "red" : zone === "amber" ? "amber" : "green"}.`}
+              </p>
+            </div>
+          ) : null}
+          {g.title === "The verdict card" ? (
+            <div className="th-preview">
+              <dl className="th-lines" aria-label="Where the verdict card draws its lines">
+                <dt><VerdictMark state="take" size={15} />Take it</dt>
+                <dd>Clears your cost and pays at or above the market. Up to {CARD_LINES.atMarketPct}% under still counts as at market.</dd>
+                <dt><VerdictMark state="think" size={15} />Think twice</dt>
+                <dd>{CARD_LINES.atMarketPct} to {CARD_LINES.rejectPct}% under, under {CARD_LINES.thinCentsPerMile} cents a mile over your cost, or under the hourly target set on the cost profile.</dd>
+                <dt><VerdictMark state="reject" size={15} />Reject</dt>
+                <dd>More than {CARD_LINES.rejectPct}% under, or under your cost. A reason can still book it.</dd>
+              </dl>
+              <p className="tl-note" style={{ marginTop: 6 }}>
+                Those lines come from the audited rules, the same ones the phone uses, so they are not set here. With no market rate typed, the card reads the same lines against your own finished loads on that lane, using the two settings above.
               </p>
             </div>
           ) : null}

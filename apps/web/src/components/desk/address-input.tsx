@@ -53,6 +53,8 @@ export function AddressInput({ value, onChange, placeholder, label, invalid, dis
         const res = await fetch(`/geo/suggest?q=${encodeURIComponent(value.trim())}`, { signal: ctl.signal });
         if (!res.ok) return;
         const body = (await res.json()) as { places?: Place[] };
+        // The answer can land after the box was left, or after Escape. A list opened then has nothing to close it: it sits over the next field and takes its clicks, and changes the address.
+        if (!focused.current || quiet.current) return;
         const next = (body.places ?? []).filter((p) => p.label.toLowerCase() !== value.trim().toLowerCase());
         setPlaces(next);
         setActive(-1);
@@ -75,6 +77,8 @@ export function AddressInput({ value, onChange, placeholder, label, invalid, dis
   };
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    // Before the list is open too: Escape also turns down an answer that is still on its way.
+    if (e.key === "Escape") quiet.current = true;
     if (!open || places.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -87,7 +91,6 @@ export function AddressInput({ value, onChange, placeholder, label, invalid, dis
       pick(places[active]!);
     } else if (e.key === "Escape") {
       e.preventDefault();
-      quiet.current = true;
       setOpen(false);
     }
   }

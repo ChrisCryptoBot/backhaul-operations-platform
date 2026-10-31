@@ -7,7 +7,8 @@ import { getKpiRows } from "@/server/tl/kpi";
 import { getPlannerData } from "@/server/tl/planner";
 import { getLoadDetail, listBoardRows } from "@/server/tl/queries";
 import { listTrucksPage } from "@/server/tl/fleet-list";
-import { bookQuote, discardQuote, fitQuote, getQuote, listQuotes, quoteContext, saveQuote } from "@/server/tl/quote";
+import { bookQuote, discardQuote, fitQuote, getQuote, laneBenchmark, listQuotes, quoteContext, saveQuote } from "@/server/tl/quote";
+import { saveThresholds } from "@/server/tl/thresholds";
 import { searchDesk } from "@/server/tl/search";
 import { getShellData } from "@/server/tl/shell";
 import { num } from "@/server/tl/convert";
@@ -77,7 +78,7 @@ describe.skipIf(!run)("quoting a load on the demo database", () => {
   afterAll(async () => {
     const mine = await prisma.load.findMany({ where: { workspaceId: WS, OR: [{ brokerName: "W6 Broker" }, { id: { in: loadIds } }] }, select: { id: true } });
     const ids = mine.map((l) => l.id);
-    await prisma.auditEvent.deleteMany({ where: { OR: [{ loadId: { in: ids } }, { createdAt: { gte: startedAt }, entity: "fleet" }] } });
+    await prisma.auditEvent.deleteMany({ where: { OR: [{ loadId: { in: ids } }, { createdAt: { gte: startedAt }, entity: "fleet" }, { createdAt: { gte: startedAt }, action: "thresholds_changed" }] } });
     await prisma.load.deleteMany({ where: { id: { in: ids } } });
     await prisma.driver.deleteMany({ where: { workspaceId: WS, name: { startsWith: "W6" } } });
     await prisma.vehicle.deleteMany({ where: { workspaceId: WS, name: { startsWith: "W6" } } });
@@ -119,14 +120,14 @@ describe.skipIf(!run)("quoting a load on the demo database", () => {
     expect(covered.rows.find((r) => r.truckId === truckId && r.driverId === driverId)!.totalMiles).toBe(300);
   });
 
-  test("a offer that does not cover its costs, or has no market rate, needs a reason; a clean one does not", async () => {
+  test("an offer that does not cover its costs needs a reason; a clean one does not, and neither does one with no market rate", async () => {
     const low = await fitQuote(input(quote({ offer: "300", marketRate: "300" })));
     const row = low.rows.find((r) => r.truckId === truckId && r.driverId === driverId)!;
     expect(row.decision).toBe("reject");
     expect(row.gate).toBe("below_floor");
     expect(row.detail.payNeeded).toBeGreaterThan(300);
     const noMarket = await fitQuote(input(quote({ marketRate: "" })));
-    expect(noMarket.rows.find((r) => r.truckId === truckId && r.driverId === driverId)!.gate).toBe("no_market");
+    expect(noMarket.rows.find((r) => r.truckId === truckId && r.driverId === driverId)!).toMatchObject({ gate: null, band: "no_benchmark" });
     const clean = await fitQuote(input(quote()));
     const ok = clean.rows.find((r) => r.truckId === truckId && r.driverId === driverId)!;
     expect(ok.gate).toBeNull();
@@ -288,5 +289,90 @@ describe.skipIf(!run)("quoting a load on the demo database", () => {
     // A lane and a broker the desk has never seen have nothing to say.
     const none = await quoteContext(input(quote({ stops: [{ role: "pickup", address: "Nowhereville, ZZ", appointment: "" }, { role: "delivery", address: "Elsewhere, ZZ", appointment: "" }], broker: "No Such Broker" })));
     expect(none).toEqual({ lane: null, broker: null });
+  });
+
+  test("a clean offer with no market rate books with no reason, and is kept as accepted, not overridden", async () => {
+    const out = await bookQuote(quote({ marketRate: "" }, "2027-03-02"), { vehicleId: truckId, driverId: null }, null, null);
+    if (!out.ok) throw new Error(JSON.stringify(out));
+    loadIds.push(out.loadId);
+    const decision = await prisma.loadDecision.findFirstOrThrow({ where: { loadId: out.loadId } });
+    expect(decision).toMatchObject({ decisionType: "accepted", overrideReason: null });
+  });
+
+  describe("with no market rate typed, the desk's own lane stands in", () => {
+    const DAY = 86_400_000;
+    let n = 0;
+    const finished = async (over: { daysAgo?: number; revenue?: number; trailerType?: string | null } = {}) => {
+      const l = await prisma.load.create({
+        data: { workspaceId: WS, loadNumber: `W6-LANE-${(n += 1)}`, status: "completed", channel: "dispatch", brokerName: "W6 Broker", originAddress: "Yuma, AZ", destinationAddress: "Reno, NV", quotedRevenue: over.revenue ?? 2000, loadedMiles: 500, completedAt: new Date(Date.now() - (over.daysAgo ?? 10) * DAY), trailerType: over.trailerType ?? null }
+      });
+      loadIds.push(l.id);
+    };
+    const onLane = (over: Partial<QuoteValues> = {}) =>
+      quote({ stops: [{ role: "pickup", address: "Yuma, AZ", appointment: "2027-03-09T08:00" }, { role: "delivery", address: "Reno, NV", appointment: "2027-03-09T17:00" }], loadedMiles: "500", emptyToPickup: "0", emptyHome: "0", marketRate: "", offer: "1500", ...over });
+    const mine = async (v: QuoteValues) => {
+      const fit = await fitQuote(input(v));
+      return { lane: fit.lane, row: fit.rows.find((r) => r.truckId === truckId && r.driverId === driverId)! };
+    };
+
+    test("two loads are not enough, and old loads or another trailer do not count towards three", async () => {
+      await finished();
+      await finished();
+      await finished({ daysAgo: 120, revenue: 9000 });
+      await finished({ trailerType: "reefer", revenue: 9000 });
+      await finished({ trailerType: "dry_van", revenue: 9000 });
+      const out = await mine(onLane({ trailer: "reefer" }));
+      expect(out.lane).toBeNull();
+      expect(out.row).toMatchObject({ band: "no_benchmark", gate: null });
+    });
+
+    test("three recent loads are its average, on the loaded miles, read by the same rules as a market rate", async () => {
+      await finished({ trailerType: "dry_van", revenue: 2000 });
+      await finished({ trailerType: "dry_van", revenue: 2000 });
+      const out = await mine(onLane({ trailer: "dry_van" }));
+      expect(out.lane).toEqual({ perMile: 13000 / 3 / 500, loads: 3, days: 90 });
+      const even = await mine(onLane({ trailer: "dry_van", offer: String(13000 / 3) }));
+      expect(even.row.band).toBe("at_market");
+      expect(even.row.detail.marketVariancePct).toBeCloseTo(0, 5);
+    });
+
+    test("well under the lane needs a reason, and the booked load keeps no market rate nobody typed", async () => {
+      await finished({ revenue: 2000 });
+      const under = onLane();
+      const { lane, row } = await mine(under);
+      expect(lane!.loads).toBeGreaterThanOrEqual(3);
+      expect(row).toMatchObject({ band: "strong_caution", gate: "under_market" });
+      expect(await bookQuote(under, { vehicleId: truckId, driverId: null }, null, null)).toMatchObject({ ok: false, gate: "under_market" });
+      const out = await bookQuote(under, { vehicleId: truckId, driverId: null }, { reason: "Relationship", notes: "" }, null);
+      if (!out.ok) throw new Error(JSON.stringify(out));
+      loadIds.push(out.loadId);
+      expect((await prisma.load.findUniqueOrThrow({ where: { id: out.loadId } })).marketBenchmark).toBeNull();
+      const event = await prisma.auditEvent.findFirstOrThrow({ where: { loadId: out.loadId, action: "booked" } });
+      expect(JSON.stringify(event.after)).toContain("loads on this lane");
+    });
+
+    test("how many loads and how recent are the desk's thresholds: named by a caller, or the workspace's own from Settings", async () => {
+      const vans = input(onLane({ trailer: "dry_van" })); // three dry vans, all finished 10 days ago
+      expect(await laneBenchmark(vans, WS, new Date(), { minLoads: 3, days: 90 })).toMatchObject({ loads: 3, days: 90 });
+      expect(await laneBenchmark(vans, WS, new Date(), { minLoads: 4, days: 90 })).toBeNull(); // one more than there are
+      expect(await laneBenchmark(vans, WS, new Date(), { minLoads: 2, days: 5 })).toBeNull(); // a window shorter than their age
+      expect((await fitQuote(vans)).lane).not.toBeNull();
+      try {
+        expect(await saveThresholds({ laneMinLoads: "4" })).toMatchObject({ ok: true, changed: true });
+        expect((await fitQuote(vans)).lane).toBeNull(); // the workspace now asks for four
+        expect(await saveThresholds({ laneMinLoads: "2", laneDays: "5" })).toMatchObject({ ok: false }); // Settings will not take less than two weeks
+        expect(await saveThresholds({ laneMinLoads: "2", laneDays: "30" })).toMatchObject({ ok: true });
+        expect((await fitQuote(vans)).lane).toMatchObject({ loads: 3, days: 30 });
+      } finally {
+        await saveThresholds({});
+      }
+    });
+
+    test("a typed market rate always wins, and another desk's loads are never read", async () => {
+      const typed = await mine(onLane({ marketRate: "1500" }));
+      expect(typed.lane).toBeNull();
+      expect(typed.row.band).toBe("at_market");
+      expect(await laneBenchmark(input(onLane()), "no-such-workspace", new Date())).toBeNull();
+    });
   });
 });

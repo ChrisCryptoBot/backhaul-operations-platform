@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, type Load } from "@prisma/client";
 import { randomBytes } from "node:crypto";
 import { fuelKindOf } from "@/lib/eia";
 import { prisma } from "@/lib/db";
@@ -12,6 +12,7 @@ import { acceptGateFor } from "@/truelane/lib/calculate/acceptGate";
 import type { AcceptGate, MarketBand } from "@/truelane/lib/domain/marketVerdict";
 import { fuelSurchargePercentFromDollars, fuelSurchargePerMileFromDollars } from "@/truelane/lib/fuelSurcharge";
 import { cityState } from "@/lib/city-state";
+import { bookingGate } from "@/lib/verdict";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { assignDriver, DispatchError, driverClashesIn, findTruckClash, windowText } from "./dispatch";
@@ -21,6 +22,7 @@ import { saveStopCoordinates } from "@/server/geo/persist";
 import { evaluateTlLoad, resolveLabour, type EvaluateLoadRow } from "./evaluate";
 import { freezeLoadSnapshot } from "./snapshot";
 import { currentWorkspaceId } from "./workspace";
+import { getThresholds } from "./thresholds";
 import { countTrailersAvailable } from "./trailers";
 import { hosCaution, type HosCaution } from "@/truelane/partners/contract";
 
@@ -84,7 +86,8 @@ export type FitRow = {
 
 /** `rows` are the best ways to run it (at most MAX_FIT_ROWS); `total` is how many there are in all. */
 /** `trailersAvailable`: trailers of the kind the offer needs (any kind when none is stated) that are in service, available, with no date lapsed and not on an open load; null when the desk keeps no trailers. */
-export type FitResult = { rows: FitRow[]; total: number; skipped: Array<{ truck: string; why: string }>; trailersAvailable: number | null };
+/** `lane`: the desk's own record, when it stood in for a market rate nobody typed. */
+export type FitResult = { rows: FitRow[]; total: number; skipped: Array<{ truck: string; why: string }>; trailersAvailable: number | null; lane: LaneBenchmark | null };
 export const MAX_FIT_ROWS = 50;
 
 const D = 86_400_000;
@@ -180,7 +183,7 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
     totalMiles: e.totalMiles,
     band: e.marketVerdict.band,
     decision: e.finalDecision,
-    gate: acceptGateFor({ marketGate: e.marketVerdict.acceptGate, decision: e.finalDecision }),
+    gate: bookingGate(acceptGateFor({ marketGate: e.marketVerdict.acceptGate, decision: e.finalDecision })),
     allInPerMile: e.result.allInRpm,
     floorPerMile: e.verdictFloorRpm,
     marginPerMile: margin,
@@ -213,6 +216,8 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
 /** The offer priced for each truck and each driver who runs it, best first. A truck with no cost profile has no floor and is listed apart. */
 /** `terminal`: price only that terminal's trucks (the dispatcher's slice); null prices the whole fleet. */
 export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspaceId(), now = new Date(), terminal: string | null = null): Promise<FitResult> {
+  const lane = await laneBenchmark(input, workspaceId, now);
+  const judged = judgedBy(input, lane);
   const trucks = await prisma.vehicle.findMany({
     where: { workspaceId, archivedAt: null, ...(terminal ? { terminal } : {}) },
     include: { costProfile: true, drivers: { where: { active: true }, orderBy: { name: "asc" } } },
@@ -235,14 +240,14 @@ export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspace
         blocked = driverBlocker(d, now);
         if (!blocked && clashes.has(d.id)) blocked = `Already on ${clashes.get(d.id) ?? "another load"} at that time`;
       }
-      const r = fitFor(input, t, d, blocked);
+      const r = fitFor(judged, t, d, blocked);
       if (r) rows.push(r);
     }
   }
   rows.sort((a, b) => (a.blocked ? 1 : 0) - (b.blocked ? 1 : 0) || (b.marginPerMile ?? -Infinity) - (a.marginPerMile ?? -Infinity));
   const kept = await prisma.trailer.count({ where: { workspaceId, archivedAt: null } });
   const trailersAvailable = kept === 0 ? null : await countTrailersAvailable(input.trailer, terminal, now, workspaceId);
-  return { rows: rows.slice(0, MAX_FIT_ROWS), total: rows.length, skipped, trailersAvailable };
+  return { rows: rows.slice(0, MAX_FIT_ROWS), total: rows.length, skipped, trailersAvailable, lane };
 }
 
 // ── What the desk already knows about this lane and this broker ───────────────────────────────
@@ -258,17 +263,56 @@ const cityStateOf = (address: string | undefined) => (cityState(address ?? "") ?
 const LANE_SAMPLE = 25;
 const BROKER_SAMPLE = 1000;
 
+const laneWhere = (from: string, to: string, workspaceId: string) => ({ workspaceId, deletedAt: null, ...notQuote, status: "completed", originAddress: { contains: from, mode: "insensitive" as const }, destinationAddress: { contains: to, mode: "insensitive" as const } });
+/** What a finished load paid in all, with its surcharge: the same footing as an offer. */
+const paidOn = (l: Pick<Load, "actualRevenue" | "quotedRevenue" | "fuelSurcharge">) => (numOrNull(l.actualRevenue) ?? num(l.quotedRevenue)) + (numOrNull(l.fuelSurcharge) ?? 0);
+
+async function laneLines(workspaceId: string): Promise<{ minLoads: number; days: number }> {
+  const t = await getThresholds(workspaceId);
+  return { minLoads: t.laneMinLoads, days: t.laneDays };
+}
+
+/** Over the loaded miles, as a market rate per loaded mile is quoted. */
+export type LaneBenchmark = { perMile: number; loads: number; /** How far back the loads were counted. */ days: number };
+
+/**
+ * The desk's own record on this lane, for a quote with no market rate typed: enough recent finished loads of the same kind, or nothing. Most small fleets have no market feed; what
+ * this lane has been paying them is the honest number they do have. It is not a market rate, and the card says whose it is.
+ */
+export async function laneBenchmark(input: QuoteInput, workspaceId: string, now: Date, lines?: { minLoads: number; days: number }): Promise<LaneBenchmark | null> {
+  if (input.marketTotal != null) return null;
+  const from = cityStateOf(input.stops[0]?.address);
+  const to = cityStateOf(input.stops[input.stops.length - 1]?.address);
+  if (from.length < 2 || to.length < 2) return null;
+  // The workspace's own two thresholds (Settings), unless a caller names them.
+  const { minLoads, days } = lines ?? (await laneLines(workspaceId));
+  const recent = await prisma.load.findMany({
+    where: { ...laneWhere(from, to, workspaceId), completedAt: { gte: new Date(now.getTime() - days * D) }, ...(input.trailer ? { trailerType: input.trailer } : {}) },
+    orderBy: { completedAt: "desc" },
+    take: LANE_SAMPLE,
+    select: { actualRevenue: true, quotedRevenue: true, fuelSurcharge: true, loadedMiles: true }
+  });
+  const rates = recent.filter((l) => num(l.loadedMiles) > 0).map((l) => paidOn(l) / num(l.loadedMiles));
+  return rates.length < minLoads ? null : { perMile: rates.reduce((s, r) => s + r, 0) / rates.length, loads: rates.length, days };
+}
+
+/**
+ * The quote as the verdict reads it, with the lane's record in the market rate's place, so the same audited rules say what it means. For judging only: a saved or booked load keeps
+ * what was typed, or nothing would tell a market rate somebody checked from a figure the desk worked out.
+ */
+const judgedBy = (input: QuoteInput, lane: LaneBenchmark | null): QuoteInput => (lane ? { ...input, marketTotal: lane.perMile * input.loadedMiles } : input);
+
 export async function quoteContext(input: QuoteInput, workspaceId = currentWorkspaceId()): Promise<QuoteContext> {
   const from = cityStateOf(input.stops[0]?.address);
   const to = cityStateOf(input.stops[input.stops.length - 1]?.address);
   let lane: QuoteContext["lane"] = null;
   if (from.length >= 2 && to.length >= 2) {
-    const where = { workspaceId, deletedAt: null, ...notQuote, status: "completed", originAddress: { contains: from, mode: "insensitive" as const }, destinationAddress: { contains: to, mode: "insensitive" as const } };
+    const where = laneWhere(from, to, workspaceId);
     const [count, recent] = await Promise.all([prisma.load.count({ where }), prisma.load.findMany({ where, orderBy: { completedAt: "desc" }, take: LANE_SAMPLE })]);
     if (count > 0) {
       // The average is over the most recent LANE_SAMPLE finished loads; the list shows the latest five of them.
       const rows = recent.map((l) => {
-        const gross = (numOrNull(l.actualRevenue) ?? num(l.quotedRevenue)) + (numOrNull(l.fuelSurcharge) ?? 0);
+        const gross = paidOn(l);
         const miles = num(l.loadedMiles);
         return { id: l.id, loadNumber: l.loadNumber, on: l.completedAt, gross, perMile: miles > 0 ? gross / miles : null, broker: l.brokerName };
       });
@@ -282,7 +326,7 @@ export async function quoteContext(input: QuoteInput, workspaceId = currentWorks
     const theirs = await prisma.load.findMany({ where: { workspaceId, deletedAt: null, ...notQuote, brokerName: { equals: input.broker, mode: "insensitive" } }, orderBy: { createdAt: "desc" }, take: BROKER_SAMPLE });
     if (theirs.length > 0) {
       const done = theirs.filter((l) => l.status === "completed");
-      const rated = done.map((l) => ({ gross: (numOrNull(l.actualRevenue) ?? num(l.quotedRevenue)) + (numOrNull(l.fuelSurcharge) ?? 0), miles: num(l.loadedMiles) })).filter((r) => r.miles > 0);
+      const rated = done.map((l) => ({ gross: paidOn(l), miles: num(l.loadedMiles) })).filter((r) => r.miles > 0);
       const paid = theirs.filter((l) => l.paymentStatus === "paid" && l.invoicedAt && l.paidAt);
       broker = {
         name: theirs[0]!.brokerName ?? input.broker,
@@ -523,7 +567,7 @@ export type Override = { reason: string; notes: string };
 
 /**
  * Book a quote on a truck, and optionally with its driver. The verdict is worked out again here, never taken from the browser: a load that
- * needs a reason (below its cost, no fuel price, below the market, no market rate) is refused without one, and the reason is kept with the
+ * needs a reason (below its cost, no fuel price, well under the market or its own lane) is refused without one, and the reason is kept with the
  * decision. Both ends need a time, because the desk cannot yet edit a stop and a load with no times cannot be planned or chased.
  */
 export async function bookQuote(
@@ -547,7 +591,8 @@ export async function bookQuote(
   const driver = pick.driverId ? await prisma.driver.findFirst({ where: { id: pick.driverId, workspaceId, active: true } }) : null;
   if (pick.driverId && !driver) return { ok: false, error: "That driver is not available." };
 
-  const fit = fitFor(input, { ...truck, drivers: driver ? [driver] : [] } as TruckForFit, driver, null)!;
+  const laneRecord = await laneBenchmark(input, workspaceId, now);
+  const fit = fitFor(judgedBy(input, laneRecord), { ...truck, drivers: driver ? [driver] : [] } as TruckForFit, driver, null)!;
   const forLoad = truckFit(input.specs, truckLimits(truck));
   if (forLoad.blocker) return { ok: false, error: `${truck.name} cannot take this load. ${forLoad.blocker}` };
   if (fit.gate) {
@@ -601,7 +646,7 @@ export async function bookQuote(
         summary: `Booked from a quote: ${lane}, $${input.offer.toLocaleString("en-US")} on ${truck.name}${fit.gate ? `, an override (${override!.reason})` : ""}`,
         reason: fit.gate ? [override!.reason, override!.notes.trim()].filter(Boolean).join(": ") : null,
         before: null,
-        after: { Lane: lane, Offer: `$${input.offer.toLocaleString("en-US")}`, Truck: truck.name, Verdict: fit.decision, "Per mile, every mile": fit.allInPerMile == null ? null : `$${fit.allInPerMile.toFixed(2)}` },
+        after: { Lane: lane, Offer: `$${input.offer.toLocaleString("en-US")}`, Truck: truck.name, Verdict: fit.decision, "Per mile, every mile": fit.allInPerMile == null ? null : `$${fit.allInPerMile.toFixed(2)}`, ...(laneRecord ? { "Read against": `Your ${laneRecord.loads} loads on this lane, $${laneRecord.perMile.toFixed(2)}/mi` } : {}) },
         at: now
       },
       tx

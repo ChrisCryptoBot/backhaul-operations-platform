@@ -518,10 +518,13 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .th-field { display: grid; gap: 4px; align-content: start; }
 .th-field label { font-size: var(--db-text-sm); color: var(--db-fg); font-weight: 600; }
 .th-input { display: flex; align-items: center; gap: var(--db-2); }
-.th-input input { width: 110px; min-height: 36px; padding: 0 var(--db-3); background: var(--db-bg-input); color: var(--db-fg); border: 1px solid var(--db-border-strong); border-radius: var(--db-r-md); font-size: var(--db-text-base); font-variant-numeric: tabular-nums; }
+.th-input input { width: 110px; min-width: 0; min-height: 36px; padding: 0 var(--db-3); background: var(--db-bg-input); color: var(--db-fg); border: 1px solid var(--db-border-strong); border-radius: var(--db-r-md); font-size: var(--db-text-base); font-variant-numeric: tabular-nums; }
 .th-input input:focus-visible { outline: none; border-color: var(--db-accent); box-shadow: 0 0 0 3px var(--db-accent-ring); }
 .th-input input[aria-invalid="true"] { border-color: var(--db-neg-fill); }
 .th-input span { color: var(--db-fg-dim); font-size: var(--db-text-sm); }
+.th-lines { display: grid; grid-template-columns: 8.5rem minmax(0, 1fr); gap: 8px var(--db-4); margin: 0; font-size: var(--db-text-sm); }
+.th-lines dt { display: flex; align-items: center; gap: 7px; font-weight: 600; color: var(--db-fg); }
+.th-lines dd { margin: 0; color: var(--db-fg-mid); }
 .th-hint { font-size: var(--db-text-xs); color: var(--db-fg-dim); }
 .th-err { font-size: var(--db-text-sm); color: var(--db-neg); }
 .th-preview { margin-top: var(--db-3); }
@@ -661,8 +664,8 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .th-label { font-size: var(--db-text-sm); color: var(--db-fg); font-weight: 600; }
 .cp-top { display: flex; align-items: center; justify-content: space-between; gap: var(--db-4); flex-wrap: wrap; margin-bottom: var(--db-4); }
 .cp-top .tl-note { margin: 0; max-width: 56ch; }
-.cp-seg { display: inline-flex; align-self: flex-start; border: 1px solid var(--db-border-strong); border-radius: var(--db-r-md); overflow: hidden; }
-.cp-seg button { min-height: 34px; padding: 0 var(--db-4); border: 0; border-right: 1px solid var(--db-border); background: var(--db-bg-elev-2); color: var(--db-fg-mid); font-size: var(--db-text-sm); font-weight: 600; cursor: pointer; }
+.cp-seg { display: inline-flex; flex: none; align-self: flex-start; border: 1px solid var(--db-border-strong); border-radius: var(--db-r-md); overflow: hidden; }
+.cp-seg button { flex: none; white-space: nowrap; min-height: 34px; padding: 0 var(--db-4); border: 0; border-right: 1px solid var(--db-border); background: var(--db-bg-elev-2); color: var(--db-fg-mid); font-size: var(--db-text-sm); font-weight: 600; cursor: pointer; }
 .cp-seg button:last-child { border-right: 0; }
 .cp-seg button:hover { color: var(--db-fg); }
 .cp-seg button[aria-pressed="true"] { background: var(--db-accent-bg); color: var(--db-accent-fg); }
@@ -1198,7 +1201,7 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .vc-mark { flex: none; display: block; }
 .vc-mark[data-state="take"] { --vc-tone: var(--db-pos-fill); --vc-on: #fff; }
 .vc-mark[data-state="think"] { --vc-tone: var(--db-warn-fill); --vc-on: #1c1303; }
-.vc-mark[data-state="below"] { --vc-tone: var(--db-neg-fill); --vc-on: #fff; }
+.vc-mark[data-state="reject"] { --vc-tone: var(--db-neg-fill); --vc-on: #fff; }
 /* A light edge on the sign, so its shape holds on the dark glass with no colour at all (a mid-tone fill alone sinks into the card in grayscale). */
 .vc-fill { fill: var(--vc-tone); stroke: color-mix(in srgb, var(--db-fg) 78%, var(--vc-tone)); stroke-width: 1.7; stroke-linejoin: round; }
 .vc-sign { fill: none; stroke: var(--vc-on); stroke-width: 3.4; stroke-linecap: round; stroke-linejoin: round; }
@@ -1212,7 +1215,7 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .vc-run { position: absolute; top: 11px; height: 4px; background: var(--db-fg-mid); }
 .vc-ruler[data-state="take"] .vc-run { background: var(--db-pos-fill); }
 .vc-ruler[data-state="think"] .vc-run { background: var(--db-warn-fill); }
-.vc-ruler[data-state="below"] .vc-run { background: var(--db-neg-fill); }
+.vc-ruler[data-state="reject"] .vc-run { background: var(--db-neg-fill); }
 .vc-floor { position: absolute; top: 2px; width: 2px; height: 22px; margin-left: -1px; border-radius: 1px; background: var(--db-fg); }
 .vc-market { position: absolute; top: 15px; width: 0; height: 0; margin-left: -6px; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 9px solid var(--db-fg-mid); }
 .vc-offer { position: absolute; top: 3px; margin-left: -10px; transition: left var(--db-dur-slow) var(--db-ease); }

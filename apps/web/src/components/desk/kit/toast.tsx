@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import React from "react";
+import { isLostConnection, UNREACHABLE } from "@/lib/connection";
 
 type ToastItem = { id: number; text: string; tone: "ok" | "bad" | "plain"; action?: { label: string; run: () => void } };
 type Push = (t: { text: string; tone?: ToastItem["tone"]; action?: ToastItem["action"]; ms?: number }) => void;
@@ -36,6 +37,16 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     },
     [arm]
   );
+  // A server call that cannot reach the desk rejects with nobody to catch it, and the button just stops: say so, on every page.
+  React.useEffect(() => {
+    const lost = (e: PromiseRejectionEvent) => {
+      if (!isLostConnection(e.reason)) return;
+      e.preventDefault();
+      push({ text: UNREACHABLE, tone: "bad" });
+    };
+    window.addEventListener("unhandledrejection", lost);
+    return () => window.removeEventListener("unhandledrejection", lost);
+  }, [push]);
   return (
     <ToastCtx.Provider value={push}>
       {children}
