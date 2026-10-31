@@ -127,6 +127,11 @@ export function QuoteDesk({ quotes: firstPage, brokers, initial, canWrite }: { q
     const fit = () => {
       const side = document.getElementById("qt-verdict");
       if (!side) return;
+      // Side by side, the card starts where the page's content does (level with the title), not where the form's grid does, so nothing above it is empty.
+      const grid = side.parentElement;
+      const head = document.getElementById("main")?.firstElementChild;
+      const lift = window.innerWidth > 1100 && grid && head ? grid.getBoundingClientRect().top - head.getBoundingClientRect().top : 0;
+      side.style.marginTop = lift > 0 ? `${-lift}px` : "";
       const top = side.getBoundingClientRect().top;
       side.style.setProperty("--qt-glass-max", `${window.innerHeight - (top < 76 ? 76 : top) - 48}px`);
     };
