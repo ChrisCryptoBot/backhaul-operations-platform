@@ -58,6 +58,8 @@ export type AuditAction =
   | "delivered"
   | "trip_undone"
   | "trip_reopened"
+  | "trip_corrected"
+  | "load_reopened"
   | "expenses_changed"
   | "payment_undone"
   | "statement_started"
@@ -127,6 +129,8 @@ export const ACTION_LABEL: Record<string, string> = {
   delivered: "Delivered",
   trip_undone: "Pickup taken back",
   trip_reopened: "Delivery taken back",
+  trip_corrected: "Trip corrected",
+  load_reopened: "Load reopened",
   expenses_changed: "Expenses changed",
   payment_undone: "Payment undone",
   statement_started: "Statement started",
@@ -197,6 +201,8 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   delivered: "ok",
   trip_undone: "warn",
   trip_reopened: "warn",
+  trip_corrected: "muted",
+  load_reopened: "warn",
   expenses_changed: "muted",
   payment_undone: "warn",
   statement_started: "info",
@@ -236,7 +242,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
 
 /** The filter chips on the audit page: which actions belong to which group. */
 export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[] }> = [
-  { key: "dispatch", label: "Dispatch", actions: ["booked", "quote_saved", "quote_passed", "quote_discarded", "load_edited", "trip_started", "trip_undone", "delivered", "trip_reopened", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled"] },
+  { key: "dispatch", label: "Dispatch", actions: ["booked", "quote_saved", "quote_passed", "quote_discarded", "load_edited", "trip_started", "trip_undone", "delivered", "trip_reopened", "trip_corrected", "load_reopened", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled"] },
   { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "invoice_voided", "paid", "payment_part", "payment_undone", "statement_started", "statement_finalized", "statement_voided", "statement_discarded"] },
   { key: "intake", label: "Intake", actions: ["rate_con_saved", "rate_con_read", "rate_con_read_failed", "document_added", "document_removed"] },
   { key: "team", label: "Team", actions: ["member_added", "member_role_changed", "member_removed"] },

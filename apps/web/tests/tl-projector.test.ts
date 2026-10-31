@@ -41,7 +41,10 @@ describe("driver payload projector", () => {
   it("fails the gate when a forbidden key or a secret value leaks", () => {
     const s = projectLoadToSummary(load, { kind: "flat", rate: 400 });
     expect(() => assertDriverSafe({ ...s, quoted_revenue: 650 } as never)).toThrow(/leaks keys/);
-    expect(() => assertDriverSafe({ ...s, reference: { ...s.reference, load_number: "650" } }, { numbers: [650] })).toThrow(/secret value/);
+    expect(() => assertDriverSafe({ ...s, stops: [{ seq: 2, type: "delivery", address: "B", dock_notes: "Rate is $650 flat" }] } as never, { numbers: [650] })).toThrow(/secret value/);
+    // Coincidences are not leaks: a time of 13:45, miles of 45, the broker's own load number or the driver's own pay equal to a surcharge of 45 or a rate of 650.
+    const same = { ...s, reference: { ...s.reference, load_number: "650" }, miles: { loaded: 45 }, origin: { address: "A", window_earliest: "2026-11-02T13:45:00.000Z", window_latest: "2026-11-02T15:45:00Z" } };
+    expect(() => assertDriverSafe(same as never, { numbers: [650, 45] })).not.toThrow();
     expect(() => assertDriverSafe({ ...s, driver_pay: { ...s.driver_pay, margin: 1 } as never })).toThrow();
   });
 });

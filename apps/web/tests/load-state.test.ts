@@ -39,6 +39,6 @@ describe("the places that send an assignment back to the driver keep the load in
 
   test("assigning a driver and recording the driver's answer do too", () => {
     const dispatch = readFileSync(path.join(SRC, "tl", "dispatch.ts"), "utf8");
-    expect(dispatch.match(/loadStatusFor\(/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(dispatch.match(/loadStatusFor\(/g)?.length).toBeGreaterThanOrEqual(3); // assigning (compare and write) and the answer (one claim)
   });
 });

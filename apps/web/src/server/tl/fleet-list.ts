@@ -123,7 +123,7 @@ export async function listDriversPage(query: DriverPageQuery = {}, workspaceId =
           where: { driverId: { in: ids }, status: { in: ["draft", "dispatched", "accepted", "in_progress"] }, load: { status: { in: OPEN }, deletedAt: null } },
           select: { driverId: true, status: true, loadId: true, load: { select: { loadNumber: true } } }
         }),
-        prisma.assignment.groupBy({ by: ["driverId"], where: { driverId: { in: ids }, status: "completed" }, _count: { _all: true } })
+        prisma.assignment.groupBy({ by: ["driverId"], where: { driverId: { in: ids }, status: "completed", load: { deletedAt: null } }, _count: { _all: true } })
       ])
     : [[], []];
   const rows = drivers.map((d) => {

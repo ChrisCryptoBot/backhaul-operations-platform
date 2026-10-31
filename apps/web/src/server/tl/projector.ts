@@ -157,10 +157,42 @@ export function assertDriverSafe(summary: LoadSummary, secrets: { numbers?: numb
   if (bad.length > 0) throw new Error(`driver payload leaks keys: ${bad.join(", ")}`);
   const payKeys = Object.keys(summary.driver_pay).sort().join(",");
   if (payKeys !== "estimate,kind,rate") throw new Error(`driver_pay has unexpected keys: ${payKeys}`);
-  const text = JSON.stringify(summary);
-  for (const n of secrets.numbers ?? []) {
-    if (!Number.isFinite(n) || n === 0) continue;
-    const pattern = new RegExp(`(^|[^0-9.])${String(n).replace(".", "\\.")}([^0-9]|$)`);
-    if (pattern.test(text)) throw new Error(`driver payload contains a secret value: ${n}`);
+  const found = secretIn(summary, secrets.numbers ?? []);
+  if (found) throw new Error(`driver payload contains a secret value: ${found.n} (in ${found.path})`);
+}
+
+/**
+ * Parts of the payload that cannot carry the load's money by accident, and are not looked at for it: what the driver is paid (their own), the miles, places and times, and the
+ * broker's own numbers (a load number that happens to equal a rate is a coincidence, not a leak). Everything else is: a dock note that says what the load pays is the case this is for.
+ */
+const NOT_MONEY_KEYS = new Set(["driver_pay", "miles", "lat", "lng", "seq", "type", "address", "window_earliest", "window_latest", "load_number", "po_number", "schema"]);
+const ISO_TIME = /\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:?\d{2})?/g;
+
+function secretIn(value: unknown, numbers: number[], path = "summary"): { n: number; path: string } | null {
+  const wanted = numbers.filter((n) => Number.isFinite(n) && n !== 0);
+  if (wanted.length === 0) return null;
+  if (typeof value === "number") return wanted.includes(value) ? { n: value, path } : null;
+  if (typeof value === "string") {
+    const text = value.replace(ISO_TIME, " ");
+    for (const n of wanted) {
+      const pattern = new RegExp(`(^|[^0-9.])${String(n).replace(".", "\.")}([^0-9]|$)`);
+      if (pattern.test(text)) return { n, path };
+    }
+    return null;
   }
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      const hit = secretIn(value[i], numbers, `${path}[${i}]`);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  if (value && typeof value === "object") {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (NOT_MONEY_KEYS.has(k)) continue;
+      const hit = secretIn(v, numbers, `${path}.${k}`);
+      if (hit) return hit;
+    }
+  }
+  return null;
 }

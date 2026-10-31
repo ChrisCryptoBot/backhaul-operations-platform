@@ -38,11 +38,21 @@ export const isBelowCost = (r: Pick<BoardFilterable, "status" | "verdict">) => r
 /** The text a row is searched on: load number, PO, invoice number, broker and its MC, either city, truck and driver. */
 export const boardSearchText = (r: BoardFilterable) => [r.loadNumber, r.poNumber, r.invoiceNumber, r.brokerName, r.brokerMc, r.origin, r.destination, r.vehicleName, r.driverName].filter(Boolean).join(" ");
 
-/** Rows matching the search text, case-insensitive. Blank keeps everything. */
+/** Lower case with every run of punctuation or space as one space, so "DM-40013", "dm 40013" and "Dallas, TX" read alike. */
+const plain = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+/**
+ * Rows matching the search: every word typed must be in the row's text, in any order, with punctuation ignored ("tx dallas" finds "Dallas, TX"; "dm40013" and "dm-40013" both find
+ * DM-40013). Case-insensitive. Blank keeps everything.
+ */
 export function searchBoard<T extends BoardFilterable>(rows: T[], q: string | undefined): T[] {
-  const needle = q?.trim().toLowerCase();
-  if (!needle) return rows;
-  return rows.filter((r) => boardSearchText(r).toLowerCase().includes(needle));
+  const words = plain(q ?? "").split(" ").filter(Boolean);
+  if (words.length === 0) return rows;
+  return rows.filter((r) => {
+    const text = plain(boardSearchText(r));
+    const squashed = text.replace(/ /g, "");
+    return words.every((w) => text.includes(w) || squashed.includes(w));
+  });
 }
 
 /**

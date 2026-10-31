@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { tried } from "./kit/tried";
 import React from "react";
 import { deleteLoadAction, restoreLoadAction } from "@/app/(desk)/actions";
 import { DELETE_REASONS } from "@/lib/disruptions";
@@ -23,8 +24,10 @@ export function DeleteLoadButton({ loadId, loadNumber, driverName, blocked }: { 
 
   async function go() {
     setBusy(true);
-    const out = await deleteLoadAction(loadId, reason, note);
+    const got = await tried(() => deleteLoadAction(loadId, reason, note));
     setBusy(false);
+    if (!got.ok) return setMessage(got.message);
+    const out = got.value;
     if (!out.ok) {
       setMessage(out.error);
       return;

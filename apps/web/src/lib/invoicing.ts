@@ -1,4 +1,5 @@
 import { invoiceTotalDue } from "@/truelane/lib/invoice";
+import { calendarDaysBetween } from "@/truelane/lib/domain/calendarDays";
 
 /**
  * Billing a delivered load: what must be true first, the lines that make the total, and the reminder to send when it is late. Pure, so the
@@ -25,7 +26,11 @@ export type ReadinessLoad = {
   brokerPhone: string | null;
   closedWithoutPod: boolean | null;
   podNote: string | null;
+  /** How many delivery stops have no proof-of-delivery file on the load; absent when not known. */
+  podStopsMissing?: number | null;
   quotedRevenue: number;
+  /** What the broker actually paid for the linehaul, when that was entered at delivery. The invoice still bills the agreed rate. */
+  paidLinehaul?: number | null;
 };
 
 /** What stops an invoice, and what only deserves a second look. A blocker would produce an invoice nobody can pay. */
@@ -37,11 +42,17 @@ export function invoiceReadiness(l: ReadinessLoad): { blockers: string[]; cautio
   if (!l.brokerName?.trim()) blockers.push("Who is it billed to? Add the customer on the load.");
   if (!l.loadNumber?.trim()) blockers.push("The invoice needs the load number. Add it on the load.");
   if (!(l.quotedRevenue > 0)) blockers.push(tonu ? "The TONU has no fee to bill." : "The load has no rate to bill.");
+  // The invoice bills what was agreed; a different amount paid at delivery stays a short pay (or an over pay) against it, where the receivables can see it.
+  if (!tonu && l.paidLinehaul != null && l.paidLinehaul > 0 && Math.abs(l.paidLinehaul - l.quotedRevenue) > 1) {
+    const f = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    cautions.push(`The linehaul paid at delivery was ${f(l.paidLinehaul)}, not the agreed ${f(l.quotedRevenue)}. The invoice bills the agreed rate, so what comes in shows as ${l.paidLinehaul < l.quotedRevenue ? "short" : "over"} against it.`);
+  }
   if (!l.brokerEmail?.trim() && !l.brokerPhone?.trim()) cautions.push("No contact for the customer's accounts team. Add an email or phone on the load so the invoice can be chased.");
   // A TONU delivered nothing, so there is no proof of delivery to ask for.
   if (tonu) return { blockers, cautions };
   if (l.closedWithoutPod) cautions.push("Closed without proof of delivery. Many customers hold payment until they have it.");
-  else if (!l.podNote?.trim()) cautions.push("No note on the proof of delivery. Customers usually want it before they pay.");
+  else if ((l.podStopsMissing ?? 0) > 0) cautions.push("No proof of delivery file is kept on the load. Customers usually want it before they pay, and a factoring company will not buy the invoice without it.");
+  else if (!l.podNote?.trim() && l.podStopsMissing == null) cautions.push("No note on the proof of delivery. Customers usually want it before they pay.");
   return { blockers, cautions };
 }
 
@@ -105,7 +116,7 @@ export const defaultInvoiceNumber = (loadNumber: string | null, loadId: string) 
  */
 export function reminderText(i: { broker: string | null; invoiceNumber: string | null; loadNumber: string | null; poNumber: string | null; amount: number; sent: Date; due: Date; now: Date; origin: string | null; destination: string | null }): string {
   const day = (d: Date) => d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Chicago" });
-  const late = Math.floor((i.now.getTime() - i.due.getTime()) / 86_400_000);
+  const late = Math.max(0, calendarDaysBetween(i.due.getTime(), i.now.getTime()));
   return [
     `Hello${i.broker ? ` ${i.broker} accounts team` : ""},`,
     "",

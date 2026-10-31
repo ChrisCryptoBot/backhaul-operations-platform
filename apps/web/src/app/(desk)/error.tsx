@@ -13,7 +13,7 @@ export default function DeskError({ reset }: { error: Error & { digest?: string 
           Try again
         </button>
       }>
-      The desk could not read its data. Check that the demo database is running, then try again.
+      The desk could not read its data. Check the connection, then try again.
     </ErrorState>
   );
 }

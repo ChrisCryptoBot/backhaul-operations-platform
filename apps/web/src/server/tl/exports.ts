@@ -1,10 +1,12 @@
 import { Prisma } from "@prisma/client";
+import { dueAt } from "@/lib/overdue";
 import { toCsv, type CsvCell } from "@/lib/csv";
 import { filterBoard } from "@/lib/board-filter";
 import { asHistoryFilter, asHistorySort } from "@/lib/loads-history";
 import { prisma } from "@/lib/db";
 import { parseKpiParams } from "@/lib/kpi-params";
 import { ACTION_LABEL } from "@/lib/audit-diff";
+import { reasonLabel } from "@/lib/disruptions";
 import { DESK_TZ, toCentralLocal } from "@/lib/zoned";
 import { listAudit } from "./audit";
 import { listTrailersPage } from "./trailers";
@@ -15,7 +17,12 @@ import { getDeskKpi } from "./kpi";
 import { listQuoteDecisions, reportScope } from "./quote-report";
 import { asKpiPeriod } from "@/lib/kpi-periods";
 import { listHistory } from "./history";
+import { LOAD_STATUS } from "@/lib/desk-format";
 import { listBoardRows, listInvoiceRows, type BoardRow } from "./queries";
+import { currentTerminal } from "./terminal";
+
+/** The most rows one loads or invoices file holds, so a click cannot build an unbounded one. A file that stopped here says so in its name. */
+export const MAX_EXPORT_ROWS = 25_000;
 
 /**
  * The CSV files the desk offers. Each is built from the same functions the screen uses (the Loads filter, the KPI engine),
@@ -53,19 +60,27 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
     // sort and search. Asked with no view (an old link), it is every load.
     const view = first(query.view);
     const q = first(query.q);
-    // History is read in pages of a thousand (it can be tens of thousands of loads); the Open board is small.
+    // The header's terminal scope narrows the file the way it narrows the screen.
+    const terminal = await currentTerminal();
+    // History is read in pages of a thousand (it can be tens of thousands of loads); the Open board is small. A profit sort orders only the latest thousand, so a file in one of those sorts is the
+    // same latest thousand, in the same order, as the screen.
+    let cut = false;
     const history = async (): Promise<BoardRow[]> => {
       const out: BoardRow[] = [];
       for (let page = 1; ; page++) {
-        const got = await listHistory({ filter: asHistoryFilter(first(query.filter)), sort: asHistorySort(first(query.sort)), q, page, pageSize: 1000 });
+        const got = await listHistory({ filter: asHistoryFilter(first(query.filter)), sort: asHistorySort(first(query.sort)), q, page, pageSize: 1000, terminal, lean: true });
         out.push(...got.rows);
+        if (out.length >= MAX_EXPORT_ROWS) {
+          cut = out.length > MAX_EXPORT_ROWS || page < got.pages;
+          return out.slice(0, MAX_EXPORT_ROWS);
+        }
         if (page >= got.pages) return out;
       }
     };
     const rows =
       view === "history"
         ? await history()
-        : filterBoard(view === "open" ? await listBoardRows() : (await listBoardRows()).concat(await history()), { status: first(query.status), flag: first(query.flag), q });
+        : filterBoard(view === "open" ? await listBoardRows(undefined, "open", terminal) : (await listBoardRows(undefined, "open", terminal)).concat(await history()), { status: first(query.status), flag: first(query.flag), q });
     // What the board does not carry: the money a load cost to run and what its driver is owed.
     const extra = await prisma.load.findMany({
       where: { id: { in: rows.map((r) => r.id) } },
@@ -81,12 +96,12 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
       ])
     );
     return {
-      filename: name("loads"),
+      filename: cut ? name(`loads-first-${MAX_EXPORT_ROWS}`) : name("loads"),
       csv: toCsv(
         ["Load", "Status", "Customer", "Origin", "Destination", "Pickup date", "Truck", "Driver", "Answer", "Miles", "Pay", "Pay per mile", "Floor per mile", "Verdict", "Invoice status", "Delivered", "Invoice number", "Invoiced", "Invoiced amount", "Paid", "Expenses", "Driver pay (estimate)", "Cancel reason"],
         rows.map((r): CsvCell[] => [
           r.loadNumber,
-          r.status,
+          LOAD_STATUS[r.status]?.label ?? r.status,
           r.brokerName,
           r.origin,
           r.destination,
@@ -95,11 +110,11 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
           r.driverName,
           r.assignmentStatus,
           two(r.totalMiles),
-          two(r.quotedRevenue),
+          two(r.grossRevenue),
           two(r.perMile),
           two(r.floorPerMile),
           r.verdict,
-          r.paymentStatus,
+          r.paymentStatus === "paid" ? "Paid" : r.paymentStatus === "invoiced" ? "Invoiced" : r.status === "completed" ? "Not invoiced" : null,
           ymd(r.completedAt),
           r.invoiceNumber,
           ymd(r.invoicedAt),
@@ -107,16 +122,29 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
           ymd(r.paidAt),
           money.get(r.id)?.expenses ?? null,
           money.get(r.id)?.driverPay ?? null,
-          r.cancelReason
+          r.cancelReason ? reasonLabel(r.cancelReason) : null
         ])
       )
     };
   }
 
   if (kind === "invoices") {
-    const rows = await listInvoiceRows();
+    // The Invoices screen's own search and the header's terminal, every match, read in chunks (a fleet has tens of thousands of invoices).
+    const terminal = await currentTerminal();
+    const scope = first(query.scope);
+    const rows: Awaited<ReturnType<typeof listInvoiceRows>> = [];
+    let cut = false;
+    for (let skip = 0; ; skip += 1000) {
+      const got = await listInvoiceRows(undefined, { scope: scope === "ready" || scope === "out" || scope === "paid" ? scope : "all", q: first(query.q), terminal, skip, take: 1000 });
+      rows.push(...got);
+      if (got.length < 1000) break;
+      if (rows.length >= MAX_EXPORT_ROWS) {
+        cut = true;
+        break;
+      }
+    }
     return {
-      filename: name("invoices"),
+      filename: cut ? name(`invoices-first-${MAX_EXPORT_ROWS}`) : name("invoices"),
       csv: toCsv(
         ["Load", "Invoice", "Customer", "Lane", "Delivered", "Invoiced", "Due", "Paid", "Terms (days)", "Amount", "Received", "Balance owed", "Status"],
         rows.map((r): CsvCell[] => [
@@ -126,7 +154,7 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
           r.lane,
           ymd(r.completedAt),
           ymd(r.invoicedAt),
-          r.invoicedAt ? ymd(new Date(r.invoicedAt.getTime() + (r.payTermsDays ?? 0) * 86_400_000)) : null,
+          ymd(dueAt(r.invoicedAt, r.payTermsDays)),
           ymd(r.paidAt),
           r.payTermsDays,
           two(r.amount),
@@ -158,9 +186,10 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
 
   if (kind === "audit") {
     // The audit page's own filters (search, area, From and To day), every match rather than one page, newest first, capped so one click cannot build a huge file.
-    const { rows } = await listAudit({ q: first(query.q), group: first(query.group), from: first(query.from), to: first(query.to), page: 1, pageSize: 5000 });
+    const { rows, total } = await listAudit({ q: first(query.q), group: first(query.group), from: first(query.from), to: first(query.to), page: 1, pageSize: 5000 });
     return {
-      filename: name("audit-log"),
+      // At the cap the file is the newest 5,000 of more: its name says so, so nobody reads it as the whole log.
+      filename: total > rows.length ? name(`audit-log-latest-${rows.length}`) : name("audit-log"),
       csv: toCsv(
         ["When (Central)", "Load", "What", "Detail", "Reason", "By"],
         rows.map((e): CsvCell[] => [toCentralLocal(e.createdAt.getTime()).replace("T", " "), e.loadNumber, ACTION_LABEL[e.action] ?? e.action, e.summary, e.reason, e.actor])

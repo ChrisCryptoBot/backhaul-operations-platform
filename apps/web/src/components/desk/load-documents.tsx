@@ -7,17 +7,21 @@ import { ATTACHMENT_MAX_BYTES, ACCEPT, sizeLabel } from "@/lib/attachments";
 import { DOC_KINDS, DOC_LABEL, type DocKind } from "@/lib/documents";
 import { useToast } from "./kit/toast";
 
-export type DocItem = { id: string; kind: DocKind; name: string; bytes: number; when: string; by: string };
+export type DocItem = { id: string; kind: DocKind; name: string; bytes: number; when: string; by: string; /** The delivery stop a proof of delivery belongs to, in words ("Stop 3, Columbus Receiving"). */ stop?: string | null };
+export type DeliveryStopOption = { id: string; label: string };
 
 /**
  * The documents on a load: what is kept (open or save each), and a place to add one (the rate confirmation, the proof of delivery, a receipt). Factoring's packet is made of
  * these, so a document that is not here is not sent. Once the invoice has gone to a factor the list is as it was sent and cannot change.
  */
-export function LoadDocuments({ loadId, items, locked, defaultKind = "other" }: { loadId: string; items: DocItem[]; locked: string | null; defaultKind?: DocKind }) {
+export function LoadDocuments({ loadId, items, locked, defaultKind = "other", deliveryStops = [] }: { loadId: string; items: DocItem[]; locked: string | null; defaultKind?: DocKind; /** The delivery stops, so a proof of delivery can be tied to one when there is more than one. */ deliveryStops?: DeliveryStopOption[] }) {
   const router = useRouter();
   const toast = useToast();
   const [kind, setKind] = React.useState<DocKind>(defaultKind);
   const [busy, setBusy] = React.useState(false);
+  const [stopId, setStopId] = React.useState("");
+  // A removal asks first: the file is gone with it.
+  const [confirming, setConfirming] = React.useState<string | null>(null);
   const input = React.useRef<HTMLInputElement>(null);
 
   async function upload() {
@@ -31,6 +35,7 @@ export function LoadDocuments({ loadId, items, locked, defaultKind = "other" }: 
       const form = new FormData();
       form.set("loadId", loadId);
       form.set("kind", kind);
+      if (kind === "pod" && stopId) form.set("stopId", stopId);
       form.set("file", file);
       const res = await fetch("/documents/upload", { method: "POST", body: form });
       const out = (await res.json().catch(() => null)) as { ok: boolean; error?: string } | null;
@@ -71,8 +76,19 @@ export function LoadDocuments({ loadId, items, locked, defaultKind = "other" }: 
               <span className="tl-sub">
                 {sizeLabel(d.bytes)} · {d.when} · {d.by}
               </span>
-              {locked ? null : (
-                <button type="button" className="tl-btn sm" disabled={busy} onClick={() => void remove(d)}>
+              {d.stop ? <span className="tl-sub">{d.stop}</span> : null}
+              {locked ? null : confirming === d.id ? (
+                <span style={{ display: "inline-flex", gap: 6, alignItems: "baseline" }}>
+                  <span className="tl-sub">Remove it for good?</span>
+                  <button type="button" className="tl-btn sm" disabled={busy} onClick={() => void remove(d).then(() => setConfirming(null))}>
+                    Yes, remove
+                  </button>
+                  <button type="button" className="tl-btn sm" onClick={() => setConfirming(null)}>
+                    Keep it
+                  </button>
+                </span>
+              ) : (
+                <button type="button" className="tl-btn sm" disabled={busy} onClick={() => setConfirming(d.id)}>
                   Remove
                 </button>
               )}
@@ -91,6 +107,16 @@ export function LoadDocuments({ loadId, items, locked, defaultKind = "other" }: 
               </option>
             ))}
           </select>
+          {kind === "pod" && deliveryStops.length > 1 ? (
+            <select value={stopId} onChange={(e) => setStopId(e.target.value)} aria-label="Which delivery stop it is for">
+              <option value="">All deliveries</option>
+              {deliveryStops.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <input ref={input} type="file" accept={ACCEPT} aria-label="The file to keep" />
           <button type="button" className="tl-btn" disabled={busy} onClick={() => void upload()}>
             {busy ? "Keeping…" : "Keep it"}

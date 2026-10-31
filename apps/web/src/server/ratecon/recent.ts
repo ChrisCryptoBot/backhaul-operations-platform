@@ -30,7 +30,7 @@ export async function listRecentRateCons(limit = 8): Promise<{ rows: RecentRateC
     prisma.auditEvent.count({ where })
   ]);
   const ids = events.map((e) => e.loadId!).filter(Boolean);
-  const loads = await prisma.load.findMany({ where: { id: { in: ids } }, include: { assignment: { select: { id: true } } } });
+  const loads = await prisma.load.findMany({ where: { id: { in: ids }, deletedAt: null }, include: { assignment: { select: { id: true } } } });
   const byId = new Map(loads.map((l) => [l.id, l]));
   const rows: RecentRateCon[] = [];
   for (const e of events) {

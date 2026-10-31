@@ -1,3 +1,4 @@
+import { daysPastDue } from "./overdue";
 import { clearanceSoon, driverBlocker } from "./clearance";
 import { trailerBlocker, trailerClearanceSoon } from "./trailer-clearance";
 import { loadWindow, windowsOverlap, type Window } from "./schedule";
@@ -166,6 +167,11 @@ export type AlertLoad = {
   hasTruck?: boolean;
   /** The truck on the load, when one is set (for two loads on one truck at once). */
   vehicle?: { id: string; name: string | null } | null;
+  /** When the load was delivered, for how long a proof of delivery has been missing. */
+  completedAt?: Date | null;
+  /** Delivery stops with no proof of delivery file on file (a proof with no stop named covers the load); absent when not known. */
+  podStopsMissing?: number | null;
+  deliveryStops?: number;
   /** True when a delivered load was closed with no proof of delivery. */
   closedWithoutPod?: boolean | null;
   /** The trailer unit on the load, when one is set. */
@@ -183,6 +189,8 @@ export type Alert = { key: string; code: AlertCode; level: AlertLevel; loadId: s
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
 const OPEN = ["draft", "accepted", "in_progress"];
+/** A delivered load with no proof of delivery file is flagged after this many days. */
+export const POD_ALERT_DAYS = 21;
 
 const day = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Chicago" });
 const hours = (ms: number) => (ms >= DAY ? `${Math.floor(ms / DAY)} d` : `${Math.max(1, Math.floor(ms / HOUR))} h`);
@@ -192,7 +200,7 @@ const ORDER: Record<AlertLevel, number> = { block: 0, warn: 1, info: 2 };
 
 export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds = ALERT_DEFAULTS): Alert[] {
   const out: Alert[] = [];
-  const add = (l: AlertLoad, code: AlertCode, level: AlertLevel, message: string, key = code) => out.push({ key: `${l.id}:${key}`, code, level, loadId: l.id, loadNumber: l.loadNumber, message });
+  const add = (l: AlertLoad, code: AlertCode, level: AlertLevel, message: string, key: string = code) => out.push({ key: `${l.id}:${key}`, code, level, loadId: l.id, loadNumber: l.loadNumber, message });
 
   for (const l of loads) {
     const open = OPEN.includes(l.status);
@@ -252,12 +260,17 @@ export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds =
     }
 
     if (l.paymentStatus === "invoiced" && l.invoicedAt) {
-      const due = l.invoicedAt.getTime() + (l.payTermsDays ?? 0) * DAY;
-      if (due < now.getTime()) add(l, "INVOICE_OVERDUE", "warn", `${l.invoiceNumber ?? "Invoice"} is ${Math.floor((now.getTime() - due) / DAY)} days past its terms.`);
+      const late = daysPastDue(l.invoicedAt, l.payTermsDays, now) ?? 0;
+      if (late > 0) add(l, "INVOICE_OVERDUE", "warn", `${l.invoiceNumber ?? "Invoice"} is ${late} ${late === 1 ? "day" : "days"} past its terms.`);
     }
 
     if (l.status === "completed" && !l.paymentStatus) add(l, "READY_TO_INVOICE", "info", "Delivered and not invoiced yet.");
     if (l.status === "completed" && l.closedWithoutPod === true) add(l, "MISSING_POD", "info", "Closed without proof of delivery.");
+    // Delivered three weeks ago and still no proof of delivery file: the customer can refuse to pay, and the factor will not buy the invoice without it.
+    else if (l.status === "completed" && (l.podStopsMissing ?? 0) > 0 && l.completedAt && now.getTime() - l.completedAt.getTime() >= POD_ALERT_DAYS * DAY) {
+      const of = (l.deliveryStops ?? 0) > 1 ? ` for ${l.podStopsMissing} of ${l.deliveryStops} delivery stops` : "";
+      add(l, "MISSING_POD", "warn", `Delivered ${Math.floor((now.getTime() - l.completedAt.getTime()) / DAY)} days ago and no proof of delivery is on file${of}.`, "MISSING_POD_FILE");
+    }
     if (l.status === "completed" && (l.detentionUnbilled ?? 0) > 0) add(l, "DETENTION_UNBILLED", "info", `$${l.detentionUnbilled!.toFixed(2)} of detention can still be billed.`);
   }
 

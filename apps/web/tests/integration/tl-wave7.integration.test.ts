@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { prisma } from "@/lib/db";
 import { toEditValues, type LoadEditValues } from "@/lib/load-edit";
 import { historyRows } from "@/lib/loads-history";
+import { dueAt } from "@/lib/overdue";
 import { toCentralLocal } from "@/lib/zoned";
 import { assignDriver, dispatchLoad, recordDriverResponse } from "@/server/tl/dispatch";
 import { saveLoadDetails } from "@/server/tl/edit";
@@ -276,7 +277,12 @@ describe.skipIf(!run)("loads and billing on the demo database", () => {
     const invoice = await getInvoice(load.id);
     expect(invoice).toMatchObject({ invoiceNumber: "W7-INV-1", total: 1040, status: "paid", paidAmount: 1000, terms: 45, billTo: { name: "W7 Broker" } });
     expect(invoice!.lines.map((l) => l.label)).toEqual(["Line haul", "Lumper"]);
-    expect(invoice!.due.getTime() - invoice!.sent.getTime()).toBe(45 * 86_400_000);
+    // Due is 45 calendar days on, so across a change of clocks it is an hour either side of 45 x 24 h, never a day off.
+    expect(Math.abs(invoice!.due.getTime() - invoice!.sent.getTime() - 45 * 86_400_000)).toBeLessThanOrEqual(3_600_000);
+    expect(invoice!.due.getTime()).toBe(dueAt(invoice!.sent, 45)!.getTime());
+    // The 40 short was closed as a write-off, kept on the load where revenue and cash can be reconciled.
+    expect(paid).toMatchObject({ writeOffReason: "Customer deducted a lumper fee" });
+    expect(Number(paid.writeOffAmount)).toBe(40);
 
     expect(await undoPaid(load.id, "x")).toMatchObject({ ok: false });
     expect(await undoPaid(load.id, "Entered against the wrong invoice")).toEqual({ ok: true });

@@ -5,6 +5,7 @@ import { assignDriver, dispatchLoad, recordDriverResponse } from "@/server/tl/di
 import { completeTrip, startTrip } from "@/server/tl/execution";
 import { saveDriver, saveTruck } from "@/server/tl/fleet";
 import { invoiceLoad } from "@/server/tl/invoicing";
+import { listBoardRows } from "@/server/tl/queries";
 
 /**
  * Needs a seeded database (see tl-dispatch.integration.test.ts). Makes its own truck, driver and loads (all named LH) and removes them afterwards. Every window is in 2027.
@@ -73,7 +74,7 @@ describe.skipIf(!run)("linehaul actually paid at delivery", () => {
     expect(delivered.summary).not.toContain("linehaul paid");
   });
 
-  test("a short pay becomes what the load earned, is said in the audit, and is where the invoice starts", async () => {
+  test("a short pay becomes what the load earned and is said in the audit; the invoice still bills the agreed rate", async () => {
     const l = await onTheRoad("B", "2027-03-02");
     expect(await deliver(l, { actualRevenue: "850.25" })).toEqual({ ok: true });
     const done = await prisma.load.findUniqueOrThrow({ where: { id: l.id } });
@@ -85,7 +86,11 @@ describe.skipIf(!run)("linehaul actually paid at delivery", () => {
     const inv = await invoiceLoad(l.id, { form: { number: "LH-B", terms: "30", detention: false, lumper: "", layover: "", otherLabel: "", other: "" } });
     expect(inv).toMatchObject({ ok: true });
     const billed = await prisma.load.findUniqueOrThrow({ where: { id: l.id } });
-    expect(Number(billed.invoicedAmount)).toBe(850.25);
+    // The invoice bills the agreed rate, so what came in shows as short against it; the figure paid stays the load's earnings.
+    expect(Number(billed.invoicedAmount)).toBe(1000);
+    expect(Number(billed.actualRevenue)).toBe(850.25);
+    const row = (await listBoardRows(undefined, "all")).find((r) => r.id === l.id)!;
+    expect(row.grossRevenue).toBe(850.25);
   });
 
   test("a seal typed at the delivery is kept on that stop and audited; a blank one leaves what is there", async () => {

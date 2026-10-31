@@ -1,3 +1,4 @@
+import { lockWorkspace } from "@/server/tl/plan";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { RateConLoadDraft } from "./map";
@@ -60,6 +61,12 @@ export async function saveReviewedDraft(d: ReviewedDraft) {
   // What the document says about the dock and anything else, kept where the dispatcher will see it (the load's notes).
   const notes = [d.printed.notes?.trim(), d.printed.dockTerms?.trim() ? `Dock terms: ${d.printed.dockTerms.trim()}` : null].filter(Boolean).join("\n").slice(0, 1000) || null;
   const saved = await prisma.$transaction(async (tx) => {
+    // Two saves of one document at once (a double click, two tabs) both passed the check above; with the desk locked, the second one sees the first one's load.
+    await lockWorkspace(tx, ws.id);
+    if (number && !d.allowDuplicate) {
+      const twin = await findTwinLoad(ws.id, number, d.load.brokerName);
+      if (twin) throw new DuplicateLoadError(`Load ${number}${twin.brokerName ? ` from ${twin.brokerName}` : ""} is already on the desk. Open it, or save this one anyway.`, twin.id);
+    }
     const load = await tx.load.create({
     data: {
       workspaceId: ws.id,

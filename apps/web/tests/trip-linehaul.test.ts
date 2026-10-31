@@ -54,6 +54,8 @@ describe("where it goes", () => {
     const ex = src("server/tl/execution.ts");
     expect(ex).toContain("actualRevenue: v.actualRevenue ?? load.quotedRevenue");
     expect(ex).toContain("linehaul paid");
-    for (const f of ["server/tl/invoicing.ts", "server/tl/queries.ts", "components/desk/load-view.tsx"]) expect(src(f)).toContain("actualRevenue ?? ");
+    // The invoice bills the agreed rate; what was paid is a caution beside it and the earnings everywhere else (lib/load-gross.ts), never the invoice basis.
+    for (const f of ["server/tl/invoicing.ts", "server/tl/queries.ts", "components/desk/load-view.tsx"]) expect(src(f)).toContain("paidLinehaul: numOrNull(");
+    expect(src("server/tl/invoicing.ts")).not.toContain("num(load.actualRevenue ?? load.quotedRevenue)");
   });
 });

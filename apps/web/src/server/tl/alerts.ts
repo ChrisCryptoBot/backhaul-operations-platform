@@ -5,11 +5,12 @@ import { detentionOfLoad } from "./detention";
 import { evaluateTlLoad } from "./evaluate";
 import { notQuote } from "@/lib/quote-status";
 import { getThresholds } from "./thresholds";
-import { inTerminal, loadInclude } from "./queries";
+import { deskStatusOf, inTerminal, loadInclude } from "./queries";
 import { currentWorkspaceId } from "./workspace";
+import { podStopsMissing } from "./documents";
 import { answerCache, clockBucket } from "./answer-cache";
 
-const OPEN = ["draft", "accepted", "in_progress"];
+const OPEN = ["draft", "accepted", "in_progress", "scheduled", "dispatched"];
 const DAY = 86_400_000;
 import { DETENTION_WINDOW_DAYS } from "./detention";
 /** The most recent delivered loads the Alerts screen reads for "ready to invoice" and detention. */
@@ -68,6 +69,8 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
     getThresholds(workspaceId)
   ]);
 
+  // Whether each delivered load has its proof of delivery on file, for every delivered load read (one query for all of them).
+  const podMissing = await podStopsMissing([...new Set([...delivered, ...uninvoiced].map((l) => l.id))], workspaceId);
   const seen = new Set<string>();
   const input: AlertLoad[] = [];
   for (const l of [...open, ...delivered, ...uninvoiced, ...extra]) {
@@ -78,7 +81,7 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
     input.push({
       id: l.id,
       loadNumber: l.loadNumber,
-      status: l.status,
+      status: deskStatusOf(l.status),
       paymentStatus: l.paymentStatus,
       invoiceNumber: l.invoiceNumber,
       invoicedAt: l.invoicedAt,
@@ -87,6 +90,9 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
       hasTruck: l.vehicleId != null,
       vehicle: l.vehicleId != null && l.vehicle ? { id: l.vehicleId, name: l.vehicle.name } : null,
       closedWithoutPod: l.closedWithoutPod,
+      completedAt: l.completedAt,
+      podStopsMissing: podMissing.get(l.id) ?? null,
+      deliveryStops: l.stops.filter((s) => (s.stopRole ?? s.stopType) === "delivery").length,
       trailer: l.trailer ? { number: l.trailer.number, status: l.trailer.status, registrationExpiry: l.trailer.registrationExpiry, inspectionExpiry: l.trailer.inspectionExpiry } : null,
       // The verdict only matters for a draft nobody has been sent (BELOW_COST_UNASSIGNED): no need to price anything else.
       verdict: l.status === "draft" && profile ? (evaluateTlLoad(l, profile, l.vehicle)?.finalDecision ?? null) : null,

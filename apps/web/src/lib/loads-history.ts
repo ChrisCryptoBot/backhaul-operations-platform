@@ -23,8 +23,14 @@ export const HISTORY_SORTS = [
   { key: "newest", label: "Newest" },
   { key: "oldest", label: "Oldest" },
   { key: "pay", label: "Pay" },
-  { key: "permile", label: "$ per mile" }
+  { key: "permile", label: "$ per mile" },
+  { key: "net", label: "Net pay" },
+  { key: "profit", label: "Profit /mi" },
+  { key: "rph", label: "$/hr" }
 ] as const;
+/** The sorts that rest on the cost profile's math (net of factoring and the carrier's cut, after every trip cost). The database cannot order by them, so they order the latest finished loads. */
+export const PROFIT_SORTS = ["net", "profit", "rph"] as const;
+export const PROFIT_SORT_WINDOW = 1000;
 export type HistorySort = (typeof HISTORY_SORTS)[number]["key"];
 
 export const asHistoryFilter = (v: string | undefined): HistoryFilter => (HISTORY_FILTERS.some((f) => f.key === v) ? (v as HistoryFilter) : "all");
@@ -45,7 +51,8 @@ export type HistoryRow = BoardFilterable & {
 };
 
 /** Delivered and not yet paid: nothing sent, or sent and waiting. */
-export const isOwed = (r: Pick<HistoryRow, "status" | "paymentStatus">) => r.status === "completed" && r.paymentStatus !== "paid";
+/** Money still to come in: a delivered load not yet paid, or a TONU that has been invoiced and not yet paid. */
+export const isOwed = (r: Pick<HistoryRow, "status" | "paymentStatus">) => (r.status === "completed" && r.paymentStatus !== "paid") || (r.status === "tonu" && r.paymentStatus === "invoiced");
 export const fellThrough = (r: Pick<HistoryRow, "status">) => r.status === "cancelled" || r.status === "tonu";
 
 /** When a finished load is dated: the day it was delivered, or the day it fell through. */

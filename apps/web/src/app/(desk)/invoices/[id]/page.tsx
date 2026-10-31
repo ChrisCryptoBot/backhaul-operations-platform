@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { daysPastDue, isOverdue } from "@/lib/overdue";
 import { notFound } from "next/navigation";
 import React from "react";
 import { getInvoice } from "@/server/tl/invoicing";
@@ -23,7 +24,7 @@ export default async function InvoicePage({ params }: { params: { id: string } }
   if (!inv) notFound();
   const factoring = await getFactoringView(params.id);
   const now = new Date();
-  const overdue = inv.status === "invoiced" && inv.due.getTime() < now.getTime();
+  const overdue = inv.status === "invoiced" && isOverdue(inv.sent, inv.terms, now);
   const short = inv.status === "paid" && inv.paidAmount != null ? Math.round((inv.total - inv.paidAmount) * 100) / 100 : 0;
 
   return (
@@ -43,7 +44,7 @@ export default async function InvoicePage({ params }: { params: { id: string } }
           heroLabel={inv.status === "paid" ? "Invoiced" : "Total due"}
           hero={usd(inv.total, 2)}
           sub={`Due ${shortDate(inv.due)} · Net ${inv.terms}`}
-          stamp={inv.status === "paid" ? { text: `Paid ${inv.paidAt ? shortDate(inv.paidAt) : ""}`.trim(), tone: "good" } : overdue ? { text: `Overdue ${Math.max(1, Math.floor((now.getTime() - inv.due.getTime()) / 86_400_000))} days`, tone: "bad" } : { text: `Due in ${Math.max(0, Math.ceil((inv.due.getTime() - now.getTime()) / 86_400_000))} days`, tone: "plain" }}
+          stamp={inv.status === "paid" ? { text: `Paid ${inv.paidAt ? shortDate(inv.paidAt) : ""}`.trim(), tone: "good" } : overdue ? { text: `Overdue ${Math.max(1, daysPastDue(inv.sent, inv.terms, now) ?? 1)} days`, tone: "bad" } : { text: `Due in ${Math.max(0, -(daysPastDue(inv.sent, inv.terms, now) ?? 0))} days`, tone: "plain" }}
         />
 
         <h2>Bill to</h2>

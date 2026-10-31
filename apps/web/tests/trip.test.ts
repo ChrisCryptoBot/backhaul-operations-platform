@@ -63,7 +63,7 @@ describe("validateComplete", () => {
 describe("validateExpenses", () => {
   it("blank is zero, commas are fine, half-cents and negatives are not", () => {
     const ok = validateExpenses({ fuel: "1,200", tolls: "", misc: "0" });
-    expect(ok.ok && ok.value).toEqual({ fuel: 1200, tolls: 0, misc: 0 });
+    expect(ok.ok && ok.value).toEqual({ fuel: 1200, tolls: 0, misc: 0, layover: 0 });
     const bad = validateExpenses({ fuel: "-1", tolls: "1.005", misc: "abc" });
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(Object.keys(bad.errors).sort()).toEqual(["fuel", "misc", "tolls"]);

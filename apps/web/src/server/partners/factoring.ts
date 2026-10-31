@@ -108,13 +108,20 @@ export async function factorInvoice(loadId: string, opts: { sendAnyway?: boolean
   return { ok: true, referenceId, status };
 }
 
-/** What the factor later says (funded, rejected, paid), from a webhook when one is connected: moves the status and says so in the trail. */
+/** Where a factored invoice can go from where it is. Anything else (funded back to requested, a skipped step) is a wrong report, not a move. */
+export const FACTORING_NEXT: Record<string, string[]> = { requested: ["submitted", "funded", "rejected"], submitted: ["funded", "rejected"], funded: ["paid"] };
+
+/**
+ * What the factor says next (funded, rejected, paid): from a webhook when one is connected, and until then from the desk, by hand, when the factor's own portal says so. It moves the
+ * status one allowed step and says so in the trail. The move is made from the status it was read at, so the same report twice, or two people at once, moves it once. False when nothing moved.
+ */
 export async function applyFactoringUpdate(loadId: string, status: string, referenceId: string | null, now = new Date(), workspaceId = currentWorkspaceId()): Promise<boolean> {
-  const l = await prisma.load.findFirst({ where: { id: loadId, workspaceId } });
-  if (!l || l.factoringStatus === status) return false;
-  await prisma.$transaction(async (tx) => {
-    await tx.load.update({ where: { id: loadId }, data: { factoringStatus: status, ...(referenceId ? { factoringReferenceId: referenceId } : {}), factoringUpdatedAt: now } });
+  const l = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null } });
+  if (!l || l.factoringStatus === status || !(FACTORING_NEXT[l.factoringStatus] ?? []).includes(status)) return false;
+  return prisma.$transaction(async (tx) => {
+    const out = await tx.load.updateMany({ where: { id: loadId, workspaceId, factoringStatus: l.factoringStatus }, data: { factoringStatus: status, ...(referenceId ? { factoringReferenceId: referenceId } : {}), factoringUpdatedAt: now } });
+    if (out.count !== 1) return false;
     await recordAudit({ entity: "invoice", action: "factoring_updated", loadId, loadNumber: l.loadNumber, summary: `${l.invoiceNumber ?? "Invoice"}: ${factoringLabel(status).toLowerCase()}`, before: { Factoring: factoringLabel(l.factoringStatus) }, after: { Factoring: factoringLabel(status) }, at: now, workspaceId }, tx);
+    return true;
   });
-  return true;
 }

@@ -11,6 +11,7 @@ import { recordAudit } from "./audit";
 import { loadStatusFor } from "@/lib/load-state";
 import { freezeLoadSnapshot } from "./snapshot";
 import { lockWorkspace } from "./plan";
+import { claimAssignment, claimLoad, dropAssignment, LoadMoved } from "./claim";
 import { currentWorkspaceId } from "./workspace";
 
 export { driverBlocker };
@@ -52,9 +53,16 @@ export class DispatchError extends Error {
   }
 }
 
+/** The most a pay rate can be, per kind: far above any real one and far below what the columns hold. */
+const MAX_PAY_RATE: Record<string, number> = { cpm: 10, hourly: 500, flat: 100_000 };
+
 export function assertPay(pay: AssignmentPay): void {
   if (!PAY_KINDS.includes(pay.kind) || !Number.isFinite(pay.rate) || pay.rate <= 0) {
     throw new DispatchError("bad_pay", "Pay needs a kind (per mile, hourly, a set amount or a percent of the rate) and a rate above zero.");
+  }
+  // Past what any real pay is: a typed 25 under "percent" left in place when the kind is changed to per mile is the slip this stops.
+  if (pay.kind !== "percent" && pay.rate > MAX_PAY_RATE[pay.kind]) {
+    throw new DispatchError("bad_pay", `${pay.rate.toLocaleString("en-US")} is more than a ${pay.kind === "cpm" ? "per-mile" : pay.kind === "hourly" ? "hourly" : "set"} pay can be (at most ${MAX_PAY_RATE[pay.kind].toLocaleString("en-US")}). Check the amount and the kind.`);
   }
   if (pay.kind === "percent" && pay.rate > PERCENT_MAX) {
     throw new DispatchError("bad_pay", `A percent of the rate has to be above 0 and under 100.`);
@@ -180,6 +188,9 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
     // The clash was checked above, before this transaction; two dispatchers assigning one driver to two loads at once would both have passed it. Checked again here, with the desk
     // locked, so the second one sees the first. (Only when the dispatcher has not already given a reason to double-book.)
     await lockWorkspace(tx, workspaceId);
+    // The load was read before the lock: re-read it here. One that was picked up, delivered, cancelled or deleted in between is not put back to a draft with a new driver.
+    const fresh = await tx.load.findFirst({ where: { id: load.id, workspaceId, deletedAt: null }, select: { status: true } });
+    if (!fresh || !["draft", "accepted"].includes(fresh.status)) throw new DispatchError("load_not_assignable", "That load has started, finished or been cancelled since you opened it. Reload it.");
     if (override == null) {
       const now2 = await findDriverClash(driver.id, load.id, loadWindow(load.stops), tx);
       if (now2) throw new DispatchError("double_booked", `${driver.name} is already on ${now2.loadNumber ?? "another load"} (${windowText(now2.window)}). Add a reason to assign anyway.`);
@@ -234,8 +245,14 @@ export async function unassignLoad(loadId: string, reason: string | null, now = 
   if (needsReason && why.length < 3) throw new DispatchError("reason_required", "Say why the driver is coming off a load that was already sent.");
 
   await prisma.$transaction(async (tx) => {
-    await tx.assignment.delete({ where: { loadId } });
-    if (load.status === "accepted") await tx.load.update({ where: { id: loadId }, data: { status: "draft" } });
+    try {
+      // The load has to still be the state it was read in (not picked up, cancelled or deleted since), and the assignment is taken off once.
+      await claimLoad(tx, loadId, workspaceId, ["draft", "accepted"], load.status === "accepted" ? { status: "draft" } : {});
+      await dropAssignment(tx, loadId);
+    } catch (e) {
+      if (e instanceof LoadMoved) throw new DispatchError("not_unassignable", e.message);
+      throw e;
+    }
     await recordAudit(
       {
         entity: "assignment",
@@ -284,7 +301,14 @@ export async function driverSummaryFor(loadId: string, workspaceId = currentWork
     },
     pay
   );
-  assertDriverSafe(summary, { numbers: [num(load.quotedRevenue), num(load.actualRevenue), num(load.fuelSurcharge)] });
+  try {
+    assertDriverSafe(summary, { numbers: [num(load.quotedRevenue), num(load.actualRevenue), num(load.fuelSurcharge)] });
+  } catch (e) {
+    // A note that says what the load pays is the one real case: say where, so it can be reworded, instead of an error page.
+    const m = e instanceof Error ? /secret value: ([\d.]+) \(in ([^)]+)\)/.exec(e.message) : null;
+    if (m) throw new DispatchError("not_ready", `A note on this load repeats an amount that is the load's own money (${m[1]}), which a driver must not see. Reword the stop notes and send it again.`);
+    throw e;
+  }
   return summary;
 }
 
@@ -294,10 +318,14 @@ export async function dispatchLoad(loadId: string, now = new Date(), opts: { sen
   const a = await prisma.assignment.findFirstOrThrow({ where: { loadId, load: { workspaceId } }, include: { driver: true, load: true } });
   if (a.status !== "draft") throw new DispatchError("already_sent", "This load was already sent to the driver.");
   const updated = await prisma.$transaction(async (tx) => {
-    const next = await tx.assignment.update({
-      where: { loadId },
-      data: { status: "dispatched", dispatchedAt: now, assignmentVersion: { increment: 1 } }
-    });
+    // Sent once: a second press (or another tab) finds it already sent.
+    try {
+      await claimAssignment(tx, loadId, ["draft"], { status: "dispatched", dispatchedAt: now, assignmentVersion: { increment: 1 } });
+    } catch (e) {
+      if (e instanceof LoadMoved) throw new DispatchError("already_sent", "This load was already sent to the driver.");
+      throw e;
+    }
+    const next = await tx.assignment.findUniqueOrThrow({ where: { loadId } });
     await recordAudit(
       {
         entity: "assignment",
@@ -324,13 +352,18 @@ export async function recordDriverResponse(loadId: string, response: "accepted" 
   const a = await prisma.assignment.findFirst({ where: { loadId, load: { workspaceId } }, include: { driver: true, load: true } });
   if (!a) throw new DispatchError("not_assigned", "Assign a driver first.");
   if (a.status !== "dispatched") throw new DispatchError("not_sent", "Send the load to the driver before recording an answer.");
+  if (a.load.deletedAt) throw new DispatchError("load_not_found", "That load does not exist.");
   return prisma.$transaction(async (tx) => {
-    const assignment = await tx.assignment.update({
-      where: { loadId },
-      data: { status: response, respondedAt: now, driverResponse: { response, note: note ?? null, at: now.toISOString() } }
-    });
-    // The load's status follows the assignment's in the same transaction: yes is accepted, a no is back on the board as a draft.
-    if (a.load.status !== loadStatusFor(response)) await tx.load.update({ where: { id: loadId }, data: { status: loadStatusFor(response) } });
+    // Answered once: the answer only lands on an assignment that is still waiting for one, on a load that is still on the desk.
+    try {
+      await claimAssignment(tx, loadId, ["dispatched"], { status: response, respondedAt: now, driverResponse: { response, note: note ?? null, at: now.toISOString() } });
+      // The load's status follows the assignment's in the same transaction: yes is accepted, a no is back on the board as a draft.
+      await claimLoad(tx, loadId, workspaceId, [a.load.status], { status: loadStatusFor(response) });
+    } catch (e) {
+      if (e instanceof LoadMoved) throw new DispatchError("not_sent", "That answer was already recorded, or the load changed. Reload it.");
+      throw e;
+    }
+    const assignment = await tx.assignment.findUniqueOrThrow({ where: { loadId } });
     await recordAudit(
       {
         entity: "assignment",

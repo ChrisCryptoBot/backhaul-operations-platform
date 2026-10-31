@@ -1,4 +1,5 @@
 import { currentTerminal } from "@/server/tl/terminal";
+import { isOverdue } from "@/lib/overdue";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import React from "react";
@@ -14,6 +15,9 @@ import { asPage, asSort, nextSortParam } from "@/lib/paging";
 import { DataTableTools } from "@/components/desk/data-table-tools";
 import { EmptyState } from "@/components/desk/kit/states";
 import { NewLoad } from "@/components/desk/new-load";
+import { RestoreLoadButton } from "@/components/desk/restore-load";
+import { countDeletedLoads, listDeletedLoads } from "@/server/tl/deleted";
+import { dateTime } from "@/lib/desk-format";
 import { asBoardStatus, BOARD_STATUSES, filterBoard, isBelowCost, onTab, searchBoard } from "@/lib/board-filter";
 import { reasonLabel } from "@/lib/disruptions";
 import { asHistoryFilter, asHistorySort, fellThrough, HISTORY_FILTERS, HISTORY_SORTS, historyDate, monthGroups } from "@/lib/loads-history";
@@ -60,7 +64,19 @@ const HISTORY_COLUMNS: Column[] = [
   { key: "driver", label: "Driver", group: "Route" },
   { key: "pay", label: "Pay", group: "Money", accentBand: true, align: "num" },
   { key: "perMile", label: "$/mi", group: "Money", accentBand: true, align: "num" },
+  { key: "net", label: "Net pay", group: "Money", accentBand: true, align: "num" },
+  { key: "profit", label: "Profit/mi", group: "Money", accentBand: true, align: "num" },
+  { key: "rph", label: "$/hr", group: "Money", accentBand: true, align: "num" },
   { key: "money", label: "Where the money is", group: "Money", accentBand: true }
+];
+
+const DELETED_COLUMNS: Column[] = [
+  { key: "load", label: "Load", group: "Load", sticky: true, width: 150 },
+  { key: "lane", label: "Lane", group: "Load" },
+  { key: "status", label: "Was", group: "Load" },
+  { key: "deleted", label: "Deleted", group: "Load" },
+  { key: "why", label: "Why", group: "Load" },
+  { key: "restore", label: "", group: "Load" }
 ];
 
 type Params = { view?: string; status?: string; flag?: string; q?: string; filter?: string; sort?: string; page?: string };
@@ -70,7 +86,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   // Delivered loads moved to History; an old link to the Delivered tab lands there.
   if (searchParams?.status === "completed") redirect(`/loads?view=history${q ? `&q=${encodeURIComponent(q)}` : ""}`);
 
-  const view = searchParams?.view === "history" ? "history" : "open";
+  const view = searchParams?.view === "history" ? "history" : searchParams?.view === "deleted" ? "deleted" : "open";
   // The header's terminal scope narrows the board too (loads placed in that terminal, and loads not placed anywhere yet).
   const terminal = await currentTerminal();
   // The open board is the loads still moving. History is read a page at a time: the database filters, sorts, searches and counts it.
@@ -79,14 +95,15 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   const [openAll, { byLoad }, hist] = await Promise.all([
     listBoardRows(currentWorkspaceId(), "open", terminal),
     getAlerts(new Date(), currentWorkspaceId(), "open"),
-    view === "history" ? listHistory({ filter: histFilter, sort: histSort, q, page: Number(searchParams?.page) || 1 }) : Promise.resolve(null)
+    view === "history" ? listHistory({ filter: histFilter, sort: histSort, q, page: Number(searchParams?.page) || 1, terminal }) : Promise.resolve(null)
   ]);
   const openCount = searchBoard(openAll, q).length;
-  const historyCount = hist ? hist.counts.all : await countHistory(q);
+  const historyCount = hist ? hist.counts.all : await countHistory(q, currentWorkspaceId(), terminal);
+  const deletedCount = await countDeletedLoads(currentWorkspaceId(), terminal);
 
   const viewHref = (v: string) => {
     const p = new URLSearchParams();
-    if (v === "history") p.set("view", "history");
+    if (v === "history" || v === "deleted") p.set("view", v);
     if (q) p.set("q", q);
     const s = p.toString();
     return s ? `/loads?${s}` : "/loads";
@@ -108,8 +125,8 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   const exportHref = `/export/loads?${exportParams.toString()}`;
 
   const head = (
-    <PageHead title="Loads" sub={view === "open" ? "What is still moving, judged on each truck's own cost." : "What has finished, by month, with where the money is."}>
-      <a className="tl-btn" href={exportHref}>Export CSV</a>
+    <PageHead title="Loads" sub={view === "open" ? "What is still moving, judged on each truck's own cost." : view === "deleted" ? "Loads taken off the desk, and the way back." : "What has finished, by month, with where the money is."}>
+      {view === "deleted" ? null : <a className="tl-btn" href={exportHref}>Export CSV</a>}
       <NewLoad />
     </PageHead>
   );
@@ -120,10 +137,56 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
       hrefFor={viewHref}
       items={[
         { key: "open", label: "Open", count: openCount },
-        { key: "history", label: "History", count: historyCount }
+        { key: "history", label: "History", count: historyCount },
+        ...(deletedCount > 0 || view === "deleted" ? [{ key: "deleted", label: "Deleted", count: deletedCount }] : [])
       ]}
     />
   );
+
+  if (view === "deleted") {
+    const gone = await listDeletedLoads(currentWorkspaceId(), terminal);
+    const deletedRows: Row[] = gone.map((r) => ({
+      id: r.id,
+      cells: {
+        load: (
+          <>
+            {r.loadNumber ?? "—"}
+            <span className="sub">{r.brokerName}</span>
+          </>
+        ),
+        lane: (
+          <>
+            {r.origin} → {r.destination}
+          </>
+        ),
+        status: <StatusChip status={r.status} />,
+        deleted: dateTime(r.deletedAt),
+        why: (
+          <>
+            {r.reason ?? <span className="dim">—</span>}
+            {r.note ? <span className="sub">{r.note}</span> : null}
+          </>
+        ),
+        restore: <RestoreLoadButton loadId={r.id} loadNumber={r.loadNumber ?? "The load"} />
+      }
+    }));
+    return (
+      <>
+        {head}
+        <DataTableTools tableId="loads-deleted" total={gone.length} placeholder="Search deleted loads…">
+          {views}
+        </DataTableTools>
+        <p className="tl-note" style={{ margin: "0 0 12px" }}>Deleted loads are hidden, not erased: their record and audit trail stay. Restoring one checks that its number, truck and driver are still free.</p>
+        <DataTable
+          id="loads-deleted"
+          label="Deleted loads"
+          columns={DELETED_COLUMNS}
+          rows={deletedRows}
+          empty={<EmptyState icon="loads" title="Nothing deleted">A load deleted from its page lands here, and can be restored.</EmptyState>}
+        />
+      </>
+    );
+  }
 
   if (hist) {
     const filter = hist.filter;
@@ -145,9 +208,11 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
     const groups = grouped ? monthGroups(shown) : [{ key: "sorted", label: `By ${HISTORY_SORTS.find((s) => s.key === sort)?.label.toLowerCase()}`, rows: shown }];
     const record = hist.record;
 
+    // A figure the cost profile's math could not work (no truck, no fuel price, a TONU) is a dash that says why, never a zero.
+    const needs = (missing: boolean, text: string) => (missing ? <span className="dim" title="Needs a truck with a cost profile and a fuel price">—</span> : text);
     const rowOf = (r: BoardRow): Row => {
       const done = historyDate(r);
-      const pastDue = r.paymentStatus === "invoiced" && r.invoicedAt != null && r.invoicedAt.getTime() + (r.payTermsDays ?? 0) * 86_400_000 < Date.now();
+      const pastDue = r.paymentStatus === "invoiced" && isOverdue(r.invoicedAt, r.payTermsDays);
       return {
         id: r.id,
         href: `/loads/${r.id}`,
@@ -169,28 +234,35 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
           done: shortDate(done),
           truck: r.vehicleName ?? "—",
           driver: r.driverName ?? <span className="dim">—</span>,
-          pay: fellThrough(r) ? <span className="dim">{r.status === "tonu" ? usd(r.quotedRevenue) : "—"}</span> : usd(r.quotedRevenue),
+          pay: r.status === "cancelled" ? <span className="dim">—</span> : r.status === "tonu" ? <span title="The TONU fee">{usd(r.grossRevenue)}</span> : usd(r.grossRevenue),
           perMile: fellThrough(r) ? <span className="dim">—</span> : perMile(r.perMile),
-          money: fellThrough(r) ? (
-            <span className="dim">{reasonLabel(r.cancelReason)}</span>
-          ) : r.paymentStatus === "paid" ? (
-            <>
-              <span className="tl-chip ok">Paid</span>
-              <span className="sub">
-                {r.invoiceNumber} · {shortDate(r.paidAt)}
-                {r.paidAmount != null && r.invoicedAmount != null && r.paidAmount < r.invoicedAmount - 0.005 ? ` · ${usd(r.invoicedAmount - r.paidAmount, 2)} short` : ""}
-              </span>
-            </>
-          ) : r.paymentStatus === "invoiced" ? (
-            <>
-              <span className={`tl-chip ${pastDue ? "bad" : "warn"}`}>{pastDue ? "Overdue" : "Out and waiting"}</span>
-              <span className="sub">
-                {r.invoiceNumber} · sent {shortDate(r.invoicedAt)}
-              </span>
-            </>
-          ) : (
-            <span className="tl-chip info">Not invoiced yet</span>
-          )
+          net: needs(r.netPay == null, usd(r.netPay ?? 0)),
+          profit: needs(r.profitPerMile == null, r.profitPerMile == null ? "" : `${r.profitPerMile < 0 ? "-" : ""}${perMile(Math.abs(r.profitPerMile))}`),
+          rph: needs(r.profitPerHour == null, `${usd(r.profitPerHour ?? 0)}/hr`),
+          money:
+            r.status === "cancelled" || (r.status === "tonu" && !r.paymentStatus) ? (
+              <span className="dim">{reasonLabel(r.cancelReason)}</span>
+            ) : r.paymentStatus === "paid" ? (
+              <>
+                <span className="tl-chip ok">{r.writeOffAmount ? "Closed short" : "Paid"}</span>
+                <span className="sub">
+                  {r.invoiceNumber} · {shortDate(r.paidAt)}
+                  {r.writeOffAmount ? ` · ${usd(r.writeOffAmount, 2)} written off` : r.paidAmount != null && r.invoicedAmount != null && r.paidAmount < r.invoicedAmount - 0.005 ? ` · ${usd(r.invoicedAmount - r.paidAmount, 2)} short` : ""}
+                  {r.paidAmount != null && r.invoicedAmount != null && r.paidAmount > r.invoicedAmount + 0.005 ? ` · ${usd(r.paidAmount - r.invoicedAmount, 2)} over` : ""}
+                </span>
+              </>
+            ) : r.paymentStatus === "invoiced" ? (
+              <>
+                <span className={`tl-chip ${pastDue ? "bad" : "warn"}`}>{pastDue ? "Overdue" : r.paidAmount ? "Part paid" : "Out and waiting"}</span>
+                <span className="sub">
+                  {r.invoiceNumber} · sent {shortDate(r.invoicedAt)}
+                  {r.paidAmount && r.invoicedAmount != null ? ` · ${usd(r.paidAmount, 2)} in, ${usd(Math.max(0, r.invoicedAmount - r.paidAmount), 2)} to come` : ""}
+                  {r.status === "tonu" ? " · TONU" : ""}
+                </span>
+              </>
+            ) : (
+              <span className="tl-chip info">Not invoiced yet</span>
+            )
         }
       };
     };
@@ -224,19 +296,21 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
           <DataTable id="loads-history" label="History" columns={HISTORY_COLUMNS} rows={[]} empty={<EmptyState icon="loads" title="No finished loads match">Try another filter, or clear the search.</EmptyState>} />
         ) : (
           groups.map((g) => {
-            const delivered = g.rows.filter((r) => r.status === "completed");
+            const month = hist.months[g.key];
             return (
               <section key={g.key} style={{ marginTop: 18 }}>
                 <h2 style={{ fontFamily: "var(--db-font-sans)", fontSize: "var(--db-text-xs)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--db-fg-dim)", fontWeight: 700, margin: "0 0 10px" }}>
-                  {g.label} · {g.rows.length} {g.rows.length === 1 ? "load" : "loads"}
-                  {delivered.length > 0 ? ` · ${usd(delivered.reduce((s, r) => s + r.quotedRevenue, 0))} delivered` : ""}
+                  {g.label} · {month ? month.loads : g.rows.length} {(month ? month.loads : g.rows.length) === 1 ? "load" : "loads"}
+                  {month && month.loads > g.rows.length ? ` (${g.rows.length} on this page)` : ""}
+                  {month && month.earned > 0 ? ` · ${usd(month.earned)} earned` : ""}
                 </h2>
                 <DataTable id={`loads-history--${g.key}`} label={`History, ${g.label}`} columns={HISTORY_COLUMNS} rows={g.rows.map(rowOf)} />
               </section>
             );
           })
         )}
-        <Pager page={hist.page} pageSize={hist.pageSize} total={hist.total} hrefFor={(n) => hrefFor({ page: n })} />
+        {hist.windowed ? <p className="tl-note">Sorted across the latest {hist.windowSize.toLocaleString("en-US")} finished loads of {hist.total.toLocaleString("en-US")}; narrow the search to reach older ones.</p> : null}
+        <Pager page={hist.page} pageSize={hist.pageSize} total={hist.total} hrefFor={(n) => hrefFor({ page: n })} {...(grouped ? {} : { newer: "Previous", older: "Next" })} />
       </>
     );
   }
@@ -248,8 +322,9 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   const shown = filterBoard(openAll, { status: active, flag: below ? "below" : undefined, q });
   const counts = (key: string) => (key === "all" ? all.length : all.filter((r) => onTab(r, key)).length);
   const belowCount = all.filter(isBelowCost).length;
-  // Latest pickup first unless another column is chosen, and the Pickup header shows it (an unmarked order read as no order).
-  const sortKey = asSort(searchParams?.sort, OPEN_SORTS, { key: "pickup", dir: "desc" });
+  // Soonest pickup first unless another column is chosen (a pickup already past sits at the top, where it needs looking at), and the Pickup header shows it.
+  const sortKey = asSort(searchParams?.sort, OPEN_SORTS, { key: "pickup", dir: "asc" });
+  const now = Date.now();
   const href = (status: string, flag: boolean, text = q, extra: { sort?: string | null; page?: number } = {}) => {
     const p = new URLSearchParams();
     if (status !== "all") p.set("status", status);
@@ -290,7 +365,14 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
             <span className="sub">{r.brokerName}</span>
           </>
         ),
-        status: <StatusChip status={r.status} />,
+        status: (
+          <>
+            <StatusChip status={r.status} />
+            {r.status !== "in_progress" && r.pickupClosesAt && r.pickupClosesAt.getTime() < now ? (
+              <span className="tl-chip bad" title="The pickup window has closed and the load has not been picked up">Pickup passed</span>
+            ) : null}
+          </>
+        ),
         lane: (
           <>
             {r.origin} → {r.destination}

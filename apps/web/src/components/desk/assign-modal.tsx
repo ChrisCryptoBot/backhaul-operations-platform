@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { tried } from "./kit/tried";
 import React from "react";
 import { assignFromQueueAction, assignOptionsAction } from "@/app/(desk)/actions";
 import { payLabel, usd } from "@/lib/desk-format";
@@ -45,8 +46,13 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
     if (!f) return;
     const v = new FormData(f);
     setBusy(true);
-    const out = await assignFromQueueAction({ loadId, driverId: String(v.get("driverId") ?? ""), payKind: String(v.get("payKind") ?? ""), rate: String(v.get("rate") ?? ""), overrideReason: String(v.get("overrideReason") ?? "") });
+    const got = await tried(() => assignFromQueueAction({ loadId, driverId: String(v.get("driverId") ?? ""), payKind: String(v.get("payKind") ?? ""), rate: String(v.get("rate") ?? ""), overrideReason: String(v.get("overrideReason") ?? "") }));
     setBusy(false);
+    if (!got.ok) {
+      setError(got.message);
+      return;
+    }
+    const out = got.value;
     if (!out.ok) {
       setError(out.error);
       return;

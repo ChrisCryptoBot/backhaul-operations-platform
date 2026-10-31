@@ -101,7 +101,15 @@ export function AssignFields({ drivers: offered, loadId, initial, rateConTotal }
       </label>
       <label className="tl-field">
         Pay
-        <select name="payKind" value={kind} onChange={(e) => setKind(e.target.value)}>
+        <select
+          name="payKind"
+          value={kind}
+          onChange={(e) => {
+            // A rate typed for one kind is not a rate for another (25 a percent is not $25 a mile): the box starts again, from the driver's usual pay when that is this kind.
+            const usual = startsAt(driverId);
+            setKind(e.target.value);
+            setRate(usual && usual.kind === e.target.value ? String(usual.rate) : "");
+          }}>
           <option value="cpm">Per mile</option>
           <option value="flat">Set amount</option>
           <option value="percent">Percent of the rate</option>

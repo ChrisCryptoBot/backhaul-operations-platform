@@ -1,4 +1,5 @@
 import { currentTerminal } from "@/server/tl/terminal";
+import { dueAt, isOverdue } from "@/lib/overdue";
 import Link from "next/link";
 import React from "react";
 import { agingFor, countInvoices, listInvoiceRows } from "@/server/tl/queries";
@@ -82,7 +83,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: { 
     const s = u.toString();
     return s ? `/invoices?${s}` : "/invoices";
   };
-  const dueOf = (r: Inv) => (r.invoicedAt ? new Date(r.invoicedAt.getTime() + (r.payTermsDays ?? 0) * 86_400_000) : null);
+  const dueOf = (r: Inv) => dueAt(r.invoicedAt, r.payTermsDays);
 
   const detentionOwed = detention.rows.filter((r) => r.unbilled > 0 || r.noRate);
   const detentionRows: Row[] = [...detentionOwed]
@@ -117,7 +118,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: { 
   const outRows: Row[] = open.map((r) => {
     const due = dueOf(r);
     const now = new Date();
-    const late = due != null && due.getTime() < now.getTime();
+    const late = isOverdue(r.invoicedAt, r.payTermsDays, now);
     return {
       id: r.id,
       href: `/loads/${r.id}`,
@@ -166,7 +167,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: { 
   return (
     <>
       <PageHead title="Invoices" sub="Delivered loads that still need an invoice, what is out, and what has been paid.">
-        <a className="tl-btn" href="/export/invoices">Export CSV</a>
+        <a className="tl-btn" href={q ? `/export/invoices?q=${encodeURIComponent(q)}` : "/export/invoices"}>Export CSV</a>
       </PageHead>
       <div className="tl-grid cols-4">
         <Stat label="Outstanding" value={usd(aging.totalOutstanding)} sub={`${aging.count} ${aging.count === 1 ? "invoice" : "invoices"}`} />

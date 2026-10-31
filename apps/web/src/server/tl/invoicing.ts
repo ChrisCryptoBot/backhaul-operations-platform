@@ -8,6 +8,8 @@ import { recordAudit } from "./audit";
 import { toCompany } from "./company";
 import { num, numOrNull } from "./convert";
 import { detentionOfLoad } from "./detention";
+import { dueAt } from "@/lib/overdue";
+import { podStopsMissing } from "./documents";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
 
@@ -22,8 +24,8 @@ export type InvoiceOut = { ok: boolean; detention: number; total?: number; error
 export async function invoiceLoad(loadId: string, opts: { includeDetention?: boolean; form?: InvoiceForm } = {}, now = new Date(), workspaceId = currentWorkspaceId()): Promise<InvoiceOut> {
   const load = await prisma.load.findFirstOrThrow({ where: { id: loadId, workspaceId, deletedAt: null }, include: { stops: true, vehicle: { include: { costProfile: true } } } });
   if (!canInvoiceStatus(load.status, numOrNull(load.tonuRevenue)) || load.paymentStatus) return { ok: false, detention: 0 };
-  const basis = invoiceBasis({ status: load.status, quotedRevenue: num(load.actualRevenue ?? load.quotedRevenue), fuelSurcharge: num(load.fuelSurcharge), tonuRevenue: numOrNull(load.tonuRevenue) });
-  const ready = invoiceReadiness({ ...load, quotedRevenue: basis.rate });
+  const basis = invoiceBasis({ status: load.status, quotedRevenue: num(load.quotedRevenue), fuelSurcharge: num(load.fuelSurcharge), tonuRevenue: numOrNull(load.tonuRevenue) });
+  const ready = invoiceReadiness({ ...load, quotedRevenue: basis.rate, paidLinehaul: numOrNull(load.actualRevenue), podStopsMissing: (await podStopsMissing([load.id], workspaceId)).get(load.id) ?? null });
   if (ready.blockers.length > 0) return { ok: false, detention: 0, error: ready.blockers[0] };
 
   const thresholds = await getThresholds();
@@ -144,7 +146,7 @@ export async function markLoadPaid(
     // Only the invoice as it was read is changed: a second click, or a payment entered in another tab a moment ago, finds the amount received has moved and records nothing twice.
     const claimed = await tx.load.updateMany({
       where: { id: loadId, paymentStatus: "invoiced", paidAmount: load.paidAmount },
-      data: partial ? { paidAmount: after, paidMethod: method || null } : { paymentStatus: "paid", paidAt, paidAmount: after, paidMethod: method || null }
+      data: partial ? { paidAmount: after, paidMethod: method || null } : { paymentStatus: "paid", paidAt, paidAmount: after, paidMethod: method || null, ...(load.factoringStatus === "funded" ? { factoringStatus: "paid", factoringUpdatedAt: now } : {}), ...(writeoff ? { writeOffAmount: dec(shortBy), writeOffReason: shortWhy } : {}) }
     });
     if (claimed.count !== 1) return false;
     await tx.loadPayment.create({ data: { workspaceId, loadId, amount: dec(amount), paidAt, method: method || null } });
@@ -229,13 +231,16 @@ export async function undoPaid(loadId: string, reason: string, now = new Date(),
   if (!hasPayment) return { ok: false, error: "No payment has been recorded on this invoice." };
   const billed = num(load.invoicedAmount ?? load.quotedRevenue);
   const out = await prisma.$transaction(async (tx) => {
+    // Taken back once: the invoice has to still be in the state (status and amount received) it was read in, or this is a second press, or another person's undo, and it does nothing.
+    const claimed = await tx.load.updateMany({ where: { id: loadId, workspaceId, deletedAt: null, paymentStatus: load.paymentStatus, paidAmount: load.paidAmount }, data: { updatedAt: now } });
+    if (claimed.count !== 1) return false;
     const last = await tx.loadPayment.findFirst({ where: { loadId, workspaceId }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
     if (last) await tx.loadPayment.delete({ where: { id: last.id } });
     const rest = last ? await tx.loadPayment.aggregate({ _sum: { amount: true }, where: { loadId, workspaceId } }) : null;
     const left = last ? dec(rest?._sum.amount ? rest._sum.amount.toNumber() : 0) : dec(0);
     const lastTaken = last ? last.amount.toNumber() : received;
     const lastPaid = last ? await tx.loadPayment.findFirst({ where: { loadId, workspaceId }, orderBy: [{ paidAt: "desc" }, { id: "desc" }] }) : null;
-    await tx.load.update({ where: { id: loadId }, data: { paymentStatus: "invoiced", paidAt: null, paidAmount: left.toNumber() > 0 ? left : null, paidMethod: lastPaid?.method ?? null } });
+    await tx.load.update({ where: { id: loadId }, data: { paymentStatus: "invoiced", paidAt: null, paidAmount: left.toNumber() > 0 ? left : null, paidMethod: lastPaid?.method ?? null, writeOffAmount: null, writeOffReason: null } });
     await recordAudit(
       {
         entity: "invoice",
@@ -252,7 +257,7 @@ export async function undoPaid(loadId: string, reason: string, now = new Date(),
     );
     return true;
   });
-  return { ok: out };
+  return out ? { ok: true } : { ok: false, error: "That payment was already taken back, or the invoice changed. Reload the load." };
 }
 
 /** The invoice as billed, for printing: its lines, who it is for, and the load it came from. */
@@ -268,7 +273,7 @@ export async function getInvoice(loadId: string, workspaceId = currentWorkspaceI
     company: toCompany(l.workspace),
     invoiceNumber: l.invoiceNumber,
     sent: l.invoicedAt,
-    due: new Date(l.invoicedAt.getTime() + terms * 86_400_000),
+    due: dueAt(l.invoicedAt, terms) ?? l.invoicedAt,
     terms,
     billTo: { name: l.brokerName, mc: l.brokerMcNumber, email: l.brokerEmail, phone: l.brokerPhone },
     load: { number: l.loadNumber, po: l.poNumber, origin: l.originAddress, destination: l.destinationAddress, miles: num(l.loadedMiles), delivered: l.completedAt, podNote: l.podNote, closedWithoutPod: l.closedWithoutPod },

@@ -31,12 +31,14 @@ export function ConfirmForm({
   const [open, setOpen] = React.useState(false);
   const form = React.useRef<HTMLFormElement>(null);
   const reason = React.useRef<HTMLInputElement>(null);
+  // While the action runs the button is shut: a second press (or a double click on the confirmation) cannot send the same change twice.
+  const [pending, start] = React.useTransition();
   return (
     <>
-      <button type="button" className={`tl-btn sm${destructive ? " danger" : ""}`} onClick={() => setOpen(true)}>
+      <button type="button" className={`tl-btn sm${destructive ? " danger" : ""}`} disabled={pending} aria-busy={pending || undefined} onClick={() => setOpen(true)}>
         {label}
       </button>
-      <form ref={form} action={action} hidden>
+      <form ref={form} hidden onSubmit={(e) => e.preventDefault()}>
         {Object.entries(fields).map(([name, value]) => (
           <input key={name} type="hidden" name={name} value={value} />
         ))}
@@ -53,7 +55,11 @@ export function ConfirmForm({
         onConfirm={(text) => {
           if (reason.current) reason.current.value = text;
           setOpen(false);
-          form.current?.requestSubmit();
+          if (!form.current || pending) return;
+          const data = new FormData(form.current);
+          start(async () => {
+            await action(data);
+          });
         }}>
         {children}
       </ConfirmDialog>

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import React from "react";
-import { connectPartnerAction, disconnectPartnerAction, factorInvoiceAction, importFuelAction, saveFuelCardAction, sendToPayrollAction, syncEldAction, vetCarrierAction } from "@/app/(desk)/actions";
+import { connectPartnerAction, disconnectPartnerAction, factorInvoiceAction, factoringUpdateAction, importFuelAction, saveFuelCardAction, sendToPayrollAction, syncEldAction, vetCarrierAction } from "@/app/(desk)/actions";
 import { PROVIDERS } from "@/truelane/partners/contract";
 import { useToast } from "./kit/toast";
 
@@ -79,6 +79,29 @@ export function FactorPanel({ info }: { info: FactorInfo }) {
           </label>
         ) : null}
       </div>
+      {NEXT_STEPS[info.status] ? (
+        <div className="tl-form-row" style={{ marginTop: 10, alignItems: "center" }}>
+          <span className="tl-sub">The factor&apos;s answer, until it is reported automatically:</span>
+          {NEXT_STEPS[info.status]!.map((n) => (
+            <button
+              key={n.status}
+              type="button"
+              className="tl-btn sm"
+              disabled={pending}
+              onClick={() =>
+                start(async () => {
+                  const out = await factoringUpdateAction(info.loadId, n.status);
+                  if (!out.ok) return setError(out.error ?? "That did not go through.");
+                  setError("");
+                  toast({ text: n.done, tone: "ok" });
+                  router.refresh();
+                })
+              }>
+              {n.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {error ? (
         <p className="tl-note warn" role="alert" style={{ marginTop: 8 }}>
           {error}
@@ -87,6 +110,13 @@ export function FactorPanel({ info }: { info: FactorInfo }) {
     </section>
   );
 }
+
+/** The steps the desk can record by hand, from each status. Mirrors FACTORING_NEXT on the server, which is what decides. */
+const NEXT_STEPS: Record<string, Array<{ status: string; label: string; done: string }> | undefined> = {
+  requested: [{ status: "funded", label: "Mark funded", done: "Marked funded." }, { status: "rejected", label: "Mark rejected", done: "Marked rejected." }],
+  submitted: [{ status: "funded", label: "Mark funded", done: "Marked funded." }, { status: "rejected", label: "Mark rejected", done: "Marked rejected." }],
+  funded: [{ status: "paid", label: "Mark paid by the customer", done: "Marked paid by the customer." }]
+};
 
 // ── Hours of service ───────────────────────────────────────────────────────────────────────────
 

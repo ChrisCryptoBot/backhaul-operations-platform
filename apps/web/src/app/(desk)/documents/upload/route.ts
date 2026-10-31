@@ -29,7 +29,7 @@ export async function POST(req: Request) {
   if (file.size > ATTACHMENT_MAX_BYTES) return NextResponse.json({ ok: false, error: `That file is over ${ATTACHMENT_MAX_BYTES / (1024 * 1024)} MB.` }, { status: 400 });
   const checked = checkAttachment(file.name, file.type, new Uint8Array(await file.arrayBuffer()));
   if (!checked.ok) return NextResponse.json({ ok: false, error: checked.error }, { status: 400 });
-  const out = await addLoadDocument(text("loadId"), text("kind"), checked, new Date(), undefined, currentActor());
+  const out = await addLoadDocument(text("loadId"), text("kind"), checked, new Date(), undefined, currentActor(), text("stopId") || null);
   if (!out.ok) return NextResponse.json(out, { status: 400 });
   revalidatePath("/loads");
   revalidatePath("/invoices");

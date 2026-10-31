@@ -30,7 +30,7 @@ function Row({ r, alerts, assign }: { r: BoardRow; alerts: Alert[] | undefined; 
     <li className="dq-row">
       <div className="dq-top">
         <Link href={`/loads/${r.id}`}>
-          {r.loadNumber} <span className="dq-rate">{usd(r.quotedRevenue)}</span>
+          {r.loadNumber} <span className="dq-rate">{usd(r.grossRevenue)}</span>
         </Link>
         <span className="tl-sub">{shortDate(r.scheduledDate)}</span>
       </div>

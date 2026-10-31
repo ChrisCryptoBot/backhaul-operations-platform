@@ -9,7 +9,7 @@ import { requireMember } from "@/server/tl/access";
 import { removeLoadDocument, type DocResult } from "@/server/tl/documents";
 import { addMember, removeMember, setMemberRole, type MemberResult } from "@/server/tl/members";
 import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
-import { cancelLoad, recordTonu, rescheduleLoad } from "@/server/tl/disruptions";
+import { cancelLoad, recordTonu, reopenCancelled, rescheduleLoad } from "@/server/tl/disruptions";
 import { invoiceLoad, markLoadPaid } from "@/server/tl/invoicing";
 import { parseCentralLocal } from "@/lib/zoned";
 import { saveThresholds } from "@/server/tl/thresholds";
@@ -25,13 +25,13 @@ import { quoteWarnings, readQuote, type QuoteValues } from "@/lib/quote";
 import { bookQuote, discardQuote, fitQuote, listQuotes, passQuote, quoteContext, saveQuote, type BookResult, type FitResult, type Override, type QuoteContext, type QuoteListRow, type QuoteSave } from "@/server/tl/quote";
 import type { LoadEditValues } from "@/lib/load-edit";
 import type { InvoiceForm } from "@/lib/invoicing";
-import type { CompleteValues, ExpenseValues, StartValues } from "@/lib/trip";
+import type { CompleteValues, CorrectValues, ExpenseValues, StartValues } from "@/lib/trip";
 import { saveLoadDetails, type EditResult } from "@/server/tl/edit";
 import { assignFromQueue, assignOptions, type AssignOptions, type AssignOutcome } from "@/server/tl/suggest";
 import { currentTerminal } from "@/server/tl/terminal";
 import { assignTrailerToLoad, hookTrailer, saveTrailer, setTrailerArchived, type AssignTrailerResult, type SaveResult as TrailerSaveResult } from "@/server/tl/trailers";
 import { connectPartner, disconnectPartner, type ConnectResult } from "@/server/partners/connections";
-import { factorInvoice, type FactorResult } from "@/server/partners/factoring";
+import { applyFactoringUpdate, factorInvoice, type FactorResult } from "@/server/partners/factoring";
 import { syncEld, type SyncResult } from "@/server/partners/eld";
 import { importFuelForLoad, saveFuelCard, type FuelCardResult, type SaveFuelCard } from "@/server/partners/fuel-card";
 import { vetDriverCarrier, type VetResult } from "@/server/partners/vetting";
@@ -40,7 +40,7 @@ import { markThreadRead, sendMessage, type SendResult as SendMessageResult } fro
 import { commitImport, locateHomeBases, previewImport, type ImportPreview, type ImportResult, type LocateResult } from "@/server/tl/import";
 import type { ImportKind } from "@/lib/import-csv";
 import { deleteLoad, restoreLoad, type RemoveResult } from "@/server/tl/remove";
-import { completeTrip, reopenDelivered, saveExpenses, startTrip, undoStartTrip, type TripResult } from "@/server/tl/execution";
+import { completeTrip, correctTrip, reopenDelivered, saveExpenses, startTrip, undoStartTrip, type TripResult } from "@/server/tl/execution";
 import { undoPaid, voidInvoice, type InvoiceOut, type PaidOut } from "@/server/tl/invoicing";
 import { discardSettlement, finalizeSettlement, saveDraft, startSettlement, voidSettlement, type Draft, type SettleResult } from "@/server/tl/settlement";
 import { checkAttachment } from "@/lib/attachments";
@@ -134,9 +134,12 @@ export async function sendAction(formData: FormData) {
 export async function respondAction(formData: FormData) {
   await requireMember("dispatcher");
   const loadId = String(formData.get("loadId"));
-  const response = formData.get("response") === "declined" ? "declined" : "accepted";
+  const answer = formData.get("response");
+  const response = answer === "declined" ? "declined" : "accepted";
   const note = String(formData.get("note") ?? "").trim();
   await attempt(loadId, async () => {
+    // The answer is what was pressed, never a default: a form sent some other way (Enter in the note) answers nothing.
+    if (answer !== "accepted" && answer !== "declined") throw new DispatchError("bad_reason", "Press Driver accepts or Driver declines.");
     // A no is kept with its reason: the next dispatcher to look at the load needs to know why.
     if (response === "declined" && note.length < 3) throw new DispatchError("reason_required", "Say why the driver declined. It is kept with the answer.");
     await recordDriverResponse(loadId, response, new Date(), note || undefined);
@@ -473,10 +476,26 @@ export async function reopenDeliveredAction(formData: FormData) {
   });
 }
 
+export async function reopenCancelledAction(formData: FormData) {
+  await requireMember("dispatcher");
+  const loadId = String(formData.get("loadId"));
+  await attempt(loadId, async () => {
+    await reopenCancelled({ loadId, reason: String(formData.get("reason") ?? "") });
+    return "Reopened. It is back on the board, needing a driver.";
+  });
+}
+
 export async function completeTripAction(loadId: string, values: CompleteValues): Promise<TripResult> {
   await requireMember("dispatcher");
   const out = await completeTrip(loadId, values);
   if (out.ok) refreshLoads();
+  return out;
+}
+
+export async function correctTripAction(loadId: string, values: CorrectValues): Promise<TripResult & { changed?: boolean }> {
+  await requireMember("dispatcher");
+  const out = await correctTrip(loadId, values);
+  if (out.ok && out.changed) refreshLoads();
   return out;
 }
 
@@ -598,6 +617,14 @@ export async function locateHomeBasesAction(after: string | null): Promise<Locat
 }
 
 // ── Partner companies (factoring, ELD, fuel cards, carrier vetting, payroll) ───────────────────
+
+/** The factor's answer, entered by hand until a webhook is connected (the status only moves one allowed step; see FACTORING_NEXT). */
+export async function factoringUpdateAction(loadId: string, status: string): Promise<{ ok: boolean; error?: string }> {
+  await requireMember("dispatcher");
+  const moved = await applyFactoringUpdate(loadId, status, null);
+  if (moved) refreshLoads();
+  return moved ? { ok: true } : { ok: false, error: "That is not a step this invoice can take from where it is. Reload to see its status." };
+}
 
 export async function factorInvoiceAction(loadId: string, sendAnyway: boolean): Promise<FactorResult> {
   await requireMember("dispatcher");

@@ -39,7 +39,7 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
   if (CLOSED.includes(load.status)) return { ok: false, error: "A cancelled load, or one closed as a TONU, cannot be edited." };
   // The form was opened on one version of the load. If it has changed since (someone sent it, accepted it, edited it), saving this form would overwrite their change with what
   // was on screen: refuse, and say to reload.
-  if (values.version != null && values.version !== "" && values.version !== String(load.updatedAt.getTime())) return { ok: false, error: "This load changed since you opened it. Close this and open it again to see the change, then make yours." };
+  if (values.version != null && values.version !== "" && values.version !== String(load.updatedAt.getTime())) return { ok: false, error: "This load changed since you opened it. If a note at the top says your details were kept, press Start over there; otherwise close this and open it again. Then make your change." };
   // An invoice carries the load number, the customer, the PO and the terms it was billed under: they stay as billed.
   if (load.paymentStatus) {
     const held: string[] = [];
@@ -71,6 +71,10 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
   const usd = (n: number | null) => (n == null || n === 0 ? null : `$${n.toFixed(2)}`);
   const miles = (n: number) => (n === 0 ? null : String(n));
   const was = { rate: num(load.quotedRevenue), fsc: numOrNull(load.fuelSurcharge), loaded: num(load.loadedMiles), pick: num(load.pickupDeadheadMiles), home: num(load.returnDeadheadMiles) };
+  // A delivered load's revenue was copied from the rate when it was delivered, and a correction to the rate has to reach it, or the KPI keeps reading the old rate. But only when it
+  // was that copy: a load delivered at a different "linehaul actually paid" (a short pay) keeps what was paid, and a change to its notes or phone number touches no money at all.
+  const wasPaid = numOrNull(load.actualRevenue);
+  const followsRate = deal != null && load.status === "completed" && deal.rate !== was.rate && (wasPaid == null || wasPaid === was.rate);
   const truckChanged = deal != null && deal.vehicleId !== (load.vehicleId ?? null);
   const milesChanged = deal != null && (deal.loadedMiles !== was.loaded || deal.emptyToPickup !== was.pick || deal.emptyHome !== was.home);
   const moneyChanged = deal != null && (deal.rate !== was.rate || (deal.fuelSurcharge ?? 0) !== (was.fsc ?? 0) || milesChanged);
@@ -118,6 +122,7 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
     rows.push(
       ["Truck", load.vehicle?.name ?? null, truckChanged ? (truck?.name ?? null) : (load.vehicle?.name ?? null)],
       ["Rate", usd(was.rate), usd(deal.rate)],
+      ...(followsRate ? ([["Linehaul paid", usd(wasPaid ?? was.rate), usd(deal.rate)]] as Array<[string, string | null, string | null]>) : []),
       ["Fuel surcharge", usd(was.fsc), usd(deal.fuelSurcharge)],
       ["Loaded miles", miles(was.loaded), miles(deal.loadedMiles)],
       ["Empty miles to the pickup", miles(was.pick), miles(deal.emptyToPickup)],
@@ -188,8 +193,7 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
           ? {
               vehicleId: truckChanged ? deal.vehicleId : load.vehicleId,
               quotedRevenue: deal.rate,
-              // A delivered load's revenue was copied from the rate when it was delivered; the correction has to reach it, or the KPI keeps reading the old rate while the invoice bills the new one.
-              ...(load.status === "completed" ? { actualRevenue: deal.rate } : {}),
+              ...(followsRate ? { actualRevenue: deal.rate } : {}),
               fuelSurcharge: deal.fuelSurcharge,
               loadedMiles: deal.loadedMiles,
               pickupDeadheadMiles: deal.emptyToPickup,

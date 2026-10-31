@@ -3,11 +3,11 @@
 import { useRouter } from "next/navigation";
 import { TruckPicker } from "./truck-picker";
 import React from "react";
-import { completeTripAction, invoiceLoadAction, paidAction, saveExpensesAction, saveLoadDetailsAction, startTripAction } from "@/app/(desk)/actions";
+import { completeTripAction, correctTripAction, invoiceLoadAction, paidAction, saveExpensesAction, saveLoadDetailsAction, startTripAction } from "@/app/(desk)/actions";
 import { usd } from "@/lib/desk-format";
 import { validateInvoice, type InvoiceContext, type InvoiceForm } from "@/lib/invoicing";
 import { validateLoadEdit, type DealValues, type EditStopValues, type LoadEditValues } from "@/lib/load-edit";
-import { validateComplete, validateExpenses, validateStart, type CompleteValues, type ExpenseValues, type StartValues } from "@/lib/trip";
+import { EXPENSE_ITEMS, validateComplete, validateCorrection, validateExpenses, validateStart, type CompleteValues, type CorrectValues, type ExpenseValues, type StartValues } from "@/lib/trip";
 import { toCentralLocal } from "@/lib/zoned";
 import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
 import { AddressInput } from "./address-input";
@@ -17,6 +17,7 @@ import { Modal } from "./kit/modal";
 import { FuelImport } from "./partner-actions";
 import { useToast } from "./kit/toast";
 import { DraftNote, useDraft } from "./kit/use-draft";
+import { tried } from "./kit/tried";
 import { DateInput } from "./date-input";
 
 type Errors = Record<string, string>;
@@ -34,6 +35,62 @@ function Fld({ label, error, hint, children }: { label: string; error?: string; 
         <span className="th-hint">{hint}</span>
       ) : null}
     </label>
+  );
+}
+
+
+/**
+ * The rest of what a trip cost and drove, shared by the delivery and the expenses dialogs: the itemised costs (their total is kept with "other"), the insurance rider, a note on why the
+ * money is what it is, the miles actually driven (the quoted miles are kept beside them), and whether a load covers the way home.
+ */
+function TripExtras<T extends ExpenseValues>({ v, set, errors, tonu }: { v: T; set: (patch: Partial<ExpenseValues>) => void; errors: Errors; tonu?: boolean }) {
+  const items = v.items ?? {};
+  const miles = v.miles ?? { pickup: "", loaded: "", home: "" };
+  return (
+    <>
+      <details className="dlg-more" open={EXPENSE_ITEMS.some((i) => (items[i.key] ?? "") !== "")}>
+        <summary>Itemised costs: lumper, scale, parking, lodging, wash, maintenance, permits, supplies</summary>
+        <div className="rc-grid">
+          {EXPENSE_ITEMS.map((i) => (
+            <Fld key={i.key} label={`${i.label} ($)`} error={errors[`item.${i.key}`]}>
+              <input inputMode="decimal" value={items[i.key] ?? ""} onChange={(e) => set({ items: { ...items, [i.key]: e.target.value } })} />
+            </Fld>
+          ))}
+        </div>
+      </details>
+      <div className="rc-grid">
+        <Fld label="Insurance rider ($)" error={errors.rider} hint="A rider bought for this load. Blank keeps what it has.">
+          <input inputMode="decimal" value={v.rider ?? ""} onChange={(e) => set({ rider: e.target.value })} />
+        </Fld>
+        <Fld label="Note on the revenue" error={errors.revenueNote} hint="Why it is what it is: a short pay, a detention the customer agreed to.">
+          <input value={v.revenueNote ?? ""} onChange={(e) => set({ revenueNote: e.target.value })} autoComplete="off" />
+        </Fld>
+      </div>
+      {tonu ? (
+        <Fld label="Miles driven for the TONU" error={errors.tonuMiles} hint="The truck went and the load was not ready. These are costs the TONU fee has to cover.">
+          <input inputMode="decimal" value={v.tonuMiles ?? ""} onChange={(e) => set({ tonuMiles: e.target.value })} />
+        </Fld>
+      ) : null}
+      {tonu ? null : (
+      <>
+      <div className="rc-grid">
+        <Fld label="Miles empty to pickup" error={errors["miles.pickup"]}>
+          <input inputMode="decimal" value={miles.pickup} onChange={(e) => set({ miles: { ...miles, pickup: e.target.value } })} />
+        </Fld>
+        <Fld label="Loaded miles" error={errors["miles.loaded"]}>
+          <input inputMode="decimal" value={miles.loaded} onChange={(e) => set({ miles: { ...miles, loaded: e.target.value } })} />
+        </Fld>
+        <Fld label="Miles empty home" error={errors["miles.home"]}>
+          <input inputMode="decimal" value={miles.home} onChange={(e) => set({ miles: { ...miles, home: e.target.value } })} />
+        </Fld>
+      </div>
+      <p className="tl-note" style={{ margin: 0 }}>The miles actually driven replace the quoted ones in every per-mile figure; the quote&apos;s miles are kept to show the difference.</p>
+      <label className="dlg-check">
+        <input type="checkbox" checked={v.backhaul === true} onChange={(e) => set({ backhaul: e.target.checked })} /> A load covers the way home
+      </label>
+      </>
+      )}
+    </>
   );
 }
 
@@ -86,8 +143,10 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
       return;
     }
     setBusy(true);
-    const out = await saveLoadDetailsAction(loadId, v);
+    const got = await tried(() => saveLoadDetailsAction(loadId, v));
     setBusy(false);
+    if (!got.ok) return setMessage(got.message);
+    const out = got.value;
     if (out.ok) {
       kept.saved();
       setOpen(false);
@@ -257,7 +316,8 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
 
 // ── Enter the trip for the driver ──────────────────────────────────────────────────────────────
 
-export type TripStop = { id: string; sequence: number; role: string; place: string; arrivedLocal: string; waitMinutes: string; seal: string };
+/** `opensLocal` is when the stop window opens (Dallas time), for the early-arrival advisory. */
+export type TripStop = { id: string; sequence: number; role: string; place: string; arrivedLocal: string; waitMinutes: string; seal: string; opensLocal?: string };
 
 /**
  * What the driver did, entered by the desk: the pickup (arrival, wait, seal), the delivery (arrival and wait at each stop, when, proof of
@@ -272,7 +332,8 @@ export function TripEntry({
   expenses,
   delivered,
   pod,
-  quoted
+  quoted,
+  terms
 }: {
   loadId: string;
   status: string;
@@ -284,36 +345,43 @@ export function TripEntry({
   pod: { note: string; without: boolean };
   /** The rate on the load, as typed in the box: shown as the default of the linehaul actually paid. */
   quoted: string;
+  /** The detention terms this load is held to now (its own, else the truck profile), as typed in the boxes. */
+  terms?: { rate: string; grace: string };
 }) {
   const router = useRouter();
   const toast = useToast();
-  const [mode, setMode] = React.useState<null | "start" | "complete" | "expenses">(null);
+  const [mode, setMode] = React.useState<null | "start" | "complete" | "expenses" | "correct">(null);
   const [busy, setBusy] = React.useState(false);
   const [errors, setErrors] = React.useState<Errors>({});
   const [message, setMessage] = React.useState<string | null>(null);
   // What is typed for the driver is kept until it is saved: leaving the load or refreshing does not lose it.
   const [start, setStart, startDraft] = useDraft<StartValues>(`trip-start:${loadId}`, { arrivedAt: "", waitMinutes: "", seal: "" });
-  const [done, setDone, doneDraft] = useDraft<CompleteValues>(`trip-done:${loadId}`, { stops: [], deliveredAt: "", pod: "received", podNote: "", fuel: "", tolls: "", misc: "", actualRevenue: "" });
+  const [done, setDone, doneDraft] = useDraft<CompleteValues>(`trip-done:${loadId}`, { stops: [], deliveredAt: "", pod: "received", podNote: "", fuel: "", tolls: "", misc: "", layover: "", actualRevenue: "" });
+  const [fix, setFix, fixDraft] = useDraft<CorrectValues>(`trip-correct:${loadId}`, { stops: [], detentionRate: "", detentionGraceMinutes: "", reason: "" });
   const [spent, setSpent, spentDraft] = useDraft<ExpenseValues>(`trip-spent:${loadId}`, expenses);
 
   const canStart = status === "accepted" && assignmentStatus === "accepted";
   const canComplete = status === "in_progress";
-  const canExpense = status === "in_progress" || status === "completed";
+  const canExpense = status === "in_progress" || status === "completed" || status === "tonu";
   const later = stops.slice(1);
 
-  function open(next: "start" | "complete" | "expenses") {
+  function open(next: "start" | "complete" | "expenses" | "correct") {
     setErrors({});
     setMessage(null);
     // The starting figures go in only when nothing has been typed; what was typed stays.
     if (next === "start" && start.arrivedAt === "" && start.waitMinutes === "" && start.seal === "") setStart({ arrivedAt: nowLocal(), waitMinutes: "", seal: "" });
-    if (next === "complete" && done.deliveredAt === "") setDone({ stops: later.map((s) => ({ id: s.id, arrivedAt: s.arrivedLocal, waitMinutes: s.waitMinutes, seal: s.seal })), deliveredAt: nowLocal(), pod: "received", podNote: "", fuel: expenses.fuel, tolls: expenses.tolls, misc: expenses.misc, actualRevenue: "" });
+    if (next === "complete" && done.deliveredAt === "") setDone({ stops: later.map((s) => ({ id: s.id, arrivedAt: s.arrivedLocal, waitMinutes: s.waitMinutes, seal: s.seal })), deliveredAt: nowLocal(), pod: "received", podNote: "", fuel: expenses.fuel, tolls: expenses.tolls, misc: expenses.misc, layover: expenses.layover ?? "", items: expenses.items, rider: expenses.rider, revenueNote: expenses.revenueNote, miles: expenses.miles, backhaul: expenses.backhaul, actualRevenue: "" });
+    // A correction starts from what is recorded; a draft kept for other stops (the load changed) is not used.
+    if (next === "correct" && (fix.stops.length !== stops.length || fix.stops.some((s, i) => s.id !== stops[i]?.id))) setFix({ stops: stops.map((s) => ({ id: s.id, arrivedAt: s.arrivedLocal, waitMinutes: s.waitMinutes, seal: s.seal })), detentionRate: "", detentionGraceMinutes: "", reason: "" });
     setMode(next);
   }
 
   async function run<T extends { ok: boolean; error?: string; errors?: Errors }>(call: () => Promise<T>, success: string, kept: { saved: () => void }) {
     setBusy(true);
-    const out = await call();
+    const got = await tried(call);
     setBusy(false);
+    if (!got.ok) return setMessage(got.message);
+    const out = got.value;
     if (out.ok) {
       kept.saved();
       setMode(null);
@@ -326,7 +394,8 @@ export function TripEntry({
   }
 
   const has = stops.some((s) => s.arrivedLocal || s.waitMinutes || s.seal);
-  const spentTotal = ["fuel", "tolls", "misc"].reduce((t, k) => t + (Number(expenses[k as keyof ExpenseValues]) || 0), 0);
+  const itemisedTotal = EXPENSE_ITEMS.reduce((t, i) => t + (Number(expenses.items?.[i.key]) || 0), 0);
+  const spentTotal = ["fuel", "tolls", "misc"].reduce((t, k) => t + (Number(expenses[k as "fuel" | "tolls" | "misc"]) || 0), 0) + itemisedTotal;
 
   return (
     <>
@@ -368,7 +437,13 @@ export function TripEntry({
           <dt>Proof of delivery</dt>
           <dd>{pod.without ? `None: ${pod.note}` : pod.note || (delivered ? "Received" : "—")}</dd>
           <dt>Expenses</dt>
-          <dd>{spentTotal > 0 ? `${usd(spentTotal, 2)} (fuel ${usd(Number(expenses.fuel) || 0, 2)}, tolls ${usd(Number(expenses.tolls) || 0, 2)}, other ${usd(Number(expenses.misc) || 0, 2)})` : "None entered"}</dd>
+          <dd>{spentTotal > 0 ? `${usd(spentTotal, 2)} (fuel ${usd(Number(expenses.fuel) || 0, 2)}, tolls ${usd(Number(expenses.tolls) || 0, 2)}, other ${usd((Number(expenses.misc) || 0) + itemisedTotal, 2)})` : "None entered"}</dd>
+          {Number(expenses.layover) > 0 ? (
+            <>
+              <dt>Layover pay</dt>
+              <dd>{usd(Number(expenses.layover), 2)}</dd>
+            </>
+          ) : null}
         </dl>
       ) : null}
       <div className="dlg-row">
@@ -380,6 +455,11 @@ export function TripEntry({
         {canComplete ? (
           <button type="button" className="tl-btn sm primary" onClick={() => open("complete")}>
             Enter the delivery
+          </button>
+        ) : null}
+        {canComplete || status === "completed" ? (
+          <button type="button" className="tl-btn sm" onClick={() => open("correct")}>
+            Correct waits and seals
           </button>
         ) : null}
         {canExpense ? (
@@ -494,10 +574,72 @@ export function TripEntry({
             <Fld label="Tolls ($)" error={errors.tolls}>
               <input inputMode="decimal" value={done.tolls} onChange={(e) => setDone({ ...done, tolls: e.target.value })} />
             </Fld>
+            <Fld label="Layover pay received ($)" error={errors.layover} hint="Paid by the customer for waiting overnight. It is revenue, not a cost.">
+              <input inputMode="decimal" value={done.layover ?? ""} onChange={(e) => setDone({ ...done, layover: e.target.value })} />
+            </Fld>
             <Fld label="Other ($)" error={errors.misc}>
               <input inputMode="decimal" value={done.misc} onChange={(e) => setDone({ ...done, misc: e.target.value })} />
             </Fld>
           </div>
+          <TripExtras v={done} set={(p) => setDone((d) => ({ ...d, ...p }))} errors={errors} />
+        </div>
+      </Modal>
+
+      <Modal
+        open={mode === "correct"}
+        onClose={() => setMode(null)}
+        eyebrow="Correct the record"
+        title="Arrivals, waits and seals"
+        footer={
+          <>
+            {message ? <span className="tl-note warn" role="alert" style={{ marginRight: "auto" }}>{message}</span> : null}
+            <button type="button" className="tl-btn" onClick={() => setMode(null)}>
+              Back
+            </button>
+            <button
+              type="button"
+              className="tl-btn primary"
+              disabled={busy}
+              onClick={() => {
+                const c = validateCorrection(fix);
+                if (!c.ok) return setErrors(c.errors);
+                void run(() => correctTripAction(loadId, fix), "Corrected.", fixDraft);
+              }}>
+              Save the correction
+            </button>
+          </>
+        }>
+        <div className="dlg-form">
+          <DraftNote draft={fixDraft} />
+          {stops.map((s, i) => {
+            const arrived = fix.stops[i]?.arrivedAt ?? "";
+            // The wait counts from the appointment when the driver arrived early; say so, so the minutes typed are the ones that count.
+            const early = s.opensLocal && arrived && arrived < s.opensLocal ? Math.round((Date.parse(`${s.opensLocal}:00Z`) - Date.parse(`${arrived}:00Z`)) / 60000) : 0;
+            return (
+              <div key={s.id} className="dlg-two">
+                <Fld label={`Arrived at stop ${s.sequence} (${s.role})`} error={errors[`stop${i}.arrivedAt`]} hint={early > 0 ? `${early} min before the window opened. Free time starts when it opens, so the wait to enter is counted from then.` : undefined}>
+                  <DateInput type="datetime-local" value={arrived} onChange={(e) => setFix({ ...fix, stops: fix.stops.map((x, k) => (k === i ? { ...x, arrivedAt: e.target.value } : x)) })} />
+                </Fld>
+                <Fld label="Waited (minutes)" error={errors[`stop${i}.waitMinutes`]}>
+                  <input inputMode="numeric" value={fix.stops[i]?.waitMinutes ?? ""} onChange={(e) => setFix({ ...fix, stops: fix.stops.map((x, k) => (k === i ? { ...x, waitMinutes: e.target.value } : x)) })} />
+                </Fld>
+                <Fld label={`Seal at stop ${s.sequence}`} error={errors[`stop${i}.seal`]}>
+                  <input value={fix.stops[i]?.seal ?? ""} onChange={(e) => setFix({ ...fix, stops: fix.stops.map((x, k) => (k === i ? { ...x, seal: e.target.value } : x)) })} autoComplete="off" />
+                </Fld>
+              </div>
+            );
+          })}
+          <div className="dlg-two">
+            <Fld label="Detention rate for this load ($ an hour)" error={errors.detentionRate} hint={terms?.rate ? `Now $${terms.rate}. Blank keeps it. Use it when the rate confirmation says something other than the truck profile.` : "Blank keeps it."}>
+              <input inputMode="decimal" value={fix.detentionRate ?? ""} onChange={(e) => setFix({ ...fix, detentionRate: e.target.value })} />
+            </Fld>
+            <Fld label="Free time for this load (minutes)" error={errors.detentionGraceMinutes} hint={terms?.grace ? `Now ${terms.grace} min. Blank keeps it.` : "Blank keeps it."}>
+              <input inputMode="numeric" value={fix.detentionGraceMinutes ?? ""} onChange={(e) => setFix({ ...fix, detentionGraceMinutes: e.target.value })} />
+            </Fld>
+          </div>
+          <Fld label="What was wrong" error={errors.reason} hint="Kept in the record beside the change.">
+            <input value={fix.reason} onChange={(e) => setFix({ ...fix, reason: e.target.value })} autoComplete="off" />
+          </Fld>
         </div>
       </Modal>
 
@@ -533,9 +675,13 @@ export function TripEntry({
           <Fld label="Tolls ($)" error={errors.tolls}>
             <input inputMode="decimal" value={spent.tolls} onChange={(e) => setSpent({ ...spent, tolls: e.target.value })} />
           </Fld>
+          <Fld label="Layover pay received ($)" error={errors.layover} hint="Paid by the customer for waiting overnight. It is revenue, not a cost.">
+            <input inputMode="decimal" value={spent.layover ?? ""} onChange={(e) => setSpent({ ...spent, layover: e.target.value })} />
+          </Fld>
           <Fld label="Other ($)" error={errors.misc}>
             <input inputMode="decimal" value={spent.misc} onChange={(e) => setSpent({ ...spent, misc: e.target.value })} />
           </Fld>
+          <TripExtras v={spent} set={(p) => setSpent((s) => ({ ...s, ...p }))} errors={errors} tonu={status === "tonu"} />
         </div>
       </Modal>
     </>
@@ -578,8 +724,10 @@ export function InvoiceDialog({
       return;
     }
     setBusy(true);
-    const out = await invoiceLoadAction(loadId, f);
+    const got = await tried(() => invoiceLoadAction(loadId, f));
     setBusy(false);
+    if (!got.ok) return setMessage(got.message);
+    const out = got.value;
     if (out.ok) {
       kept.saved();
       setOpen(false);
@@ -699,8 +847,10 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, size = "prima
 
   async function pay() {
     setBusy(true);
-    const out = await paidAction(loadId, amount, paidOn, method, shortAction, shortReason);
+    const got = await tried(() => paidAction(loadId, amount, paidOn, method, shortAction, shortReason));
     setBusy(false);
+    if (!got.ok) return setMessage(got.message);
+    const out = got.value;
     if (out.ok) {
       setOpen(false);
       toast(

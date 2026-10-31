@@ -5,6 +5,7 @@ import { getAlerts, clearAlertCache } from "@/server/tl/alerts";
 import { listAudit } from "@/server/tl/audit";
 import { getDetentionRecovery } from "@/server/tl/detention";
 import { listDriversPage, listTrucksPage } from "@/server/tl/fleet-list";
+import { countDeletedLoads, listDeletedLoads } from "@/server/tl/deleted";
 import { listHistory } from "@/server/tl/history";
 import { clearKpiCache, getDeskKpi } from "@/server/tl/kpi";
 import { getPlannerData } from "@/server/tl/planner";
@@ -97,6 +98,15 @@ describe.runIf(run)("the desk at the size of a big fleet", () => {
     expect(await best(() => listHistory({}))).toBeLessThan(500);
     expect(await best(() => listHistory({ q: "SC-4412" }))).toBeLessThan(600);
     expect(await best(() => listHistory({ filter: "owed", sort: "pay" }))).toBeLessThan(800);
+    // The terminal scope is sets the database builds once, not a test per load: it measured about as fast as no scope at all.
+    const terminal = (await prisma.vehicle.findFirst({ where: { terminal: { not: null } }, select: { terminal: true } }))?.terminal ?? null;
+    expect(await best(() => listHistory({ terminal }))).toBeLessThan(500);
+    // The profit sorts price the latest thousand finished loads one by one (the figures come from the cost profile's math), so they cost about a second.
+    expect(await best(() => listHistory({ sort: "profit" }))).toBeLessThan(2_000);
+    expect(await best(() => listHistory({ sort: "rph", filter: "owed" }))).toBeLessThan(2_000);
+    // One page of a file being written (a thousand rows, no month totals): a 25,000-row file is twenty-five of these.
+    expect(await best(() => listHistory({ pageSize: 1000, lean: true }))).toBeLessThan(2_000);
+    expect(await best(() => Promise.all([countDeletedLoads(), listDeletedLoads()]))).toBeLessThan(300);
   }, 60_000);
 
   test("the planner reads the days shown, not the history", async () => {
