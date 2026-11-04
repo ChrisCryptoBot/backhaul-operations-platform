@@ -274,7 +274,6 @@
 
 .qt-matrix-table tbody tr.qt-selected {
   background: var(--db-accent-bg);
-  border-left: 3px solid var(--db-accent);
 }
 
 .qt-matrix-table tbody tr.qt-blocked td {
