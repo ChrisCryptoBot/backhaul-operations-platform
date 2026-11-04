@@ -8,7 +8,8 @@ import { UNREACHABLE } from "@/lib/connection";
 import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
 import { addressReady, roundMiles } from "@/lib/geo";
 import { hosDeficit, hosDeficitLabel, hosDeficitTitle } from "@/lib/hos-deficit";
-import { BLANK_QUOTE, gateTitle, grossPerLoadedMile, HAZMAT_CLASSES, missingTimes, OVERRIDE_REASONS, PASS_REASONS, readQuote, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
+import { BLANK_QUOTE, gateTitle, grossPerLoadedMile, HAZMAT_CLASSES, isQuoteDirty, missingTimes, OVERRIDE_REASONS, PASS_REASONS, readQuote, swapRoute, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
+import { BRIEF_LABEL, buildBrief, type BriefKind } from "@/lib/quote-brief";
 import type { CustomerOption, FitRow, LaneBenchmark, QuoteListRow } from "@/server/tl/quote";
 import type { Measured } from "@/server/geo/measure";
 import { groundOf, readVerdict, type Benchmark, type Verdict as VerdictRead } from "@/lib/verdict";
@@ -32,6 +33,9 @@ const ago = (iso: string) => {
 };
 
 type Initial = { id: string | null; values: QuoteValues; vehicleId: string | null; /** Why it was passed on, when it was: the quote is then read, not edited. */ passedFor: string | null } | null;
+
+/** What the form held before Clear or a swap, kept for a few seconds behind an Undo. */
+type Snap = { values: QuoteValues; quoteId: string | null; selected: string | null; reason: string; notes: string; lastRoute: string; measure: { state: "idle" | "busy" | "ok" | "error"; text: string } };
 
 export type FleetTruckOption = {
   id: string;
@@ -84,6 +88,9 @@ export function QuoteDesk({
 
   // Keyboard shortcuts modal state
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
+
+  // Copy Brief, when the browser will not copy: the text opens in a dialog, selected, to copy by hand.
+  const [briefFallback, setBriefFallback] = React.useState<{ label: string; text: string } | null>(null);
 
   // The saved quotes, searched and filtered on the server a page at a time.
   const [list, setList] = React.useState(firstPage);
@@ -393,6 +400,55 @@ export function QuoteDesk({
     setMeasure({ state: "idle", text: "" });
   };
 
+  // Clear and the swap can be taken back: what the form held is kept for a few seconds behind an Undo.
+  const snapshot = (): Snap => ({ values, quoteId, selected, reason, notes, lastRoute: lastRoute.current, measure });
+  const restore = (snap: Snap) => {
+    // A measure still on its way for the form as it is now must not land on the form as it was.
+    measureSeq.current += 1;
+    manual.current = new Set(snap.values.manual);
+    // A snapshot taken mid-measure has no answer coming any more: measure that route again rather than sit on "Measuring" for good.
+    const measuring = snap.measure.state === "busy";
+    lastRoute.current = measuring ? "" : snap.lastRoute;
+    setMeasure(measuring ? { state: "idle", text: "" } : snap.measure);
+    setValues(snap.values);
+    setQuoteId(snap.quoteId);
+    setSelected(snap.selected);
+    setReason(snap.reason);
+    setNotes(snap.notes);
+  };
+
+  /** Clear, with an Undo. A form with nothing in it is just cleared. `reset` itself is left as it was: Pass and "Quote another" use it too. */
+  const clearWithUndo = () => {
+    if (!isQuoteDirty(values, BLANK_QUOTE) && quoteId == null) {
+      reset();
+      return;
+    }
+    const snap = snapshot();
+    reset();
+    toast({ text: "Cleared the quote.", ms: 8000, action: { label: "Undo", run: () => restore(snap) } });
+  };
+
+  /** Pickup and delivery swapped (the whole run reverses if there are stops between). The times stay in their places; the empty miles are measured again. */
+  const swapStops = () => {
+    if (locked || values.stops.length < 2) return;
+    const snap = snapshot();
+    const next = swapRoute(values);
+    const clearedTyped = next.manual.length !== values.manual.length;
+    measureSeq.current += 1;
+    manual.current = new Set(next.manual);
+    setValues(next);
+    toast({
+      text: clearedTyped ? "Swapped pickup and delivery. The empty miles you typed were cleared and will be measured again." : "Swapped pickup and delivery. Empty miles will be measured again.",
+      ms: 8000,
+      action: { label: "Undo", run: () => restore(snap) }
+    });
+  };
+
+  // The fast way through a quote: Enter moves on to the next of Pickup, Delivery, Offer and Loaded miles, then to the Book button. Focus only; nothing is pressed.
+  const focusAddress = (n: number) => document.querySelector<HTMLElement>(`input[aria-label="Stop ${n} address"]`)?.focus();
+  const focusId = (id: string) => document.getElementById(id)?.focus();
+  const focusDone = () => document.querySelector<HTMLElement>(".qt-actions button:not([disabled])")?.focus();
+
   async function reach<T>(call: () => Promise<T>): Promise<T | null> {
     try {
       return await call();
@@ -574,24 +630,25 @@ export function QuoteDesk({
     }
   };
 
-  // Quick-Copy Summary handler
-  const handleCopySummary = () => {
-    const orig = values.stops[0]?.address || "Origin";
-    const dest = values.stops[values.stops.length - 1]?.address || "Destination";
-    const mi = values.loadedMiles ? `${values.loadedMiles} mi` : "? mi";
-    const wt = values.weightLbs ? `${Math.round(Number(values.weightLbs) / 1000)}k ` : "";
-    const tr = values.trailer ? values.trailer.replace(/_/g, " ") : "Truck";
-    const rate = values.offer ? `$${values.offer}` : "Unpriced";
-    const rpm = row?.allInPerMile ? ` ($${row.allInPerMile.toFixed(2)}/mi)` : "";
-    const trk = row ? ` · ${row.truckName}` : "";
-    const marg = row?.marginPerMile != null ? ` (${row.marginPerMile >= 0 ? "+" : ""}$${row.marginPerMile.toFixed(2)}/mi)` : "";
-
-    const summary = `${orig} -> ${dest} · ${mi} · ${wt}${tr} · ${rate}${rpm}${trk}${marg}`;
-    navigator.clipboard.writeText(summary).then(() => {
-      toast({ text: "Copied quote summary to clipboard!", tone: "ok" });
-    }).catch(() => {
-      toast({ text: summary, tone: "plain" });
+  // Copy Brief: three texts for three readers (lib/quote-brief.ts). Only the dispatch note carries our truck and our margin.
+  const copyBrief = async (kind: BriefKind) => {
+    const text = buildBrief(kind, {
+      stops: values.stops,
+      loadedMiles: values.loadedMiles,
+      weightLbs: values.weightLbs,
+      trailer: values.trailer,
+      offer: values.offer,
+      customer: values.broker,
+      loadNumber: values.loadNumber,
+      poNumber: values.poNumber,
+      internal: row ? { truckName: row.truckName, allInPerMile: row.allInPerMile, marginPerMile: row.marginPerMile } : undefined
     });
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ text: `Copied the ${BRIEF_LABEL[kind].toLowerCase()}.`, tone: "ok" });
+    } catch {
+      setBriefFallback({ label: BRIEF_LABEL[kind], text });
+    }
   };
 
   // Keyboard navigation shortcuts
@@ -729,14 +786,24 @@ export function QuoteDesk({
             <span>Quick-Paste</span>
           </button>
 
-          <button
-            type="button"
-            className="tl-btn ghost sm"
-            onClick={handleCopySummary}
-            title="Copy one-line quote brief for email/Slack">
-            <Icon name="copy" size={14} />
-            <span>Copy Brief</span>
-          </button>
+          <details className="menu qt-brief">
+            <summary className="tl-btn ghost sm" title="Copy a ready-written brief of this quote">
+              <Icon name="copy" size={14} />
+              <span>Copy Brief</span>
+            </summary>
+            <div
+              className="menu-pop"
+              onClick={(e) => {
+                const menu = e.currentTarget.closest("details");
+                if (menu) menu.open = false;
+              }}>
+              {(["customer", "driver", "dispatch"] as const).map((kind) => (
+                <button key={kind} type="button" title={kind === "dispatch" ? "Includes our truck and margin. For the team, not the customer." : undefined} onClick={() => void copyBrief(kind)}>
+                  {BRIEF_LABEL[kind]}
+                </button>
+              ))}
+            </div>
+          </details>
 
           <button
             type="button"
@@ -749,8 +816,8 @@ export function QuoteDesk({
           <button
             type="button"
             className="tl-btn ghost sm"
-            onClick={reset}
-            title="Clear form and start a new quote">
+            onClick={clearWithUndo}
+            title="Clear form and start a new quote (Undo stays for a few seconds)">
             Clear
           </button>
         </div>
@@ -885,7 +952,7 @@ export function QuoteDesk({
               </p>
             ) : null}
 
-            {JSON.stringify({ ...values, fuelPrice: "" }) !== JSON.stringify({ ...(initial?.values ?? BLANK_QUOTE), fuelPrice: "" }) ? <DraftNote draft={draft} what="this quote" /> : null}
+            {isQuoteDirty(values, initial?.values ?? BLANK_QUOTE) ? <DraftNote draft={draft} what="this quote" /> : null}
 
             {/* 1. Route Section */}
             <section className="tl-card">
@@ -896,33 +963,49 @@ export function QuoteDesk({
                   const first = i === 0;
                   const last = i === stopCount - 1;
                   return (
-                    <li key={i} className="qt-stop">
-                      {first || last ? (
-                        <span className="qt-role">{first ? "Pickup" : "Delivery"}</span>
-                      ) : (
-                        <select aria-label={`Stop ${i + 1} is a`} value={s.role} onChange={(e) => setStop(i, { role: e.target.value as QuoteStop["role"] })}>
-                          <option value="pickup">Pickup</option>
-                          <option value="delivery">Delivery</option>
-                        </select>
-                      )}
-                      <label className="tl-field qt-addr">
-                        <span className="db-sr-only">Stop {i + 1} address</span>
-                        <AddressInput label={`Stop ${i + 1} address`} value={s.address} placeholder={first ? "Dallas, TX" : last ? "Atlanta, GA" : "City, ST"} onChange={(text) => setStop(i, { address: text })} invalid={!!err(`stop${i}`)} />
-                        {err(`stop${i}`) ? <span className="th-err">{err(`stop${i}`)}</span> : null}
-                      </label>
-                      <label className="tl-field qt-when">
-                        <span className="db-sr-only">Stop {i + 1} time, Dallas time</span>
-                        <DateInput type="datetime-local" value={s.appointment} onChange={(e) => setStop(i, { appointment: e.target.value })} aria-invalid={err(`stop${i}Time`) ? true : undefined} />
-                        {err(`stop${i}Time`) ? <span className="th-err">{err(`stop${i}Time`)}</span> : null}
-                      </label>
-                      {!first && !last ? (
-                        <button type="button" className="tl-btn ghost sm" aria-label={`Remove stop ${i + 1}`} onClick={() => removeStop(i)}>
-                          <Icon name="close" size={14} />
-                        </button>
-                      ) : (
-                        <span />
-                      )}
-                    </li>
+                    <React.Fragment key={i}>
+                      <li className="qt-stop">
+                        {first || last ? (
+                          <span className="qt-role">{first ? "Pickup" : "Delivery"}</span>
+                        ) : (
+                          <select aria-label={`Stop ${i + 1} is a`} value={s.role} onChange={(e) => setStop(i, { role: e.target.value as QuoteStop["role"] })}>
+                            <option value="pickup">Pickup</option>
+                            <option value="delivery">Delivery</option>
+                          </select>
+                        )}
+                        <label className="tl-field qt-addr">
+                          <span className="db-sr-only">Stop {i + 1} address</span>
+                          <AddressInput
+                            label={`Stop ${i + 1} address`}
+                            value={s.address}
+                            placeholder={first ? "Dallas, TX" : last ? "Atlanta, GA" : "City, ST"}
+                            onChange={(text) => setStop(i, { address: text })}
+                            onEnter={() => (last ? focusId("qt-offer") : focusAddress(i + 2))}
+                            invalid={!!err(`stop${i}`)}
+                          />
+                          {err(`stop${i}`) ? <span className="th-err">{err(`stop${i}`)}</span> : null}
+                        </label>
+                        <label className="tl-field qt-when">
+                          <span className="db-sr-only">Stop {i + 1} time, Dallas time</span>
+                          <DateInput type="datetime-local" value={s.appointment} onChange={(e) => setStop(i, { appointment: e.target.value })} aria-invalid={err(`stop${i}Time`) ? true : undefined} />
+                          {err(`stop${i}Time`) ? <span className="th-err">{err(`stop${i}Time`)}</span> : null}
+                        </label>
+                        {!first && !last ? (
+                          <button type="button" className="tl-btn ghost sm" aria-label={`Remove stop ${i + 1}`} onClick={() => removeStop(i)}>
+                            <Icon name="close" size={14} />
+                          </button>
+                        ) : (
+                          <span />
+                        )}
+                      </li>
+                      {first && stopCount >= 2 ? (
+                        <li className="qt-swap">
+                          <button type="button" className="tl-btn ghost sm" aria-label="Swap pickup and delivery" title="Swap pickup and delivery" disabled={locked} onClick={swapStops}>
+                            <Icon name="swap" size={14} />
+                          </button>
+                        </li>
+                      ) : null}
+                    </React.Fragment>
                   );
                 })}
               </ol>
@@ -956,7 +1039,7 @@ export function QuoteDesk({
                     </span>
                   ) : null}
                 </label>
-                <Money label="Offer" unit="$" value={values.offer} error={err("offer")} onChange={(v) => set({ offer: v })} note={grossNote(values.offer, values.loadedMiles)} />
+                <Money label="Offer" unit="$" value={values.offer} error={err("offer")} onChange={(v) => set({ offer: v })} note={grossNote(values.offer, values.loadedMiles)} onEnter={() => focusId("qt-loaded")} />
                 <div className="th-field">
                   <label htmlFor="qt-fsc">Fuel surcharge</label>
                   <div className="th-input">
@@ -1036,7 +1119,7 @@ export function QuoteDesk({
                 </p>
               ) : null}
               <div className="qt-grid">
-                <Money label="Loaded" unit="miles" value={values.loadedMiles} error={err("loadedMiles")} onChange={(v) => typedMiles("loadedMiles", v)} />
+                <Money label="Loaded" unit="miles" value={values.loadedMiles} error={err("loadedMiles")} onChange={(v) => typedMiles("loadedMiles", v)} onEnter={focusDone} />
                 <Money label="Empty to the pickup" unit="miles" value={values.emptyToPickup} error={err("emptyToPickup")} onChange={(v) => typedMiles("emptyToPickup", v)} hint="Each truck with a base is measured below." />
                 <Money label="Empty home after" unit="miles" value={values.emptyHome} error={err("emptyHome")} onChange={(v) => typedMiles("emptyHome", v)} />
                 <Money
@@ -1720,6 +1803,10 @@ export function QuoteDesk({
                 <td>Select truck row 1 through 9</td>
               </tr>
               <tr>
+                <td><kbd style={{ padding: "2px 6px", background: "var(--db-bg-input)", border: "1px solid var(--db-border)", borderRadius: 4 }}>Enter</kbd></td>
+                <td><b>Next field</b> in Pickup, Delivery, Offer and Loaded miles, then the Book button</td>
+              </tr>
+              <tr>
                 <td><kbd style={{ padding: "2px 6px", background: "var(--db-bg-input)", border: "1px solid var(--db-border)", borderRadius: 4 }}>?</kbd></td>
                 <td>Toggle this shortcuts guide</td>
               </tr>
@@ -1731,6 +1818,21 @@ export function QuoteDesk({
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* Copy Brief, when the browser would not copy it: the text is selected here, ready to copy by hand. */}
+      <Modal
+        open={briefFallback != null}
+        onClose={() => setBriefFallback(null)}
+        eyebrow="Ready to paste"
+        title={briefFallback?.label ?? "Brief"}
+        footer={
+          <button type="button" className="tl-btn primary" onClick={() => setBriefFallback(null)}>
+            Done
+          </button>
+        }>
+        <p className="tl-note" style={{ marginBottom: 8 }}>This browser would not copy it for you. The text is selected: copy it, then paste it where it goes.</p>
+        <textarea data-autofocus readOnly value={briefFallback?.text ?? ""} rows={10} aria-label={briefFallback?.label ?? "Brief"} style={{ width: "100%" }} onFocus={(e) => e.currentTarget.select()} />
       </Modal>
     </div>
   );
@@ -1749,13 +1851,31 @@ function grossNote(offer: string, loadedMiles: string): string | undefined {
 }
 
 /** Form money input with inline unit. `note` is a live figure read off the form, a quiet line below the field (not announced: the verdict aside is the one live region). */
-function Money({ label, unit, value, error, onChange, hint, note }: { label: string; unit: string; value: string; error?: string; onChange: (v: string) => void; hint?: string; note?: string }) {
+function Money({ label, unit, value, error, onChange, hint, note, onEnter }: { label: string; unit: string; value: string; error?: string; onChange: (v: string) => void; hint?: string; note?: string; onEnter?: () => void }) {
   const id = `qt-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`;
   return (
     <div className="th-field">
       <label htmlFor={id}>{label}</label>
       <div className="th-input">
-        <input id={id} inputMode="decimal" autoComplete="off" value={value} aria-invalid={error ? true : undefined} onChange={(e) => onChange(e.target.value)} />
+        <input
+          id={id}
+          inputMode="decimal"
+          autoComplete="off"
+          value={value}
+          aria-invalid={error ? true : undefined}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={
+            onEnter
+              ? (e) => {
+                  // Enter moves on to the next field of the quick way through a quote; every other key, and Tab, does what it always did.
+                  if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    onEnter();
+                  }
+                }
+              : undefined
+          }
+        />
         <span>{unit}</span>
       </div>
       {error ? (

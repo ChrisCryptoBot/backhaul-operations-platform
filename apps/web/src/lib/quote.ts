@@ -205,6 +205,41 @@ export function grossPerLoadedMile(offer: string, loadedMiles: string): number |
   return o / m;
 }
 
+/**
+ * The route run the other way, for the swap button: the addresses reverse, while each stop keeps its own role and its own time. A
+ * two-stop quote simply swaps pickup and delivery; with stops between, the whole run reverses. The times stay where they are on purpose:
+ * carrying them along would put the delivery before the pickup, and the form refuses that.
+ */
+export function reverseStops(stops: QuoteStop[]): QuoteStop[] {
+  const addresses = stops.map((s) => s.address).reverse();
+  return stops.map((s, i) => ({ ...s, address: addresses[i] ?? "" }));
+}
+
+/** The empty-mile figures that depend on which way the route runs: to the pickup, home after the delivery, and one truck's own. */
+const isDeadheadKey = (k: string) => k === "emptyToPickup" || k === "emptyHome" || k.startsWith("empty:");
+
+/**
+ * The quote with its route swapped. Empty miles are measured from each truck's base to the pickup and from the delivery back to it, so
+ * both change with the swap: they are blanked, and no longer count as typed, so the map measures them again. Everything else stays,
+ * the loaded miles included (the run is the same road; a measured figure refreshes on its own and a typed one is the person's).
+ */
+export function swapRoute(values: QuoteValues): QuoteValues {
+  return {
+    ...values,
+    stops: reverseStops(values.stops),
+    emptyToPickup: "",
+    emptyHome: "",
+    emptyByTruck: {},
+    emptyHomeByTruck: {},
+    manual: values.manual.filter((k) => !isDeadheadKey(k))
+  };
+}
+
+/** Whether anything has been typed: the form against what it started from, leaving out the fuel price figure itself (the form fills that in by itself). */
+export function isQuoteDirty(values: QuoteValues, baseline: QuoteValues): boolean {
+  return JSON.stringify({ ...values, fuelPrice: "" }) !== JSON.stringify({ ...baseline, fuelPrice: "" });
+}
+
 /** Everything the price needs and nothing it does not: an offer and loaded miles. Null until both are typed. */
 export function readQuote(values: QuoteValues): QuoteInput | null {
   const offer = positive(values.offer);

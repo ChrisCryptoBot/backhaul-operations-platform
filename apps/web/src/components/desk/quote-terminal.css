@@ -254,6 +254,13 @@
   opacity: 0.65;
 }
 
+/* The swap button between Pickup and the next stop: a small row of its own, under the address column (the role label is 84px wide). */
+.qt-swap {
+  display: flex;
+  padding-left: 96px;
+  margin: calc(var(--db-1) * -1) 0;
+}
+
 /* A truck's hours left on the clock, with the deficit tag beside it when the load needs more than the truck has. A line of its own, so it
    never runs into the driver line above it (the .sub spans carry no layout rule inside this table). */
 .qt-hos-line {

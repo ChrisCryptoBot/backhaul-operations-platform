@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { BAND_LABEL, BLANK_QUOTE, gateTitle, grossPerLoadedMile, OVERRIDE_REASONS, quoteWarnings, readQuote, surchargeDollars, validateQuote, type QuoteValues } from "../src/lib/quote";
+import { BAND_LABEL, BLANK_QUOTE, gateTitle, grossPerLoadedMile, isQuoteDirty, OVERRIDE_REASONS, quoteWarnings, readQuote, reverseStops, surchargeDollars, swapRoute, validateQuote, type QuoteStop, type QuoteValues } from "../src/lib/quote";
 import { perMile } from "../src/lib/desk-format";
 import { isQuote, notQuote, QUOTE_STATUS } from "../src/lib/quote-status";
 
@@ -158,5 +158,95 @@ describe("the gross rate per loaded mile, the line under the Offer field", () =>
   test("is the typed offer only: the fuel surcharge field is not part of it", () => {
     const v = { ...good, offer: "6000", loadedMiles: "2055", fsc: "300" };
     expect(grossPerLoadedMile(v.offer, v.loadedMiles)).toBeCloseTo(6000 / 2055, 10);
+  });
+});
+
+describe("the route run the other way, the swap button", () => {
+  const stop = (role: QuoteStop["role"], address: string, appointment = ""): QuoteStop => ({ role, address, appointment });
+
+  test("two stops: the addresses trade places, and each stop keeps its own role and time", () => {
+    const out = reverseStops([stop("pickup", "Dallas, TX", "2027-01-12T08:00"), stop("delivery", "Atlanta, GA", "2027-01-13T17:00")]);
+    expect(out).toEqual([stop("pickup", "Atlanta, GA", "2027-01-12T08:00"), stop("delivery", "Dallas, TX", "2027-01-13T17:00")]);
+  });
+
+  test("with a stop between, the whole run reverses, and roles and times stay where they are", () => {
+    const out = reverseStops([stop("pickup", "Dallas, TX", "t1"), stop("delivery", "Memphis, TN", "t2"), stop("delivery", "Atlanta, GA", "t3")]);
+    expect(out.map((s) => s.address)).toEqual(["Atlanta, GA", "Memphis, TN", "Dallas, TX"]);
+    expect(out.map((s) => s.role)).toEqual(["pickup", "delivery", "delivery"]);
+    expect(out.map((s) => s.appointment)).toEqual(["t1", "t2", "t3"]);
+  });
+
+  test("a blank address swaps like any other, and one stop or none is left as it is", () => {
+    expect(reverseStops([stop("pickup", "Dallas, TX"), stop("delivery", "")]).map((s) => s.address)).toEqual(["", "Dallas, TX"]);
+    expect(reverseStops([stop("pickup", "Dallas, TX")]).map((s) => s.address)).toEqual(["Dallas, TX"]);
+    expect(reverseStops([])).toEqual([]);
+  });
+
+  test("does not change what it was given", () => {
+    const given = [stop("pickup", "Dallas, TX"), stop("delivery", "Atlanta, GA")];
+    reverseStops(given);
+    expect(given.map((s) => s.address)).toEqual(["Dallas, TX", "Atlanta, GA"]);
+  });
+});
+
+describe("swapping the route of a whole quote", () => {
+  const typed: QuoteValues = {
+    ...good,
+    emptyToPickup: "40",
+    emptyHome: "240",
+    emptyByTruck: { t1: "55" },
+    emptyHomeByTruck: { t1: "250" },
+    manual: ["loadedMiles", "emptyToPickup", "emptyHome", "empty:t1"]
+  };
+
+  test("the addresses swap and the empty miles are cleared, because both change with the direction", () => {
+    const out = swapRoute(typed);
+    expect(out.stops.map((s) => s.address)).toEqual(["Tulsa, OK", "Dallas, TX"]);
+    expect(out.emptyToPickup).toBe("");
+    expect(out.emptyHome).toBe("");
+    expect(out.emptyByTruck).toEqual({});
+    expect(out.emptyHomeByTruck).toEqual({});
+  });
+
+  test("what somebody typed about the empty miles no longer counts as typed; the loaded miles still do", () => {
+    expect(swapRoute(typed).manual).toEqual(["loadedMiles"]);
+  });
+
+  test("everything else is kept: the offer, the loaded miles, the customer, the times", () => {
+    const out = swapRoute(typed);
+    expect(out.offer).toBe("1,500");
+    expect(out.loadedMiles).toBe("260");
+    expect(out.broker).toBe("Acme Freight");
+    expect(out.marketRate).toBe("1500");
+    expect(out.stops.map((s) => s.appointment)).toEqual(["2027-01-12T08:00", "2027-01-12T17:00"]);
+  });
+
+  test("with nothing typed about the empty miles, the manual list is unchanged", () => {
+    expect(swapRoute({ ...good, manual: ["loadedMiles"] }).manual).toEqual(["loadedMiles"]);
+  });
+
+  test("does not change the quote it was given", () => {
+    const before = JSON.stringify(typed);
+    swapRoute(typed);
+    expect(JSON.stringify(typed)).toBe(before);
+  });
+});
+
+describe("whether anything has been typed", () => {
+  test("a form that is as it started is not dirty, and the fuel price figure alone does not make it so", () => {
+    expect(isQuoteDirty(BLANK_QUOTE, BLANK_QUOTE)).toBe(false);
+    expect(isQuoteDirty({ ...BLANK_QUOTE, fuelPrice: "3.89" }, BLANK_QUOTE)).toBe(false);
+    expect(isQuoteDirty({ ...BLANK_QUOTE, fuelPrice: "3.89" }, { ...BLANK_QUOTE, fuelPrice: "4.10" })).toBe(false);
+  });
+
+  test("anything typed makes it dirty", () => {
+    expect(isQuoteDirty({ ...BLANK_QUOTE, offer: "1500" }, BLANK_QUOTE)).toBe(true);
+    expect(isQuoteDirty({ ...BLANK_QUOTE, stops: [{ role: "pickup", address: "Dallas", appointment: "" }, BLANK_QUOTE.stops[1]!] }, BLANK_QUOTE)).toBe(true);
+    expect(isQuoteDirty({ ...BLANK_QUOTE, manual: ["loadedMiles"] }, BLANK_QUOTE)).toBe(true);
+  });
+
+  test("a saved quote opened and left alone is not dirty against itself", () => {
+    expect(isQuoteDirty(good, good)).toBe(false);
+    expect(isQuoteDirty({ ...good, offer: "1,600" }, good)).toBe(true);
   });
 });

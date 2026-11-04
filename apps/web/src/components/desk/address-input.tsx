@@ -10,7 +10,7 @@ import { addressReady, type Place } from "@/lib/geo";
  * /geo/suggest (the token stays on the server); a request that a newer keystroke has overtaken is cancelled, and nothing is asked
  * until there is enough to look up. With no key or no answer the box is a plain input.
  */
-export function AddressInput({ value, onChange, placeholder, label, invalid, disabled, autoFocus }: { value: string; onChange: (text: string) => void; placeholder?: string; label: string; invalid?: boolean; disabled?: boolean; autoFocus?: boolean }) {
+export function AddressInput({ value, onChange, placeholder, label, invalid, disabled, autoFocus, onEnter }: { value: string; onChange: (text: string) => void; placeholder?: string; label: string; invalid?: boolean; disabled?: boolean; autoFocus?: boolean; onEnter?: () => void }) {
   const id = React.useId();
   const [places, setPlaces] = React.useState<Place[]>([]);
   const [open, setOpen] = React.useState(false);
@@ -79,6 +79,12 @@ export function AddressInput({ value, onChange, placeholder, label, invalid, dis
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     // Before the list is open too: Escape also turns down an answer that is still on its way.
     if (e.key === "Escape") quiet.current = true;
+    // Enter with no suggestion chosen moves on to the next field (the desk's fast way through a quote). With one chosen, Enter picks it, as it always has.
+    if (e.key === "Enter" && onEnter && !e.nativeEvent.isComposing && !(open && places.length > 0 && active >= 0)) {
+      e.preventDefault();
+      onEnter();
+      return;
+    }
     if (!open || places.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();

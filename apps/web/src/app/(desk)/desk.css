@@ -331,6 +331,9 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .menu-pop { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 170px; display: grid; padding: var(--db-1); background: var(--db-bg-card); border-radius: var(--db-r-md); box-shadow: var(--db-shadow-pop); }
 .menu-pop a { padding: var(--db-2) var(--db-3); border-radius: var(--db-r-sm); color: var(--db-fg); text-decoration: none; font-size: var(--db-text-base); }
 .menu-pop a:hover { background: var(--db-bg-elev-2); }
+.menu-pop button { padding: var(--db-2) var(--db-3); min-height: 36px; border: 0; border-radius: var(--db-r-sm); background: none; color: var(--db-fg); font: inherit; font-size: var(--db-text-base); text-align: left; white-space: nowrap; cursor: pointer; }
+.menu-pop button:hover { background: var(--db-bg-elev-2); }
+.menu-pop button:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--db-accent-ring); }
 
 .km-hero { background: var(--db-bg); padding: var(--db-4) var(--db-5); display: grid; gap: var(--db-1); border: 1px solid var(--db-border-soft); border-bottom: 0; }
 .km-herorow { display: flex; align-items: baseline; gap: var(--db-3); flex-wrap: wrap; }
