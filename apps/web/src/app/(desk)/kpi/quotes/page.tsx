@@ -133,7 +133,7 @@ export default async function QuoteDecisionsPage({ searchParams }: { searchParam
                 })}
               </tbody>
             </table>
-            <p className="tl-note">A Reject or Think twice that was booked is the decision to look at: the reason is in the next card.</p>
+            <p className="tl-note">A Reject or Caution that was booked is the decision to look at: the reason is in the next card.</p>
           </Card>
 
           <Card title="Overrides">

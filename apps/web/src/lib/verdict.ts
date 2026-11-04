@@ -15,7 +15,7 @@ import type { AcceptGate, MarketBand } from "@/truelane/lib/domain/marketVerdict
  */
 export type VerdictState = "take" | "think" | "reject" | "unjudged";
 
-export const VERDICT_WORD: Record<VerdictState, string> = { take: "Take it", think: "Think twice", reject: "Reject", unjudged: "Can't judge yet" };
+export const VERDICT_WORD: Record<VerdictState, string> = { take: "Accept", think: "Caution", reject: "Reject", unjudged: "Can't judge yet" };
 
 /** The tone a state lights up with. A state with nothing to judge has none: it is not a point on the scale from good to bad. */
 export const VERDICT_TONE: Record<VerdictState, "ok" | "warn" | "bad" | "none"> = { take: "ok", think: "warn", reject: "bad", unjudged: "none" };
@@ -129,7 +129,7 @@ function sentenceOf(state: VerdictState, f: VerdictFacts): string {
   const against = onLane ? "your lane average" : "the market";
   if (state === "reject" && f.band !== "below_floor") {
     const under = f.marketPct != null ? `${pct(f.marketPct)} under ${against}` : `far under ${against}`;
-    return `${clears}, but pays ${under}. Too far under to take.`;
+    return `${clears}, but pays ${under}. Too far under to accept.`;
   }
   if (state === "reject") {
     const short = margin == null ? "Short of your cost" : `Short of your cost by ${rate(margin)}${trip != null ? `, ${dollars(trip)} on this trip` : ""}`;

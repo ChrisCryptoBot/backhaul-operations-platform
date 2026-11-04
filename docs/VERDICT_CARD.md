@@ -16,18 +16,18 @@ The verdict does no costing and changes no rule. It only says the answer. A card
 
 | State | Word | Shape | Light | When |
 |---|---|---|---|---|
-| `take` | Take it | Circle (go) | Green | Clears the cost, at or above the market (or the lane), or with nothing to compare, and nothing the rules pause on |
-| `think` | Think twice | Diamond (warning) | Amber | Clears the cost, but under the market (or the lane), thin, or slow money |
+| `take` | Accept | Circle (go) | Green | Clears the cost, at or above the market (or the lane), or with nothing to compare, and nothing the rules pause on |
+| `think` | Caution | Diamond (warning) | Amber | Clears the cost, but under the market (or the lane), thin, or slow money |
 | `reject` | Reject | Octagon (stop) | Red | Under the floor, or paying more than 20% under the market (or the lane) |
 | `unjudged` | Can't judge yet | Empty dashed ring | None | The cost is not known (no mpg or fuel price) |
 
 Four, and no fifth. `unjudged` is not a point on the scale from good to bad, so it has no colour and no ruler: the card does not draw what it does not know.
 
-**Your cost owns the verdict.** The market can move a good load to Think twice, and a load paying more than 20% under it to Reject. That line is the audited strong-caution band, not a new threshold; the rules already ask for a reason there. The market can never make a load green on its own, and it can never rescue a load below cost.
+**Your cost owns the verdict.** The market can move a good load to Caution, and a load paying more than 20% under it to Reject. That line is the audited strong-caution band, not a new threshold; the rules already ask for a reason there. The market can never make a load green on its own, and it can never rescue a load below cost.
 
-**Reject advises, it does not forbid.** A reason still books a Reject ("Book anyway"), and the reason is kept with the decision. A hard stop that only a manager can lift is a separate question and is not built. With no fuel price the cost is not known, so that stays Can't judge yet, whatever the market says. Thin margin and slow money stay Think twice: they are a second look, not a stop. The lane's average can reject, as a typed market rate does; it rests on at least 3 loads, so it is the thinnest ground a Reject stands on.
+**Reject advises, it does not forbid.** A reason still books a Reject ("Book anyway"), and the reason is kept with the decision. A hard stop that only a manager can lift is a separate question and is not built. With no fuel price the cost is not known, so that stays Can't judge yet, whatever the market says. Thin margin and slow money stay Caution: they are a second look, not a stop. The lane's average can reject, as a typed market rate does; it rests on at least 3 loads, so it is the thinnest ground a Reject stands on.
 
-**No market rate is not a mark against a load** (Chris, 2026-10-31). Most small fleets have no market rate to hand, and a card that says Think twice on every load teaches people to stop reading it. So with the box blank:
+**No market rate is not a mark against a load** (Chris, 2026-10-31). Most small fleets have no market rate to hand, and a card that says Caution on every load teaches people to stop reading it. So with the box blank:
 
 1. **The lane stands in, when there is enough of it.** By default at least 3 finished loads on the same city pair in the last 90 days (both are thresholds in Settings: 2 to 25 loads, 14 to 365 days), of the same trailer type when the quote states one. Their average per loaded mile, times this load's loaded miles, takes the market rate's place, so the audited rules decide what it means: same thresholds, same words, same reason asked at over 20% under. The card names it "Your lane", never the market. It is the desk's own record, so it is not "taken on trust".
 2. **Otherwise cost alone.** It says "Market not checked" and books with no reason.

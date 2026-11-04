@@ -45,7 +45,7 @@ export default async function QuotePage({ searchParams }: { searchParams: { quot
   const initial = saved && id ? { id, ...saved } : like ? { id: null, values: like, vehicleId: null, passedFor: null } : null;
   return (
     <>
-      <PageHead title="Quote a load" sub="Price an offer against every truck and driver before you take it." />
+      <PageHead title="Quote a load" sub="Price an offer against every truck and driver before you accept it." />
       {id && !saved ? (
         <p className="tl-note warn" role="status">
           That quote is not here any more: it was booked, thrown away, or the link is old. Look for a booked one on the board.

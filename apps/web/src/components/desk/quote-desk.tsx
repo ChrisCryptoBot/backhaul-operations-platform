@@ -794,7 +794,7 @@ export function QuoteDesk({
   const benchmark: Benchmark = lane ? "lane" : "market";
   const verdict = row ? verdictOf(row, benchmark, Boolean(cautions.marketRate)) : null;
   const bookTo = row ? `${row.truckName}${row.driverName ? ` with ${row.driverName.split(" ")[0]}` : ""}` : "";
-  const bookLabel = !row ? "Book it" : row.blocked ? `${row.truckName} cannot take it` : row.gate ? "Book with a reason" : `Book on ${bookTo}`;
+  const bookLabel = !row ? "Book it" : row.blocked ? `${row.truckName} cannot accept this load` : row.gate ? "Book with a reason" : `Book on ${bookTo}`;
 
   // Counter-offer stepper and target handlers
   const currentOfferNum = Number(values.offer) || 0;

@@ -126,9 +126,9 @@ export function ThresholdsForm({ stored, fleetEmptyShare }: { stored: Record<key
           {g.title === "The verdict card" ? (
             <div className="th-preview">
               <dl className="th-lines" aria-label="Where the verdict card draws its lines">
-                <dt><VerdictMark state="take" size={15} />Take it</dt>
+                <dt><VerdictMark state="take" size={15} />Accept</dt>
                 <dd>Clears your cost and pays at or above the market. Up to {CARD_LINES.atMarketPct}% under still counts as at market.</dd>
-                <dt><VerdictMark state="think" size={15} />Think twice</dt>
+                <dt><VerdictMark state="think" size={15} />Caution</dt>
                 <dd>{CARD_LINES.atMarketPct} to {CARD_LINES.rejectPct}% under, under {CARD_LINES.thinCentsPerMile} cents a mile over your cost, or under the hourly target set on the cost profile.</dd>
                 <dt><VerdictMark state="reject" size={15} />Reject</dt>
                 <dd>More than {CARD_LINES.rejectPct}% under, or under your cost. A reason can still book it.</dd>

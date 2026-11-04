@@ -16,7 +16,7 @@ describe("the four states", () => {
     expect(verdictState(facts({ band: "needs_fuel", gate: "needs_fuel" }))).toBe("unjudged");
   });
 
-  test("Reject is the audited hard stops and nothing else: ten percent and twenty percent under are Think twice, past twenty is Reject", () => {
+  test("Reject is the audited hard stops and nothing else: ten percent and twenty percent under are Caution, past twenty is Reject", () => {
     expect(verdictState(facts({ band: "at_market" }))).toBe("take");
     expect(verdictState(facts({ band: "negotiate" }))).toBe("think");
     expect(verdictState(facts({ band: "strong_caution", gate: "under_market" }))).toBe("reject");
@@ -25,7 +25,7 @@ describe("the four states", () => {
     expect(verdictState(facts({ timeTrap: true }))).toBe("think");
   });
 
-  test("a good load the rules would pause on is never Take it: a gate, a thin margin, or slow money", () => {
+  test("a good load the rules would pause on is never Accept: a gate, a thin margin, or slow money", () => {
     expect(verdictState(facts({ gate: "under_market" }))).toBe("think");
     expect(verdictState(facts({ thinMargin: true }))).toBe("think");
     expect(verdictState(facts({ timeTrap: true }))).toBe("think");
@@ -56,7 +56,7 @@ describe("the sentence", () => {
 
   test("names what is wrong with a load worth a second look", () => {
     expect(readVerdict(facts({ band: "negotiate", marketPct: -0.14 })).sentence).toBe("Clears your cost by $0.84/mi, $287 on this trip, but pays 14% under the market. Ask for more.");
-    expect(readVerdict(facts({ band: "strong_caution", gate: "under_market", marketPct: -0.31 })).sentence).toBe("Clears your cost by $0.84/mi, $287 on this trip, but pays 31% under the market. Too far under to take.");
+    expect(readVerdict(facts({ band: "strong_caution", gate: "under_market", marketPct: -0.31 })).sentence).toBe("Clears your cost by $0.84/mi, $287 on this trip, but pays 31% under the market. Too far under to accept.");
     expect(readVerdict(facts({ band: "strong_caution", gate: "under_market", marketPct: -0.31 })).word).toBe("Reject");
     expect(readVerdict(facts({ band: "at_market", thinMargin: true })).sentence).toBe("It clears your cost, but by less than five cents a mile.");
     expect(readVerdict(facts({ band: "at_market", timeTrap: true, profitPerHour: 12 })).sentence).toContain("$12 an hour against your $25 target");
@@ -78,7 +78,7 @@ describe("the sentence", () => {
 describe("a load with no market rate", () => {
   const blank = facts({ band: "no_benchmark", gate: "no_market", marketDollars: null, marketPct: null });
 
-  test("is judged on its cost alone: it can be Take it, and the card says the market was not checked", () => {
+  test("is judged on its cost alone: it can be Accept, and the card says the market was not checked", () => {
     const v = readVerdict(blank);
     expect(v.state).toBe("take");
     expect(v.sentence).toBe("Clears your cost by $0.84/mi, $287 on this trip. Market not checked.");
@@ -106,7 +106,7 @@ describe("a load read against its own lane", () => {
     expect(readVerdict(lane()).sentence).toBe("Clears your cost by $0.84/mi, $287 on this trip, and pays above your lane average.");
     expect(readVerdict(lane({ band: "at_market" })).sentence).toContain("about what this lane usually pays you");
     expect(readVerdict(lane({ band: "negotiate", marketPct: -0.14 })).sentence).toBe("Clears your cost by $0.84/mi, $287 on this trip, but pays 14% under your lane average. Ask for more.");
-    expect(readVerdict(lane({ band: "strong_caution", gate: "under_market", marketPct: -0.31 })).sentence).toContain("31% under your lane average. Too far under to take.");
+    expect(readVerdict(lane({ band: "strong_caution", gate: "under_market", marketPct: -0.31 })).sentence).toContain("31% under your lane average. Too far under to accept.");
     expect(readVerdict(lane()).ruler!.marketName).toBe("Your lane");
     expect(readVerdict(facts()).ruler!.marketName).toBe("Market");
   });

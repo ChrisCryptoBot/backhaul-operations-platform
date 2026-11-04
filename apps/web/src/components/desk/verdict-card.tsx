@@ -59,16 +59,16 @@ function ExplainTip({ title, body, cx, top, bottom }: { title: string; body: str
 /** What each of the four verdicts means, in the words of the rules that decide it. */
 const STATE_EXPLAIN: Record<VerdictState, { title: string; body: string }> = {
   take: {
-    title: "Take it: the check",
+    title: "Accept: the check",
     body: "It pays more than it costs to run this truck, and it is not well under the market. Your cost decides this; the market can only make a good load worth a second look."
   },
   think: {
-    title: "Think twice: the diamond",
+    title: "Caution: the diamond",
     body: `It clears your cost, but something deserves a second look: a margin under ${CARD_LINES.thinCentsPerMile} cents a mile, pay more than ${CARD_LINES.atMarketPct}% under the market, or a lot of hours for little money.`
   },
   reject: {
     title: "Reject: the stop sign",
-    body: `It pays less than it costs to run, or more than ${CARD_LINES.rejectPct}% under the market. Taking it loses money or leaves a lot on the table.`
+    body: `It pays less than it costs to run, or more than ${CARD_LINES.rejectPct}% under the market. Accepting it loses money or leaves a lot on the table.`
   },
   unjudged: {
     title: "Can't judge yet: the empty ring",
