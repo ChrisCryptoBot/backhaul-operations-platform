@@ -909,26 +909,12 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 }
 .cp-seg button[aria-pressed="true"] { color: var(--db-accent-fg); }
 
-/* The verdict: a glass slab with one light behind it, up where the mark is (green take it, amber think twice, red below your cost, faint gold with nothing to judge).
-   The light only repeats what the mark and the word already say: take it away and the card says the same thing. See docs/VERDICT_CARD.md. */
-.qt-side { --tone-glow: var(--db-accent); border: 0; background: transparent; padding: 0; border-radius: 0; isolation: isolate; }
-.qt-side[data-tone="ok"] { --tone-glow: var(--db-pos-fill); }
-.qt-side[data-tone="warn"] { --tone-glow: var(--db-warn-fill); }
-.qt-side[data-tone="bad"] { --tone-glow: var(--db-neg-fill); }
-.qt-side::before {
-  content: ""; position: absolute; z-index: -1; pointer-events: none; border-radius: 50%;
-  background: radial-gradient(circle at 50% 50%, var(--tone-glow), transparent 68%);
-  transition: background var(--db-dur-slow) var(--db-ease);
-  width: 320px; height: 320px; top: -116px; left: -84px; opacity: 0.62;
-}
-.qt-side[data-tone="none"]::before { opacity: 0.2; }
-.qt-glass { background: var(--db-glass-sheen), var(--db-glass-bg-thin); display: grid; gap: var(--db-3); padding: var(--db-4) var(--db-5); border-radius: var(--db-r-card); position: relative; overflow: hidden; }
-/* A bright streak across the top corner, like light catching the edge of a pane. */
-.qt-glass::after {
-  content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
-  background: linear-gradient(112deg, rgba(255, 255, 255, 0.20) 0%, rgba(255, 255, 255, 0) 34%);
-  mix-blend-mode: soft-light;
-}
+/* The verdict: industrial card carrying the mark and figures without non-informational decorative glows.
+   Stripped of gradient blobs and sheen streaks to prioritize math and contrast. See docs/VERDICT_CARD.md. */
+.qt-side { border: 0; background: transparent; padding: 0; border-radius: 0; isolation: isolate; }
+.qt-side::before { display: none; }
+.qt-glass { background: var(--db-bg-card); display: grid; gap: var(--db-3); padding: var(--db-4) var(--db-5); border-radius: var(--db-r-card); position: relative; overflow: hidden; border: 1px solid var(--db-border-strong); border-top-color: var(--db-border-lit); }
+.qt-glass::after { display: none; }
 .qt-glass > * { position: relative; z-index: 1; }
 
 /* No blur available, or less transparency asked for: the same surfaces, solid. */

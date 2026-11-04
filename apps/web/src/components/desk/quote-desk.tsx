@@ -659,7 +659,7 @@ export function QuoteDesk({
         toast({
           text: `Loaded ${file.name} (${mapped.filledCount} fields filled).`,
           ms: 8000,
-          action: { label: "Undo", run: () => restore(snap) }
+          action: { label: "Undo", run: () => { restore(snap); } }
         });
       } else {
         const msg = res.reason === "no_key"
@@ -687,7 +687,7 @@ export function QuoteDesk({
         toast({
           text: `Loaded sample ${sampleName} (${mapped.filledCount} fields filled).`,
           ms: 8000,
-          action: { label: "Undo", run: () => restore(snap) }
+          action: { label: "Undo", run: () => { restore(snap); } }
         });
       } else {
         toast({ text: `Could not read sample (${res.reason}).`, tone: "bad" });

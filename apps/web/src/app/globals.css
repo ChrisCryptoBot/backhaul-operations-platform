@@ -31,14 +31,28 @@
 
   /* Accent: TrueLane gold. accent-fg is gold used as text; accent-on is text placed on a gold fill. */
   --db-accent: #e8a020;
-  --db-accent-hover: #f2b642;
-  --db-accent-press: #d4921c;
+  --db-accent-hover: #d4921c;
+  --db-accent-press: #c98b18;
   --db-accent-fg: #f2b642;
   --db-accent-on: #0e1117;
-  --db-accent-bg: #2a2112;
+  --db-accent-bg: #2a2008;
   --db-accent-ring: rgba(232, 160, 32, 0.4);
   /* Gold as data ink (bars, lines, dots): the brand gold on night, a deeper gold on day so it holds 3:1 on a white card. */
   --db-accent-ink: #e8a020;
+
+  /* TrueLane Mobile Token parity (constants/Colors.ts) */
+  --db-gold-lit: #f2b642;
+  --db-gold-shade: #d58c16;
+  --db-gold-deep: #8a5e0f;
+  --db-surface-subtle: #141a22;
+  --db-border-lit-subtle: #2a3441;
+  --db-card-glow-accent: rgba(232, 160, 32, 0.10);
+  --db-ambient-accent: rgba(232, 160, 32, 0.05);
+  --db-caution-tint: rgba(249, 115, 22, 0.08);
+  --db-caution-line: rgba(249, 115, 22, 0.45);
+  --db-danger-tint: rgba(220, 38, 38, 0.08);
+  --db-danger-line: rgba(220, 38, 38, 0.50);
+  --db-divider: rgba(232, 237, 242, 0.14);
 
   /* Tones: each has a text/fill colour and a paired soft background. */
   --db-pos: #4ade80;
