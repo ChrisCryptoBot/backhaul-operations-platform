@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/loadReadiness.ts @ a3a9c0f4. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/loadReadiness.ts @ ebdbdf81. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * What a load still needs before Start Trip — one rule, used by the Start Trip gate, the Loads
  * list's NEEDS DETAILS chip and the Load details checklist. Saving is never blocked by these.

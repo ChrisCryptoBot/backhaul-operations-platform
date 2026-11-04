@@ -1,5 +1,7 @@
 "use client";
 
+import { findBackhauls, type OpenPickupCandidate } from "@/lib/backhaul-detect";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React from "react";
@@ -61,13 +63,15 @@ export function QuoteDesk({
   brokers,
   initial,
   canWrite,
-  fleet = []
+  fleet = [],
+  openPickups = []
 }: {
   quotes: { rows: QuoteListRow[]; total: number };
   brokers: CustomerOption[];
   initial: Initial;
   canWrite: boolean;
   fleet?: FleetTruckOption[];
+  openPickups?: OpenPickupCandidate[];
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -224,6 +228,13 @@ export function QuoteDesk({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [values.weightLbs, values.lengthFt, values.widthFt, values.heightIn, values.hazmatClass, values.trailer, values.requiresLiftgate, values.requiresRamp, values.requiresPalletJack]);
 
+  // Backhaul discovery: detect open pickups near the delivery destination
+  const lastStop = values.stops[values.stops.length - 1];
+  const backhauls = React.useMemo(() => {
+    if (!lastStop?.address.trim()) return { count: 0, nearestMiles: null, matches: [] };
+    return findBackhauls({ address: lastStop.address }, openPickups);
+  }, [lastStop?.address, openPickups]);
+
   const check = validateQuote(values);
   const customer = brokers.find((b) => b.name.trim().toLowerCase() === values.broker.trim().toLowerCase()) ?? null;
   const filled = React.useRef<{ mc: string; phone: string; email: string; terms: string } | null>(null);
@@ -347,7 +358,7 @@ export function QuoteDesk({
     }));
   };
 
-  const rows: FitRow[] = priced?.ok ? priced.fit.rows : [];
+  const rows: FitRow[] = React.useMemo(() => (priced?.ok ? priced.fit.rows : []), [priced]);
   const fitTotal = priced?.ok ? priced.fit.total : 0;
 
   // Sorted rows based on user preference: closest deadhead vs best margin
@@ -467,7 +478,7 @@ export function QuoteDesk({
     }
   }
 
-  async function book(override: { reason: string; notes: string } | null) {
+  const book = React.useCallback(async (override: { reason: string; notes: string } | null) => {
     if (!row) return;
     setBusy(true);
     setMessage(null);
@@ -485,9 +496,9 @@ export function QuoteDesk({
     if (out.errors) setTried(true);
     if (out.gate) setAsking(true);
     setMessage(out.error ?? (out.errors ? "Fix what is marked, then book it." : null));
-  }
+  }, [row, values, quoteId, draft, router]);
 
-  function onBook() {
+  const onBook = React.useCallback(() => {
     setTried(true);
     setServerErrors({});
     if (!check.ok) {
@@ -505,9 +516,9 @@ export function QuoteDesk({
       return;
     }
     void book(null);
-  }
+  }, [check.ok, values.stops, row?.gate, book]);
 
-  async function onSave() {
+  const onSave = React.useCallback(async () => {
     setTried(true);
     if (!check.ok) {
       setMessage("Fix what is marked, then save it.");
@@ -528,9 +539,9 @@ export function QuoteDesk({
       setServerErrors(out.errors ?? {});
       setMessage(out.error ?? "Fix what is marked, then save it.");
     }
-  }
+  }, [check.ok, values, row?.driverId, row?.truckId, quoteId, draft, toast, router]);
 
-  function onOpenPass() {
+  const onOpenPass = React.useCallback(() => {
     setTried(true);
     if (!check.ok) {
       setMessage("Fix what is marked, then pass on it.");
@@ -539,7 +550,7 @@ export function QuoteDesk({
     setPassReason("");
     setPassNotes("");
     setPassing(true);
-  }
+  }, [check.ok]);
 
   async function onPass() {
     setBusy(true);
@@ -1140,7 +1151,22 @@ export function QuoteDesk({
               <h2>The deal</h2>
               <div className="qt-grid">
                 <label className="tl-field th-field">
-                  Customer
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span>Customer</span>
+                    {customer?.slowPay?.overdueCount ? (
+                      <span className="tl-chip bad" title={`${customer.slowPay.overdueCount} invoice(s) past due (${customer.slowPay.overdueBalance.toLocaleString()})`}>
+                        {customer.slowPay.overdueCount} overdue (${customer.slowPay.overdueBalance.toLocaleString()})
+                      </span>
+                    ) : customer?.slowPay?.isSlowPay ? (
+                      <span className="tl-chip warn" title={`Takes an average of ${customer.slowPay.avgDaysToPay} days to pay`}>
+                        Slow pay (avg {customer.slowPay.avgDaysToPay}d)
+                      </span>
+                    ) : customer?.slowPay?.avgDaysToPay != null ? (
+                      <span className="tl-chip ok" title={`Average pay time: ${customer.slowPay.avgDaysToPay} days`}>
+                        Avg {customer.slowPay.avgDaysToPay}d pay
+                      </span>
+                    ) : null}
+                  </div>
                   <input list="qt-brokers" value={values.broker} onChange={(e) => set({ broker: e.target.value })} autoComplete="off" />
                   <datalist id="qt-brokers">
                     {brokers.map((b) => (

@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/rateCon/stopTime.ts @ a3a9c0f4. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/rateCon/stopTime.ts @ ebdbdf81. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Appointment times in the STOP's timezone. Pure (Intl only, no native code).
  *

@@ -1,4 +1,4 @@
-// VENDORED from TrueLane supabase/functions/rate-con-extract/core.ts @ a3a9c0f4. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane supabase/functions/rate-con-extract/core.ts @ ebdbdf81. Do not edit; run scripts/vendor-truelane.mjs.
 // ============================================================================================
 //  rate-con-extract — pure core (no Deno APIs, no imports) so jest + tsc can check it from the app
 //  side (lib/rateCon/extractCore.test.ts). index.ts wires HTTP, Clerk, Storage and the SDK around it.
@@ -16,12 +16,29 @@ export const RATE_CON_MODEL = 'claude-opus-5';
 /** Server-side refusal fallback ("default" = Anthropic picks the fallback model by refusal category). */
 export const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
-export const DAILY_LIMIT = 25;
+/** Reads one account may start in a day (spend-guardrails plan, 2026-10-31: was 25; a busy owner-operator imports a handful a day, and 25 a day x 30 was 750 reads, about $45, on a $19.99 plan). */
+export const DAILY_LIMIT = 15;
 /** A free account's failed reads a day: they cost money and count toward no allowance, so they have their own ceiling. */
-export const FAILED_DAILY_LIMIT_FREE = 10;
+export const FAILED_DAILY_LIMIT_FREE = 5;
+/** A paid account's failed reads a day (a failed read still costs tokens; before this a paid account had no ceiling on them). */
+export const FAILED_DAILY_LIMIT_PAID = 15;
+/** Reads one paid (or beta) account may start in a UTC calendar month: about $7 at 6 cents a read, about a third of the price of Pro. */
+export const MONTHLY_LIMIT_PAID = 120;
+/** Reads one account on its free trial may start in a UTC calendar month. */
+export const MONTHLY_LIMIT_TRIAL = 40;
+/** Every account together, per UTC day and per UTC month in estimated cents: the ceiling that per-account caps cannot give (many accounts each under their own cap). Answered as "busy, try again". */
+export const GLOBAL_DAILY_READS = 150;
+export const GLOBAL_MONTHLY_CENTS = 12_000;
+/** What one read is estimated to cost, in cents (the comment above: 5 to 8 cents for a 2 to 3 page rate con). Used only for the monthly dollar ceiling. */
+export const EST_READ_CENTS = 8;
+/** The service this function claims spend against (public.ops_service_switches, public.ops_claim_spend). */
+export const SPEND_SERVICE = 'anthropic_ratecon';
 /** Import (a rate con or a dispatch) is part of Pro; a free account has it while its 30-day trial is open (same length as lib/trialStatus TRIAL_DURATION_MS). */
 export const IMPORT_TRIAL_MS = 30 * 24 * 60 * 60 * 1000;
-export const MAX_FILE_BYTES = 20 * 1024 * 1024;
+/** Was 20 MB. A rate con is a photo or two or three pages; 10 MB is generous and bounds what one call can cost. */
+export const MAX_FILE_BYTES = 10 * 1024 * 1024;
+/** A PDF with more pages than this is refused BEFORE the model is called (a page is about 1,500 input tokens; a 100-page file would cost about 75 cents on its own). */
+export const MAX_PDF_PAGES = 12;
 
 /**
  * The whole request has this long before the phone gives up (lib/rateCon/client.ts waits READ_TIMEOUT_MS = 65 s). The Anthropic call gets what is
@@ -246,7 +263,8 @@ export function buildExtractionParams(mime: SupportedMime, base64: string): Extr
       : ({ type: 'image', source: { type: 'base64', media_type: mime, data: base64 } } as const);
   return {
     model: RATE_CON_MODEL,
-    max_tokens: 16000,
+    // Was 16,000. The reading is a few thousand tokens of JSON; 8,000 (the dispatch read's cap too) bounds the worst case. A read that hits it is refused as `max_tokens` and the driver fills the load in by hand.
+    max_tokens: 8000,
     betas: [FALLBACK_BETA],
     fallbacks: 'default',
     thinking: { type: 'adaptive' },
@@ -448,6 +466,44 @@ export function pdfSignals(bytes: Uint8Array): PdfSignals {
   };
 }
 
+/**
+ * How many pages a PDF has, counted in one byte pass (no string the size of the file: the 2 s CPU limit): the larger of the page objects (/Type /Page, not /Pages) and the biggest /Count value (the page tree's total).
+ * A PDF that hides its page tree inside compressed object streams answers 0, which is read as "unknown", not "too many": the 10 MB cap and max_tokens still bound that call.
+ */
+export function pdfPageCount(bytes: Uint8Array): number {
+  const n = bytes.length;
+  const isWs = (b: number | undefined) => b === 0x20 || b === 0x0a || b === 0x0d || b === 0x09;
+  const at = (i: number, word: string) => {
+    for (let k = 0; k < word.length; k++) if (bytes[i + k] !== word.charCodeAt(k)) return false;
+    return true;
+  };
+  let pages = 0;
+  let biggestCount = 0;
+  for (let i = 0; i < n; i++) {
+    if (bytes[i] !== 0x2f) continue; // "/"
+    if (at(i + 1, 'Type')) {
+      let j = i + 5;
+      while (isWs(bytes[j])) j++;
+      if (bytes[j] === 0x2f && at(j + 1, 'Page')) {
+        const after = bytes[j + 5];
+        if (after !== 0x73) pages++; // not "/Pages"
+      }
+    } else if (at(i + 1, 'Count')) {
+      let j = i + 6;
+      while (isWs(bytes[j])) j++;
+      let v = 0;
+      let digits = 0;
+      while (bytes[j] !== undefined && bytes[j]! >= 0x30 && bytes[j]! <= 0x39 && digits < 7) {
+        v = v * 10 + (bytes[j]! - 0x30);
+        j++;
+        digits++;
+      }
+      if (digits > 0 && v > biggestCount) biggestCount = v;
+    }
+  }
+  return Math.max(pages, biggestCount);
+}
+
 export function toHex(buf: ArrayBuffer): string {
   return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, '0')).join('');
 }
@@ -477,20 +533,36 @@ export function importAccountOf(user: unknown, now: number = Date.now()): Import
   return { tier, betaAccess, createdAtMs: typeof created === 'number' && Number.isFinite(created) && created > 0 ? created : null };
 }
 
-export type MeterDecision = { ok: true; via: 'paid' | 'beta' | 'trial' } | { ok: false; status: 402 | 429; error: 'trial_ended' | 'daily_limit' };
+export type MeterDecision = { ok: true; via: 'paid' | 'beta' | 'trial' } | { ok: false; status: 402 | 429; error: 'trial_ended' | 'daily_limit' | 'monthly_limit' };
+
+/** The reads this account has already started this UTC calendar month (optional: a caller that does not know it is only checked by the day, as before). */
+export type MeterMore = { attemptsMonth?: number };
+
+/** The most reads a month this kind of account may start: paid and beta MONTHLY_LIMIT_PAID, a trial MONTHLY_LIMIT_TRIAL. */
+export const monthlyLimitFor = (via: 'paid' | 'beta' | 'trial'): number => (via === 'trial' ? MONTHLY_LIMIT_TRIAL : MONTHLY_LIMIT_PAID);
 
 /**
  * Who may read a rate con or a dispatch. Paid (tier1 or tier2) and beta accounts: always. A free account: only while its trial is open (30 days from
  * the day the Clerk account was made); an account whose start is not known is not in a trial. Everyone: DAILY_LIMIT attempts a day; a free account:
  * FAILED_DAILY_LIMIT_FREE failed reads a day.
  */
-export function meter(account: ImportAccount, attemptsToday: number, failedToday: number, now: number = Date.now()): MeterDecision {
+export function meter(account: ImportAccount, attemptsToday: number, failedToday: number, now: number = Date.now(), more: MeterMore = {}): MeterDecision {
   if (attemptsToday >= DAILY_LIMIT) return { ok: false, status: 429, error: 'daily_limit' };
-  if (account.tier === 'tier1' || account.tier === 'tier2') return { ok: true, via: 'paid' };
-  if (account.betaAccess) return { ok: true, via: 'beta' };
+  const month = more.attemptsMonth ?? 0;
+  if (account.tier === 'tier1' || account.tier === 'tier2') {
+    if (failedToday >= FAILED_DAILY_LIMIT_PAID) return { ok: false, status: 429, error: 'daily_limit' };
+    if (month >= monthlyLimitFor('paid')) return { ok: false, status: 429, error: 'monthly_limit' };
+    return { ok: true, via: 'paid' };
+  }
+  if (account.betaAccess) {
+    if (failedToday >= FAILED_DAILY_LIMIT_PAID) return { ok: false, status: 429, error: 'daily_limit' };
+    if (month >= monthlyLimitFor('beta')) return { ok: false, status: 429, error: 'monthly_limit' };
+    return { ok: true, via: 'beta' };
+  }
   const trialOpen = account.createdAtMs != null && account.createdAtMs + IMPORT_TRIAL_MS > now;
   if (!trialOpen) return { ok: false, status: 402, error: 'trial_ended' };
   if (failedToday >= FAILED_DAILY_LIMIT_FREE) return { ok: false, status: 429, error: 'daily_limit' };
+  if (month >= monthlyLimitFor('trial')) return { ok: false, status: 429, error: 'monthly_limit' };
   return { ok: true, via: 'trial' };
 }
 

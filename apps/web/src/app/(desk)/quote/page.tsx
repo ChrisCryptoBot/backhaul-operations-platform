@@ -3,7 +3,7 @@ import { QuoteDesk, type FleetTruckOption } from "@/components/desk/quote-desk";
 import { PageHead } from "@/components/desk/ui";
 import { requirePage } from "@/server/tl/access";
 import { can } from "@/lib/roles";
-import { brokerNames, getQuote, getQuoteLike, listQuotes } from "@/server/tl/quote";
+import { brokerNames, getQuote, getQuoteLike, listOpenPickups, listQuotes } from "@/server/tl/quote";
 import { prisma } from "@/lib/db";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 
@@ -17,7 +17,7 @@ export default async function QuotePage({ searchParams }: { searchParams: { quot
   const me = await requirePage("read");
   const id = first(searchParams.quote);
   const likeId = id ? null : first(searchParams.like);
-  const [quotes, brokers, saved, like, fleetRaw] = await Promise.all([
+  const [quotes, brokers, saved, like, fleetRaw, openPickups] = await Promise.all([
     listQuotes(undefined, { status: "open" }),
     brokerNames(),
     id ? getQuote(id) : null,
@@ -29,7 +29,8 @@ export default async function QuotePage({ searchParams }: { searchParams: { quot
         drivers: { where: { active: true }, orderBy: { name: "asc" } }
       },
       orderBy: { name: "asc" }
-    })
+    }),
+    listOpenPickups()
   ]);
 
   const fleet: FleetTruckOption[] = fleetRaw.map((v) => ({
@@ -51,7 +52,15 @@ export default async function QuotePage({ searchParams }: { searchParams: { quot
           That quote is not here any more: it was booked, thrown away, or the link is old. Look for a booked one on the board.
         </p>
       ) : null}
-      <QuoteDesk key={id ?? (likeId ? `like-${likeId}` : "new")} quotes={quotes} brokers={brokers} initial={initial} canWrite={can(me.role, me.grants, "quote")} fleet={fleet} />
+      <QuoteDesk
+        key={id ?? (likeId ? `like-${likeId}` : "new")}
+        quotes={quotes}
+        brokers={brokers}
+        initial={initial}
+        canWrite={can(me.role, me.grants, "quote")}
+        fleet={fleet}
+        openPickups={openPickups}
+      />
     </>
   );
 }

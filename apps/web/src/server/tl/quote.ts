@@ -1,3 +1,5 @@
+import { summarizeCustomerPay, type CustomerSlowPay } from "@/lib/customer-pay";
+import type { OpenPickupCandidate } from "@/lib/backhaul-detect";
 import { Prisma, type Load } from "@prisma/client";
 import { randomBytes } from "node:crypto";
 import { fuelKindOf } from "@/lib/eia";
@@ -504,24 +506,119 @@ export async function saveQuote(values: QuoteValues, quoteId: string | null, veh
 }
 
 /** A customer the desk keeps a record of, as the quote form fills from it. */
-export type CustomerOption = { name: string; mc: string | null; phone: string | null; email: string | null; payTermsDays: number | null };
+export type CustomerOption = { name: string; mc: string | null; phone: string | null; email: string | null; payTermsDays: number | null; slowPay?: CustomerSlowPay | null };
 
 /**
  * The form's suggestions for the customer box: every customer record, then any name only the loads carry (a spelling that differs only in capitals is one customer, and the record's
- * spelling wins). A customer with no load yet is offered too.
+ * spelling wins). Computes customer payment performance (days to pay, overdue invoices) to surface slow-pay warnings.
  */
 export async function brokerNames(workspaceId = currentWorkspaceId()): Promise<CustomerOption[]> {
-  const [records, rows] = await Promise.all([
+  const [records, rows, invoicedLoads] = await Promise.all([
     prisma.customer.findMany({ where: { workspaceId }, orderBy: { name: "asc" }, take: 2000 }),
-    prisma.load.groupBy({ by: ["brokerName"], where: { workspaceId, deletedAt: null, ...notQuote, brokerName: { not: null } }, orderBy: { brokerName: "asc" } })
+    prisma.load.groupBy({ by: ["brokerName"], where: { workspaceId, deletedAt: null, ...notQuote, brokerName: { not: null } }, orderBy: { brokerName: "asc" } }),
+    prisma.load.findMany({
+      where: {
+        workspaceId,
+        deletedAt: null,
+        ...notQuote,
+        brokerName: { not: null },
+        invoicedAt: { not: null }
+      },
+      select: {
+        brokerName: true,
+        paymentStatus: true,
+        invoicedAt: true,
+        paidAt: true,
+        invoicedAmount: true,
+        payTermsDays: true
+      },
+      take: 2000
+    })
   ]);
+
+  const payMap = summarizeCustomerPay(
+    invoicedLoads.map((l) => ({
+      brokerName: l.brokerName,
+      paymentStatus: l.paymentStatus,
+      invoicedAt: l.invoicedAt,
+      paidAt: l.paidAt,
+      invoicedAmount: numOrNull(l.invoicedAmount),
+      payTermsDays: l.payTermsDays
+    }))
+  );
+
   const out = new Map<string, CustomerOption>();
-  for (const c of records) out.set(c.name.trim().toLowerCase(), { name: c.name, mc: c.mcNumber, phone: c.contactPhone, email: c.contactEmail, payTermsDays: c.defaultPayTermsDays });
+  for (const c of records) {
+    const key = c.name.trim().toLowerCase();
+    out.set(key, {
+      name: c.name,
+      mc: c.mcNumber,
+      phone: c.contactPhone,
+      email: c.contactEmail,
+      payTermsDays: c.defaultPayTermsDays,
+      slowPay: payMap.get(key) ?? null
+    });
+  }
   for (const r of rows) {
     const name = r.brokerName?.trim();
-    if (name && !out.has(name.toLowerCase())) out.set(name.toLowerCase(), { name, mc: null, phone: null, email: null, payTermsDays: null });
+    if (name) {
+      const key = name.toLowerCase();
+      if (!out.has(key)) {
+        out.set(key, {
+          name,
+          mc: null,
+          phone: null,
+          email: null,
+          payTermsDays: null,
+          slowPay: payMap.get(key) ?? null
+        });
+      }
+    }
   }
   return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Open loads in need of a driver with an initial pickup stop, for backhaul discovery on quote. */
+export async function listOpenPickups(workspaceId = currentWorkspaceId()): Promise<OpenPickupCandidate[]> {
+  const loads = await prisma.load.findMany({
+    where: {
+      workspaceId,
+      deletedAt: null,
+      status: "draft"
+    },
+    select: {
+      id: true,
+      loadNumber: true,
+      stops: {
+        where: {
+          OR: [{ stopRole: "pickup" }, { stopSequence: 0 }]
+        },
+        orderBy: { stopSequence: "asc" },
+        take: 1,
+        select: {
+          addressString: true,
+          lat: true,
+          lng: true
+        }
+      }
+    },
+    take: 100
+  });
+
+  const candidates: OpenPickupCandidate[] = [];
+  for (const l of loads) {
+    const s = l.stops[0];
+    if (s && s.addressString) {
+      candidates.push({
+        loadId: l.id,
+        loadNumber: l.loadNumber ?? "Unnumbered",
+        address: s.addressString,
+        lat: numOrNull(s.lat),
+        lng: numOrNull(s.lng)
+      });
+    }
+  }
+  return candidates;
 }
 
 /** The customer record for a typed name (any capitals), or null. */

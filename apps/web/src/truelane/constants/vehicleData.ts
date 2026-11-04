@@ -1,4 +1,4 @@
-// VENDORED from TrueLane constants/vehicleData.ts @ a3a9c0f4. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane constants/vehicleData.ts @ ebdbdf81. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Static vehicle dataset: makes, models, years, and default specs.
  * Single source of truth for cascading Make -> Model -> Year picker and auto-fill.

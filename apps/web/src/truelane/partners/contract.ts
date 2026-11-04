@@ -1,4 +1,4 @@
-// VENDORED from TrueLane supabase/functions/_shared/partners/contract.ts @ 56845b0a+E3 (uncommitted in the phone repo). Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane supabase/functions/_shared/partners/contract.ts @ ebdbdf81. Do not edit; run scripts/vendor-truelane.mjs.
 // The partner-API contract: which capabilities TrueLane can hand to an outside company, which companies are candidates for each, the NAMES of the secrets
 // each one needs (never values), the status words, the packet a factor is sent, and the one result shape every partner function answers with.
 // PURE, NO IMPORTS: it runs in Deno (the Edge Functions), in the app's jest, and is vendored into the dispatch desk (scripts/vendor-truelane.mjs).

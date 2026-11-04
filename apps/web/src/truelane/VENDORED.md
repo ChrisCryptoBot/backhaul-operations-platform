@@ -1,6 +1,6 @@
 # Vendored TrueLane domain code
 
-Source: TrueLane checkout at commit `a3a9c0f422b753c81775bee1c159d66832b4db38`.
+Source: TrueLane checkout at commit `ebdbdf8168b3d6bdc61d1a23e1e384de3a37e589`.
 Refresh with `node scripts/vendor-truelane.mjs` (set `TRUELANE_ROOT` if the checkout is elsewhere), then run `npm test`.
 These are the same modules the phone uses for the break-even floor, the verdict, market variance, load economics, invoices and analytics.
 The golden tests in `tests/truelane-domain.test.ts` pin the figures on the TrueLane site ($650 over 545 mi = $1.19/mi, over 308 mi = $2.11/mi).
@@ -44,4 +44,4 @@ The golden tests in `tests/truelane-domain.test.ts` pin the figures on the TrueL
 - `constants/vehicleData.ts`
 - `utils/calculateHelpers.ts`
 - `supabase/functions/rate-con-extract/core.ts` (as `rate-con/core.ts`)
-- `supabase/functions/_shared/partners/contract.ts` (as `partners/contract.ts`; vendored alone in Wave E4 from the phone's working tree, the other files were not refreshed)
+- `supabase/functions/_shared/partners/contract.ts` (as `partners/contract.ts`)

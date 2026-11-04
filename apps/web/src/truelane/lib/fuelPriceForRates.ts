@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/fuelPriceForRates.ts @ a3a9c0f4. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/fuelPriceForRates.ts @ ebdbdf81. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Prefer fuel $/gal pinned at Accept when reopening a load (FINALIZATION §10m).
  * Live EIA / profile only win after the user confirms Repin this session.
