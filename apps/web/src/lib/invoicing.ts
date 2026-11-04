@@ -1,5 +1,5 @@
 import { invoiceTotalDue } from "@/truelane/lib/invoice";
-import { calendarDaysBetween } from "@/truelane/lib/domain/calendarDays";
+import { deskDaysBetween } from "./overdue";
 
 /**
  * Billing a delivered load: what must be true first, the lines that make the total, and the reminder to send when it is late. Pure, so the
@@ -69,6 +69,9 @@ const dollars = (raw: string): { n: number; bad: boolean } => {
   return { n: bad ? 0 : n, bad };
 };
 
+/** Names an invoice line already has (compared in lower case): an "other" charge may not take one of them. */
+export const RESERVED_LABELS = ["line haul", "tonu fee", "fuel surcharge", "detention", "lumper", "layover"];
+
 export function validateInvoice(form: InvoiceForm, ctx: InvoiceContext): InvoiceCheck {
   const errors: Record<string, string> = {};
   const number = form.number.trim();
@@ -85,6 +88,8 @@ export function validateInvoice(form: InvoiceForm, ctx: InvoiceContext): Invoice
   if (other.bad) errors.other = "Dollars and cents, 0 to 100,000.";
   if (other.n > 0 && form.otherLabel.trim() === "") errors.otherLabel = "Say what the extra charge is for.";
   if (form.otherLabel.trim().length > 40) errors.otherLabel = "40 characters at most.";
+  // A line called "Detention" or "Line haul" would be read as that charge (the detention billed, the rate) and could double a line already on the invoice.
+  if (other.n > 0 && RESERVED_LABELS.includes(form.otherLabel.trim().toLowerCase())) errors.otherLabel = "That name is already a line of its own. Use the field for it, or call this something else.";
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   const extras: InvoiceLine[] = [];
@@ -107,8 +112,21 @@ export function owedOf(invoiced: number | null, received: number | null): number
   return Math.max(0, cents(invoiced) - cents(received ?? 0)) / 100;
 }
 
+/** Terms in words: "Net 30", or "Due on receipt" for 0 days. */
+export const termsLabel = (days: number | null | undefined): string => (days === 0 ? "Due on receipt" : `Net ${days ?? 0}`);
+
 /** The default invoice number for a load. */
 export const defaultInvoiceNumber = (loadNumber: string | null, loadId: string) => `INV-${loadNumber ?? loadId.slice(-6)}`;
+
+/**
+ * The number to offer for an invoice: the load's own, or, when that number has already gone to a customer and been taken back (or is on another load), the next revision: INV-1234-2,
+ * INV-1234-3. A customer's payables will not take a second invoice under a number it has seen. `used` is every number to avoid, compared as typed.
+ */
+export function revisedInvoiceNumber(base: string, used: ReadonlySet<string>): string {
+  if (!used.has(base)) return base;
+  for (let n = 2; n < 200; n++) if (!used.has(`${base}-${n}`)) return `${base}-${n}`;
+  return `${base}-${used.size + 1}`;
+}
 
 /**
  * A reminder to send a broker whose invoice is past its terms, ready to paste into an email. Plain and polite, with every number the accounts
@@ -116,7 +134,7 @@ export const defaultInvoiceNumber = (loadNumber: string | null, loadId: string) 
  */
 export function reminderText(i: { broker: string | null; invoiceNumber: string | null; loadNumber: string | null; poNumber: string | null; amount: number; sent: Date; due: Date; now: Date; origin: string | null; destination: string | null }): string {
   const day = (d: Date) => d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Chicago" });
-  const late = Math.max(0, calendarDaysBetween(i.due.getTime(), i.now.getTime()));
+  const late = Math.max(0, deskDaysBetween(i.due, i.now));
   return [
     `Hello${i.broker ? ` ${i.broker} accounts team` : ""},`,
     "",

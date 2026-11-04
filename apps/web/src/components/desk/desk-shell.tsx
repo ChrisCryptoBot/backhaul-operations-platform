@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import React from "react";
 import { AuthSignOutButton } from "./auth-sign-out";
 import { BrandMark } from "./kit/brand-mark";
+import { SleepGuard } from "./splash";
 import { Icon, type IconName } from "./kit/icons";
 import { ToastProvider } from "./kit/toast";
 import { DraftScope } from "./kit/use-draft";
@@ -67,7 +68,7 @@ const NAV: Array<{ label: string; items: Item[] }> = [
 
 const SIDEBAR_COOKIE = "desk-sidebar";
 
-export function DeskShell({ children, drawer, data, initialCollapsed }: { children: React.ReactNode; drawer?: React.ReactNode; data: ShellData; initialCollapsed: boolean }) {
+export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinutes = 15 }: { children: React.ReactNode; drawer?: React.ReactNode; data: ShellData; initialCollapsed: boolean; sleepMinutes?: number }) {
   const underlay = useUnderlay();
   const router = useRouter();
   // With a load open in the drawer the URL is the load's, but the page you are on (and the sidebar item to light) is the one underneath.
@@ -263,6 +264,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed }: { childr
         </div>
       ) : null}
       {drawer}
+      <SleepGuard minutes={sleepMinutes} />
     </DraftScope>
     </ToastProvider>
   );

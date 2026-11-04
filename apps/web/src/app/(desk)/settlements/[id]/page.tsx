@@ -1,51 +1,115 @@
 import Link from "next/link";
-import { DocHead } from "@/components/desk/doc-head";
 import { notFound } from "next/navigation";
 import React from "react";
-import { getSettlement } from "@/server/tl/settlement";
-import { PageHead } from "@/components/desk/ui";
+import { DocHead } from "@/components/desk/doc-head";
+import { ReadOnlyBanner } from "@/components/desk/kit/read-only";
 import { PrintButton } from "@/components/desk/kpi/print-button";
-import { SettlementEditor, VoidStatement } from "@/components/desk/settlement-forms";
-import { dateTime, shortDate, usd } from "@/lib/desk-format";
+import { MarkSettlementPaid, SettlementEditor, VoidStatement } from "@/components/desk/settlement-forms";
+import { PageHead } from "@/components/desk/ui";
+import { dateTime, dayYear, shortDate, usd } from "@/lib/desk-format";
+import { paidMethodLabel } from "@/lib/pay-method";
+import { can, whoCan } from "@/lib/roles";
+import { checkAccess } from "@/server/tl/access";
+import { getSettlement } from "@/server/tl/settlement";
+import { currentTerminal } from "@/server/tl/terminal";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: { id: string } }) {
+  const terminal = await currentTerminal();
+  const s = await getSettlement(params.id, undefined, terminal);
+  return { title: s?.number ?? "Statement · TrueLane" };
+}
 
 /**
  * One statement. A draft is the editor. A finalized or voided one is the statement as it was frozen, on a sheet that prints or saves as a PDF:
  * who it is for, the period, each load and how its pay was worked out, the adjustments and the total.
  */
 export default async function StatementPage({ params }: { params: { id: string } }) {
-  const s = await getSettlement(params.id);
+  const terminal = await currentTerminal();
+  const [s, access] = await Promise.all([getSettlement(params.id, undefined, terminal), checkAccess("read")]);
   if (!s) notFound();
+  const me = access.ok ? access.identity : null;
+  const canBill = !!me && can(me.role, me.grants, "bill");
+  const canPayout = !!me && can(me.role, me.grants, "payout");
+  const canVoid = !!me && can(me.role, me.grants, "writeoff");
   const st = s.statement;
 
   if (s.status === "draft") {
     return (
       <>
-        <PageHead title={`Statement ${s.number}`} sub={`${s.driver.name} · ${s.periodLabel} · draft`}>
-          <Link href="/settlements" className="tl-btn">All statements</Link>
-        </PageHead>
-        <SettlementEditor id={s.id} number={s.number} driverName={s.driver.name} loads={s.loads} initialHours={s.hours} initialAdjustments={s.adjustmentRows} />
+        <div className="no-print">
+          <PageHead title={`Statement ${s.number}`} sub={`${s.driver.name} · ${s.periodLabel} · draft`}>
+            <Link href="/settlements" className="tl-btn">
+              All statements
+            </Link>
+            <PrintButton documentTitle={s.number} />
+          </PageHead>
+        </div>
+        <SettlementEditor
+          id={s.id}
+          number={s.number}
+          driverName={s.driver.name}
+          company={s.company}
+          periodLabel={s.periodLabel}
+          loads={s.loads}
+          initialHours={s.hours}
+          initialAdjustments={s.adjustmentRows}
+          canEdit={canBill}
+          who={whoCan("bill")}
+        />
       </>
     );
   }
 
+  const paidOut = !!(s.paidAt || s.payrollSentAt);
+  const stamp =
+    s.status === "void"
+      ? ({ text: "Void", tone: "bad" } as const)
+      : s.paidAt
+        ? ({ text: `Paid ${shortDate(s.paidAt)}${s.paidMethod ? ` · ${paidMethodLabel(s.paidMethod)}` : ""}`, tone: "good" } as const)
+        : s.payrollSentAt
+          ? ({ text: `Sent to payroll ${shortDate(s.payrollSentAt)}`, tone: "good" } as const)
+          : s.finalizedAt
+            ? ({ text: `Finalized ${shortDate(s.finalizedAt)}`, tone: "good" } as const)
+            : undefined;
+  const payoutText = s.paidAt
+    ? `Paid ${dayYear(s.paidAt)}${s.paidMethod ? ` by ${paidMethodLabel(s.paidMethod).toLowerCase()}` : ""}`
+    : s.payrollSentAt
+      ? `Sent to payroll ${dayYear(s.payrollSentAt)}${s.payrollReference ? ` (${s.payrollReference})` : ""}`
+      : null;
+
   return (
     <>
-      <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-        <Link href="/settlements" className="tl-btn">All statements</Link>
-        <PrintButton />
-        {s.status === "final" ? <VoidStatement id={s.id} number={s.number} /> : null}
+      {s.status === "final" && !canPayout && !canVoid ? (
+        <div className="no-print">
+          <ReadOnlyBanner who={whoCan("payout")} what="this statement" />
+        </div>
+      ) : null}
+      <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 16 }}>
+        <Link href="/settlements" className="tl-btn">
+          All statements
+        </Link>
+        <Link href={`/drivers/${s.driver.id}`} className="tl-btn">
+          Driver
+        </Link>
+        <PrintButton documentTitle={s.number} />
+        {s.status === "final" && !paidOut ? (
+          <>
+            {canPayout ? <MarkSettlementPaid id={s.id} number={s.number} driverName={s.driver.name} total={st.total} /> : null}
+            {canVoid ? <VoidStatement id={s.id} number={s.number} /> : canPayout ? <span className="tl-sub">Only an admin can void a finalized statement.</span> : null}
+          </>
+        ) : null}
       </div>
       <article className="rp">
         <DocHead
           kicker="Pay statement"
           number={s.number}
           company={s.company}
-          heroLabel="Net pay"
+          heroLabel="Gross pay"
           hero={usd(st.total, 2)}
           sub={`${s.driver.name} · ${s.periodLabel}`}
-          stamp={s.status === "void" ? { text: "Void", tone: "bad" } : s.finalizedAt ? { text: `Finalized ${shortDate(s.finalizedAt)}`, tone: "good" } : undefined}
+          stamp={stamp}
         />
         {s.status === "void" ? (
           <p className="rp-bad" role="status">
@@ -64,8 +128,14 @@ export default async function StatementPage({ params }: { params: { id: string }
               <th>Period</th>
               <td>{s.periodLabel}</td>
               <th>Finalized</th>
-              <td>{s.finalizedAt ? shortDate(s.finalizedAt) : "—"}</td>
+              <td>{s.finalizedAt ? dayYear(s.finalizedAt) : "—"}</td>
             </tr>
+            {payoutText ? (
+              <tr>
+                <th>Payout</th>
+                <td colSpan={5}>{payoutText}</td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
 
@@ -89,7 +159,7 @@ export default async function StatementPage({ params }: { params: { id: string }
                     {l.loadNumber ?? "—"}
                     <div className="rp-meta">{l.lane}</div>
                   </td>
-                  <td>{l.deliveredAt ? shortDate(l.deliveredAt) : "—"}</td>
+                  <td>{l.deliveredAt ? dayYear(l.deliveredAt) : "—"}</td>
                   <td>{l.basis}</td>
                   <td className="num">{l.amount == null ? "—" : usd(l.amount, 2)}</td>
                 </tr>

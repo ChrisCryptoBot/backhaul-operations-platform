@@ -24,13 +24,22 @@ const PATHS = {
   sun: "M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0-13v2m0 14v2M3 12h2m14 0h2M5.6 5.6 7 7m10 10 1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4",
   moon: "M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z",
   chevron: "M9 6l6 6-6 6",
+  chevronLeft: "M15 18l-6-6 6-6",
+  chevronRight: "M9 6l6 6-6 6",
+  chevronUp: "M18 15l-6-6-6 6",
+  chevronDown: "M6 9l6 6 6-6",
   bell: "M6 16v-5a6 6 0 1 1 12 0v5l2 2H4l2-2Zm4 4a2 2 0 0 0 4 0",
   history: "M3 12a9 9 0 1 0 3-6.7M3 4v5h5M12 8v5l3 2",
   calendar: "M4 6h16v14H4V6Zm0 4h16M8 3v4m8-4v4",
   calculator: "M6 3h12v18H6V3Zm2 4h8v3H8V7Zm0 6h2m3 0h3M8 17h2m3 0h3",
   building: "M5 21V4h9v17M14 9h5v12M8 8h3M8 12h3M8 16h3M3 21h18",
   wallet: "M3 7h15a3 3 0 0 1 3 3v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Zm0 0V6a2 2 0 0 1 2-2h11v3M16 14h2",
-  route: "M6 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm12-10a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM8 17h6.5a3 3 0 0 0 0-6h-5a3 3 0 0 1 0-6H16"
+    route: "M6 19a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm12-10a2 2 0 1 0 0-4 2 2 0 0 0 0 4ZM8 17h6.5a3 3 0 0 0 0-6h-5a3 3 0 0 1 0-6H16",
+  copy: "M8 4v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7.242a2 2 0 0 0-.602-1.43L16.08 2.57A2 2 0 0 0 14.68 2H10a2 2 0 0 0-2 2Zm-4 4h2v12h10v2H6a2 2 0 0 1-2-2V8Z",
+  rotate: "M21 12a9 9 0 1 1-9-9c2.52 0 4.8 1.04 6.44 2.72L21 8M21 3v5h-5",
+  zoomIn: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm9 3-4.5-4.5M11 8v6M8 11h6",
+  zoomOut: "M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm9 3-4.5-4.5M8 11h6",
+  help: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Zm0-6v.01M10.2 8.4a2 2 0 0 1 3.6 1.2c0 1.3-1.8 1.9-1.8 3.4"
 } as const;
 
 export type IconName = keyof typeof PATHS;

@@ -32,12 +32,12 @@ async function main() {
     const claimed = await tx.signupRequest.updateMany({ where: { id: req.id, status: { in: ["open", "contacted"] }, workspaceId: null }, data: { status: "provisioned" } });
     if (claimed.count !== 1) throw new Error("That request is no longer open (already provisioned, or declined).");
     const made = await tx.workspace.create({ data: { name: req.company, plan } });
-    // The person who asked is the desk's first owner. They sign in with this email and are on the desk; they add the rest of the team in Settings.
-    await tx.member.create({ data: { workspaceId: made.id, email: req.email.trim().toLowerCase(), name: req.name, role: "owner" } });
+    // The person who asked is the desk's first admin. They sign in with this email and are on the desk; they add the rest of the team in Settings.
+    await tx.member.create({ data: { workspaceId: made.id, email: req.email.trim().toLowerCase(), name: req.name, role: "admin" } });
     await tx.signupRequest.update({ where: { id: req.id }, data: { workspaceId: made.id } });
     return made;
   });
-  console.log(`Workspace ${ws.id} made for ${req.company} on the ${plan} plan (they say ${req.trucks ?? "?"} trucks; confirm it). Their email is the desk's first owner; they sign in with it. Nothing is sent to them.`);
+  console.log(`Workspace ${ws.id} made for ${req.company} on the ${plan} plan (they say ${req.trucks ?? "?"} trucks; confirm it). Their email is the desk's first admin; they sign in with it. Nothing is sent to them.`);
 }
 
 main()

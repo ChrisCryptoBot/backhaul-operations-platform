@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/session-cookie";
-import type { Role } from "@/lib/roles";
+import type { Grant, Role } from "@/lib/roles";
 import { clerkSeam } from "./clerk";
 import { verifySession } from "./session-token";
 
@@ -11,7 +11,8 @@ import { verifySession } from "./session-token";
  */
 export const authOn = (): boolean => process.env.DESK_AUTH === "on";
 
-export type Identity = { userId: string; workspaceId: string; role: Role; name: string; email: string | null };
+/** `grants` are what an admin gave the person on top of their role. The session cookie carries none: they are read from the member table on every check (access.ts). */
+export type Identity = { userId: string; workspaceId: string; role: Role; grants: Grant[]; name: string; email: string | null };
 
 /** The signed-in person, or null: not signed in to the provider, no desk session, a session made for someone else, a bad signature or an old one. Always null with sign-in off. */
 export function sessionIdentity(): Identity | null {
@@ -21,7 +22,7 @@ export function sessionIdentity(): Identity | null {
     if (!uid) return null;
     const p = verifySession(cookies().get(SESSION_COOKIE)?.value, process.env.DESK_SESSION_SECRET);
     if (!p || p.uid !== uid) return null;
-    return { userId: p.uid, workspaceId: p.ws, role: p.role, name: p.name, email: p.email };
+    return { userId: p.uid, workspaceId: p.ws, role: p.role, grants: [], name: p.name, email: p.email };
   } catch {
     return null;
   }

@@ -57,7 +57,7 @@ export type ThresholdField = { key: keyof Thresholds; label: string; unit: strin
 export const THRESHOLD_FIELDS: ThresholdField[] = [
   { key: "emptyAmberPct", label: "Empty miles turn amber at", unit: "%", min: 1, max: 99, step: 0.5, whole: false, hint: "Share of every mile driven that is empty." },
   { key: "emptyRedPct", label: "Empty miles turn red at", unit: "%", min: 1, max: 100, step: 0.5, whole: false, hint: "Must be above the amber line." },
-  { key: "defaultPayTermsDays", label: "Invoices are due after", unit: "days", min: 1, max: 120, step: 1, whole: true, hint: "Used when a load did not say." },
+  { key: "defaultPayTermsDays", label: "Invoices are due after", unit: "days", min: 0, max: 120, step: 1, whole: true, hint: "Used when a load did not say. 0 is due on receipt." },
   { key: "detentionGraceMinutes", label: "Free time at a dock", unit: "minutes", min: 0, max: 480, step: 15, whole: true, hint: "Waiting beyond this is detention." },
   { key: "pickupAlertHours", label: "Warn when a pickup with no driver is within", unit: "hours", min: 1, max: 168, step: 1, whole: true, hint: "Raises a block alert." },
   { key: "sentNoAnswerHours", label: "Warn when a sent load has no answer after", unit: "hours", min: 1, max: 72, step: 1, whole: true, hint: "Raises a warn alert." },

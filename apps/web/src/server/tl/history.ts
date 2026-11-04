@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { asHistoryFilter, asHistorySort, payRecord, PROFIT_SORT_WINDOW, PROFIT_SORTS, type HistoryFilter, type HistorySort, type PayRecord } from "@/lib/loads-history";
 import { boardRowOf, loadInclude, type BoardRow } from "./queries";
+import { terminalSql } from "./terminal-sql";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -67,17 +68,6 @@ const GROSS = Prisma.sql`(case when l.status = 'cancelled' then 0 when l.status 
 const PER_MILE = Prisma.sql`case when cp.id is null or l.status in ('tonu', 'cancelled') then null else ${GROSS} / nullif(l.pickup_deadhead_miles + l.loaded_miles + case when l.is_backhaul then 0 else l.return_deadhead_miles end, 0) end`;
 /** The Dallas calendar month a load is dated in, "2026-10": the same grouping the page draws. Dates are stored as UTC wall-clock, so they are read as UTC first. */
 const MONTH = Prisma.sql`to_char((${DATED} at time zone 'UTC') at time zone 'America/Chicago', 'YYYY-MM')`;
-
-/**
- * The terminal scope in SQL: the same loads as queries.ts inTerminal (on a truck or with a driver of that terminal, or not placed anywhere yet). Written as sets the database builds once
- * (`in (select ...)`), not a correlated test per load, which read every finished load for each of the three conditions.
- */
-const terminalSql = (terminal: string | null | undefined, workspaceId: string) =>
-  terminal
-    ? Prisma.sql` and (l.vehicle_id in (select tv.id from vehicles tv where tv.workspace_id = ${workspaceId} and tv.terminal = ${terminal})
-        or l.id in (select ta.load_id from assignments ta join drivers td on td.id = ta.driver_id where td.workspace_id = ${workspaceId} and td.terminal = ${terminal})
-        or (l.vehicle_id is null and l.id not in (select tn.load_id from assignments tn)))`
-    : Prisma.empty;
 
 function whereSql(workspaceId: string, q: string, lane?: string, terminal?: string | null) {
   const terms = q.split(/\s+/).map((t) => t.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")).filter(Boolean).slice(0, 6);

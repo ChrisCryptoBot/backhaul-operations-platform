@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  * Only trucks in service, a dozen at most, by name. With nothing typed the box offers the header's terminal; once the dispatcher types, the search reaches every terminal.
  */
 export async function GET(request: Request) {
-  const denied = await guardRoute("viewer");
+  const denied = await guardRoute("read");
   if (denied) return denied;
   const params = new URL(request.url).searchParams;
   const q = (params.get("q") ?? "").trim().slice(0, 60);

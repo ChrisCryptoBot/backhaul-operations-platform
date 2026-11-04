@@ -3,7 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * Nothing on the desk is reachable without being asked of the member table. Every server action starts with `requireMember`, every route handler with `guardRoute` (but the
+ * Nothing on the desk is reachable without being asked of the member table. Every server action starts with `requireCan`, every route handler with `guardRoute` (but the
  * two that make and end the session), and the desk layout with `requirePage`. A new action or route that skips the check is how the desk gets a hole, so this reads the source
  * and fails on one.
  */
@@ -27,31 +27,31 @@ describe("every server action asks who is calling", () => {
     expect(names.length).toBeGreaterThanOrEqual(55);
   });
 
-  it("starts each one with requireMember", () => {
+  it("starts each one with requireCan", () => {
     const bare = names.filter((n) => {
       const at = text.indexOf(`export async function ${n}`);
       const open = text.indexOf("{\n", text.indexOf(")", at));
       const next = text.slice(at).search(/\n(?=export |\/\/ ──)/);
       const body = text.slice(open, next < 0 ? undefined : at + next);
-      return !/^\{\n\s+await requireMember\("(viewer|dispatcher|owner)"\);/.test(body);
+      return !/^\{\n\s+await requireCan\("\w+"(, "\w+")*\);/.test(body);
     });
-    expect(bare, "Start the action with `await requireMember(role)` (src/server/tl/access.ts).").toEqual([]);
+    expect(bare, "Start the action with `await requireCan(capability)` (src/server/tl/access.ts; the capabilities are in src/lib/roles.ts).").toEqual([]);
   });
 
-  it("pins the role each Quote action needs: pricing is for a viewer, everything that writes is for a dispatcher", () => {
-    const roles: Record<string, "viewer" | "dispatcher"> = { priceQuoteAction: "viewer", listQuotesAction: "viewer", saveQuoteAction: "dispatcher", bookQuoteAction: "dispatcher", passQuoteAction: "dispatcher", discardQuoteAction: "dispatcher" };
-    for (const [n, role] of Object.entries(roles)) {
+  it("pins the capability each Quote action needs: pricing is for anyone who can read, everything that writes is for someone who may quote", () => {
+    const caps: Record<string, "read" | "quote"> = { priceQuoteAction: "read", listQuotesAction: "read", saveQuoteAction: "quote", bookQuoteAction: "quote", passQuoteAction: "quote", discardQuoteAction: "quote" };
+    for (const [n, cap] of Object.entries(caps)) {
       const at = text.indexOf(`export async function ${n}`);
       expect(at, n).toBeGreaterThan(-1);
-      expect(text.slice(at, at + 400), n).toContain(`requireMember("${role}")`);
+      expect(text.slice(at, at + 400), n).toContain(`requireCan("${cap}")`);
     }
   });
 
-  it("keeps the changes that reach the company, the rules, the connections and the team to owners", () => {
-    for (const n of ["saveThresholdsAction", "saveCompanyAction", "connectPartnerAction", "disconnectPartnerAction", "addMemberAction", "setMemberRoleAction", "removeMemberAction"]) {
+  it("keeps the changes that reach the company, the rules, the connections and the team to admins", () => {
+    for (const n of ["saveThresholdsAction", "saveCompanyAction", "connectPartnerAction", "disconnectPartnerAction", "addMemberAction", "setMemberRoleAction", "removeMemberAction", "setMemberGrantsAction"]) {
       const at = text.indexOf(`export async function ${n}`);
       expect(at, n).toBeGreaterThan(-1);
-      expect(text.slice(at, at + 600), n).toContain('requireMember("owner")');
+      expect(text.slice(at, at + 600), n).toContain('requireCan("admin")');
     }
   });
 });
@@ -65,7 +65,7 @@ describe("every route handler asks who is calling", () => {
   });
 
   it("guards each one, except the two that make and end the session", () => {
-    const bare = routes.filter((f) => !OPEN.has(rel(f))).filter((f) => !/await guardRoute\("(viewer|dispatcher|owner)"\)/.test(read(f))).map(rel);
+    const bare = routes.filter((f) => !OPEN.has(rel(f))).filter((f) => !/await guardRoute\("\w+"(, "\w+")*\)/.test(read(f))).map(rel);
     expect(bare, "Start the handler with `const denied = await guardRoute(role); if (denied) return denied;`").toEqual([]);
   });
 
@@ -76,7 +76,7 @@ describe("every route handler asks who is calling", () => {
 
 describe("the desk as a whole", () => {
   it("renders nothing for anyone who is not a member: the layout asks first", () => {
-    expect(read(path.join(SRC, "app", "(desk)", "layout.tsx"))).toMatch(/await requirePage\("viewer"\)[\s\S]*getShellData\(\)/);
+    expect(read(path.join(SRC, "app", "(desk)", "layout.tsx"))).toMatch(/await requirePage\("read"\)[\s\S]*getShellData\(\)/);
   });
 
   it("keeps who has asked for an account to the people who run TrueLane", () => {

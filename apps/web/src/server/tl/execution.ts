@@ -6,6 +6,10 @@ import { EXPENSE_ITEMS, otherExpenseTotal, validateComplete, validateCorrection,
 import { recordAudit } from "./audit";
 import { claimAssignment, claimLoad, LoadMoved } from "./claim";
 import { num } from "./convert";
+import { settlementOfLoad } from "./settlement";
+import { tripHoursOf } from "./dispatch";
+import { payEstimate, type PayKind } from "./projector";
+import { rateConTotal } from "@/lib/pay";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -280,6 +284,11 @@ export async function saveExpenses(loadId: string, values: ExpenseValues, now = 
   if (!["in_progress", "completed", "tonu"].includes(load.status)) return { ok: false, error: "A load has to be on the road, delivered or a TONU to have expenses." };
   const patch = extrasPatch(load, v);
   if (!patch.changed) return { ok: true, changed: false };
+  // The loaded miles are what a per-mile driver was paid on: once the load is on a final statement they stay as they were paid (the other figures do not change the pay).
+  if (patch.data.loadedMiles !== undefined) {
+    const settled = await settlementOfLoad(load.id);
+    if (settled) return { ok: false, error: `This load is on driver statement ${settled.number}, so its loaded miles are what the driver was paid on. Void the statement first to correct them.` };
+  }
   const was = num(load.expenseFuelActual) + num(load.expenseTolls) + num(load.expenseMisc);
   const now2 = v.fuel + v.tolls + otherExpenseTotal(v);
   const labels = Object.keys(patch.after);
@@ -288,6 +297,13 @@ export async function saveExpenses(loadId: string, values: ExpenseValues, now = 
     // Written only if the load is still as it was read: two people correcting the same trip do not overwrite each other.
     const claimed = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: null, status: load.status, updatedAt: load.updatedAt }, data: patch.data as Prisma.LoadUncheckedUpdateManyInput });
     if (claimed.count !== 1) throw new LoadMoved("This load was just changed by someone else. Reload it and try again.");
+    // The driver's pay estimate follows the miles actually driven: a per-mile estimate on the loaded miles, an hourly one on the trip's hours.
+    const a = load.assignment;
+    if (a && (patch.data.loadedMiles !== undefined || patch.data.pickupDeadheadMiles !== undefined || patch.data.returnDeadheadMiles !== undefined || patch.data.isBackhaul !== undefined) && (a.payKind === "cpm" || a.payKind === "hourly")) {
+      const now3 = { pickupDeadheadMiles: patch.data.pickupDeadheadMiles ?? load.pickupDeadheadMiles, loadedMiles: patch.data.loadedMiles ?? load.loadedMiles, returnDeadheadMiles: patch.data.returnDeadheadMiles ?? load.returnDeadheadMiles, isBackhaul: (patch.data.isBackhaul as boolean | undefined) ?? load.isBackhaul, estimatedLoadedHours: load.estimatedLoadedHours };
+      const refreshed = payEstimate({ kind: a.payKind as PayKind, rate: num(a.payRate) }, num(now3.loadedMiles as never), a.payKind === "hourly" ? tripHoursOf(now3) : null, rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge)));
+      await tx.assignment.update({ where: { loadId: load.id }, data: { payEstimate: refreshed } });
+    }
     await recordAudit(
       {
         entity: "load",

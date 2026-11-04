@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  * the server and nothing is stored. A screen fills a fuel box from this only when someone clicks.
  */
 export async function GET(request: Request) {
-  const denied = await guardRoute("dispatcher");
+  const denied = await guardRoute("quote", "figures");
   if (denied) return denied;
   const over = overBudget("eia");
   if (over) return over;

@@ -1,0 +1,921 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   TrueLane Dispatch Cockpit (Operational Inspection & Execution Console)
+   Function-first, high-density industrial interface.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+/* Header Deck */
+.cp-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-2);
+  width: 100%;
+}
+
+.cp-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--db-3);
+  flex-wrap: wrap;
+}
+
+.cp-id-group {
+  display: flex;
+  align-items: center;
+  gap: var(--db-2);
+}
+
+.cp-id-group h2 {
+  font-family: var(--db-font-head);
+  font-size: var(--db-text-2xl);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--db-fg);
+  margin: 0;
+}
+
+.cp-broker {
+  display: flex;
+  align-items: center;
+  gap: var(--db-2);
+  font-size: var(--db-text-sm);
+  color: var(--db-fg-dim);
+}
+
+.cp-broker strong {
+  color: var(--db-fg-mid);
+}
+
+/* Route Ribbon */
+.cp-ribbon {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--db-3);
+  padding: var(--db-2) var(--db-3);
+  background: var(--db-bg-card);
+  border: 1px solid var(--db-border-strong);
+  border-radius: var(--db-r-md);
+}
+
+.cp-ribbon-stop {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cp-ribbon-stop .cp-city {
+  font-size: var(--db-text-base);
+  font-weight: 700;
+  color: var(--db-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cp-ribbon-stop .cp-sub {
+  font-size: 11px;
+  color: var(--db-fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.cp-ribbon-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 0 var(--db-2);
+}
+
+.cp-ribbon-line {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--db-text-sm);
+  font-weight: 600;
+  color: var(--db-accent-fg);
+}
+
+.cp-ribbon-dh {
+  font-size: 11px;
+  color: var(--db-fg-dim);
+}
+
+/* Metrics Deck */
+.cp-metrics-bar {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 0;
+  background: var(--db-bg-card);
+  border: 1px solid var(--db-border);
+  border-radius: var(--db-r-md);
+  overflow: hidden;
+}
+
+.cp-metric {
+  display: flex;
+  flex-direction: column;
+  padding: var(--db-2) var(--db-3);
+  border-left: 1px solid var(--db-border-soft);
+}
+
+.cp-metric:first-child {
+  border-left: 0;
+}
+
+.cp-metric-val {
+  font-family: var(--db-font-head);
+  font-size: var(--db-text-2xl);
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--db-fg);
+}
+
+.cp-metric-val.ok { color: var(--db-pos); }
+.cp-metric-val.warn { color: var(--db-warn); }
+.cp-metric-val.bad { color: var(--db-neg); }
+
+.cp-metric-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--db-fg-dim);
+  margin-top: 4px;
+}
+
+.cp-metric-sub {
+  font-size: 12px;
+  color: var(--db-fg-mid);
+  margin-top: 2px;
+}
+
+/* Compliance Gates Strip */
+.cp-gates {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-top: 2px;
+}
+
+.cp-gate {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-family: var(--db-font-head);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid var(--db-border);
+  background: var(--db-bg-elev-2);
+  color: var(--db-fg-dim);
+}
+
+.cp-gate.ok {
+  border-color: var(--db-pos-edge, rgba(46, 204, 113, 0.4));
+  background: var(--db-pos-bg, rgba(46, 204, 113, 0.1));
+  color: var(--db-pos);
+}
+
+.cp-gate.warn {
+  border-color: var(--db-warn-edge, rgba(241, 196, 15, 0.4));
+  background: var(--db-warn-bg, rgba(241, 196, 15, 0.1));
+  color: var(--db-warn);
+}
+
+.cp-gate.bad {
+  border-color: var(--db-neg-edge, rgba(231, 76, 60, 0.4));
+  background: var(--db-neg-bg, rgba(231, 76, 60, 0.1));
+  color: var(--db-neg);
+}
+
+/* Pinned Console Dock & Strips */
+.dr-pinned-top {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  background: var(--db-bg-rail);
+  border-bottom: 1px solid var(--db-border-strong);
+  z-index: 10;
+}
+
+/* Remove horizontal line under header in pinned console dock so top container is not connected to it */
+.dr-pinned-top .dr-head {
+  border-bottom: none;
+  padding-bottom: var(--db-2);
+}
+
+.dr-deck-strip {
+  padding: var(--db-2) var(--db-5) var(--db-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-3);
+  background: var(--db-bg-rail);
+}
+
+.dr-nav-strip {
+  background: var(--db-bg-rail);
+  padding: 0 var(--db-5);
+  border-top: 1px solid var(--db-border-soft);
+}
+
+/* Deck Container on Full Page - ensures clean spacing between Route Ribbon and Metrics Deck */
+.cp-deck {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-3);
+  margin-bottom: var(--db-4);
+}
+
+/* Workbench Navigation Tabs */
+.cp-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  overflow-x: auto;
+}
+
+.cp-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 0 var(--db-3);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  background: transparent;
+  color: var(--db-fg-dim);
+  font-family: var(--db-font-head);
+  font-size: var(--db-text-sm);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.cp-tab-btn:hover {
+  color: var(--db-fg);
+}
+
+.cp-tab-btn[aria-selected="true"] {
+  color: var(--db-accent-fg);
+  border-bottom-color: var(--db-accent);
+}
+
+.cp-kbd {
+  display: inline-block;
+  padding: 1px 4px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 10px;
+  line-height: 1.2;
+  border: 1px solid var(--db-border-strong);
+  border-radius: 3px;
+  background: var(--db-bg-inset);
+  color: var(--db-fg-dim);
+}
+
+/* Tab Panels */
+.cp-panel[hidden] { display: none !important; }
+
+.cp-panel {
+  display: grid;
+  gap: var(--db-4);
+  animation: cp-fade 140ms ease-out;
+}
+
+@keyframes cp-fade {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Live Detention Stopwatch */
+.cp-detention-box {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--db-3);
+  align-items: center;
+  padding: var(--db-3);
+  border-radius: var(--db-r-md);
+  border: 1px solid var(--db-border-strong);
+  background: var(--db-bg-card);
+}
+
+.cp-detention-box.active-wait {
+  border-color: var(--db-accent);
+  background: color-mix(in srgb, var(--db-accent) 8%, var(--db-bg-card));
+}
+
+.cp-detention-box.billable-wait {
+  border-color: var(--db-neg);
+  background: color-mix(in srgb, var(--db-neg) 10%, var(--db-bg-card));
+}
+
+.cp-clock {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: var(--db-text-xl);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Driver Cab Dispatch Sheet (Replaces raw JSON) */
+.cp-cab-sheet {
+  display: grid;
+  gap: var(--db-3);
+  padding: var(--db-3);
+  background: var(--db-bg-inset);
+  border: 1px solid var(--db-border-strong);
+  border-radius: var(--db-r-md);
+}
+
+.cp-cab-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--db-border-soft);
+  padding-bottom: var(--db-2);
+}
+
+.cp-cab-sheet-head h4 {
+  margin: 0;
+  font-family: var(--db-font-head);
+  font-size: var(--db-text-sm);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--db-accent-fg);
+}
+
+/* Document Workbench Layout (Full Width, Zero Collisions) */
+.cp-doc-workbench,
+.cp-doc-split {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-4);
+  width: 100%;
+}
+
+.cp-doc-viewer {
+  border: 1px solid var(--db-border-strong);
+  border-radius: var(--db-r-md);
+  background: var(--db-bg-card);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.25);
+  width: 100%;
+}
+
+.cp-doc-viewer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--db-3);
+  padding: var(--db-2) var(--db-4);
+  background: var(--db-bg-rail);
+  border-bottom: 1px solid var(--db-border);
+  min-height: 46px;
+  flex-wrap: wrap;
+}
+
+.cp-doc-arrows {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cp-doc-arrows .dr-btn-icon.sm {
+  width: 28px;
+  height: 28px;
+}
+
+.cp-doc-counter {
+  font-family: var(--db-font-head);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--db-fg-dim);
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  padding: 0 4px;
+}
+
+.cp-doc-carousel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  padding: var(--db-2) var(--db-3);
+  background: var(--db-bg-inset);
+  border-bottom: 1px solid var(--db-border-soft);
+  scrollbar-width: thin;
+}
+
+.cp-doc-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: var(--db-r-md);
+  border: 1px solid var(--db-border);
+  background: var(--db-bg-card);
+  color: var(--db-fg-mid);
+  font-family: var(--db-font-head);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all 120ms ease;
+  flex-shrink: 0;
+}
+
+.cp-doc-pill:hover {
+  border-color: var(--db-border-lit);
+  color: var(--db-fg);
+  background: var(--db-bg-elev-2);
+}
+
+.cp-doc-pill[data-active="true"] {
+  border-color: var(--db-accent);
+  background: color-mix(in srgb, var(--db-accent) 12%, var(--db-bg-card));
+  color: var(--db-fg);
+  box-shadow: 0 0 0 1px var(--db-accent);
+}
+
+.cp-doc-frame-wrap {
+  position: relative;
+  width: 100%;
+  height: 540px;
+  background: #000;
+}
+
+.cp-doc-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+  display: block;
+}
+
+.cp-doc-empty {
+  display: grid;
+  place-items: center;
+  min-height: 360px;
+  color: var(--db-fg-dim);
+  padding: var(--db-6);
+  text-align: center;
+  background: var(--db-bg-card);
+}
+
+/* Document Packet Card */
+.cp-doc-packet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-3);
+  padding: var(--db-4);
+  background: var(--db-bg-card);
+  border: 1px solid var(--db-border-strong);
+  border-radius: var(--db-r-md);
+  width: 100%;
+}
+
+.cp-doc-packet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--db-border-soft);
+  padding-bottom: var(--db-2);
+}
+
+.cp-doc-packet-head h4 {
+  margin: 0;
+  font-family: var(--db-font-head);
+  font-size: var(--db-text-sm);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--db-accent-fg);
+}
+
+/* Margin Ledger */
+.cp-ledger {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--db-4);
+}
+
+@media (max-width: 768px) {
+  .cp-ledger {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cp-ledger-card {
+  padding: var(--db-3);
+  background: var(--db-bg-card);
+  border: 1px solid var(--db-border-strong);
+  border-radius: var(--db-r-md);
+}
+
+.cp-ledger-card h4 {
+  margin: 0 0 var(--db-2);
+  padding-bottom: var(--db-2);
+  border-bottom: 1px solid var(--db-border-soft);
+  font-family: var(--db-font-head);
+  font-size: var(--db-text-sm);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.cp-ledger-card.rev h4 { color: var(--db-pos); }
+.cp-ledger-card.exp h4 { color: var(--db-neg); }
+
+.cp-ledger-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: var(--db-3);
+  padding-top: var(--db-2);
+  border-top: 1px solid var(--db-border-strong);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.cp-net-summary {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--db-3) var(--db-4);
+  background: var(--db-bg-elev-2);
+  border: 1px solid var(--db-border-lit);
+  border-radius: var(--db-r-md);
+}
+
+/* Drawer Controls */
+.dr-ctrls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.dr-btn-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--db-border-strong);
+  border-radius: var(--db-r-md);
+  background: var(--db-bg-elev-2);
+  color: var(--db-fg-mid);
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.dr-btn-icon:hover {
+  background: var(--db-bg-elev-3);
+  color: var(--db-fg);
+  border-color: var(--db-accent);
+}
+
+.dr-nav-scrub {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  height: 28px;
+  font-size: 11px;
+  font-family: var(--db-font-head);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--db-fg-dim);
+}
+
+/* Full-Page Expanded Document Modal Overlay (Portaled) */
+.cp-doc-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.95);
+  backdrop-filter: blur(8px);
+  display: flex;
+  flex-direction: column;
+  animation: cp-fade 120ms ease-out;
+  overflow: hidden;
+}
+
+.cp-doc-modal-bar {
+  flex: none;
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px var(--db-5);
+  background: var(--db-bg-rail);
+  border-bottom: 1px solid var(--db-border-strong);
+  gap: var(--db-4);
+  flex-wrap: wrap;
+}
+
+.cp-doc-modal-icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--db-r-md);
+  background: var(--db-bg-elev-2);
+  border: 1px solid var(--db-border);
+  color: var(--db-accent-fg);
+  flex-shrink: 0;
+}
+
+.cp-doc-modal-body {
+  flex: 1;
+  position: relative;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  width: 100%;
+  height: calc(100vh - 64px);
+}
+
+.cp-doc-modal-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+  display: block;
+}
+
+/* Interactive Console Deck North/South Resizer Splitter */
+.dr-resizer {
+  position: relative;
+  height: 10px;
+  margin-top: -5px;
+  margin-bottom: -5px;
+  z-index: 25;
+  cursor: ns-resize;
+  cursor: row-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--db-dur-fast) ease;
+}
+
+.dr-resizer::after {
+  content: "";
+  display: block;
+  width: 56px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--db-border-strong);
+  transition: all var(--db-dur-fast) ease;
+}
+
+.dr-resizer:hover,
+.dr-resizer[data-dragging="true"] {
+  background: color-mix(in srgb, var(--db-accent) 16%, transparent);
+}
+
+.dr-resizer:hover::after,
+.dr-resizer[data-dragging="true"]::after {
+  width: 84px;
+  height: 4px;
+  background: var(--db-accent);
+  box-shadow: 0 0 8px var(--db-accent);
+}
+
+/* ───────────────────────────── Cockpit Extensions ───────────────────────────── */
+
+/* 1-Click Copy Affordance */
+.cp-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--db-r-sm);
+  background: transparent;
+  color: var(--db-fg-dim);
+  cursor: pointer;
+  transition: all 120ms ease;
+  flex-shrink: 0;
+}
+
+.cp-copy-btn:hover {
+  background: var(--db-bg-elev-2);
+  color: var(--db-accent-fg);
+  border-color: var(--db-border);
+}
+
+.cp-copy-btn[data-copied="true"] {
+  color: var(--db-pos);
+}
+
+/* Keyboard Shortcut Cheat Sheet Modal */
+.cp-kbd-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--db-4);
+  animation: cp-fade 120ms ease-out;
+}
+
+.cp-kbd-dialog {
+  width: min(500px, 100vw);
+  background: var(--db-bg-card);
+  border: 1px solid var(--db-border-strong);
+  border-radius: var(--db-r-lg);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+}
+
+.cp-kbd-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--db-3) var(--db-4);
+  background: var(--db-bg-rail);
+  border-bottom: 1px solid var(--db-border);
+}
+
+.cp-kbd-head h3 {
+  margin: 0;
+  font-family: var(--db-font-head);
+  font-size: var(--db-text-base);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--db-accent-fg);
+}
+
+.cp-kbd-list {
+  display: grid;
+  gap: 8px;
+  padding: var(--db-4);
+}
+
+.cp-kbd-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: var(--db-r-md);
+  background: var(--db-bg-inset);
+  border: 1px solid var(--db-border-soft);
+  font-size: 13px;
+  color: var(--db-fg);
+}
+
+/* Document Rotation & Zoom Controls */
+.cp-doc-ctrls {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.cp-doc-ctrl-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--db-border);
+  border-radius: var(--db-r-sm);
+  background: var(--db-bg-elev-1);
+  color: var(--db-fg-mid);
+  cursor: pointer;
+  transition: all 120ms ease;
+  font-size: 11px;
+}
+
+.cp-doc-ctrl-btn:hover {
+  background: var(--db-bg-elev-2);
+  color: var(--db-fg);
+  border-color: var(--db-accent);
+}
+
+/* Live Telemetry Radar on Route Ribbon */
+.cp-ribbon-telemetry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--db-accent) 12%, var(--db-bg-card));
+  border: 1px solid color-mix(in srgb, var(--db-accent) 30%, transparent);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--db-accent-fg);
+  white-space: nowrap;
+}
+
+.cp-telemetry-ping {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--db-accent);
+  box-shadow: 0 0 6px var(--db-accent);
+  animation: cp-pulse 2s infinite ease-in-out;
+}
+
+@keyframes cp-pulse {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.7; }
+}
+
+/* Partner Shelf Grid in Tab 4 */
+.cp-shelf-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--db-3);
+  margin-top: var(--db-3);
+}
+
+@media (max-width: 640px) {
+  .cp-shelf-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cp-shelf-card {
+  position: relative;
+  padding: var(--db-3) var(--db-4);
+  background: var(--db-bg-card);
+  border: 1px solid var(--db-border);
+  border-radius: var(--db-r-md);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cp-shelf-corner {
+  position: absolute;
+  color: var(--db-accent-fg);
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1;
+  user-select: none;
+  opacity: 0.6;
+}
+
+.cp-shelf-corner.tl { top: 2px; left: 4px; }
+.cp-shelf-corner.tr { top: 2px; right: 4px; }
+.cp-shelf-corner.bl { bottom: 2px; left: 4px; }
+.cp-shelf-corner.br { bottom: 2px; right: 4px; }
+
+.cp-shelf-title {
+  font-family: var(--db-font-head);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--db-fg);
+}
+
+.cp-shelf-tagline {
+  font-size: 11px;
+  color: var(--db-fg-dim);
+  margin-bottom: 4px;
+}
+
+.cp-shelf-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--db-accent-fg);
+  padding: 4px 8px;
+  background: var(--db-bg-inset);
+  border-radius: 4px;
+  border-left: 2px solid var(--db-accent);
+}

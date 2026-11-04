@@ -1,9 +1,11 @@
 import React from "react";
-import { QuoteDesk } from "@/components/desk/quote-desk";
+import { QuoteDesk, type FleetTruckOption } from "@/components/desk/quote-desk";
 import { PageHead } from "@/components/desk/ui";
 import { requirePage } from "@/server/tl/access";
-import { roleAtLeast } from "@/lib/roles";
+import { can } from "@/lib/roles";
 import { brokerNames, getQuote, getQuoteLike, listQuotes } from "@/server/tl/quote";
+import { prisma } from "@/lib/db";
+import { currentWorkspaceId } from "@/server/tl/workspace";
 
 export const metadata = { title: "Quote a load · TrueLane" };
 
@@ -12,10 +14,34 @@ const first = (v: string | string[] | undefined): string | null => (Array.isArra
 
 export default async function QuotePage({ searchParams }: { searchParams: { quote?: string | string[]; like?: string | string[] } }) {
   // A viewer can price a quote but not save, book or pass on it: the page says so instead of failing when they try.
-  const me = await requirePage("viewer");
+  const me = await requirePage("read");
   const id = first(searchParams.quote);
   const likeId = id ? null : first(searchParams.like);
-  const [quotes, brokers, saved, like] = await Promise.all([listQuotes(undefined, { status: "open" }), brokerNames(), id ? getQuote(id) : null, likeId ? getQuoteLike(likeId) : null]);
+  const [quotes, brokers, saved, like, fleetRaw] = await Promise.all([
+    listQuotes(undefined, { status: "open" }),
+    brokerNames(),
+    id ? getQuote(id) : null,
+    likeId ? getQuoteLike(likeId) : null,
+    prisma.vehicle.findMany({
+      where: { workspaceId: currentWorkspaceId(), archivedAt: null },
+      include: {
+        costProfile: true,
+        drivers: { where: { active: true }, orderBy: { name: "asc" } }
+      },
+      orderBy: { name: "asc" }
+    })
+  ]);
+
+  const fleet: FleetTruckOption[] = fleetRaw.map((v) => ({
+    id: v.id,
+    name: v.name ?? "Unnamed truck",
+    type: v.type,
+    terminal: v.terminal,
+    homeBaseAddress: v.homeBaseAddress,
+    hasCostProfile: !!v.costProfile,
+    drivers: v.drivers.map((d) => ({ id: d.id, name: d.name }))
+  }));
+
   const initial = saved && id ? { id, ...saved } : like ? { id: null, values: like, vehicleId: null, passedFor: null } : null;
   return (
     <>
@@ -25,7 +51,7 @@ export default async function QuotePage({ searchParams }: { searchParams: { quot
           That quote is not here any more: it was booked, thrown away, or the link is old. Look for a booked one on the board.
         </p>
       ) : null}
-      <QuoteDesk key={id ?? (likeId ? `like-${likeId}` : "new")} quotes={quotes} brokers={brokers} initial={initial} canWrite={roleAtLeast(me.role, "dispatcher")} />
+      <QuoteDesk key={id ?? (likeId ? `like-${likeId}` : "new")} quotes={quotes} brokers={brokers} initial={initial} canWrite={can(me.role, me.grants, "quote")} fleet={fleet} />
     </>
   );
 }

@@ -2,12 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { DENSITY_COOKIE, THEME_COOKIE, asDensity, asTheme } from "@/lib/appearance";
+import { DENSITY_COOKIE, SLEEP_COOKIE, THEME_COOKIE, asDensity, asSleepMinutes, asTheme } from "@/lib/appearance";
 import { redirect, RedirectType } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireMember } from "@/server/tl/access";
+import { requireCan } from "@/server/tl/access";
 import { removeLoadDocument, type DocResult } from "@/server/tl/documents";
-import { addMember, removeMember, setMemberRole, type MemberResult } from "@/server/tl/members";
+import { addMember, setMemberGrants, removeMember, setMemberRole, type MemberResult } from "@/server/tl/members";
 import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
 import { cancelLoad, recordTonu, reopenCancelled, rescheduleLoad } from "@/server/tl/disruptions";
 import { invoiceLoad, markLoadPaid } from "@/server/tl/invoicing";
@@ -40,9 +40,12 @@ import { markThreadRead, sendMessage, type SendResult as SendMessageResult } fro
 import { commitImport, locateHomeBases, previewImport, type ImportPreview, type ImportResult, type LocateResult } from "@/server/tl/import";
 import type { ImportKind } from "@/lib/import-csv";
 import { deleteLoad, restoreLoad, type RemoveResult } from "@/server/tl/remove";
+import { saveBillingDetails, type BillingResult } from "@/server/tl/billing-details";
+import type { BillingDetailsValues } from "@/lib/billing-details";
 import { completeTrip, correctTrip, reopenDelivered, saveExpenses, startTrip, undoStartTrip, type TripResult } from "@/server/tl/execution";
-import { undoPaid, voidInvoice, type InvoiceOut, type PaidOut } from "@/server/tl/invoicing";
-import { discardSettlement, finalizeSettlement, saveDraft, startSettlement, voidSettlement, type Draft, type SettleResult } from "@/server/tl/settlement";
+import { undoPaid, recordChase, voidInvoice, type InvoiceOut, type PaidOut } from "@/server/tl/invoicing";
+import { waiveDetention } from "@/server/tl/detention";
+import { discardSettlement, finalizeSettlement, markSettlementPaid, saveDraft, startSettlement, voidSettlement, type Draft, type SettleResult } from "@/server/tl/settlement";
 import { checkAttachment } from "@/lib/attachments";
 import { readRateCon } from "@/server/ratecon/reader";
 import { claimRead, noteRead, readMeter } from "@/server/ratecon/meter";
@@ -80,7 +83,7 @@ async function attempt(loadId: string, fn: () => Promise<string>): Promise<never
 }
 
 export async function assignAction(formData: FormData) {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const loadId = String(formData.get("loadId"));
   await attempt(loadId, async () => {
     const rate = Number(formData.get("rate"));
@@ -96,20 +99,20 @@ export async function assignAction(formData: FormData) {
 
 /** Who could take a load, with the best fits first: the data behind the Assign window on the dispatch queue and the planner. Reads only. */
 export async function assignOptionsAction(loadId: string): Promise<AssignOptions | null> {
-  await requireMember("viewer");
+  await requireCan("read");
   return assignOptions(loadId);
 }
 
 /** Assign from the queue or the planner. Answers in place (no redirect), and everything that shows a load looks again. */
 export async function assignFromQueueAction(input: { loadId: string; driverId: string; payKind: string; rate: string; overrideReason?: string }): Promise<AssignOutcome> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await assignFromQueue(input);
   if (out.ok) refreshLoads();
   return out;
 }
 
 export async function unassignAction(formData: FormData) {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const loadId = String(formData.get("loadId"));
   await attempt(loadId, async () => {
     await unassignLoad(loadId, String(formData.get("reason") ?? ""));
@@ -118,7 +121,7 @@ export async function unassignAction(formData: FormData) {
 }
 
 export async function sendAction(formData: FormData) {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const loadId = String(formData.get("loadId"));
   const sendAnyway = formData.get("sendAnyway") === "1";
   await attempt(loadId, async () => {
@@ -132,7 +135,7 @@ export async function sendAction(formData: FormData) {
 }
 
 export async function respondAction(formData: FormData) {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const loadId = String(formData.get("loadId"));
   const answer = formData.get("response");
   const response = answer === "declined" ? "declined" : "accepted";
@@ -152,7 +155,7 @@ export async function respondAction(formData: FormData) {
 const text = (formData: FormData, key: string) => String(formData.get(key) ?? "");
 
 export async function cancelAction(formData: FormData) {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const loadId = text(formData, "loadId");
   await attempt(loadId, async () => {
     await cancelLoad({ loadId, reason: text(formData, "reason"), note: text(formData, "note") });
@@ -161,7 +164,7 @@ export async function cancelAction(formData: FormData) {
 }
 
 export async function tonuAction(formData: FormData) {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const loadId = text(formData, "loadId");
   await attempt(loadId, async () => {
     await recordTonu({ loadId, reason: text(formData, "reason"), note: text(formData, "note"), fee: Number(text(formData, "fee")) });
@@ -170,7 +173,7 @@ export async function tonuAction(formData: FormData) {
 }
 
 export async function rescheduleAction(formData: FormData) {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const loadId = text(formData, "loadId");
   await attempt(loadId, async () => {
     const at = parseCentralLocal(text(formData, "pickup"));
@@ -194,7 +197,7 @@ function toDto(d: RateConLoadDraft): DraftDto {
 export type ReadResult = { ok: true; source: "demo" | "live"; fileName: string; draft: DraftDto } | { ok: false; reason: string };
 
 export async function readSampleRateConAction(fileName: string): Promise<ReadResult> {
-  await requireMember("viewer");
+  await requireCan("read");
   const out = await readRateCon({ fileName });
   return out.ok ? { ok: true, source: out.source, fileName, draft: toDto(out.draft) } : { ok: false, reason: out.reason };
 }
@@ -204,7 +207,7 @@ const MAX_RATE_CON_BYTES = 10 * 1024 * 1024;
 
 /** A file chosen or dropped on the page. A sample's name still reads without a key; anything else needs one. */
 export async function readUploadedRateConAction(formData: FormData): Promise<ReadResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) return { ok: false, reason: "unreadable" };
   if (file.size > MAX_RATE_CON_BYTES) return { ok: false, reason: "too_big" };
@@ -227,7 +230,7 @@ export async function readUploadedRateConAction(formData: FormData): Promise<Rea
 }
 
 export async function saveRateConAction(dto: DraftDto, confirmed: boolean, vehicleId: string | null = null, fileName: string | null = null, allowDuplicate = false): Promise<{ ok: true; loadId: string } | { ok: false; error: string; duplicateOf?: string }> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   try {
     const draft: ReviewedDraft = {
       ...dto,
@@ -257,42 +260,42 @@ export async function saveRateConAction(dto: DraftDto, confirmed: boolean, vehic
 const refreshFleet = () => revalidatePath("/", "layout");
 
 export async function saveDriverAction(values: Record<string, string>, id: string | null): Promise<SaveResult<keyof DriverValues>> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await saveDriver(values, id);
   if (out.ok) refreshFleet();
   return out;
 }
 
 export async function setDriverActiveAction(id: string, active: boolean): Promise<ActResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await setDriverActive(id, active);
   if (out.ok) refreshFleet();
   return out;
 }
 
 export async function saveTruckAction(values: Record<string, string>, id: string | null): Promise<SaveResult<keyof TruckValues>> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await saveTruck(values, id);
   if (out.ok) refreshFleet();
   return out;
 }
 
 export async function setTruckArchivedAction(id: string, archived: boolean): Promise<ActResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await setTruckArchived(id, archived);
   if (out.ok) refreshFleet();
   return out;
 }
 
 export async function saveTrailerAction(values: Record<string, string>, id: string | null): Promise<TrailerSaveResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await saveTrailer(values, id);
   if (out.ok) refreshFleet();
   return out;
 }
 
 export async function setTrailerArchivedAction(id: string, archived: boolean): Promise<ActResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await setTrailerArchived(id, archived);
   if (out.ok) refreshFleet();
   return out;
@@ -300,7 +303,7 @@ export async function setTrailerArchivedAction(id: string, archived: boolean): P
 
 /** Hook a trailer to a tractor (by the tractor's id), or unhook it with an empty id. */
 export async function hookTrailerAction(id: string, vehicleId: string): Promise<ActResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await hookTrailer(id, vehicleId || null);
   if (out.ok) refreshFleet();
   return out;
@@ -308,7 +311,7 @@ export async function hookTrailerAction(id: string, vehicleId: string): Promise<
 
 /** Put a trailer on a load, or take it off with an empty id. */
 export async function assignTrailerAction(loadId: string, trailerId: string): Promise<AssignTrailerResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await assignTrailerToLoad(loadId, trailerId || null);
   if (out.ok) {
     revalidatePath("/loads", "layout");
@@ -318,7 +321,7 @@ export async function assignTrailerAction(loadId: string, trailerId: string): Pr
 }
 
 export async function saveCostProfileAction(vehicleId: string, values: Record<string, string>): Promise<SaveResult<ProfileKey> & { floors?: { breakEven: number; survival: number } }> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await saveCostProfile(vehicleId, values);
   if (out.ok) refreshFleet();
   return out;
@@ -328,7 +331,7 @@ export async function saveCostProfileAction(vehicleId: string, values: Record<st
 
 /** Checks and saves the thresholds the form sent. Everything that reads them (alerts, the KPI lines, invoice terms) refreshes. */
 export async function saveThresholdsAction(values: Record<string, string>): Promise<{ ok: true; changed: boolean } | { ok: false; errors: Partial<Record<keyof Thresholds, string>> }> {
-  await requireMember("owner");
+  await requireCan("admin");
   const out = await saveThresholds(values);
   if (!out.ok) return { ok: false, errors: out.errors };
   revalidatePath("/", "layout");
@@ -337,7 +340,7 @@ export async function saveThresholdsAction(values: Record<string, string>): Prom
 
 /** The company on invoices and statements. Both sheets read it, so they refresh with the layout. */
 export async function saveCompanyAction(values: CompanyValues): Promise<{ ok: true; changed: boolean } | { ok: false; errors: Partial<Record<keyof CompanyValues, string>> }> {
-  await requireMember("owner");
+  await requireCan("admin");
   const out = await saveCompany(values);
   if (!out.ok) return { ok: false, errors: out.errors };
   revalidatePath("/", "layout");
@@ -346,7 +349,7 @@ export async function saveCompanyAction(values: CompanyValues): Promise<{ ok: tr
 
 /** A customer's record. Its name is on loads, so everything that shows a load or a customer looks again. */
 export async function saveCustomerAction(values: CustomerValues, id: string | null): Promise<SaveCustomerResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch", "billing_details");
   const out = await saveCustomer(values, id);
   if (out.ok && out.changed) refreshLoads();
   return out;
@@ -356,13 +359,15 @@ export async function saveCustomerAction(values: CustomerValues, id: string | nu
 
 /** Saves the theme and/or density in cookies (read by the root layout) and returns to Settings with a note. */
 export async function setAppearanceAction(formData: FormData) {
-  await requireMember("viewer");
+  await requireCan("read");
   const jar = cookies();
   const theme = formData.get("theme");
   const density = formData.get("density");
   const year = 60 * 60 * 24 * 365;
   if (typeof theme === "string") jar.set(THEME_COOKIE, asTheme(theme), { path: "/", maxAge: year, sameSite: "lax" });
   if (typeof density === "string") jar.set(DENSITY_COOKIE, asDensity(density), { path: "/", maxAge: year, sameSite: "lax" });
+  const sleep = formData.get("sleep");
+  if (typeof sleep === "string") jar.set(SLEEP_COOKIE, String(asSleepMinutes(sleep)), { path: "/", maxAge: year, sameSite: "lax" });
   revalidatePath("/", "layout");
   redirect("/settings?note=" + encodeURIComponent("Appearance saved."));
 }
@@ -373,7 +378,7 @@ export type PricedQuote = { ok: true; fit: FitResult; context: QuoteContext; war
 
 /** The offer priced as you type: every truck and driver, plus what the desk already knows about the lane and the broker. Writes nothing. */
 export async function priceQuoteAction(values: QuoteValues): Promise<PricedQuote> {
-  await requireMember("viewer");
+  await requireCan("read");
   const input = readQuote(values);
   if (!input) return { ok: false };
   const [fit, context] = await Promise.all([fitQuote(input, undefined, undefined, await currentTerminal()), quoteContext(input)]);
@@ -382,19 +387,19 @@ export async function priceQuoteAction(values: QuoteValues): Promise<PricedQuote
 
 /** Saved quotes, a page at a time, for the list's search and filter. */
 export async function listQuotesAction(q: string, status: "open" | "passed" | "all", offset: number): Promise<{ rows: QuoteListRow[]; total: number }> {
-  await requireMember("viewer");
+  await requireCan("read");
   return listQuotes(undefined, { q, status, offset });
 }
 
 export async function saveQuoteAction(values: QuoteValues, quoteId: string | null, vehicleId: string | null): Promise<QuoteSave> {
-  await requireMember("dispatcher");
+  await requireCan("quote");
   const out = await saveQuote(values, quoteId, vehicleId);
   if (out.ok) revalidatePath("/quote");
   return out;
 }
 
 export async function bookQuoteAction(values: QuoteValues, pick: { vehicleId: string; driverId: string | null }, override: Override | null, quoteId: string | null): Promise<BookResult> {
-  await requireMember("dispatcher");
+  await requireCan("quote");
   const out = await bookQuote(values, pick, override, quoteId);
   if (out.ok) {
     for (const path of ["/quote", "/loads", "/dispatch", "/planner", "/alerts", "/audit", "/kpi"]) revalidatePath(path);
@@ -404,7 +409,7 @@ export async function bookQuoteAction(values: QuoteValues, pick: { vehicleId: st
 }
 
 export async function passQuoteAction(id: string, reason: string, notes: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  await requireMember("dispatcher");
+  await requireCan("quote");
   const out = await passQuote(id, reason, notes);
   if (out.ok) {
     revalidatePath("/quote");
@@ -414,7 +419,7 @@ export async function passQuoteAction(id: string, reason: string, notes: string)
 }
 
 export async function discardQuoteAction(id: string): Promise<{ ok: boolean }> {
-  await requireMember("dispatcher");
+  await requireCan("quote");
   const ok = await discardQuote(id);
   if (ok) revalidatePath("/quote");
   return { ok };
@@ -429,35 +434,42 @@ function refreshLoads() {
 }
 
 export async function saveLoadDetailsAction(loadId: string, values: LoadEditValues): Promise<EditResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await saveLoadDetails(loadId, values);
   if (out.ok && out.changed) refreshLoads();
   return out;
 }
 
+export async function saveBillingDetailsAction(loadId: string, values: BillingDetailsValues): Promise<BillingResult> {
+  await requireCan("billing_details");
+  const out = await saveBillingDetails(loadId, values);
+  if (out.ok && out.changed) refreshLoads();
+  return out;
+}
+
 export async function deleteLoadAction(loadId: string, reason: string, note: string): Promise<RemoveResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await deleteLoad({ loadId, reason, note });
   if (out.ok) refreshLoads();
   return out;
 }
 
 export async function restoreLoadAction(loadId: string): Promise<RemoveResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await restoreLoad(loadId);
   if (out.ok) refreshLoads();
   return out;
 }
 
 export async function startTripAction(loadId: string, values: StartValues): Promise<TripResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await startTrip(loadId, values);
   if (out.ok) refreshLoads();
   return out;
 }
 
 export async function undoStartAction(formData: FormData) {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const loadId = String(formData.get("loadId"));
   await attempt(loadId, async () => {
     const out = await undoStartTrip(loadId, String(formData.get("reason") ?? ""));
@@ -467,7 +479,7 @@ export async function undoStartAction(formData: FormData) {
 }
 
 export async function reopenDeliveredAction(formData: FormData) {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const loadId = String(formData.get("loadId"));
   await attempt(loadId, async () => {
     const out = await reopenDelivered(loadId, String(formData.get("reason") ?? ""));
@@ -477,7 +489,7 @@ export async function reopenDeliveredAction(formData: FormData) {
 }
 
 export async function reopenCancelledAction(formData: FormData) {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const loadId = String(formData.get("loadId"));
   await attempt(loadId, async () => {
     await reopenCancelled({ loadId, reason: String(formData.get("reason") ?? "") });
@@ -486,28 +498,28 @@ export async function reopenCancelledAction(formData: FormData) {
 }
 
 export async function completeTripAction(loadId: string, values: CompleteValues): Promise<TripResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await completeTrip(loadId, values);
   if (out.ok) refreshLoads();
   return out;
 }
 
 export async function correctTripAction(loadId: string, values: CorrectValues): Promise<TripResult & { changed?: boolean }> {
-  await requireMember("dispatcher");
+  await requireCan("figures");
   const out = await correctTrip(loadId, values);
   if (out.ok && out.changed) refreshLoads();
   return out;
 }
 
 export async function saveExpensesAction(loadId: string, values: ExpenseValues): Promise<TripResult & { changed?: boolean }> {
-  await requireMember("dispatcher");
+  await requireCan("figures");
   const out = await saveExpenses(loadId, values);
   if (out.ok && out.changed) refreshLoads();
   return out;
 }
 
 export async function invoiceLoadAction(loadId: string, form: InvoiceForm): Promise<InvoiceOut> {
-  await requireMember("dispatcher");
+  await requireCan("bill");
   const out = await invoiceLoad(loadId, { form });
   if (out.ok) refreshLoads();
   return out;
@@ -515,7 +527,9 @@ export async function invoiceLoadAction(loadId: string, form: InvoiceForm): Prom
 
 /** Mark an invoice paid with the amount that came in; blank means the invoice total. */
 export async function paidAction(loadId: string, amount: string, paidOn = "", method = "", shortAction: "balance" | "writeoff" = "balance", shortReason = ""): Promise<PaidOut> {
-  await requireMember("dispatcher");
+  await requireCan("bill");
+  // Money that will never come in is written off by an admin; a person who only bills records what was received and leaves the rest owing.
+  if (shortAction === "writeoff") await requireCan("writeoff");
   const text = amount.trim().replace(/,/g, "");
   const typed = text === "" ? undefined : Number(text);
   const out = await markLoadPaid(loadId, new Date(), { amount: typed, paidOn, method, shortAction: shortAction === "writeoff" ? "writeoff" : "balance", shortReason });
@@ -524,7 +538,7 @@ export async function paidAction(loadId: string, amount: string, paidOn = "", me
 }
 
 export async function voidInvoiceAction(formData: FormData) {
-  await requireMember("dispatcher");
+  await requireCan("bill");
   const loadId = String(formData.get("loadId"));
   await attempt(loadId, async () => {
     const out = await voidInvoice(loadId, String(formData.get("reason") ?? ""));
@@ -533,8 +547,25 @@ export async function voidInvoiceAction(formData: FormData) {
   });
 }
 
+export async function chasedAction(loadId: string, how: "email" | "phone"): Promise<{ ok: boolean; error?: string }> {
+  await requireCan("bill");
+  const out = await recordChase(loadId, how === "phone" ? "phone" : "email");
+  if (out.ok) revalidatePath("/invoices");
+  return out;
+}
+
+export async function waiveDetentionAction(loadId: string, reason: string): Promise<{ ok: boolean; error?: string }> {
+  await requireCan("bill");
+  const out = await waiveDetention(loadId, reason);
+  if (out.ok) {
+    refreshLoads();
+    revalidatePath("/invoices");
+  }
+  return out;
+}
+
 export async function undoPaidAction(formData: FormData) {
-  await requireMember("dispatcher");
+  await requireCan("bill");
   const loadId = String(formData.get("loadId"));
   await attempt(loadId, async () => {
     const out = await undoPaid(loadId, String(formData.get("reason") ?? ""));
@@ -552,35 +583,42 @@ function refreshSettlements(id?: string) {
 }
 
 export async function startSettlementAction(input: { driverId: string; start: string; end: string }): Promise<SettleResult> {
-  await requireMember("dispatcher");
+  await requireCan("bill");
   const out = await startSettlement(input);
   if (out.ok) refreshSettlements();
   return out;
 }
 
 export async function saveSettlementAction(id: string, draft: Draft): Promise<SettleResult> {
-  await requireMember("dispatcher");
+  await requireCan("bill");
   const out = await saveDraft(id, draft);
   if (out.ok) refreshSettlements(id);
   return out;
 }
 
-export async function finalizeSettlementAction(id: string, draft: Draft): Promise<SettleResult> {
-  await requireMember("dispatcher");
-  const out = await finalizeSettlement(id, draft);
+export async function finalizeSettlementAction(id: string, draft: Draft, confirmedTotal: number | null = null): Promise<SettleResult> {
+  await requireCan("bill");
+  const out = await finalizeSettlement(id, draft, new Date(), undefined, confirmedTotal);
+  if (out.ok) refreshSettlements(id);
+  return out;
+}
+
+export async function markSettlementPaidAction(id: string, paidOn: string, method: string): Promise<SettleResult> {
+  await requireCan("payout");
+  const out = await markSettlementPaid(id, { paidOn, method });
   if (out.ok) refreshSettlements(id);
   return out;
 }
 
 export async function voidSettlementAction(id: string, reason: string): Promise<SettleResult> {
-  await requireMember("dispatcher");
+  await requireCan("writeoff");
   const out = await voidSettlement(id, reason);
   if (out.ok) refreshSettlements(id);
   return out;
 }
 
 export async function discardSettlementAction(id: string): Promise<SettleResult> {
-  await requireMember("dispatcher");
+  await requireCan("bill");
   const out = await discardSettlement(id);
   if (out.ok) refreshSettlements();
   return out;
@@ -592,7 +630,7 @@ const asKind = (k: unknown): ImportKind | null => (k === "trucks" || k === "driv
 
 /** Reads a CSV and says what would be imported and what would not. Writes nothing. */
 export async function previewImportAction(kind: ImportKind, text: string): Promise<ImportPreview> {
-  await requireMember("viewer");
+  await requireCan("read");
   const k = asKind(kind);
   if (!k || typeof text !== "string") return { ok: false, error: "That is not a file the desk can read." };
   return previewImport(k, text);
@@ -600,7 +638,7 @@ export async function previewImportAction(kind: ImportKind, text: string): Promi
 
 /** Imports the rows that pass, 500 at a time, with one entry in the audit log. */
 export async function commitImportAction(kind: ImportKind, text: string, fileName: string): Promise<ImportResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const k = asKind(kind);
   if (!k || typeof text !== "string") return { ok: false, error: "That is not a file the desk can read." };
   const out = await commitImport(k, text, typeof fileName === "string" ? fileName : "");
@@ -610,7 +648,7 @@ export async function commitImportAction(kind: ImportKind, text: string, fileNam
 
 /** Finds the next few trucks' home bases on the map; the screen calls it again with `next` until there is none. */
 export async function locateHomeBasesAction(after: string | null): Promise<LocateResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await locateHomeBases(typeof after === "string" ? after : null);
   if (out.located > 0) revalidatePath("/fleet");
   return out;
@@ -620,14 +658,14 @@ export async function locateHomeBasesAction(after: string | null): Promise<Locat
 
 /** The factor's answer, entered by hand until a webhook is connected (the status only moves one allowed step; see FACTORING_NEXT). */
 export async function factoringUpdateAction(loadId: string, status: string): Promise<{ ok: boolean; error?: string }> {
-  await requireMember("dispatcher");
+  await requireCan("bill");
   const moved = await applyFactoringUpdate(loadId, status, null);
   if (moved) refreshLoads();
   return moved ? { ok: true } : { ok: false, error: "That is not a step this invoice can take from where it is. Reload to see its status." };
 }
 
 export async function factorInvoiceAction(loadId: string, sendAnyway: boolean): Promise<FactorResult> {
-  await requireMember("dispatcher");
+  await requireCan("bill");
   const out = await factorInvoice(loadId, { sendAnyway: sendAnyway === true });
   if (out.ok) {
     revalidatePath("/invoices", "layout");
@@ -637,7 +675,7 @@ export async function factorInvoiceAction(loadId: string, sendAnyway: boolean): 
 }
 
 export async function syncEldAction(): Promise<SyncResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await syncEld();
   if (out.ok) revalidatePath("/", "layout");
   return out;
@@ -645,40 +683,40 @@ export async function syncEldAction(): Promise<SyncResult> {
 
 /** Reads a trip's fuel from the truck's card. Writes nothing to the load: the screen decides whether to put the total in the box. */
 export async function importFuelAction(loadId: string): Promise<FuelCardResult> {
-  await requireMember("dispatcher");
+  await requireCan("figures");
   return importFuelForLoad(loadId);
 }
 
 export async function saveFuelCardAction(vehicleId: string, provider: string, accountId: string): Promise<SaveFuelCard> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await saveFuelCard(vehicleId, String(provider ?? ""), String(accountId ?? ""));
   if (out.ok) refreshFleet();
   return out;
 }
 
 export async function vetCarrierAction(driverId: string): Promise<VetResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch");
   const out = await vetDriverCarrier(driverId);
   if (out.ok) refreshFleet();
   return out;
 }
 
 export async function sendToPayrollAction(statementIds: string[]): Promise<SendResult> {
-  await requireMember("dispatcher");
+  await requireCan("payout");
   const out = await sendToPayroll(Array.isArray(statementIds) ? statementIds.filter((i) => typeof i === "string") : []);
   if (out.ok) revalidatePath("/payroll", "layout");
   return out;
 }
 
 export async function connectPartnerAction(capability: string, provider: string, accountLabel: string | null): Promise<ConnectResult> {
-  await requireMember("owner");
+  await requireCan("admin");
   const out = await connectPartner(String(capability), String(provider), accountLabel);
   if (out.ok) revalidatePath("/", "layout");
   return out;
 }
 
 export async function disconnectPartnerAction(capability: string, provider: string): Promise<ConnectResult> {
-  await requireMember("owner");
+  await requireCan("admin");
   const out = await disconnectPartner(String(capability), String(provider));
   if (out.ok) revalidatePath("/", "layout");
   return out;
@@ -687,7 +725,7 @@ export async function disconnectPartnerAction(capability: string, provider: stri
 
 /** Save a message to a driver (the desk's record only: nothing carries it to a phone yet). `clientId` makes a double send save once. */
 export async function sendMessageAction(input: { driverId: string; body: string; loadId?: string | null; clientId?: string | null }): Promise<SendMessageResult> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch", "bill");
   const out = await sendMessage({ driverId: String(input.driverId), body: String(input.body ?? ""), loadId: input.loadId ? String(input.loadId) : null, clientId: input.clientId ? String(input.clientId) : null });
   if (out.ok) revalidatePath("/messages");
   return out;
@@ -695,37 +733,44 @@ export async function sendMessageAction(input: { driverId: string; body: string;
 
 /** The dispatcher opened a conversation: the driver's messages in it count as read, and the sidebar number drops. */
 export async function markThreadReadAction(driverId: string): Promise<number> {
-  await requireMember("dispatcher");
+  await requireCan("dispatch", "bill");
   const n = await markThreadRead(String(driverId));
   if (n > 0) revalidatePath("/", "layout");
   return n;
 }
 
 export async function removeDocumentAction(id: string): Promise<DocResult> {
-  await requireMember("dispatcher");
+  await requireCan("documents");
   const out = await removeLoadDocument(id);
   if (out.ok) refreshLoads();
   return out;
 }
 
-// ── The team (owners only) ─────────────────────────────────────────────────────────────────────
+// ── The team (admins only) ─────────────────────────────────────────────────────────────────────
 
-export async function addMemberAction(input: { email: string; name: string; role: string }): Promise<MemberResult> {
-  await requireMember("owner");
+export async function addMemberAction(input: { email: string; name: string; role: string; grants?: string[] }): Promise<MemberResult> {
+  await requireCan("admin");
   const out = await addMember(input);
   if (out.ok) revalidatePath("/settings");
   return out;
 }
 
 export async function setMemberRoleAction(id: string, role: string): Promise<MemberResult> {
-  await requireMember("owner");
+  await requireCan("admin");
   const out = await setMemberRole(id, role);
   if (out.ok) revalidatePath("/settings");
   return out;
 }
 
+export async function setMemberGrantsAction(id: string, grants: string[]): Promise<MemberResult> {
+  await requireCan("admin");
+  const out = await setMemberGrants(id, grants);
+  if (out.ok) revalidatePath("/settings");
+  return out;
+}
+
 export async function removeMemberAction(id: string): Promise<MemberResult> {
-  await requireMember("owner");
+  await requireCan("admin");
   const out = await removeMember(id);
   if (out.ok) revalidatePath("/settings");
   return out;

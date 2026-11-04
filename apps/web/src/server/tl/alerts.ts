@@ -1,10 +1,11 @@
 import { prisma } from "@/lib/db";
 import { alertsByLoad, countAlerts, deriveAlerts, type AlertLoad } from "@/lib/alerts";
 import { alertThresholds } from "@/lib/thresholds";
-import { detentionOfLoad } from "./detention";
+import { detentionOfLoad, waivedDetentionLoads } from "./detention";
 import { evaluateTlLoad } from "./evaluate";
 import { notQuote } from "@/lib/quote-status";
 import { getThresholds } from "./thresholds";
+import { numOrNull } from "./convert";
 import { deskStatusOf, inTerminal, loadInclude } from "./queries";
 import { currentWorkspaceId } from "./workspace";
 import { podStopsMissing } from "./documents";
@@ -59,8 +60,8 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
   const [open, delivered, uninvoiced, extra, outOwed, t] = await Promise.all([
     full({ status: { in: OPEN } }),
     scope === "all" ? full({ status: "completed", completedAt: { gte: new Date(now.getTime() - DETENTION_WINDOW_DAYS * DAY) } }, DELIVERED_CAP) : Promise.resolve([]),
-    // Delivered and not invoiced, of ANY age (the window above is for detention): a delivery nobody invoiced does not stop being owed money after ninety days.
-    scope === "all" ? full({ status: "completed", paymentStatus: null }, DELIVERED_CAP) : Promise.resolve([]),
+    // Delivered (or a TONU with a fee) and not invoiced, of ANY age but only the newest 500 (the window above is for detention): a delivery nobody invoiced does not stop being owed money after ninety days.
+    scope === "all" ? full({ OR: [{ status: "completed" }, { status: "tonu", tonuRevenue: { gt: 0 } }], paymentStatus: null }, DELIVERED_CAP) : Promise.resolve([]),
     extraId ? full({ id: extraId }) : Promise.resolve([]),
     // Only what the overdue rule reads: no stops, no truck, no driver.
     scope === "open"
@@ -70,7 +71,8 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
   ]);
 
   // Whether each delivered load has its proof of delivery on file, for every delivered load read (one query for all of them).
-  const podMissing = await podStopsMissing([...new Set([...delivered, ...uninvoiced].map((l) => l.id))], workspaceId);
+  const completedIds = [...new Set([...delivered, ...uninvoiced, ...extra.filter((l) => l.status === "completed")].map((l) => l.id))];
+  const [podMissing, waivedDetention] = await Promise.all([podStopsMissing(completedIds, workspaceId), waivedDetentionLoads(completedIds, workspaceId)]);
   const seen = new Set<string>();
   const input: AlertLoad[] = [];
   for (const l of [...open, ...delivered, ...uninvoiced, ...extra]) {
@@ -86,10 +88,11 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
       invoiceNumber: l.invoiceNumber,
       invoicedAt: l.invoicedAt,
       payTermsDays: l.payTermsDays,
-      detentionUnbilled: l.status === "completed" ? detentionOfLoad(l, t.detentionGraceMinutes).unbilled : 0,
+      detentionUnbilled: l.status === "completed" && !waivedDetention.has(l.id) ? detentionOfLoad(l, t.detentionGraceMinutes).unbilled : 0,
       hasTruck: l.vehicleId != null,
       vehicle: l.vehicleId != null && l.vehicle ? { id: l.vehicleId, name: l.vehicle.name } : null,
       closedWithoutPod: l.closedWithoutPod,
+      tonuFee: l.status === "tonu" ? numOrNull(l.tonuRevenue) : null,
       completedAt: l.completedAt,
       podStopsMissing: podMissing.get(l.id) ?? null,
       deliveryStops: l.stops.filter((s) => (s.stopRole ?? s.stopType) === "delivery").length,

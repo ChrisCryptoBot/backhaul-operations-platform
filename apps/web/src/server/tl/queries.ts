@@ -1,16 +1,20 @@
 import { Prisma } from "@prisma/client";
 import { grossOf } from "@/lib/load-gross";
+import { dueAt } from "@/lib/overdue";
 import { customerTermsMap } from "./customers";
 import { prisma } from "@/lib/db";
-import { defaultInvoiceNumber, invoiceBasis, invoiceReadiness, owedOf } from "@/lib/invoicing";
+import { defaultInvoiceNumber, invoiceBasis, invoiceReadiness, owedOf, revisedInvoiceNumber } from "@/lib/invoicing";
+import { billedOf } from "@/lib/billed";
 import { computeAnalytics, type AnalyticsPeriod } from "@/truelane/lib/analytics";
-import { computeAgingSummary } from "@/truelane/lib/invoice";
 import { evaluateTlLoad, resolveLabour } from "./evaluate";
 import { notQuote } from "@/lib/quote-status";
-import { toAgingView, toAnalyticsInput, num, numOrNull } from "./convert";
+import { toAnalyticsInput, num, numOrNull } from "./convert";
 import { detentionOfLoad } from "./detention";
+import { podStopsMissing } from "./documents";
+import { voidedInvoiceNumbers } from "./invoicing";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
+import { DESK_TZ } from "@/lib/zoned";
 
 /**
  * Read model for the dispatcher screens, all computed from the TrueLane-shaped tables with TrueLane's own math.
@@ -50,6 +54,7 @@ export function boardRowOf(l: BoardLoad) {
     grossRevenue: gross,
     tonuRevenue: numOrNull(l.tonuRevenue),
     writeOffAmount: numOrNull(l.writeOffAmount),
+    writeOffReason: l.writeOffReason,
     totalMiles: evaluation?.totalMiles ?? null,
     /** Net pay after factoring, the rider and the carrier's cut (the settlement), the phone's "Pay" on a finished load. Null without a truck's cost profile or on a TONU / cancelled load. */
     netPay: priced ? priced.result.decisionRevenue : null,
@@ -192,36 +197,155 @@ const invoiceSearch = (q?: string) => {
   return terms.length ? { AND: terms.map((t) => ({ OR: [has("invoiceNumber", t), has("loadNumber", t), has("poNumber", t), has("brokerName", t)] })) } : {};
 };
 
-export async function countInvoices(scope: InvoiceScope, workspaceId = currentWorkspaceId(), q?: string, terminal: string | null = null) {
-  return prisma.load.count({ where: { workspaceId, deletedAt: null, ...SCOPE_WHERE[scope], AND: [INVOICEABLE, inTerminal(terminal), invoiceSearch(q)] } });
+/** A filter on the invoices that are out: late (on the desk's calendar), part paid, or gone to a factor. */
+export type InvoiceShow = "overdue" | "part" | "factored";
+export const INVOICE_SHOWS: Array<{ key: InvoiceShow; label: string }> = [
+  { key: "overdue", label: "Overdue" },
+  { key: "part", label: "Part paid" },
+  { key: "factored", label: "With a factor" }
+];
+export const asInvoiceShow = (v: string | undefined | null): InvoiceShow | null => (INVOICE_SHOWS.some((s) => s.key === v) ? (v as InvoiceShow) : null);
+
+/** A column an invoice list can be ordered by (in the database, so every page is the same list). */
+export type InvoiceSort = { key: (typeof INVOICE_SORT_KEYS)[number]; dir: "asc" | "desc" } | null;
+export const INVOICE_SORT_KEYS = ["sent", "customer", "broker", "invoice", "amount", "load", "done", "due", "paid"] as const;
+
+type InvoiceFilters = { q?: string; terminal?: string | null; show?: InvoiceShow | null };
+
+/** The loads an invoice list is made of: the scope, the search, the terminal and the filter. "Overdue" is worked out on the desk's calendar by the database and comes back as the loads it names. */
+async function invoiceWhere(scope: InvoiceScope, workspaceId: string, f: InvoiceFilters, now = new Date()) {
+  const and: object[] = [INVOICEABLE, inTerminal(f.terminal ?? null), invoiceSearch(f.q)];
+  if (f.show === "part") and.push({ paidAmount: { gt: 0 } });
+  if (f.show === "factored") and.push({ factoringStatus: { not: "none" } });
+  if (f.show === "overdue") {
+    const late = await prisma.$queryRaw<Array<{ id: string }>>`
+      select l.id from loads l
+      where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.payment_status = 'invoiced' and l.invoiced_at is not null
+        and ((l.invoiced_at at time zone 'UTC') at time zone ${DESK_TZ})::date + coalesce(l.pay_terms_days, 0) < (${now}::timestamp at time zone 'UTC' at time zone ${DESK_TZ})::date`;
+    and.push({ id: { in: late.map((r) => r.id) } });
+  }
+  return { workspaceId, deletedAt: null, ...SCOPE_WHERE[scope], AND: and };
+}
+
+export async function countInvoices(scope: InvoiceScope, workspaceId = currentWorkspaceId(), q?: string, terminal: string | null = null, show: InvoiceShow | null = null) {
+  return prisma.load.count({ where: await invoiceWhere(scope, workspaceId, { q, terminal, show }) });
 }
 
 /** Oldest first for what still has to be sent or collected (the one waiting longest is the one to chase), newest first for what is paid. */
 const INVOICE_ORDER = {
-  ready: [{ completedAt: "asc" as const }],
-  out: [{ invoicedAt: { sort: "asc" as const, nulls: "last" as const } }, { completedAt: "asc" as const }],
-  paid: [{ invoicedAt: { sort: "desc" as const, nulls: "last" as const } }, { completedAt: "desc" as const }],
-  all: [{ invoicedAt: { sort: "desc" as const, nulls: "last" as const } }, { completedAt: "desc" as const }]
+  ready: [{ completedAt: "asc" as const }, { id: "asc" as const }],
+  out: [{ invoicedAt: { sort: "asc" as const, nulls: "last" as const } }, { completedAt: "asc" as const }, { id: "asc" as const }],
+  paid: [{ invoicedAt: { sort: "desc" as const, nulls: "last" as const } }, { completedAt: "desc" as const }, { id: "asc" as const }],
+  all: [{ invoicedAt: { sort: "desc" as const, nulls: "last" as const } }, { completedAt: "desc" as const }, { id: "asc" as const }]
 };
 
-export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: { scope?: InvoiceScope; skip?: number; take?: number; q?: string; terminal?: string | null } = {}) {
-  const [loads, thresholds, customerTerms] = await Promise.all([
-    prisma.load.findMany({
-      where: { workspaceId, deletedAt: null, ...SCOPE_WHERE[opts.scope ?? "all"], AND: [INVOICEABLE, inTerminal(opts.terminal ?? null), invoiceSearch(opts.q)] },
-      include: { stops: true, vehicle: { include: { costProfile: true } } },
-      orderBy: INVOICE_ORDER[opts.scope ?? "all"],
-      ...(opts.skip ? { skip: opts.skip } : {}),
-      ...(opts.take ? { take: opts.take } : {})
-    }),
+const orderFor = (scope: InvoiceScope, sort: InvoiceSort): Prisma.LoadOrderByWithRelationInput[] => {
+  if (!sort) return INVOICE_ORDER[scope];
+  const d = sort.dir;
+  const field: Record<string, Prisma.LoadOrderByWithRelationInput> = {
+    sent: { invoicedAt: { sort: d, nulls: "last" } },
+    customer: { brokerName: { sort: d, nulls: "last" } },
+    broker: { brokerName: { sort: d, nulls: "last" } },
+    paid: { paidAt: { sort: d, nulls: "last" } },
+    due: { invoicedAt: { sort: d, nulls: "last" } },
+    invoice: { invoiceNumber: { sort: d, nulls: "last" } },
+    amount: scope === "ready" ? { quotedRevenue: d } : scope === "paid" ? { paidAmount: { sort: d, nulls: "last" } } : { invoicedAmount: { sort: d, nulls: "last" } },
+    load: { loadNumber: { sort: d, nulls: "last" } },
+    done: { completedAt: d }
+  };
+  return [field[sort.key]!, { id: "asc" }];
+};
+
+export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: { scope?: InvoiceScope; skip?: number; take?: number; q?: string; terminal?: string | null; show?: InvoiceShow | null; sort?: InvoiceSort; lean?: boolean } = {}) {
+  const scope = opts.scope ?? "all";
+  const light = scope === "paid" || scope === "out";
+  const where = await invoiceWhere(scope, workspaceId, { q: opts.q, terminal: opts.terminal, show: opts.show });
+  const loadRows = async () => {
+    if (opts.sort?.key === "due" || opts.sort?.key === "amount") {
+      const dir = opts.sort.dir === "asc" ? 1 : -1;
+      const sortKey = opts.sort.key;
+      const pairs: Array<{ id: string; v: number | null }> =
+        sortKey === "due"
+          ? (await prisma.load.findMany({ where, select: { id: true, invoicedAt: true, payTermsDays: true } })).map((m) => ({
+              id: m.id,
+              v: dueAt(m.invoicedAt, m.payTermsDays)?.getTime() ?? null
+            }))
+          : (await prisma.load.findMany({
+              where,
+              select: { id: true, status: true, invoicedAmount: true, paidAmount: true, quotedRevenue: true, fuelSurcharge: true, tonuRevenue: true }
+            })).map((m) => {
+              if (scope === "ready") {
+                const b = invoiceBasis({ status: m.status, quotedRevenue: num(m.quotedRevenue), fuelSurcharge: num(m.fuelSurcharge), tonuRevenue: numOrNull(m.tonuRevenue) });
+                return { id: m.id, v: new Prisma.Decimal(b.rate).plus(b.surcharge).toNumber() };
+              }
+              const billed =
+                m.invoicedAmount != null
+                  ? num(m.invoicedAmount)
+                  : billedOf({ invoicedAmount: null, status: m.status, quotedRevenue: num(m.quotedRevenue), fuelSurcharge: numOrNull(m.fuelSurcharge), tonuRevenue: numOrNull(m.tonuRevenue) });
+              if (scope === "paid") return { id: m.id, v: m.paidAmount != null ? num(m.paidAmount) : billed };
+              const paid = m.paidAmount != null ? num(m.paidAmount) : null;
+              return { id: m.id, v: paid != null ? (owedOf(billed, paid) ?? billed) : billed };
+            });
+      pairs.sort((a, b) => {
+        const va = a.v;
+        const vb = b.v;
+        if (va == null && vb == null) return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        if (va !== vb) return (va - vb) * dir;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
+      const from = opts.skip ?? 0;
+      const ids = (opts.take ? pairs.slice(from, from + opts.take) : pairs.slice(from)).map((m) => m.id);
+      if (ids.length === 0) return [];
+      const found = light
+        ? await prisma.load.findMany({ where: { id: { in: ids } } })
+        : await prisma.load.findMany({ where: { id: { in: ids } }, include: { stops: true, vehicle: { include: { costProfile: true } } } });
+      const byId = new Map(found.map((l) => [l.id, l]));
+      return ids.map((id) => byId.get(id)).filter((l): l is NonNullable<typeof l> => l != null);
+    }
+    return light
+      ? prisma.load.findMany({
+          where,
+          orderBy: orderFor(scope, opts.sort ?? null),
+          ...(opts.skip ? { skip: opts.skip } : {}),
+          ...(opts.take ? { take: opts.take } : {})
+        })
+      : prisma.load.findMany({
+          where,
+          include: { stops: true, vehicle: { include: { costProfile: true } } },
+          orderBy: orderFor(scope, opts.sort ?? null),
+          ...(opts.skip ? { skip: opts.skip } : {}),
+          ...(opts.take ? { take: opts.take } : {})
+        });
+  };
+  const [rawLoads, thresholds, customerTerms] = await Promise.all([
+    loadRows(),
     getThresholds(workspaceId),
-    customerTermsMap(workspaceId)
+    scope === "ready" || scope === "all" ? customerTermsMap(workspaceId) : Promise.resolve(new Map<string, number>())
   ]);
+  type FullLoad = Prisma.LoadGetPayload<{ include: { stops: true; vehicle: { include: { costProfile: true } } } }>;
+  const loads: FullLoad[] = light ? rawLoads.map((l) => ({ ...l, stops: [], vehicle: null })) : (rawLoads as FullLoad[]);
+  // Only a load waiting to be invoiced is offered a number, and one that was invoiced and taken back is offered the next revision of it.
+  const [voidedNumbers, missingPods] =
+    scope === "ready"
+      ? await Promise.all([voidedInvoiceNumbers(loads.map((l) => l.id), workspaceId), podStopsMissing(loads.map((l) => l.id), workspaceId)])
+      : [new Map<string, Set<string>>(), new Map<string, number>()];
+  // When each out invoice was last chased, from its history (one read for the page).
+  const chased = new Map<string, Date>();
+  if (!opts.lean && (scope === "out" || scope === "all") && loads.length > 0) {
+    const outIds = loads.filter((l) => l.paymentStatus === "invoiced").map((l) => l.id);
+    if (outIds.length > 0) {
+      const g = await prisma.auditEvent.groupBy({ by: ["loadId"], where: { workspaceId, action: "invoice_chased", loadId: { in: outIds } }, _max: { createdAt: true } });
+      for (const r of g) if (r.loadId && r._max.createdAt) chased.set(r.loadId, r._max.createdAt);
+    }
+  }
   return loads.map((l) => {
     const basis = invoiceBasis({ status: l.status, quotedRevenue: num(l.quotedRevenue), fuelSurcharge: num(l.fuelSurcharge), tonuRevenue: numOrNull(l.tonuRevenue) });
     const rate = basis.rate;
-    // A TONU hauled nothing, so it carries no detention.
-    const billable = basis.tonu ? 0 : detentionOfLoad(l, thresholds.detentionGraceMinutes).billable;
-    const billed = num(l.invoicedAmount ?? (basis.tonu ? l.tonuRevenue : l.quotedRevenue));
+    // A TONU hauled nothing, so it carries no detention; already-invoiced rows keep what was billed on their invoice.
+    const billable = light || basis.tonu ? 0 : detentionOfLoad(l, thresholds.detentionGraceMinutes).billable;
+    const billed = billedOf({ invoicedAmount: numOrNull(l.invoicedAmount), status: l.status, quotedRevenue: num(l.quotedRevenue), fuelSurcharge: numOrNull(l.fuelSurcharge), tonuRevenue: numOrNull(l.tonuRevenue) });
     const paidAmount = numOrNull(l.paidAmount);
     return {
       id: l.id,
@@ -233,20 +357,29 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
       lane: `${l.originAddress ?? "?"} → ${l.destinationAddress ?? "?"}`,
       completedAt: l.completedAt,
       invoiceNumber: l.invoiceNumber,
+      brokerEmail: l.brokerEmail,
+      brokerPhone: l.brokerPhone,
+      lastChasedAt: chased.get(l.id) ?? null,
       factoringStatus: l.factoringStatus,
       invoicedAt: l.invoicedAt,
       paidAt: l.paidAt,
+      paidMethod: l.paidMethod,
       payTermsDays: l.payTermsDays,
       status: l.paymentStatus,
       amount: billed,
+      /** What a load not yet invoiced would bill if invoiced now with its detention (the invoice dialog's total to start from). */
+      readyAmount: new Prisma.Decimal(billed).plus(l.paymentStatus === null ? billable : 0).toDecimalPlaces(2).toNumber(),
+      detentionBillable: billable,
+      writeOffAmount: numOrNull(l.writeOffAmount),
+      writeOffReason: l.writeOffReason,
       paidAmount,
       /** What is still owed on an invoice that is out: the invoice less what has come in (0 once it is paid). */
       balance: l.paymentStatus === "invoiced" ? (owedOf(billed, paidAmount) ?? billed) : 0,
       /** Negative when the broker paid less than the invoice. */
       paidDifference: l.paymentStatus === "paid" && paidAmount != null ? new Prisma.Decimal(paidAmount).minus(billed).toDecimalPlaces(2).toNumber() : null,
       invoiceContext: { rate, surcharge: basis.surcharge, detention: billable, rateLabel: basis.label, defaultTerms: l.payTermsDays ?? customerTerms.get((l.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays },
-      defaultNumber: defaultInvoiceNumber(l.loadNumber, l.id),
-      readiness: invoiceReadiness({ ...l, quotedRevenue: rate, paidLinehaul: numOrNull(l.actualRevenue) })
+      defaultNumber: revisedInvoiceNumber(defaultInvoiceNumber(l.loadNumber, l.id), voidedNumbers.get(l.id) ?? new Set()),
+      readiness: invoiceReadiness({ ...l, quotedRevenue: rate, paidLinehaul: numOrNull(l.actualRevenue), podStopsMissing: missingPods.get(l.id) ?? null })
     };
   });
 }

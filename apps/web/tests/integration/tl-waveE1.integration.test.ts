@@ -81,9 +81,10 @@ describe.skipIf(!run)("another workspace's records cannot be acted on", () => {
     await expect(cancelLoad({ loadId: ids.draft, reason: "other", note: "E1 test" })).rejects.toThrow(/does not exist/);
     await expect(recordTonu({ loadId: ids.draft, reason: "other", note: "E1 test", fee: 100 })).rejects.toThrow(/does not exist/);
     await expect(rescheduleLoad({ loadId: ids.draft, reason: "other", note: "E1 test", newPickup: new Date("2031-02-01T12:00:00Z") })).rejects.toThrow(/does not exist/);
-    await expect(invoiceLoad(ids.done)).rejects.toThrow();
-    await expect(markLoadPaid(ids.invoiced)).rejects.toThrow();
-    await expect(undoPaid(ids.paid, "entered against the wrong invoice")).rejects.toThrow();
+    // Another desk's load is simply not there: each says so, in words, and changes nothing.
+    expect(await invoiceLoad(ids.done)).toMatchObject({ ok: false, error: "That load does not exist." });
+    expect(await markLoadPaid(ids.invoiced)).toMatchObject({ ok: false, error: "That load does not exist." });
+    expect(await undoPaid(ids.paid, "entered against the wrong invoice")).toMatchObject({ ok: false, error: "That load does not exist." });
     expect(await loadSendGaps(ids.draft)).toEqual([]);
     expect(await listLoadAudit(ids.draft)).toEqual([]);
   });

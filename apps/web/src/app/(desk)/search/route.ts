@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 /** GET /search?q=... : the header search's results. Read-only. */
 export async function GET(req: Request) {
-  const denied = await guardRoute("viewer");
+  const denied = await guardRoute("read");
   if (denied) return denied;
   const q = new URL(req.url).searchParams.get("q") ?? "";
   return Response.json({ hits: await searchDesk(q) });

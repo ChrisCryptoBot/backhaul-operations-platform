@@ -12,7 +12,7 @@ import { currentActor } from "@/server/tl/identity";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  const denied = await guardRoute("dispatcher");
+  const denied = await guardRoute("documents");
   if (denied) return denied;
   let form: FormData;
   try {

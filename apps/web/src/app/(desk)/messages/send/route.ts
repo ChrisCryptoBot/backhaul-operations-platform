@@ -12,7 +12,7 @@ import { guardRoute } from "@/server/tl/access";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  const denied = await guardRoute("dispatcher");
+  const denied = await guardRoute("dispatch", "bill");
   if (denied) return denied;
   let form: FormData;
   try {

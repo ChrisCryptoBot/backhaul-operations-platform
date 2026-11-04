@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 /** GET /export/<kind>?<the same filters as the screen> : a CSV download. Kinds: loads, invoices, kpi-drivers, kpi-lanes, kpi-weeks. */
 export async function GET(req: Request, { params }: { params: { kind: string } }) {
-  const denied = await guardRoute("viewer");
+  const denied = await guardRoute("read");
   if (denied) return denied;
   const out = await buildExport(params.kind, Object.fromEntries(new URL(req.url).searchParams.entries()));
   if (!out) return new Response("There is no export by that name.", { status: 404 });

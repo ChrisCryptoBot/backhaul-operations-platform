@@ -25,6 +25,13 @@ export function shortDate(d: Date | string | null | undefined): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: DISPLAY_TZ });
 }
 
+/** "Oct 12, 2026": a day with its year, for lists that reach back more than a year. */
+export function dayYear(d: Date | string | null | undefined): string {
+  if (!d) return "—";
+  const date = typeof d === "string" ? new Date(d) : d;
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: DISPLAY_TZ });
+}
+
 export function dateTime(d: Date | string | null | undefined): string {
   if (!d) return "—";
   const date = typeof d === "string" ? new Date(d) : d;

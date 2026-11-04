@@ -10,6 +10,7 @@ import { num, numOrNull } from "./convert";
 import { recordAudit } from "./audit";
 import { loadStatusFor } from "@/lib/load-state";
 import { freezeLoadSnapshot } from "./snapshot";
+import { driveHoursFor } from "./evaluate";
 import { lockWorkspace } from "./plan";
 import { claimAssignment, claimLoad, dropAssignment, LoadMoved } from "./claim";
 import { currentWorkspaceId } from "./workspace";
@@ -149,6 +150,12 @@ const money = (n: number) => `$${n.toFixed(2)}`;
  * Create or replace the draft assignment for a load. A load that was already sent keeps its row and bumps the version.
  * A driver who is already on another open load at the same time is refused unless the dispatcher gives a reason.
  */
+/** The hours a trip takes, for an hourly driver's estimate: the load's drive time over every mile it counts (the way home too, unless a load covers it), to the hundredth of an hour. */
+export function tripHoursOf(load: { pickupDeadheadMiles: unknown; loadedMiles: unknown; returnDeadheadMiles: unknown; isBackhaul: boolean; estimatedLoadedHours?: unknown }): number {
+  const total = num(load.pickupDeadheadMiles as never) + num(load.loadedMiles as never) + (load.isBackhaul ? 0 : num(load.returnDeadheadMiles as never));
+  return new Prisma.Decimal(driveHoursFor({ estimatedLoadedHours: load.estimatedLoadedHours as never, loadedMiles: load.loadedMiles as never }, total)).toDecimalPlaces(2).toNumber();
+}
+
 export async function assignDriver(input: { loadId: string; driverId: string; pay: AssignmentPay; estimatedHours?: number | null; overrideReason?: string | null }, now = new Date(), workspaceId = currentWorkspaceId()) {
   assertPay(input.pay);
   // Both ids are looked up inside the workspace: another workspace's load or driver is "not found", never acted on.
@@ -170,7 +177,8 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
     override = reason;
   }
 
-  const estimate = payEstimate(input.pay, num(load.loadedMiles), input.estimatedHours ?? null, rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge)));
+  // An hourly driver is paid for the trip's hours, so the estimate needs them: the hours typed, else the load's own drive time (measured when it was quoted, else 50 mph over every mile).
+  const estimate = payEstimate(input.pay, num(load.loadedMiles), input.estimatedHours ?? (input.pay.kind === "hourly" ? tripHoursOf(load) : null), rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge)));
   const data = {
     driverId: driver.id,
     payKind: input.pay.kind,
@@ -285,6 +293,7 @@ export async function driverSummaryFor(loadId: string, workspaceId = currentWork
       originAddress: load.originAddress,
       destinationAddress: load.destinationAddress,
       loadedMiles: num(load.loadedMiles),
+      estimatedHours: load.assignment.payKind === "hourly" ? tripHoursOf(load) : null,
       stops: load.stops.map((s) => ({
         stopSequence: s.stopSequence,
         stopType: s.stopType,

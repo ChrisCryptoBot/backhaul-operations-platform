@@ -1,14 +1,18 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import React from "react";
-import { getDriverDetail } from "@/server/tl/driver-detail";
-import { listAudit } from "@/server/tl/audit";
-import { AssignmentChip, Card, PageHead, Stat } from "@/components/desk/ui";
 import { DriverRowActions, type DriverRow } from "@/components/desk/fleet-forms";
+import { AssignmentChip, Card, PageHead, Stat } from "@/components/desk/ui";
 import { ACTION_LABEL } from "@/lib/audit-diff";
-import { dateTime, miles, payLabel, shortDate, usd } from "@/lib/desk-format";
+import { dateTime, dayYear, miles, payLabel, shortDate, usd } from "@/lib/desk-format";
 import { ymdOf } from "@/lib/fleet-forms";
+import { paidMethodLabel } from "@/lib/pay-method";
+import { can, whoCan } from "@/lib/roles";
+import { checkAccess } from "@/server/tl/access";
+import { listAudit } from "@/server/tl/audit";
 import { numOrNull } from "@/server/tl/convert";
+import { getDriverDetail } from "@/server/tl/driver-detail";
+import { listDriverSettlements } from "@/server/tl/settlement";
 
 export const dynamic = "force-dynamic";
 
@@ -17,8 +21,14 @@ const late = (m: number | null) => (m == null ? null : m >= 120 ? `${Math.round(
 
 /** One driver: whether they can take a load, what they are on now, and how they have done on the loads they delivered. */
 export default async function DriverPage({ params }: { params: { id: string } }) {
-  const d = await getDriverDetail(params.id);
+  const [d, statements, access] = await Promise.all([
+    getDriverDetail(params.id),
+    listDriverSettlements(params.id),
+    checkAccess("read")
+  ]);
   if (!d) notFound();
+  const me = access.ok ? access.identity : null;
+  const canBill = !!me && can(me.role, me.grants, "bill");
   const history = await listAudit({ group: "fleet", q: d.driver.name, pageSize: 8 });
   const p = d.driver;
   const s = d.scorecard;
@@ -42,6 +52,14 @@ export default async function DriverPage({ params }: { params: { id: string } })
     active: p.active,
     onLoads: d.open.length,
     onLoadNumbers: d.open.map((o) => o.loadNumber ?? "a load")
+  };
+
+  const statementStatus = (st: (typeof statements.rows)[number]) => {
+    if (st.status === "void") return <span className="tl-chip bad">Void</span>;
+    if (st.status === "draft") return <span className="tl-chip info">Draft</span>;
+    if (st.paidAt) return <span className="tl-chip ok">Paid {dayYear(st.paidAt)}{st.paidMethod ? ` · ${paidMethodLabel(st.paidMethod)}` : ""}</span>;
+    if (st.payrollSentAt) return <span className="tl-chip ok">Sent to payroll {dayYear(st.payrollSentAt)}</span>;
+    return <span className="tl-chip ok">Finalized {dayYear(st.finalizedAt)}</span>;
   };
 
   return (
@@ -136,6 +154,49 @@ export default async function DriverPage({ params }: { params: { id: string } })
         <p className="tl-note" style={{ marginTop: 10 }}>
           On time follows the phone&apos;s rule: arriving up to an hour before the window opens to half an hour after it closes. A stop with no arrival entered is not scored, except the delivery, which is taken from when the load was delivered. Statements for what the driver is paid are on <Link href="/settlements">Settlements</Link>.
         </p>
+      </Card>
+
+      <Card
+        title={`Pay statements${statements.total > statements.rows.length ? ` · latest ${statements.rows.length} of ${statements.total}` : statements.total > 0 ? ` · ${statements.total}` : ""}`}
+        action={
+          <Link className="tl-btn ghost sm" href="/settlements">
+            All statements
+          </Link>
+        }
+        className="tl-card">
+        {statements.rows.length === 0 ? (
+          <p className="tl-note">No pay statements for this driver yet.</p>
+        ) : (
+          <table className="tl-table" aria-label="Pay statements">
+            <thead>
+              <tr>
+                <th>Statement</th>
+                <th>Period</th>
+                <th>Status</th>
+                <th className="num">Loads</th>
+                <th className="num">Gross pay</th>
+              </tr>
+            </thead>
+            <tbody>
+              {statements.rows.map((st) => (
+                <tr key={st.id}>
+                  <td>
+                    <Link href={`/settlements/${st.id}`}>{st.number}</Link>
+                  </td>
+                  <td>{st.periodLabel}</td>
+                  <td>{statementStatus(st)}</td>
+                  <td className="num">{st.loads}</td>
+                  <td className="num">{st.total == null ? "—" : usd(st.total, 2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {!canBill ? (
+          <p className="tl-note" style={{ marginTop: 10 }}>
+            Read-only: {whoCan("bill")} can create or edit driver statements on <Link href="/settlements">Settlements</Link>.
+          </p>
+        ) : null}
       </Card>
 
       <Card title="Changes" className="tl-card">

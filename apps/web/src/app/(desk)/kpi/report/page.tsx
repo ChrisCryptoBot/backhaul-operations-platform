@@ -86,7 +86,7 @@ export default async function KpiReportPage({ searchParams }: { searchParams?: R
         ) : (
           <table aria-label="Drivers">
             <thead>
-              <tr><th>Driver</th><th className="num">Loads</th><th className="num">Gross</th><th className="num">Per mile</th><th className="num">Empty miles</th><th className="num">Pay owed (estimate)</th></tr>
+              <tr><th>Driver</th><th className="num">Loads</th><th className="num">Gross</th><th className="num">Per mile</th><th className="num">Empty miles</th><th className="num">Est. driver pay</th></tr>
             </thead>
             <tbody>
               {k.drivers.map((d) => (
@@ -158,7 +158,7 @@ export default async function KpiReportPage({ searchParams }: { searchParams?: R
         <p>Gross is the line-haul plus fuel surcharge and layover. Per mile is gross over the miles the pay covers. Empty miles are deadhead over every mile driven, as a ratio of sums.</p>
         <p>
           Cleared the floor: pay after tracked fuel, tolls and other costs, per mile driven, at or above the truck&apos;s floor frozen when the load was accepted. Paid within terms and days to pay use paid invoices only.
-          Against market compares all-in pay with the market rate captured for the load, over the planned miles. Pay owed is the estimate shown on each assignment; the phone works out the final payout.
+          Against market compares all-in pay with the market rate captured for the load, over the planned miles. Estimated driver pay is the figure shown on each assignment, for the loads in the period (settled or not); the phone works out the final payout.
         </p>
         <p className="rp-foot">Sample data only. Every name, customer and number here is invented.</p>
       </article>

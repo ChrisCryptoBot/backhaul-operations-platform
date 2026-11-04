@@ -1,7 +1,7 @@
 /**
- * Put a person on a desk by hand (the first owner of the demo desk, say, before sign-in is switched on).
+ * Put a person on a desk by hand (the first admin of the demo desk, say, before sign-in is switched on).
  *
- *   DATABASE_URL=... npx tsx scripts/add-member.ts <workspaceId> <email> "<name>" <viewer|dispatcher|owner>
+ *   DATABASE_URL=... npx tsx scripts/add-member.ts <workspaceId> <email> "<name>" <viewer|dispatcher|accounting|admin>
  *
  * The person signs in with that email; the first verified sign-in binds their provider user id to the row. It skips the plan's seat limit on purpose (a person setting a desk up
  * is the one who may), and says if the person is already on a desk.
@@ -12,7 +12,7 @@ const prisma = new PrismaClient();
 
 async function main() {
   const [workspaceId, rawEmail, name, role] = process.argv.slice(2);
-  if (!workspaceId || !rawEmail || !name || !["viewer", "dispatcher", "owner"].includes(role ?? "")) throw new Error('Usage: add-member.ts <workspaceId> <email> "<name>" <viewer|dispatcher|owner>');
+  if (!workspaceId || !rawEmail || !name || !["viewer", "dispatcher", "accounting", "admin"].includes(role ?? "")) throw new Error('Usage: add-member.ts <workspaceId> <email> "<name>" <viewer|dispatcher|accounting|admin>');
   const email = rawEmail.trim().toLowerCase();
   if (!(await prisma.workspace.findUnique({ where: { id: workspaceId } }))) throw new Error(`No workspace ${workspaceId}.`);
   const there = await prisma.member.findFirst({ where: { email } });

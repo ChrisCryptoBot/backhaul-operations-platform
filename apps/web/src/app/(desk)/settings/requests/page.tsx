@@ -18,7 +18,7 @@ const when = (d: Date) => d.toLocaleString("en-US", { month: "short", day: "nume
  */
 export default async function SignupRequestsPage() {
   // Who has asked for an account belongs to the people who run TrueLane, not to any customer's desk: only they (DESK_ADMIN_EMAILS) may read it.
-  if (!isPlatformAdmin(await requirePage("owner"))) notFound();
+  if (!isPlatformAdmin(await requirePage("admin"))) notFound();
   const rows = await listSignupRequests();
   const enterprise = rows.filter((r) => r.kind === "enterprise" && r.status === "open").length;
   return (

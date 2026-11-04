@@ -4,8 +4,9 @@ import { useRouter } from "next/navigation";
 import { TruckPicker } from "./truck-picker";
 import React from "react";
 import { completeTripAction, correctTripAction, invoiceLoadAction, paidAction, saveExpensesAction, saveLoadDetailsAction, startTripAction } from "@/app/(desk)/actions";
-import { usd } from "@/lib/desk-format";
-import { validateInvoice, type InvoiceContext, type InvoiceForm } from "@/lib/invoicing";
+import { shortDate, usd } from "@/lib/desk-format";
+import { termsLabel, validateInvoice, type InvoiceContext, type InvoiceForm } from "@/lib/invoicing";
+import { dueAt } from "@/lib/overdue";
 import { validateLoadEdit, type DealValues, type EditStopValues, type LoadEditValues } from "@/lib/load-edit";
 import { EXPENSE_ITEMS, validateComplete, validateCorrection, validateExpenses, validateStart, type CompleteValues, type CorrectValues, type ExpenseValues, type StartValues } from "@/lib/trip";
 import { toCentralLocal } from "@/lib/zoned";
@@ -333,7 +334,8 @@ export function TripEntry({
   delivered,
   pod,
   quoted,
-  terms
+  terms,
+  canDispatch = true
 }: {
   loadId: string;
   status: string;
@@ -347,6 +349,8 @@ export function TripEntry({
   quoted: string;
   /** The detention terms this load is held to now (its own, else the truck profile), as typed in the boxes. */
   terms?: { rate: string; grace: string };
+  /** Whether this person enters the pickup and the delivery (a dispatcher does; the accounting office only corrects figures). */
+  canDispatch?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -447,12 +451,12 @@ export function TripEntry({
         </dl>
       ) : null}
       <div className="dlg-row">
-        {canStart ? (
+        {canStart && canDispatch ? (
           <button type="button" className="tl-btn sm primary" onClick={() => open("start")}>
             Enter the pickup
           </button>
         ) : null}
-        {canComplete ? (
+        {canComplete && canDispatch ? (
           <button type="button" className="tl-btn sm primary" onClick={() => open("complete")}>
             Enter the delivery
           </button>
@@ -698,11 +702,14 @@ export function InvoiceDialog({
   context,
   blockers,
   cautions,
+  billTo = null,
   size = "primary"
 }: {
   loadId: string;
   loadNumber: string;
   defaults: { number: string };
+  /** Who the invoice is for, so it is seen before it is made. */
+  billTo?: string | null;
   context: InvoiceContext;
   blockers: string[];
   cautions: string[];
@@ -717,7 +724,13 @@ export function InvoiceDialog({
   const [busy, setBusy] = React.useState(false);
   const preview = validateInvoice(f, context);
 
+  // The terms in force: the chip or number chosen, else the customer's own, else the desk's. Shown with the day it makes the invoice due.
+  const termsDays = f.terms.trim() === "" ? context.defaultTerms : Number(f.terms);
+  const dueDay = Number.isInteger(termsDays) && termsDays >= 0 && termsDays <= 120 ? dueAt(new Date(), termsDays) : null;
+
   async function create() {
+    setErrors({});
+    setMessage(null);
     const c = validateInvoice(f, context);
     if (!c.ok) {
       setErrors(c.errors);
@@ -741,7 +754,14 @@ export function InvoiceDialog({
 
   return (
     <>
-      <button type="button" className={`tl-btn ${size === "sm" ? "sm primary" : "primary"}`} onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        className={`tl-btn ${size === "sm" ? "sm primary" : "primary"}`}
+        onClick={() => {
+          setErrors({});
+          setMessage(null);
+          setOpen(true);
+        }}>
         Create invoice
       </button>
       <Modal
@@ -760,7 +780,13 @@ export function InvoiceDialog({
             </button>
           </>
         }>
-        <div className="dlg-form">
+        <form
+          className="dlg-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (blockers.length === 0 && !busy) void create();
+          }}>
+          {billTo ? <p className="tl-note" style={{ margin: 0 }}>Billed to <b>{billTo}</b></p> : null}
           {blockers.map((b) => (
             <p key={b} className="tl-note warn" role="alert">
               {b}
@@ -776,9 +802,16 @@ export function InvoiceDialog({
             <Fld label="Invoice number" error={errors.number}>
               <input value={f.number} onChange={(e) => setF({ ...f, number: e.target.value })} autoComplete="off" />
             </Fld>
-            <Fld label="Pay terms (days)" error={errors.terms} hint={`Blank uses ${context.defaultTerms}.`}>
+            <Fld label="Pay terms (days)" error={errors.terms} hint={`${dueDay ? `Due ${shortDate(dueDay)}. ` : ""}Blank uses ${termsLabel(context.defaultTerms)}.`}>
               <input inputMode="numeric" value={f.terms} onChange={(e) => setF({ ...f, terms: e.target.value })} />
             </Fld>
+          </div>
+          <div className="dlg-row" role="group" aria-label="Common terms">
+            {[15, 30, 45, 0].map((d) => (
+              <button key={d} type="button" className={`tl-btn sm${termsDays === d ? " primary" : ""}`} aria-pressed={termsDays === d} onClick={() => setF({ ...f, terms: String(d) })}>
+                {termsLabel(d)}
+              </button>
+            ))}
           </div>
           {context.detention > 0 ? (
             <label className="dlg-check">
@@ -819,7 +852,7 @@ export function InvoiceDialog({
               </dd>
             </div>
           </dl>
-        </div>
+        </form>
       </Modal>
     </>
   );
@@ -828,7 +861,7 @@ export function InvoiceDialog({
 // ── Payment ────────────────────────────────────────────────────────────────────────────────────
 
 /** Mark an invoice paid with what came in. A payment that is not the invoice total is recorded as it came, and says by how much it differs. */
-export function PaidDialog({ loadId, invoiceNumber, billed, owing, size = "primary" }: { loadId: string; invoiceNumber: string | null; billed: number; owing?: number; size?: "primary" | "sm" }) {
+export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff = true, size = "primary" }: { loadId: string; invoiceNumber: string | null; billed: number; owing?: number; /** Writing a shortfall off is an admin's: without it the dialog only offers to keep the balance open. */ canWriteOff?: boolean; size?: "primary" | "sm" }) {
   const router = useRouter();
   const toast = useToast();
   // What is still owed: the whole invoice, or what is left of it after part payments.
@@ -842,10 +875,14 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, size = "prima
   const [shortReason, setShortReason] = React.useState("");
   const [message, setMessage] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
-  const typed = Number(amount.replace(/,/g, ""));
+  // Left blank, the amount is what is owed (the server reads it the same way).
+  const typed = amount.trim() === "" ? due : Number(amount.replace(/,/g, ""));
   const diff = Number.isFinite(typed) ? Math.round((typed - due) * 100) / 100 : 0;
+  // More than is owed closes the invoice as paid over: a stray extra zero is caught by asking for it on purpose.
+  const [overAck, setOverAck] = React.useState(false);
 
   async function pay() {
+    setMessage(null);
     setBusy(true);
     const got = await tried(() => paidAction(loadId, amount, paidOn, method, shortAction, shortReason));
     setBusy(false);
@@ -873,6 +910,7 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, size = "prima
           setMethod("");
           setShortAction("balance");
           setShortReason("");
+          setOverAck(false);
           setMessage(null);
           setOpen(true);
         }}>
@@ -888,13 +926,19 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, size = "prima
             <button type="button" className="tl-btn" onClick={() => setOpen(false)}>
               Back
             </button>
-            <button type="button" className="tl-btn primary" disabled={busy} onClick={() => void pay()}>
+            {message ? <span className="tl-note warn" role="alert" style={{ marginRight: "auto" }}>{message}</span> : null}
+            <button type="button" className="tl-btn primary" disabled={busy || (diff > 0 && !overAck)} onClick={() => void pay()}>
               Record the payment
             </button>
           </>
         }>
-        <div className="dlg-form">
-          <Fld label="Amount received ($)" error={message ?? undefined} hint={received > 0 ? `The invoice is ${usd(billed, 2)}; ${usd(received, 2)} has come in, so ${usd(due, 2)} is owed.` : `The invoice is ${usd(billed, 2)}.`}>
+        <form
+          className="dlg-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (!busy && !(diff > 0 && !overAck)) void pay();
+          }}>
+          <Fld label="Amount received ($)" hint={received > 0 ? `The invoice is ${usd(billed, 2)}; ${usd(received, 2)} has come in, so ${usd(due, 2)} is owed.` : `The invoice is ${usd(billed, 2)}.`}>
             <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
           </Fld>
           <div className="dlg-two">
@@ -918,19 +962,25 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, size = "prima
               <label style={{ display: "block", margin: "6px 0" }}>
                 <input type="radio" name="short" checked={shortAction === "balance"} onChange={() => setShortAction("balance")} /> Keep it open: {usd(Math.abs(diff), 2)} stays owed, and the invoice keeps ageing
               </label>
-              <label style={{ display: "block", margin: "6px 0" }}>
-                <input type="radio" name="short" checked={shortAction === "writeoff"} onChange={() => setShortAction("writeoff")} /> Close the invoice and write the {usd(Math.abs(diff), 2)} off
-              </label>
-              {shortAction === "writeoff" ? (
+              {canWriteOff ? (
+                <label style={{ display: "block", margin: "6px 0" }}>
+                  <input type="radio" name="short" checked={shortAction === "writeoff"} onChange={() => setShortAction("writeoff")} /> Close the invoice and write the {usd(Math.abs(diff), 2)} off
+                </label>
+              ) : (
+                <p className="tl-sub" style={{ margin: "6px 0" }}>Writing it off is for an admin. Keep it open here, and ask one to close it.</p>
+              )}
+              {canWriteOff && shortAction === "writeoff" ? (
                 <Fld label="Why is it written off?" hint="Required. The customer's deduction, a damage claim, a negotiated discount. It goes in the audit trail.">
                   <input value={shortReason} onChange={(e) => setShortReason(e.target.value)} maxLength={200} />
                 </Fld>
               ) : null}
             </fieldset>
           ) : diff > 0 ? (
-            <p className="tl-note">That is {usd(diff, 2)} more than is owed.</p>
+            <label className="dlg-check">
+              <input type="checkbox" checked={overAck} onChange={(e) => setOverAck(e.target.checked)} /> That is {usd(diff, 2)} more than is owed. Record it anyway, as paid over.
+            </label>
           ) : null}
-        </div>
+        </form>
       </Modal>
     </>
   );

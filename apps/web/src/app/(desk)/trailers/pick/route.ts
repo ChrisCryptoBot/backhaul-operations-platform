@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  * date) and what to know about it. With nothing typed the box offers the header's terminal; a typed search reaches every terminal.
  */
 export async function GET(request: Request) {
-  const denied = await guardRoute("viewer");
+  const denied = await guardRoute("read");
   if (denied) return denied;
   const params = new URL(request.url).searchParams;
   const q = (params.get("q") ?? "").trim().slice(0, 60);

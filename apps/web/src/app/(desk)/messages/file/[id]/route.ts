@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const denied = await guardRoute("viewer");
+  const denied = await guardRoute("read");
   if (denied) return denied;
   if (!ID.test(params.id)) return new Response("Not found", { status: 404 });
   const att = await prisma.messageAttachment.findFirst({

@@ -19,7 +19,7 @@ export default function SignInPage() {
           <h1 id="si-h">Sign in</h1>
           <SignIn path="/sign-in" routing="path" fallbackRedirectUrl="/auth/enter" forceRedirectUrl="/auth/enter" signUpUrl="/sign-up" />
           <p className="pub-alt">
-            Your desk&apos;s owner adds you to it. Running 50 or more trucks? <Link href="/enterprise">Ask for a person</Link>.
+            Your desk&apos;s admin adds you to it. Running 50 or more trucks? <Link href="/enterprise">Ask for a person</Link>.
           </p>
         </section>
         <ContactCard />

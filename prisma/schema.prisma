@@ -36,6 +36,8 @@ model Workspace {
   alertClearanceDays    Int?     @map("alert_clearance_days")
   laneMinLoads          Int?     @map("lane_min_loads")
   laneDays              Int?     @map("lane_days")
+  /// The last statement number given out, so a discarded draft's number is never given again.
+  settlementSeq         Int      @default(0) @map("settlement_seq")
 
   // The company as it appears on invoices and driver statements. All optional: a sheet prints only what is filled in.
   mcNumber    String? @map("mc_number")
@@ -306,6 +308,7 @@ model Load {
   @@index([workspaceId, scheduledDate])
   @@index([workspaceId, completedAt])
   @@index([workspaceId, paymentStatus])
+  @@index([workspaceId, paymentStatus, invoicedAt])
   @@index([workspaceId, brokerName])
   @@index([workspaceId, loadNumber])
   @@index([vehicleId, status])
@@ -510,9 +513,14 @@ model Settlement {
   /// When the statement was sent to payroll, and the reference payroll gave it. Blank until sent.
   payrollSentAt    DateTime?        @map("payroll_sent_at")
   payrollReference String?          @map("payroll_reference")
+  /// When the driver was paid, and how, when it was not through payroll (a check, a transfer). A statement paid either way cannot be voided.
+  paidAt     DateTime? @map("paid_at")
+  paidMethod String?   @map("paid_method")
 
   @@unique([workspaceId, number])
   @@index([workspaceId, status])
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, finalizedAt])
   @@index([driverId])
   @@map("settlements")
 }
@@ -641,6 +649,8 @@ model Member {
   email       String
   name        String
   role        String    @default("dispatcher")
+  /// Extra things an admin lets this person do on top of their role (only "bill" for a dispatcher: the billing office's work). Unknown values are ignored when read.
+  grants      String[]  @default([])
   /// The sign-in provider's user id; null until the person first signs in. One person is on one desk.
   clerkUserId String?   @unique @map("clerk_user_id")
   createdAt   DateTime  @default(now()) @map("created_at")

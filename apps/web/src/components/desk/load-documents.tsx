@@ -14,7 +14,26 @@ export type DeliveryStopOption = { id: string; label: string };
  * The documents on a load: what is kept (open or save each), and a place to add one (the rate confirmation, the proof of delivery, a receipt). Factoring's packet is made of
  * these, so a document that is not here is not sent. Once the invoice has gone to a factor the list is as it was sent and cannot change.
  */
-export function LoadDocuments({ loadId, items, locked, defaultKind = "other", deliveryStops = [] }: { loadId: string; items: DocItem[]; locked: string | null; defaultKind?: DocKind; /** The delivery stops, so a proof of delivery can be tied to one when there is more than one. */ deliveryStops?: DeliveryStopOption[] }) {
+export function LoadDocuments({
+  loadId,
+  items,
+  locked,
+  defaultKind = "other",
+  deliveryStops = [],
+  selectedId,
+  onSelectDoc,
+  onDocClick
+}: {
+  loadId: string;
+  items: DocItem[];
+  locked: string | null;
+  defaultKind?: DocKind;
+  /** The delivery stops, so a proof of delivery can be tied to one when there is more than one. */
+  deliveryStops?: DeliveryStopOption[];
+  selectedId?: string | null;
+  onSelectDoc?: (doc: DocItem) => void;
+  onDocClick?: (doc: DocItem) => void;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [kind, setKind] = React.useState<DocKind>(defaultKind);
@@ -64,42 +83,98 @@ export function LoadDocuments({ loadId, items, locked, defaultKind = "other", de
   return (
     <div>
       {items.length === 0 ? (
-        <p className="tl-note" style={{ marginBottom: 10 }}>No documents are kept on this load. Add the rate confirmation and the proof of delivery: factoring sends only what is here.</p>
+        <p className="tl-note" style={{ marginBottom: 10 }}>
+          No documents are kept on this load. Add the rate confirmation and the proof of delivery: factoring sends only what is here.
+        </p>
       ) : (
-        <ul style={{ listStyle: "none", margin: "0 0 10px", padding: 0, display: "grid", gap: 6 }}>
-          {items.map((d) => (
-            <li key={d.id} style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-              <span className="tl-chip muted">{DOC_LABEL[d.kind]}</span>
-              <a href={`/documents/${d.id}`} target="_blank" rel="noopener noreferrer">
-                {d.name}
-              </a>
-              <span className="tl-sub">
-                {sizeLabel(d.bytes)} · {d.when} · {d.by}
-              </span>
-              {d.stop ? <span className="tl-sub">{d.stop}</span> : null}
-              {locked ? null : confirming === d.id ? (
-                <span style={{ display: "inline-flex", gap: 6, alignItems: "baseline" }}>
-                  <span className="tl-sub">Remove it for good?</span>
-                  <button type="button" className="tl-btn sm" disabled={busy} onClick={() => void remove(d).then(() => setConfirming(null))}>
-                    Yes, remove
+        <ul style={{ listStyle: "none", margin: "0 0 12px", padding: 0, display: "grid", gap: 6 }}>
+          {items.map((d) => {
+            const isSelected = d.id === selectedId;
+            return (
+              <li
+                key={d.id}
+                style={{
+                  display: "flex",
+                  gap: 10,
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "8px 12px",
+                  borderRadius: "var(--db-r-md)",
+                  border: isSelected ? "1px solid var(--db-accent)" : "1px solid var(--db-border)",
+                  background: isSelected ? "color-mix(in srgb, var(--db-accent) 10%, var(--db-bg-card))" : "var(--db-bg-elev-1)",
+                  transition: "all 120ms ease"
+                }}>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", minWidth: 0, flexWrap: "wrap" }}>
+                  <span className="tl-chip muted sm" style={{ textTransform: "uppercase", fontWeight: 700, fontSize: 10 }}>
+                    {DOC_LABEL[d.kind]}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectDoc?.(d);
+                      onDocClick?.(d);
+                    }}
+                    title="Click to view and expand"
+                    style={{
+                      border: 0,
+                      background: "transparent",
+                      padding: 0,
+                      margin: 0,
+                      font: "inherit",
+                      fontWeight: 600,
+                      fontSize: 13,
+                      color: "var(--db-fg)",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      textDecoration: "underline",
+                      textUnderlineOffset: 2,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      maxWidth: "min(360px, 45vw)"
+                    }}>
+                    {d.name}
                   </button>
-                  <button type="button" className="tl-btn sm" onClick={() => setConfirming(null)}>
-                    Keep it
+                  <span className="tl-sub" style={{ fontSize: 11 }}>
+                    {sizeLabel(d.bytes)} · {d.when} · {d.by}
+                  </span>
+                  {d.stop ? <span className="tl-sub" style={{ fontSize: 11 }}>· {d.stop}</span> : null}
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                  <button
+                    type="button"
+                    className="tl-btn ghost sm"
+                    style={{ fontSize: 11, padding: "3px 8px" }}
+                    onClick={() => onSelectDoc?.(d)}
+                    title="View in preview">
+                    Preview
                   </button>
-                </span>
-              ) : (
-                <button type="button" className="tl-btn sm" disabled={busy} onClick={() => setConfirming(d.id)}>
-                  Remove
-                </button>
-              )}
-            </li>
-          ))}
+                  {locked ? null : confirming === d.id ? (
+                    <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                      <span className="tl-sub" style={{ fontSize: 11, color: "var(--db-neg)" }}>Remove?</span>
+                      <button type="button" className="tl-btn sm" disabled={busy} onClick={() => void remove(d).then(() => setConfirming(null))}>
+                        Yes, remove
+                      </button>
+                      <button type="button" className="tl-btn ghost sm" onClick={() => setConfirming(null)}>
+                        Keep it
+                      </button>
+                    </span>
+                  ) : (
+                    <button type="button" className="tl-btn ghost sm" style={{ fontSize: 11, padding: "3px 8px", color: "var(--db-fg-dim)" }} disabled={busy} onClick={() => setConfirming(d.id)}>
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
       {locked ? (
         <p className="tl-note">{locked}</p>
       ) : (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", paddingTop: items.length > 0 ? 8 : 0, borderTop: items.length > 0 ? "1px solid var(--db-border-soft)" : "none" }}>
           <select value={kind} onChange={(e) => setKind(e.target.value as DocKind)} aria-label="What kind of document">
             {DOC_KINDS.map((k) => (
               <option key={k} value={k}>

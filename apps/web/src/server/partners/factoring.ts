@@ -70,7 +70,8 @@ export async function factorInvoice(loadId: string, opts: { sendAnyway?: boolean
   if (!view) return { ok: false, error: "That load is not a delivered load." };
   if (view.missingRequired.length > 0) return { ok: false, error: `The packet needs: ${view.missingRequired.map((k) => PACKET_LABEL[k]).join(", ")}.` };
   if (view.missingOptional.length > 0 && !opts.sendAnyway) return { ok: false, error: `Not in the packet: ${view.missingOptional.map((k) => PACKET_LABEL[k]).join(", ")}. Send anyway to go without.` };
-  const load = await prisma.load.findFirstOrThrow({ where: { id: loadId, workspaceId } });
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null } });
+  if (!load) return { ok: false, error: "That load could not be found." };
   if (!isSendable(load, now)) return { ok: false, error: `Already ${factoringLabel(load.factoringStatus).toLowerCase()}.` };
   // Claimed BEFORE the factor is called, in one step that only succeeds for an invoice nobody has sent: two clicks cannot both send it. If the call fails the claim is given back.
   const claimed = await prisma.load.updateMany({
@@ -118,6 +119,8 @@ export const FACTORING_NEXT: Record<string, string[]> = { requested: ["submitted
 export async function applyFactoringUpdate(loadId: string, status: string, referenceId: string | null, now = new Date(), workspaceId = currentWorkspaceId()): Promise<boolean> {
   const l = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null } });
   if (!l || l.factoringStatus === status || !(FACTORING_NEXT[l.factoringStatus] ?? []).includes(status)) return false;
+  // An invoice the customer has paid in full has nothing left to ask the factor: its status was closed with the payment, and only taking the payment back reopens it.
+  if (l.paymentStatus === "paid" && status !== "paid") return false;
   return prisma.$transaction(async (tx) => {
     const out = await tx.load.updateMany({ where: { id: loadId, workspaceId, factoringStatus: l.factoringStatus }, data: { factoringStatus: status, ...(referenceId ? { factoringReferenceId: referenceId } : {}), factoringUpdatedAt: now } });
     if (out.count !== 1) return false;

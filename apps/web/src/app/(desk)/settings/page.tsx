@@ -3,8 +3,24 @@ import Link from "next/link";
 import React from "react";
 import { setAppearanceAction } from "../actions";
 import { Card, PageHead } from "@/components/desk/ui";
+import { SleepNowButton } from "@/components/desk/splash";
 import { ThresholdsForm } from "@/components/desk/thresholds-form";
-import { DENSITIES, DENSITY_COOKIE, DENSITY_LABEL, THEMES, THEME_COOKIE, THEME_LABEL, asDensity, asTheme } from "@/lib/appearance";
+import {
+  DENSITIES,
+  DENSITY_COOKIE,
+  DENSITY_LABEL,
+  MAX_SLEEP_MINUTES,
+  SLEEP_COOKIE,
+  SLEEP_PRESETS,
+  THEMES,
+  THEME_COOKIE,
+  THEME_LABEL,
+  asDensity,
+  asSleepMinutes,
+  asTheme,
+  sleepBlurb,
+  sleepPresetLabel
+} from "@/lib/appearance";
 import { THRESHOLD_FIELDS, type Thresholds } from "@/lib/thresholds";
 import { getDeskKpi } from "@/server/tl/kpi";
 import { getStoredThresholds } from "@/server/tl/thresholds";
@@ -18,16 +34,18 @@ import { PLANS, priceText } from "@/lib/plans";
 import { TeamCard } from "@/components/desk/team-card";
 import { isPlatformAdmin, requirePage } from "@/server/tl/access";
 import { listMembers } from "@/server/tl/members";
-import { roleAtLeast } from "@/lib/roles";
+import { can } from "@/lib/roles";
 
 export const metadata = { title: "Settings · TrueLane" };
 
-/** Settings: appearance (theme, row density) and the thresholds the desk judges by. Appearance buttons save straight away. */
+/** Settings: appearance (theme, row density, idle sleep mode) and the thresholds the desk judges by. Appearance buttons save straight away. */
 export default async function SettingsPage() {
   const jar = cookies();
   const theme = asTheme(jar.get(THEME_COOKIE)?.value);
   const density = asDensity(jar.get(DENSITY_COOKIE)?.value);
-  const me = await requirePage("viewer");
+  const sleepMinutes = asSleepMinutes(jar.get(SLEEP_COOKIE)?.value);
+  const isCustomSleep = !(SLEEP_PRESETS as readonly number[]).includes(sleepMinutes);
+  const me = await requirePage("read");
   const [row, kpi, company, plan, partners, members] = await Promise.all([getStoredThresholds(), getDeskKpi({ period: "4w", compare: false }), getCompany(), planSummary(), partnerStatus(), listMembers()]);
   const seats = plan.units.find((u) => u.kind === "member")!;
   const stored = Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, row[f.key] ?? null])) as Record<keyof Thresholds, number | null>;
@@ -84,7 +102,7 @@ export default async function SettingsPage() {
       </div>
 
       <Card title="Team" className="tl-card">
-        <TeamCard rows={members.map((m) => ({ id: m.id, email: m.email, name: m.name, role: m.role, signedIn: m.signedIn, you: m.email === me.email }))} canEdit={roleAtLeast(me.role, "owner")} seats={{ used: seats.used, limit: seats.limit }} />
+        <TeamCard rows={members.map((m) => ({ id: m.id, email: m.email, name: m.name, role: m.role, grants: m.grants, signedIn: m.signedIn, you: m.email === me.email }))} canEdit={can(me.role, me.grants, "admin")} seats={{ used: seats.used, limit: seats.limit }} />
       </Card>
 
       <Card title="Integrations" className="tl-card">
@@ -116,6 +134,37 @@ export default async function SettingsPage() {
             ))}
           </form>
           <span className="tl-sub">{DENSITY_LABEL[density].blurb}</span>
+        </div>
+        <div className="st-row">
+          <span className="th-label" id="st-sleep">Sleep mode</span>
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+            <form action={setAppearanceAction} className="cp-seg" role="group" aria-labelledby="st-sleep">
+              {SLEEP_PRESETS.map((m) => (
+                <button key={m} type="submit" name="sleep" value={String(m)} aria-pressed={sleepMinutes === m}>
+                  {sleepPresetLabel(m)}
+                </button>
+              ))}
+            </form>
+            <form action={setAppearanceAction} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <label className="tl-field" style={{ flexDirection: "row", alignItems: "center", gap: 6, margin: 0 }}>
+                <input
+                  type="number"
+                  name="sleep"
+                  min={1}
+                  max={MAX_SLEEP_MINUTES}
+                  defaultValue={sleepMinutes > 0 ? sleepMinutes : 15}
+                  aria-label="Custom sleep timeout in minutes"
+                  style={{ width: 68, minHeight: 34, fontVariantNumeric: "tabular-nums" }}
+                />
+                <span>min</span>
+              </label>
+              <button type="submit" className="tl-btn sm" aria-pressed={isCustomSleep ? "true" : undefined}>
+                Set
+              </button>
+            </form>
+            <SleepNowButton />
+          </div>
+          <span className="tl-sub">{sleepBlurb(sleepMinutes)}</span>
         </div>
       </Card>
 

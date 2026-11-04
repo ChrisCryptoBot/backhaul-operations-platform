@@ -19,11 +19,11 @@ const marginText = (n: number | null) => (n == null ? "—" : `${n < 0 ? "−" :
 const VERDICTS: VerdictKey[] = ["take", "think", "reject", "unjudged"];
 
 /**
- * What was decided on every quote, by whom, on what, and how the negotiating went: a view for an owner of everyone's decisions, for a dispatcher of their own. Read from the decision
+ * What was decided on every quote, by whom, on what, and how the negotiating went: a view for an admin of everyone's decisions, for a dispatcher of their own. Read from the decision
  * records (the verdict, what it was read against, the margin, the first offer, who decided and why); decisions from before those were kept count in the totals only.
  */
 export default async function QuoteDecisionsPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
-  await requirePage("dispatcher");
+  await requirePage("quote");
   const scope = reportScope();
   if (scope == null) notFound();
   const period = asKpiPeriod(Array.isArray(searchParams?.period) ? searchParams?.period[0] : searchParams?.period);

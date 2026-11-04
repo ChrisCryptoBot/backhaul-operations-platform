@@ -115,12 +115,11 @@ describe.skipIf(!run)("percent pay and driver statements on the demo database", 
     expect(await finalizeSettlement(started.id, { hours: {}, adjustments: [] })).toMatchObject({ ok: false, error: "Enter the hours for W7B-5." });
     expect((await prisma.settlement.findUniqueOrThrow({ where: { id: started.id } })).status).toBe("draft");
 
-    const second = await startSettlement({ driverId, ...PERIOD }); // a second draft over the same loads is allowed until one is finalized
-    expect(second.ok).toBe(true);
-    if (second.ok) L.draft2 = second.id;
-    const numbers = [started, second].map(async (r) => (r.ok ? (await getSettlement(r.id))!.number : ""));
-    const [n1, n2] = await Promise.all(numbers);
-    expect(n1).not.toBe(n2);
+    // A second draft over the same dates is refused, with the first one named: two drafts over the same loads only invite paying them twice.
+    expect(await startSettlement({ driverId, ...PERIOD })).toMatchObject({ ok: false, error: expect.stringContaining(`${view.number} is already a draft`) });
+    // (A stray second draft, made some other way, still cannot pay a load twice: the database holds one statement per load. This one is made directly so that is tested below.)
+    const owner = await prisma.driver.findUniqueOrThrow({ where: { id: driverId } });
+    L.draft2 = (await prisma.settlement.create({ data: { workspaceId: owner.workspaceId, driverId, number: "ST-W7B-STRAY", periodStart: new Date(`${PERIOD.start}T00:00:00Z`), periodEnd: new Date(`${PERIOD.end}T00:00:00Z`) } })).id;
     expect((await listSettlements()).filter((s) => s.driverName === "W7B Driver A" && s.status === "draft")).toHaveLength(2);
   });
 
@@ -193,6 +192,8 @@ describe.skipIf(!run)("percent pay and driver statements on the demo database", 
     expect(await voidSettlement(L.draft1!, "Again for no reason")).toMatchObject({ ok: false });
     expect((await events("statement_voided"))[0]).toMatchObject({ reason: "Paid the wrong week" });
 
+    // The stray draft over the same dates is cleared, so the freed loads can be started on again (one draft per driver and dates).
+    expect(await discardSettlement(L.draft2!)).toMatchObject({ ok: true });
     // The freed loads are paid on a new statement; the old one stays void.
     const again = await startSettlement({ driverId, ...PERIOD });
     expect(again.ok).toBe(true);
@@ -201,7 +202,6 @@ describe.skipIf(!run)("percent pay and driver statements on the demo database", 
     expect(await discardSettlement(again.id)).toEqual({ ok: true, id: again.id });
     expect(await getSettlement(again.id)).toBeNull();
     expect((await events("statement_discarded"))[0]!.summary).toContain("discarded");
-    expect(await discardSettlement(L.draft2!)).toMatchObject({ ok: true });
   });
 
   test("what is delivered and not yet settled is listed per driver with a period that covers it; a rate confirmation load is paid its percent of the agreed rate", async () => {

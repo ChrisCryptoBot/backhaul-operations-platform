@@ -1,11 +1,14 @@
 import { beforeAll, describe, expect, test } from "vitest";
 import { prisma } from "@/lib/db";
 import { BLANK_QUOTE, readQuote } from "@/lib/quote";
-import { getAlerts, clearAlertCache } from "@/server/tl/alerts";
+import { listPayroll } from "@/server/partners/payroll";
+import { agingSummary, clearAgingCache } from "@/server/tl/aging";
+import { clearAlertCache, getAlerts } from "@/server/tl/alerts";
 import { listAudit } from "@/server/tl/audit";
-import { getDetentionRecovery } from "@/server/tl/detention";
-import { listDriversPage, listTrucksPage } from "@/server/tl/fleet-list";
 import { countDeletedLoads, listDeletedLoads } from "@/server/tl/deleted";
+import { getDetentionRecovery } from "@/server/tl/detention";
+import { buildExport } from "@/server/tl/exports";
+import { listDriversPage, listTrucksPage } from "@/server/tl/fleet-list";
 import { listHistory } from "@/server/tl/history";
 import { clearKpiCache, getDeskKpi } from "@/server/tl/kpi";
 import { getPlannerData } from "@/server/tl/planner";
@@ -60,6 +63,7 @@ describe.runIf(run)("the desk at the size of a big fleet", () => {
     if (trucks < 1000) throw new Error(`RUN_SCALE needs the scale database (demo_scale, seeded by scripts/seed-scale.ts); this one has ${trucks} trucks.`);
     clearKpiCache();
     clearAlertCache();
+    clearAgingCache();
   });
 
   test("the header and the alerts: built once, then a check of the data", async () => {
@@ -113,19 +117,35 @@ describe.runIf(run)("the desk at the size of a big fleet", () => {
     expect(await best(() => getPlannerData(Date.now()))).toBeLessThan(1_500);
   }, 60_000);
 
-  test("Invoices: each list a page at a time, the money out from plain columns", async () => {
+  test("Invoices: each list a page at a time, terminal scope, aging aggregate, and 9,000-row Out CSV export", async () => {
+    const terminal = (await prisma.vehicle.findFirst({ where: { terminal: { not: null } }, select: { terminal: true } }))?.terminal ?? null;
     expect(await best(() => listInvoiceRows(undefined, { scope: "ready", take: 25 }))).toBeLessThan(500);
     expect(await best(() => listInvoiceRows(undefined, { scope: "out", take: 50 }))).toBeLessThan(500);
+    expect(await best(() => listInvoiceRows(undefined, { scope: "out", take: 50, terminal }))).toBeLessThan(600);
+    expect(await best(() => listInvoiceRows(undefined, { scope: "out", take: 50, sort: { key: "due", dir: "asc" } }))).toBeLessThan(800);
+    expect(await best(() => listInvoiceRows(undefined, { scope: "out", take: 50, sort: { key: "amount", dir: "desc" } }))).toBeLessThan(800);
     expect(await best(() => listInvoiceRows(undefined, { scope: "out", take: 50, q: "Customer 07" }))).toBeLessThan(800);
     expect(await best(() => listInvoiceRows(undefined, { scope: "paid", take: 50 }))).toBeLessThan(600);
     expect(await best(() => Promise.all([countInvoices("ready"), countInvoices("out"), countInvoices("paid")]))).toBeLessThan(300);
+    clearAgingCache();
+    expect(await best(() => agingSummary(), 1)).toBeLessThan(800);
+    expect(await best(() => agingSummary())).toBeLessThan(200);
+    expect(await best(() => agingSummary(Date.now(), undefined, terminal), 1)).toBeLessThan(800);
     expect(await best(() => agingFor())).toBeLessThan(400);
     expect(await best(() => getDetentionRecovery())).toBeLessThan(1_500);
+    expect(await best(() => getDetentionRecovery(undefined, new Date(), terminal))).toBeLessThan(1_500);
+    // Exporting all ~9,000 Out invoices reads light columns in 1,000-row pages without stop/truck joins.
+    expect(await best(() => buildExport("invoices", { scope: "out" }), 1)).toBeLessThan(5_000);
   }, 60_000);
 
-  test("Settlements: pay owed is added up from plain columns", async () => {
+  test("Settlements and Payroll: pay owed, batched drafts and ready batch IDs", async () => {
+    const terminal = (await prisma.driver.findFirst({ where: { terminal: { not: null } }, select: { terminal: true } }))?.terminal ?? null;
     expect(await best(() => settlementCounts())).toBeLessThan(300);
+    expect(await best(() => listSettlements(undefined, { status: "draft", take: 25 }))).toBeLessThan(600);
+    expect(await best(() => listSettlements(undefined, { status: "final", terminal, take: 50 }))).toBeLessThan(400);
     expect(await best(() => unsettledByDriver())).toBeLessThan(1_500);
+    expect(await best(() => unsettledByDriver(undefined, new Date(), terminal))).toBeLessThan(1_500);
+    expect(await best(() => listPayroll({ page: 1, filter: "ready", terminal }))).toBeLessThan(500);
   }, 60_000);
 
   test("KPI, Customers and Lanes: built once, then kept until the data moves", async () => {

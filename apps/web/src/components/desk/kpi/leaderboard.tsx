@@ -34,7 +34,7 @@ export function DriverLeaderboard({ drivers, thresholds, mode, hrefFor }: { driv
       }
       formula={mode === "pct" ? "A driver's empty miles ÷ every mile that driver drove, over finished loads with that driver assigned. Lines are set in Settings." : "Pickup deadhead + return deadhead, summed over the driver's finished loads."}
       table={{
-        head: ["Driver", "Loads", "Gross", "Per mile", "Miles driven", "Empty miles", "Empty %", "Pay owed"],
+        head: ["Driver", "Loads", "Gross", "Per mile", "Miles driven", "Empty miles", "Empty %", "Est. driver pay"],
         rows: drivers.map((d) => [d.name, String(d.loads), usd(d.gross), perMile(d.rpm), miles(d.drivenMiles), miles(d.emptyMiles), pct(d.emptyShare, 1), usd(d.payOwed)])
       }}>
       <div className="lb-head">
@@ -68,7 +68,7 @@ export function DriverLeaderboard({ drivers, thresholds, mode, hrefFor }: { driv
                   ["Per revenue mile", perMile(d.rpm)],
                   ["Miles driven", miles(d.drivenMiles)],
                   ["Empty miles", `${miles(d.emptyMiles)}  (${pct(d.emptyShare, 1)})`],
-                  ["Pay owed", usd(d.payOwed)]
+                  ["Est. driver pay", usd(d.payOwed)]
                 ]
               }}>
               <span className="lb-name">{d.name}</span>

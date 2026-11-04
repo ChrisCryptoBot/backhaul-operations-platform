@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  * calls this: the screens only ask when an MC was typed.
  */
 export async function GET(request: Request) {
-  const denied = await guardRoute("dispatcher");
+  const denied = await guardRoute("dispatch", "billing_details");
   if (denied) return denied;
   const over = overBudget("fmcsa");
   if (over) return over;

@@ -24,7 +24,8 @@ export type SettlementLoad = {
   /** For hourly pay: the hours the assignment was sent with, when it had an estimate. */
   assignedHours: number | null;
   /** Where the broker's payment to the desk stands, so the dispatcher can see it. It does not hold the statement. */
-  brokerStatus: "paid" | "invoiced" | "not_invoiced";
+  /** Where the customer's payment stands. "paid_short" is paid and closed for less than the invoice (a short pay or a write-off). */
+  brokerStatus: "paid" | "paid_short" | "invoiced" | "not_invoiced";
 };
 
 export type StatementLine = {
@@ -148,7 +149,9 @@ export function computeStatement(input: { loads: SettlementLoad[]; hours: Record
   if (lines.length === 0 && adjustments.length === 0) blockers.push("There is nothing to pay on this statement.");
 
   if (totalCents < 0) cautions.push("The deductions come to more than the pay, so this statement is a negative amount: money the driver owes.");
-  const unpaid = lines.filter((l) => l.brokerStatus !== "paid").length;
+  const short = lines.filter((l) => l.brokerStatus === "paid_short").length;
+  if (short > 0) cautions.push(`${short} of these ${short === 1 ? "loads was" : "loads were"} paid short by the customer. A percent is worked on the agreed rate, so the driver is paid on the full rate; adjust it below if you share the loss.`);
+  const unpaid = lines.filter((l) => l.brokerStatus !== "paid" && l.brokerStatus !== "paid_short").length;
   if (unpaid > 0) cautions.push(`${unpaid} of these ${unpaid === 1 ? "loads is" : "loads are"} not paid by the customer yet. Pay the driver on your own terms; the statement does not wait for it.`);
 
   return { lines, adjustments, loadsTotal: dollars(loadsCents), adjustmentsTotal: dollars(adjustmentCents), total: dollars(totalCents), errors, blockers, cautions };
@@ -219,10 +222,17 @@ export function periodPresets(now: number): PeriodPreset[] {
 
 /** A period that covers a driver's unsettled deliveries, oldest to newest, trimmed to the longest a statement can be (the newest days win). */
 export function periodCovering(deliveredAt: Array<Date | string>): { start: string; end: string } | null {
-  const days = deliveredAt.map((d) => dallasDay(new Date(d).getTime())).sort();
-  if (days.length === 0) return null;
-  const end = days[days.length - 1]!;
-  const oldest = days[0]!;
+  if (deliveredAt.length === 0) return null;
+  let minMs = Infinity;
+  let maxMs = -Infinity;
+  for (const d of deliveredAt) {
+    const ms = typeof d === "string" ? new Date(d).getTime() : d.getTime();
+    if (ms < minMs) minMs = ms;
+    if (ms > maxMs) maxMs = ms;
+  }
+  if (!Number.isFinite(minMs)) return null;
+  const oldest = dallasDay(minMs);
+  const end = minMs === maxMs ? oldest : dallasDay(maxMs);
   const earliestAllowed = addDays(end, -(MAX_PERIOD_DAYS - 1));
   return { start: oldest < earliestAllowed ? earliestAllowed : oldest, end };
 }

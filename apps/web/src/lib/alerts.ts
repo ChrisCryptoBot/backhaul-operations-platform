@@ -167,6 +167,8 @@ export type AlertLoad = {
   hasTruck?: boolean;
   /** The truck on the load, when one is set (for two loads on one truck at once). */
   vehicle?: { id: string; name: string | null } | null;
+  /** The fee on a TONU, which is billed like a delivery. */
+  tonuFee?: number | null;
   /** When the load was delivered, for how long a proof of delivery has been missing. */
   completedAt?: Date | null;
   /** Delivery stops with no proof of delivery file on file (a proof with no stop named covers the load); absent when not known. */
@@ -265,6 +267,8 @@ export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds =
     }
 
     if (l.status === "completed" && !l.paymentStatus) add(l, "READY_TO_INVOICE", "info", "Delivered and not invoiced yet.");
+    // A TONU with a fee is billed like a delivery, and waits to be billed the same way.
+    else if (l.status === "tonu" && (l.tonuFee ?? 0) > 0 && !l.paymentStatus) add(l, "READY_TO_INVOICE", "info", "A TONU fee is owed and not invoiced yet.");
     if (l.status === "completed" && l.closedWithoutPod === true) add(l, "MISSING_POD", "info", "Closed without proof of delivery.");
     // Delivered three weeks ago and still no proof of delivery file: the customer can refuse to pay, and the factor will not buy the invoice without it.
     else if (l.status === "completed" && (l.podStopsMissing ?? 0) > 0 && l.completedAt && now.getTime() - l.completedAt.getTime() >= POD_ALERT_DAYS * DAY) {

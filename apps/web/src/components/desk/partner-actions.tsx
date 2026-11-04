@@ -4,7 +4,9 @@ import { useRouter } from "next/navigation";
 import React from "react";
 import { connectPartnerAction, disconnectPartnerAction, factorInvoiceAction, factoringUpdateAction, importFuelAction, saveFuelCardAction, sendToPayrollAction, syncEldAction, vetCarrierAction } from "@/app/(desk)/actions";
 import { PROVIDERS } from "@/truelane/partners/contract";
+import { ReadOnlyBanner } from "./kit/read-only";
 import { useToast } from "./kit/toast";
+import { tried } from "./kit/tried";
 
 /**
  * The seams where a partner company plugs into the desk. Each is a real control that is DISABLED WITH ITS REASON while the company is not connected (no keys on the server, or
@@ -35,19 +37,31 @@ export type FactorInfo = {
   manifest: Array<{ kind: string; label: string; required: boolean; present: boolean }>;
   missingOptional: number;
   blocked: string | null;
+  paid?: boolean;
+  canAct?: boolean;
+  who?: string;
 };
 
 /** The factoring box on an invoice: where it stands with the factor, what the packet holds, and "Send to the factor" (the optional items go missing only by "Send anyway"). */
 export function FactorPanel({ info }: { info: FactorInfo }) {
   const router = useRouter();
   const toast = useToast();
-  const [pending, start] = React.useTransition();
+  const [busy, setBusy] = React.useState(false);
   const [anyway, setAnyway] = React.useState(false);
   const [error, setError] = React.useState("");
   const needsAnyway = info.missingOptional > 0;
-  const run = () =>
-    start(async () => {
-      const out = await factorInvoiceAction(info.loadId, anyway);
+  const canAct = info.canAct !== false;
+
+  const run = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const got = await tried(() => factorInvoiceAction(info.loadId, anyway));
+      if (!got.ok) {
+        setError(got.message);
+        return;
+      }
+      const out = got.value;
       if (!out.ok) {
         setError(out.error);
         return;
@@ -55,7 +69,33 @@ export function FactorPanel({ info }: { info: FactorInfo }) {
       setError("");
       toast({ text: `Sent to the factor (reference ${out.referenceId}).`, tone: "ok" });
       router.refresh();
-    });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const step = async (nextStatus: string, done: string) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const got = await tried(() => factoringUpdateAction(info.loadId, nextStatus));
+      if (!got.ok) {
+        setError(got.message);
+        return;
+      }
+      const out = got.value;
+      if (!out.ok) {
+        setError(out.error ?? "That did not go through.");
+        return;
+      }
+      setError("");
+      toast({ text: done, tone: "ok" });
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section className="tl-card no-print" aria-label="Factoring" style={{ marginBottom: 16 }}>
       <h2>Factoring</h2>
@@ -71,37 +111,32 @@ export function FactorPanel({ info }: { info: FactorInfo }) {
           </li>
         ))}
       </ul>
-      <div className="tl-form-row" style={{ alignItems: "flex-start" }}>
-        <ReasonButton label="Send to the factor" busyLabel="Sending…" reason={info.blocked} busy={pending} onClick={run} primary />
-        {needsAnyway && !info.blocked ? (
-          <label className="dlg-check">
-            <input type="checkbox" checked={anyway} onChange={(e) => setAnyway(e.target.checked)} /> Send anyway, without the items not on file
-          </label>
-        ) : null}
-      </div>
-      {NEXT_STEPS[info.status] ? (
-        <div className="tl-form-row" style={{ marginTop: 10, alignItems: "center" }}>
-          <span className="tl-sub">The factor&apos;s answer, until it is reported automatically:</span>
-          {NEXT_STEPS[info.status]!.map((n) => (
-            <button
-              key={n.status}
-              type="button"
-              className="tl-btn sm"
-              disabled={pending}
-              onClick={() =>
-                start(async () => {
-                  const out = await factoringUpdateAction(info.loadId, n.status);
-                  if (!out.ok) return setError(out.error ?? "That did not go through.");
-                  setError("");
-                  toast({ text: n.done, tone: "ok" });
-                  router.refresh();
-                })
-              }>
-              {n.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
+      {!canAct ? (
+        <p className="tl-note" role="note" style={{ margin: 0 }}>
+          {info.who ?? "Accounting or Admin"} can send this invoice to the factor or update its status.
+        </p>
+      ) : info.paid ? null : (
+        <>
+          <div className="tl-form-row" style={{ alignItems: "flex-start" }}>
+            <ReasonButton label="Send to the factor" busyLabel="Sending…" reason={info.blocked} busy={busy} onClick={() => void run()} primary />
+            {needsAnyway && !info.blocked ? (
+              <label className="dlg-check">
+                <input type="checkbox" checked={anyway} onChange={(e) => setAnyway(e.target.checked)} /> Send anyway, without the items not on file
+              </label>
+            ) : null}
+          </div>
+          {NEXT_STEPS[info.status] ? (
+            <div className="tl-form-row" style={{ marginTop: 10, alignItems: "center" }}>
+              <span className="tl-sub">The factor&apos;s answer, until it is reported automatically:</span>
+              {NEXT_STEPS[info.status]!.map((n) => (
+                <button key={n.status} type="button" className="tl-btn sm" disabled={busy} aria-busy={busy || undefined} onClick={() => void step(n.status, n.done)}>
+                  {n.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </>
+      )}
       {error ? (
         <p className="tl-note warn" role="alert" style={{ marginTop: 8 }}>
           {error}
@@ -132,7 +167,12 @@ export function SyncEldButton({ reason }: { reason: string | null }) {
       busy={pending}
       onClick={() =>
         start(async () => {
-          const out = await syncEldAction();
+          const got = await tried(() => syncEldAction());
+          if (!got.ok) {
+            toast({ text: got.message, tone: "bad" });
+            return;
+          }
+          const out = got.value;
           toast({ text: out.ok ? `Hours read for ${out.synced} ${out.synced === 1 ? "tractor" : "tractors"}.` : out.error, tone: out.ok ? "ok" : "bad" });
           if (out.ok) router.refresh();
         })
@@ -156,7 +196,12 @@ export function VetButton({ driverId, reason }: { driverId: string; reason: stri
       busy={pending}
       onClick={() =>
         start(async () => {
-          const out = await vetCarrierAction(driverId);
+          const got = await tried(() => vetCarrierAction(driverId));
+          if (!got.ok) {
+            toast({ text: got.message, tone: "bad" });
+            return;
+          }
+          const out = got.value;
           toast({ text: out.ok ? "Carrier checked." : out.error, tone: out.ok ? "ok" : "bad" });
           if (out.ok) router.refresh();
         })
@@ -168,51 +213,70 @@ export function VetButton({ driverId, reason }: { driverId: string; reason: stri
 // ── Payroll ────────────────────────────────────────────────────────────────────────────────────
 
 /** Checkboxes for the ready statements and one button to send the ticked ones. */
-export function PayrollSend({ readyIds, reason }: { readyIds: string[]; reason: string | null }) {
+export function PayrollSend({ readyIds, reason, canAct = true, who }: { readyIds: string[]; reason: string | null; canAct?: boolean; who?: string }) {
   const router = useRouter();
   const toast = useToast();
-  const [pending, start] = React.useTransition();
+  const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState("");
   const [ticked, setTicked] = React.useState<string[]>([]);
   React.useEffect(() => {
     const box = (e: Event) => {
       const t = e.target as HTMLInputElement;
       if (!t.matches?.("input[data-payroll]")) return;
-      setTicked(Array.from(document.querySelectorAll<HTMLInputElement>("input[data-payroll]:checked")).map((i) => i.value));
+      const onPage = Array.from(document.querySelectorAll<HTMLInputElement>("input[data-payroll]"));
+      const pageIds = new Set(onPage.map((i) => i.value));
+      const checkedOnPage = onPage.filter((i) => i.checked).map((i) => i.value);
+      setTicked((prev) => [...prev.filter((id) => !pageIds.has(id)), ...checkedOnPage]);
     };
     document.addEventListener("change", box);
     return () => document.removeEventListener("change", box);
   }, []);
   const pick = (all: boolean) => {
-    document.querySelectorAll<HTMLInputElement>("input[data-payroll]").forEach((i) => (i.checked = all));
+    const chosen = new Set(all ? readyIds : []);
+    document.querySelectorAll<HTMLInputElement>("input[data-payroll]").forEach((i) => (i.checked = chosen.has(i.value)));
     setTicked(all ? readyIds : []);
   };
+
+  if (!canAct) return <ReadOnlyBanner who={who ?? "Accounting or Admin"} what="payroll" />;
+
+  async function send() {
+    if (busy || ticked.length === 0) return;
+    setBusy(true);
+    try {
+      const got = await tried(() => sendToPayrollAction(ticked));
+      if (!got.ok) {
+        setError(got.message);
+        return;
+      }
+      const out = got.value;
+      if (!out.ok) {
+        setError(out.error);
+        return;
+      }
+      setError("");
+      toast({ text: `${out.sent} ${out.sent === 1 ? "statement" : "statements"} sent (reference ${out.reference}).`, tone: "ok" });
+      document.querySelectorAll<HTMLInputElement>("input[data-payroll]").forEach((i) => (i.checked = false));
+      setTicked([]);
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="tl-form-row" style={{ alignItems: "flex-start" }}>
       <ReasonButton
         label={`Send ${ticked.length > 0 ? ticked.length : ""} to payroll`.replace("  ", " ")}
         busyLabel="Sending…"
         reason={reason ?? (ticked.length === 0 ? "Tick the statements to send." : null)}
-        busy={pending}
+        busy={busy}
         primary
-        onClick={() =>
-          start(async () => {
-            const out = await sendToPayrollAction(ticked);
-            if (!out.ok) {
-              setError(out.error);
-              return;
-            }
-            setError("");
-            toast({ text: `${out.sent} ${out.sent === 1 ? "statement" : "statements"} sent (reference ${out.reference}).`, tone: "ok" });
-            setTicked([]);
-            router.refresh();
-          })
-        }
+        onClick={() => void send()}
       />
-      <button type="button" className="tl-btn ghost sm" onClick={() => pick(true)} disabled={readyIds.length === 0}>
-        Tick all ready
+      <button type="button" className="tl-btn ghost sm" onClick={() => pick(true)} disabled={busy || readyIds.length === 0}>
+        {readyIds.length >= 200 ? "Tick first 200 ready" : "Tick all ready"}
       </button>
-      <button type="button" className="tl-btn ghost sm" onClick={() => pick(false)} disabled={ticked.length === 0}>
+      <button type="button" className="tl-btn ghost sm" onClick={() => pick(false)} disabled={busy || ticked.length === 0}>
         Clear
       </button>
       {error ? (
@@ -241,7 +305,12 @@ export function FuelCardForm({ vehicleId, provider, accountId }: { vehicleId: st
       onSubmit={(e) => {
         e.preventDefault();
         start(async () => {
-          const out = await saveFuelCardAction(vehicleId, p, a);
+          const got = await tried(() => saveFuelCardAction(vehicleId, p, a));
+          if (!got.ok) {
+            setError(got.message);
+            return;
+          }
+          const out = got.value;
           if (!out.ok) {
             setError(out.error);
             return;
@@ -293,7 +362,12 @@ export function FuelImport({ loadId, current, onFill }: { loadId: string; curren
         disabled={state.busy}
         onClick={async () => {
           setState({ busy: true, note: null, bad: false, reason: null });
-          const out = await importFuelAction(loadId);
+          const got = await tried(() => importFuelAction(loadId));
+          if (!got.ok) {
+            setState({ busy: false, note: got.message, bad: true, reason: null });
+            return;
+          }
+          const out = got.value;
           if (!out.ok) {
             setState({ busy: false, note: out.error, bad: true, reason: null });
             return;
@@ -319,7 +393,12 @@ export function IntegrationsList({ rows }: { rows: IntegrationRow[] }) {
   const [error, setError] = React.useState("");
   const act = (r: IntegrationRow, connect: boolean) =>
     start(async () => {
-      const out = connect ? await connectPartnerAction(r.capability, r.provider, null) : await disconnectPartnerAction(r.capability, r.provider);
+      const got = await tried(() => (connect ? connectPartnerAction(r.capability, r.provider, null) : disconnectPartnerAction(r.capability, r.provider)));
+      if (!got.ok) {
+        setError(got.message);
+        return;
+      }
+      const out = got.value;
       if (!out.ok) {
         setError(out.error);
         return;

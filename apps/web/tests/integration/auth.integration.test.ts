@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { prisma } from "@/lib/db";
 import { SESSION_COOKIE } from "@/lib/session-cookie";
+import type { Role } from "@/lib/roles";
 import { signSession } from "@/server/tl/session-token";
 
 /**
@@ -24,7 +25,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 const run = process.env.RUN_DB_INTEGRATION === "true";
-const cookieFor = (role: "viewer" | "dispatcher" | "owner", uid = "user-1", ws = W, ttl = 3600) =>
+const cookieFor = (role: Role, uid = "user-1", ws = W, ttl = 3600) =>
   signSession({ uid, ws, role, name: "Pat Lee", email: "pat@example.com" }, SECRET, Date.now(), ttl);
 
 describe.skipIf(!run)("sign-in on: who is on a desk", () => {
@@ -49,52 +50,52 @@ describe.skipIf(!run)("sign-in on: who is on a desk", () => {
   });
 
   const member = (role: string, uid: string | null = "user-1", ws = W, email = "pat@example.com") => prisma.member.create({ data: { workspaceId: ws, email, name: "Pat Lee", role, clerkUserId: uid } });
-  const signedInAs = (role: "viewer" | "dispatcher" | "owner", uid = "user-1") => {
+  const signedInAs = (role: Role, uid = "user-1") => {
     state.uid = uid;
     state.cookie = cookieFor(role, uid);
   };
 
   test("nobody, or only half a sign-in, is signed out: no provider user, no desk cookie, a cookie made for someone else, a forged or an old one", async () => {
     const { checkAccess } = await import("@/server/tl/access");
-    await member("owner");
-    expect(await checkAccess("viewer")).toEqual({ ok: false, reason: "signed_out" });
+    await member("admin");
+    expect(await checkAccess("read")).toEqual({ ok: false, reason: "signed_out" });
     state.uid = "user-1";
-    expect(await checkAccess("viewer")).toEqual({ ok: false, reason: "signed_out" }); // signed in to the provider, no desk session yet
-    state.cookie = cookieFor("owner", "someone-else");
-    expect(await checkAccess("viewer")).toEqual({ ok: false, reason: "signed_out" }); // a cookie is useless without its own sign-in
-    state.cookie = `${cookieFor("owner").split(".")[0]}.${"0".repeat(64)}`;
-    expect(await checkAccess("viewer")).toEqual({ ok: false, reason: "signed_out" });
-    state.cookie = cookieFor("owner", "user-1", W, -10);
-    expect(await checkAccess("viewer")).toEqual({ ok: false, reason: "signed_out" });
+    expect(await checkAccess("read")).toEqual({ ok: false, reason: "signed_out" }); // signed in to the provider, no desk session yet
+    state.cookie = cookieFor("admin", "someone-else");
+    expect(await checkAccess("read")).toEqual({ ok: false, reason: "signed_out" }); // a cookie is useless without its own sign-in
+    state.cookie = `${cookieFor("admin").split(".")[0]}.${"0".repeat(64)}`;
+    expect(await checkAccess("read")).toEqual({ ok: false, reason: "signed_out" });
+    state.cookie = cookieFor("admin", "user-1", W, -10);
+    expect(await checkAccess("read")).toEqual({ ok: false, reason: "signed_out" });
   });
 
   test("a signed-in person who is on no desk gets nothing; a member gets what their role allows, and the table's role beats the cookie's", async () => {
     const { checkAccess } = await import("@/server/tl/access");
-    signedInAs("owner");
-    expect(await checkAccess("viewer")).toEqual({ ok: false, reason: "no_member" });
+    signedInAs("admin");
+    expect(await checkAccess("read")).toEqual({ ok: false, reason: "no_member" });
     await member("viewer"); // the cookie says owner; the table says viewer
-    expect(await checkAccess("viewer")).toMatchObject({ ok: true, identity: { role: "viewer", workspaceId: W } });
-    expect(await checkAccess("dispatcher")).toEqual({ ok: false, reason: "forbidden" });
-    expect(await checkAccess("owner")).toEqual({ ok: false, reason: "forbidden" });
-    await prisma.member.updateMany({ where: { workspaceId: W }, data: { role: "owner" } });
-    expect(await checkAccess("owner")).toMatchObject({ ok: true, identity: { role: "owner" } });
+    expect(await checkAccess("read")).toMatchObject({ ok: true, identity: { role: "viewer", workspaceId: W } });
+    expect(await checkAccess("dispatch")).toEqual({ ok: false, reason: "forbidden" });
+    expect(await checkAccess("admin")).toEqual({ ok: false, reason: "forbidden" });
+    await prisma.member.updateMany({ where: { workspaceId: W }, data: { role: "admin" } });
+    expect(await checkAccess("admin")).toMatchObject({ ok: true, identity: { role: "admin" } });
   });
 
   test("taking a person off the desk ends their access on the very next call, with the cookie still valid", async () => {
     const { checkAccess } = await import("@/server/tl/access");
     await member("dispatcher");
     signedInAs("dispatcher");
-    expect(await checkAccess("dispatcher")).toMatchObject({ ok: true });
+    expect(await checkAccess("dispatch")).toMatchObject({ ok: true });
     await prisma.member.deleteMany({ where: { workspaceId: W } });
-    expect(await checkAccess("dispatcher")).toEqual({ ok: false, reason: "no_member" });
+    expect(await checkAccess("dispatch")).toEqual({ ok: false, reason: "no_member" });
   });
 
   test("a cookie for one desk is not a way into another: the member row must be on the desk the cookie names", async () => {
     const { checkAccess } = await import("@/server/tl/access");
-    await member("owner", "user-1", OTHER);
+    await member("admin", "user-1", OTHER);
     state.uid = "user-1";
-    state.cookie = cookieFor("owner", "user-1", W);
-    expect(await checkAccess("viewer")).toEqual({ ok: false, reason: "no_member" });
+    state.cookie = cookieFor("admin", "user-1", W);
+    expect(await checkAccess("read")).toEqual({ ok: false, reason: "no_member" });
   });
 
   test("the workspace is the signed-in person's, and with nobody signed in nothing falls back to the demo's data", async () => {
@@ -117,27 +118,27 @@ describe.skipIf(!run)("sign-in on: who is on a desk", () => {
 
   test("a route answers 401 to nobody and 403 to a role that may not, and null to one that may", async () => {
     const { guardRoute } = await import("@/server/tl/access");
-    expect((await guardRoute("viewer"))?.status).toBe(401);
+    expect((await guardRoute("read"))?.status).toBe(401);
     await member("viewer");
     signedInAs("viewer");
-    expect(await guardRoute("viewer")).toBeNull();
-    expect((await guardRoute("dispatcher"))?.status).toBe(403);
+    expect(await guardRoute("read")).toBeNull();
+    expect((await guardRoute("dispatch"))?.status).toBe(403);
   });
 
   test("an action redirects the signed-out to sign-in, and refuses a role that may not with a plain message", async () => {
-    const { requireMember, AccessError } = await import("@/server/tl/access");
-    await expect(requireMember("viewer")).rejects.toMatchObject({ to: "/sign-in" });
+    const { requireCan, AccessError } = await import("@/server/tl/access");
+    await expect(requireCan("read")).rejects.toMatchObject({ to: "/sign-in" });
     await member("viewer");
     signedInAs("viewer");
-    await expect(requireMember("viewer")).resolves.toMatchObject({ role: "viewer" });
-    await expect(requireMember("owner")).rejects.toBeInstanceOf(AccessError);
+    await expect(requireCan("read")).resolves.toMatchObject({ role: "viewer" });
+    await expect(requireCan("admin")).rejects.toBeInstanceOf(AccessError);
   });
 
   test("a page redirects the signed-out to sign-in and a signed-in stranger to 'no desk yet'", async () => {
     const { requirePage } = await import("@/server/tl/access");
-    await expect(requirePage("viewer")).rejects.toMatchObject({ to: "/sign-in" });
-    signedInAs("owner");
-    await expect(requirePage("viewer")).rejects.toMatchObject({ to: "/no-workspace" });
+    await expect(requirePage("read")).rejects.toMatchObject({ to: "/sign-in" });
+    signedInAs("admin");
+    await expect(requirePage("read")).rejects.toMatchObject({ to: "/no-workspace" });
   });
 
   test("first sign-in binds the provider's user to the row added for their verified email; an unverified email, or a row already taken, binds nothing", async () => {
@@ -152,28 +153,66 @@ describe.skipIf(!run)("sign-in on: who is on a desk", () => {
     expect(await memberForSignIn({ id: "u-11", name: "Nobody", email: "nobody@example.com", emailVerified: true })).toBeNull();
   });
 
-  test("a plan holds only so many seats; a person is on one desk; a desk keeps one owner", async () => {
+  test("a plan holds only so many seats; a person is on one desk; a desk keeps one admin", async () => {
     const { addMember, removeMember, setMemberRole, listMembers } = await import("@/server/tl/members");
     await prisma.workspace.update({ where: { id: OTHER }, data: { plan: "starter" } }); // one seat
-    expect(await addMember({ email: "o@example.com", name: "Olive", role: "owner" }, new Date(), OTHER)).toMatchObject({ ok: true });
+    expect(await addMember({ email: "o@example.com", name: "Olive", role: "admin" }, new Date(), OTHER)).toMatchObject({ ok: true });
     expect(await addMember({ email: "two@example.com", name: "Two", role: "dispatcher" }, new Date(), OTHER)).toMatchObject({ ok: false, error: expect.stringContaining("Starter plan covers 1 seat") });
-    expect(await addMember({ email: "o@example.com", name: "Olive", role: "owner" }, new Date(), W)).toMatchObject({ ok: false, error: expect.stringContaining("already on another desk") });
-    expect(await addMember({ email: "bad", name: "x", role: "owner" }, new Date(), W)).toMatchObject({ ok: false });
+    expect(await addMember({ email: "o@example.com", name: "Olive", role: "admin" }, new Date(), W)).toMatchObject({ ok: false, error: expect.stringContaining("already on another desk") });
+    expect(await addMember({ email: "bad", name: "x", role: "admin" }, new Date(), W)).toMatchObject({ ok: false });
     expect(await addMember({ email: "r@example.com", name: "R", role: "boss" }, new Date(), W)).toMatchObject({ ok: false });
 
     const [only] = await listMembers(OTHER);
-    expect(await setMemberRole(only!.id, "dispatcher", new Date(), OTHER)).toMatchObject({ ok: false, error: expect.stringContaining("one owner") });
-    expect(await removeMember(only!.id, new Date(), OTHER)).toMatchObject({ ok: false, error: expect.stringContaining("one owner") });
+    expect(await setMemberRole(only!.id, "dispatcher", new Date(), OTHER)).toMatchObject({ ok: false, error: expect.stringContaining("one admin") });
+    expect(await removeMember(only!.id, new Date(), OTHER)).toMatchObject({ ok: false, error: expect.stringContaining("one admin") });
 
-    // Growth holds 3: two owners and a dispatcher fill it; the fourth is refused, and an owner can go when another remains
-    const a = await addMember({ email: "a@example.com", name: "A", role: "owner" }, new Date(), W);
-    const b = await addMember({ email: "b@example.com", name: "B", role: "owner" }, new Date(), W);
+    // Growth holds 3: two admins and a dispatcher fill it; the fourth is refused, and an admin can go when another remains
+    const a = await addMember({ email: "a@example.com", name: "A", role: "admin" }, new Date(), W);
+    const b = await addMember({ email: "b@example.com", name: "B", role: "admin" }, new Date(), W);
     await addMember({ email: "c@example.com", name: "C", role: "dispatcher" }, new Date(), W);
     expect(await addMember({ email: "d@example.com", name: "D", role: "viewer" }, new Date(), W)).toMatchObject({ ok: false, error: expect.stringContaining("Growth plan covers 3 seats") });
     if (!a.ok || !b.ok) throw new Error("setup");
     expect(await setMemberRole(a.id, "viewer", new Date(), W)).toMatchObject({ ok: true });
-    expect(await removeMember(b.id, new Date(), W)).toMatchObject({ ok: false, error: expect.stringContaining("one owner") });
+    expect(await removeMember(b.id, new Date(), W)).toMatchObject({ ok: false, error: expect.stringContaining("one admin") });
     expect((await prisma.auditEvent.findMany({ where: { workspaceId: W } })).map((e) => e.action).sort()).toEqual(["member_added", "member_added", "member_added", "member_role_changed"]);
+  });
+
+  test("an accounting person bills and cannot dispatch; a dispatcher cannot bill until an admin grants it, and the grant never reaches write-offs", async () => {
+    const { checkAccess } = await import("@/server/tl/access");
+    const { setMemberGrants, setMemberRole } = await import("@/server/tl/members");
+    const row = await member("accounting");
+    signedInAs("accounting");
+    expect(await checkAccess("bill")).toMatchObject({ ok: true, identity: { role: "accounting" } });
+    expect(await checkAccess("payout")).toMatchObject({ ok: true });
+    expect(await checkAccess("dispatch")).toEqual({ ok: false, reason: "forbidden" });
+    expect(await checkAccess("quote")).toEqual({ ok: false, reason: "forbidden" });
+    expect(await checkAccess("writeoff")).toEqual({ ok: false, reason: "forbidden" });
+    expect(await checkAccess("dispatch", "bill")).toMatchObject({ ok: true }); // a screen two offices share
+
+    await prisma.member.update({ where: { id: row.id }, data: { role: "dispatcher" } });
+    signedInAs("dispatcher");
+    expect(await checkAccess("dispatch")).toMatchObject({ ok: true });
+    expect(await checkAccess("bill")).toEqual({ ok: false, reason: "forbidden" });
+    // Only an admin's grant, read from the table on the next call, lets a dispatcher bill.
+    expect(await setMemberGrants(row.id, ["bill"], new Date(), W)).toMatchObject({ ok: true });
+    expect(await checkAccess("bill")).toMatchObject({ ok: true, identity: { grants: ["bill"] } });
+    expect(await checkAccess("payout")).toMatchObject({ ok: true });
+    expect(await checkAccess("writeoff")).toEqual({ ok: false, reason: "forbidden" });
+    expect(await checkAccess("admin")).toEqual({ ok: false, reason: "forbidden" });
+    // Taking it back works on the very next call too, and a grant that is not a real one is ignored.
+    await prisma.member.update({ where: { id: row.id }, data: { grants: [] } });
+    expect(await checkAccess("bill")).toEqual({ ok: false, reason: "forbidden" });
+    // A grant belongs to a dispatcher: changing the role drops it, and it is not given to anyone else.
+    expect(await setMemberGrants(row.id, ["bill"], new Date(), W)).toMatchObject({ ok: true });
+    expect(await setMemberRole(row.id, "accounting", new Date(), W)).toMatchObject({ ok: true });
+    expect((await prisma.member.findUniqueOrThrow({ where: { id: row.id } })).grants).toEqual([]);
+    expect(await setMemberGrants(row.id, ["bill"], new Date(), W)).toMatchObject({ ok: false, error: expect.stringContaining("Only a dispatcher") });
+    expect((await prisma.auditEvent.findMany({ where: { workspaceId: W } })).map((e) => e.summary).some((t) => t.includes("can also bill"))).toBe(true);
+  });
+
+  test("the database refuses a role or a grant that is not one", async () => {
+    await expect(prisma.member.create({ data: { workspaceId: W, email: "x@example.com", name: "X", role: "owner" } })).rejects.toThrow();
+    await expect(prisma.member.create({ data: { workspaceId: W, email: "y@example.com", name: "Y", role: "dispatcher", grants: ["writeoff"] } })).rejects.toThrow();
   });
 
   test("the cookie seam names no workspace in production, even when switched on", async () => {

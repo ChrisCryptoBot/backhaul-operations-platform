@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
  * so a slow lookup never holds up the live price. Nothing is stored.
  */
 export async function POST(request: Request) {
-  const denied = await guardRoute("dispatcher");
+  const denied = await guardRoute("dispatch", "billing_details");
   if (denied) return denied;
   const over = overBudget("geo_measure");
   if (over) return over;

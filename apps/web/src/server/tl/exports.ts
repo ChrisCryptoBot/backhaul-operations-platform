@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { dueAt } from "@/lib/overdue";
+import { deskDaysBetween, dueAt } from "@/lib/overdue";
 import { toCsv, type CsvCell } from "@/lib/csv";
 import { filterBoard } from "@/lib/board-filter";
 import { asHistoryFilter, asHistorySort } from "@/lib/loads-history";
@@ -7,7 +7,11 @@ import { prisma } from "@/lib/db";
 import { parseKpiParams } from "@/lib/kpi-params";
 import { ACTION_LABEL } from "@/lib/audit-diff";
 import { reasonLabel } from "@/lib/disruptions";
+import { moneyState } from "@/lib/money-state";
+import { asSort } from "@/lib/paging";
+import { paidMethodLabel } from "@/lib/pay-method";
 import { DESK_TZ, toCentralLocal } from "@/lib/zoned";
+import { factoringLabel } from "@/server/partners/factoring";
 import { listAudit } from "./audit";
 import { listTrailersPage } from "./trailers";
 import { OWNERSHIPS } from "@/lib/trailer-forms";
@@ -18,27 +22,33 @@ import { listQuoteDecisions, reportScope } from "./quote-report";
 import { asKpiPeriod } from "@/lib/kpi-periods";
 import { listHistory } from "./history";
 import { LOAD_STATUS } from "@/lib/desk-format";
-import { listBoardRows, listInvoiceRows, type BoardRow } from "./queries";
+import { asInvoiceShow, INVOICE_SORT_KEYS, listBoardRows, listInvoiceRows, type BoardRow, type InvoiceScope } from "./queries";
+import { listSettlements } from "./settlement";
 import { currentTerminal } from "./terminal";
 
-/** The most rows one loads or invoices file holds, so a click cannot build an unbounded one. A file that stopped here says so in its name. */
+/** The most rows one loads, invoices or statements file holds, so a click cannot build an unbounded one. A file that stopped here says so in its name. */
 export const MAX_EXPORT_ROWS = 25_000;
 
 /**
  * The CSV files the desk offers. Each is built from the same functions the screen uses (the Loads filter, the KPI engine),
  * so a file always matches what was on screen when it was asked for. Dates are the Central calendar date.
  */
-export const EXPORT_KINDS = ["loads", "invoices", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "quote-decisions"] as const;
+export const EXPORT_KINDS = ["loads", "invoices", "settlements", "settlement-lines", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "quote-decisions"] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
 type Query = Record<string, string | string[] | undefined>;
 
 const two = (n: number | null | undefined): number | null => (n == null || !Number.isFinite(n) ? null : new Prisma.Decimal(n).toDecimalPlaces(2).toNumber());
 const pctOf = (fraction: number | null | undefined): number | null => (fraction == null || !Number.isFinite(fraction) ? null : new Prisma.Decimal(fraction).times(100).toDecimalPlaces(1).toNumber());
-const ymd = (d: Date | null | undefined): string | null => (d ? d.toLocaleDateString("en-CA", { timeZone: DESK_TZ }) : null);
+const YMD_FMT = new Intl.DateTimeFormat("en-CA", { timeZone: DESK_TZ, year: "numeric", month: "2-digit", day: "2-digit" });
+const ymd = (d: Date | null | undefined): string | null => (d ? YMD_FMT.format(d) : null);
+const utcYmd = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null);
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
-export async function buildExport(kind: string, query: Query, now = new Date()): Promise<{ filename: string; csv: string } | null> {
+const SETTLEMENT_STATUS: Record<string, string> = { draft: "Draft", final: "Finalized", void: "Void" };
+
+export async function buildExport(kind: string, query: Query, now = new Date(), opts: { maxRows?: number } = {}): Promise<{ filename: string; csv: string } | null> {
+  const cap = opts.maxRows ?? MAX_EXPORT_ROWS;
   const day = ymd(now)!;
   const name = (part: string) => `truelane-desk-${part}-${day}.csv`;
 
@@ -70,9 +80,9 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
       for (let page = 1; ; page++) {
         const got = await listHistory({ filter: asHistoryFilter(first(query.filter)), sort: asHistorySort(first(query.sort)), q, page, pageSize: 1000, terminal, lean: true });
         out.push(...got.rows);
-        if (out.length >= MAX_EXPORT_ROWS) {
-          cut = out.length > MAX_EXPORT_ROWS || page < got.pages;
-          return out.slice(0, MAX_EXPORT_ROWS);
+        if (out.length >= cap) {
+          cut = out.length > cap || page < got.pages;
+          return out.slice(0, cap);
         }
         if (page >= got.pages) return out;
       }
@@ -96,7 +106,7 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
       ])
     );
     return {
-      filename: cut ? name(`loads-first-${MAX_EXPORT_ROWS}`) : name("loads"),
+      filename: cut ? name(`loads-first-${cap}`) : name("loads"),
       csv: toCsv(
         ["Load", "Status", "Customer", "Origin", "Destination", "Pickup date", "Truck", "Driver", "Answer", "Miles", "Pay", "Pay per mile", "Floor per mile", "Verdict", "Invoice status", "Delivered", "Invoice number", "Invoiced", "Invoiced amount", "Paid", "Expenses", "Driver pay (estimate)", "Cancel reason"],
         rows.map((r): CsvCell[] => [
@@ -129,40 +139,146 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
   }
 
   if (kind === "invoices") {
-    // The Invoices screen's own search and the header's terminal, every match, read in chunks (a fleet has tens of thousands of invoices).
+    // The Invoices screen's own list, search, filter, sort and the header's terminal, every match, read in chunks (a fleet has tens of thousands of invoices).
     const terminal = await currentTerminal();
-    const scope = first(query.scope);
+    const rawScope = first(query.scope);
+    const scope: InvoiceScope = rawScope === "ready" || rawScope === "out" || rawScope === "paid" ? rawScope : "all";
+    const show = scope === "out" || scope === "all" ? asInvoiceShow(first(query.show)) : null;
+    const rawSort = first(query.sort);
+    const sort = rawSort ? asSort(rawSort, INVOICE_SORT_KEYS, { key: "sent", dir: "asc" }) : null;
+    const q = first(query.q);
     const rows: Awaited<ReturnType<typeof listInvoiceRows>> = [];
     let cut = false;
     for (let skip = 0; ; skip += 1000) {
-      const got = await listInvoiceRows(undefined, { scope: scope === "ready" || scope === "out" || scope === "paid" ? scope : "all", q: first(query.q), terminal, skip, take: 1000 });
+      const remaining = cap - rows.length;
+      const take = remaining < 1000 ? remaining : 1000;
+      const got = await listInvoiceRows(undefined, { scope, q, show, sort, terminal, skip, take, lean: true });
       rows.push(...got);
-      if (got.length < 1000) break;
-      if (rows.length >= MAX_EXPORT_ROWS) {
-        cut = true;
+      if (got.length < take) break;
+      if (rows.length >= cap) {
+        const probe = await listInvoiceRows(undefined, { scope, q, show, sort, terminal, skip: rows.length, take: 1, lean: true });
+        cut = probe.length > 0;
         break;
       }
     }
+    const part = scope === "all" ? "invoices" : `invoices-${scope}`;
     return {
-      filename: cut ? name(`invoices-first-${MAX_EXPORT_ROWS}`) : name("invoices"),
+      filename: cut ? name(`${part}-first-${cap}`) : name(part),
       csv: toCsv(
-        ["Load", "Invoice", "Customer", "Lane", "Delivered", "Invoiced", "Due", "Paid", "Terms (days)", "Amount", "Received", "Balance owed", "Status"],
-        rows.map((r): CsvCell[] => [
-          r.loadNumber,
-          r.invoiceNumber,
-          r.broker,
-          r.lane,
-          ymd(r.completedAt),
-          ymd(r.invoicedAt),
-          ymd(dueAt(r.invoicedAt, r.payTermsDays)),
-          ymd(r.paidAt),
-          r.payTermsDays,
-          two(r.amount),
-          r.paidAmount != null ? two(r.paidAmount) : null,
-          r.status === "invoiced" ? two(r.balance) : null,
-          r.status ?? "not invoiced"
-        ])
+        ["Load", "PO", "Invoice", "Customer", "Lane", "Delivered", "Invoiced", "Due", "Paid", "Terms (days)", "Amount", "Received", "Balance owed", "Payment method", "Factoring", "Write-off", "Write-off reason", "Days overdue", "Status"],
+        rows.map((r): CsvCell[] => {
+          const billed = r.status === null ? r.readyAmount : r.amount;
+          const due = dueAt(r.invoicedAt, r.payTermsDays);
+          const late = r.status === "invoiced" && due ? deskDaysBetween(due, now) : null;
+          const overdueDays = late != null && late > 0 ? late : r.status === "invoiced" ? 0 : null;
+          const m = moneyState({
+            paymentStatus: r.status,
+            billed,
+            received: r.paidAmount,
+            writeOffAmount: r.writeOffAmount,
+            writeOffReason: r.writeOffReason,
+            overdueDays: late
+          });
+          return [
+            r.loadNumber,
+            r.poNumber,
+            r.invoiceNumber,
+            r.broker,
+            r.lane,
+            ymd(r.completedAt),
+            ymd(r.invoicedAt),
+            ymd(due),
+            ymd(r.paidAt),
+            r.payTermsDays,
+            two(billed),
+            r.paidAmount != null ? two(r.paidAmount) : null,
+            r.status === "invoiced" ? two(r.balance) : r.status === "paid" ? 0 : null,
+            r.paidMethod ? paidMethodLabel(r.paidMethod) : null,
+            r.factoringStatus && r.factoringStatus !== "none" ? factoringLabel(r.factoringStatus) : null,
+            r.writeOffAmount != null && r.writeOffAmount > 0 ? two(r.writeOffAmount) : null,
+            r.writeOffReason,
+            overdueDays,
+            m.detail ? `${m.label} (${m.detail})` : m.label
+          ];
+        })
       )
+    };
+  }
+
+  if (kind === "settlements" || kind === "settlement-lines") {
+    const terminal = await currentTerminal();
+    const rawStatus = first(query.status);
+    const status = rawStatus === "draft" || rawStatus === "final" || rawStatus === "void" ? rawStatus : undefined;
+    if (kind === "settlements") {
+      const rows: Awaited<ReturnType<typeof listSettlements>> = [];
+      let cut = false;
+      for (let skip = 0; ; skip += 1000) {
+        const remaining = cap - rows.length;
+        const take = remaining < 1000 ? remaining : 1000;
+        const got = await listSettlements(undefined, { status, terminal, skip, take });
+        rows.push(...got);
+        if (got.length < take) break;
+        if (rows.length >= cap) {
+          const probe = await listSettlements(undefined, { status, terminal, skip: rows.length, take: 1 });
+          cut = probe.length > 0;
+          break;
+        }
+      }
+      return {
+        filename: cut ? name(`settlements-first-${cap}`) : name("settlements"),
+        csv: toCsv(
+          ["Statement", "Status", "Driver", "Period start", "Period end", "Loads", "Pay for loads", "Adjustments", "Total", "Finalized", "Paid", "Payment method", "Payroll sent", "Payroll reference", "Voided", "Void reason"],
+          rows.map((s): CsvCell[] => [
+            s.number,
+            SETTLEMENT_STATUS[s.status] ?? s.status,
+            s.driverName,
+            utcYmd(s.periodStart),
+            utcYmd(s.periodEnd),
+            s.loads,
+            two(s.loadsTotal),
+            two(s.adjustmentsTotal),
+            two(s.total),
+            ymd(s.finalizedAt),
+            ymd(s.paidAt),
+            s.paidMethod ? paidMethodLabel(s.paidMethod) : null,
+            ymd(s.payrollSentAt),
+            s.payrollReference,
+            ymd(s.voidedAt),
+            s.voidReason
+          ])
+        )
+      };
+    }
+
+    const lines: CsvCell[][] = [];
+    let cut = false;
+    for (let skip = 0; ; skip += 500) {
+      const got = await listSettlements(undefined, { status, terminal, skip, take: 500 });
+      if (got.length === 0) break;
+      for (const s of got) {
+        const head: CsvCell[] = [s.number, SETTLEMENT_STATUS[s.status] ?? s.status, s.driverName, utcYmd(s.periodStart), utcYmd(s.periodEnd)];
+        for (const l of s.statement.lines) {
+          if (lines.length >= cap) {
+            cut = true;
+            break;
+          }
+          lines.push([...head, "Load", l.loadNumber, l.lane, l.deliveredAt ? ymd(new Date(l.deliveredAt)) : null, l.basis, two(l.amount)]);
+        }
+        if (cut) break;
+        for (const a of s.statement.adjustments) {
+          if (lines.length >= cap) {
+            cut = true;
+            break;
+          }
+          lines.push([...head, "Adjustment", null, null, null, a.label, two(a.amount)]);
+        }
+        if (cut) break;
+      }
+      if (cut || got.length < 500) break;
+    }
+    return {
+      filename: cut ? name(`settlement-lines-first-${cap}`) : name("settlement-lines"),
+      csv: toCsv(["Statement", "Status", "Driver", "Period start", "Period end", "Kind", "Load", "Lane", "Delivered", "Basis", "Amount"], lines)
     };
   }
 
@@ -205,7 +321,7 @@ export async function buildExport(kind: string, query: Query, now = new Date()):
       return {
         filename: `truelane-desk-kpi-drivers-${tag}.csv`,
         csv: toCsv(
-          ["Driver", "Loads", "Gross", "Per revenue mile", "Miles driven", "Empty miles", "Empty miles (%)", "Pay owed (estimate)"],
+          ["Driver", "Loads", "Gross", "Per revenue mile", "Miles driven", "Empty miles", "Empty miles (%)", "Est. driver pay"],
           k.drivers.map((d): CsvCell[] => [d.name, d.loads, two(d.gross), two(d.rpm), two(d.drivenMiles), two(d.emptyMiles), pctOf(d.emptyShare), two(d.payOwed)])
         )
       };

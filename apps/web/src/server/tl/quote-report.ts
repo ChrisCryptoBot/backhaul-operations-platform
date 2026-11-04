@@ -6,7 +6,7 @@ import { num } from "./convert";
 import type { DecisionDetails } from "./quote";
 import { currentWorkspaceId } from "./workspace";
 import { sessionIdentity } from "./identity";
-import { roleAtLeast } from "@/lib/roles";
+import { can } from "@/lib/roles";
 
 /** The most decisions a report reads: a desk that decides more than this in a period gets the latest of them, and the page says so. */
 export const REPORT_LIMIT = 5000;
@@ -14,7 +14,7 @@ export const REPORT_LIMIT = 5000;
 const KINDS = ["accepted", "overridden", "passed"] as const;
 
 /**
- * The decisions on quotes in a period, as report rows. `by` limits them to one person's (a dispatcher sees their own; an owner sees everyone's). Reads the decision and its load,
+ * The decisions on quotes in a period, as report rows. `by` limits them to one person's (a dispatcher sees their own; an admin sees everyone's). Reads the decision and its load,
  * never writes.
  */
 export async function listQuoteDecisions(opts: { period: KpiPeriod; by?: string | null }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<{ rows: DecisionRow[]; capped: boolean }> {
@@ -63,12 +63,12 @@ export async function getQuoteReport(opts: { period: KpiPeriod; by?: string | nu
 }
 
 /**
- * Whose decisions the person asking may see: an owner (and the demo, with sign-in off) sees everyone's, a dispatcher only their own, a viewer none. Returns the name to filter to,
+ * Whose decisions the person asking may see: an admin (and the demo, with sign-in off) sees everyone's, a dispatcher only their own, everyone else none. Returns the name to filter to,
  * "all" for no filter, or null when they may not see the report at all.
  */
 export function reportScope(): string | "all" | null {
   const me = sessionIdentity();
   if (!me) return "all";
-  if (roleAtLeast(me.role, "owner")) return "all";
-  return roleAtLeast(me.role, "dispatcher") ? me.name : null;
+  if (can(me.role, me.grants, "admin")) return "all";
+  return can(me.role, me.grants, "quote") ? me.name : null;
 }

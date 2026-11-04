@@ -1,18 +1,30 @@
 import Link from "next/link";
-import { daysPastDue, isOverdue } from "@/lib/overdue";
 import { notFound } from "next/navigation";
 import React from "react";
-import { getInvoice } from "@/server/tl/invoicing";
-import { factoringLabel, getFactoringView } from "@/server/partners/factoring";
-import { FactorPanel } from "@/components/desk/partner-actions";
+import { ChaseActions } from "@/components/desk/chase-actions";
 import { CopyText } from "@/components/desk/copy-text";
-import { PrintButton } from "@/components/desk/kpi/print-button";
-import { reminderText } from "@/lib/invoicing";
 import { DocHead } from "@/components/desk/doc-head";
+import { ReadOnlyBanner } from "@/components/desk/kit/read-only";
+import { PrintButton } from "@/components/desk/kpi/print-button";
+import { FactorPanel } from "@/components/desk/partner-actions";
+import { dateTime, dayYear, miles, shortDate, usd } from "@/lib/desk-format";
+import { reminderText, termsLabel } from "@/lib/invoicing";
+import { moneyState } from "@/lib/money-state";
+import { daysPastDue, isOverdue } from "@/lib/overdue";
 import { paidMethodLabel } from "@/lib/pay-method";
-import { dateTime, miles, shortDate, usd } from "@/lib/desk-format";
+import { can, whoCan } from "@/lib/roles";
+import { factoringLabel, getFactoringView } from "@/server/partners/factoring";
+import { checkAccess } from "@/server/tl/access";
+import { getInvoice } from "@/server/tl/invoicing";
+import { currentTerminal } from "@/server/tl/terminal";
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: { params: { id: string } }) {
+  const terminal = await currentTerminal();
+  const inv = await getInvoice(params.id, undefined, terminal);
+  return { title: inv?.invoiceNumber ?? "Invoice · TrueLane" };
+}
 
 /**
  * One invoice as it was billed, on a sheet that prints cleanly or saves as a PDF. It shows the lines the invoice kept, who it is for, the load
@@ -20,31 +32,89 @@ export const dynamic = "force-dynamic";
  * reminder is written and ready to copy into the dispatcher's own email.
  */
 export default async function InvoicePage({ params }: { params: { id: string } }) {
-  const inv = await getInvoice(params.id);
+  const terminal = await currentTerminal();
+  const [inv, factoring, access] = await Promise.all([
+    getInvoice(params.id, undefined, terminal),
+    getFactoringView(params.id),
+    checkAccess("read")
+  ]);
   if (!inv) notFound();
-  const factoring = await getFactoringView(params.id);
+  const me = access.ok ? access.identity : null;
+  const canBill = !!me && can(me.role, me.grants, "bill");
   const now = new Date();
   const overdue = inv.status === "invoiced" && isOverdue(inv.sent, inv.terms, now);
-  const short = inv.status === "paid" && inv.paidAmount != null ? Math.round((inv.total - inv.paidAmount) * 100) / 100 : 0;
+  const pastDue = daysPastDue(inv.sent, inv.terms, now) ?? 0;
+  const daysLeft = Math.max(0, -pastDue);
+  const stamp =
+    inv.status === "paid"
+      ? { text: `Paid ${inv.paidAt ? shortDate(inv.paidAt) : ""}`.trim(), tone: "good" as const }
+      : overdue
+        ? { text: `Overdue ${Math.max(1, pastDue)} ${Math.max(1, pastDue) === 1 ? "day" : "days"}`, tone: "bad" as const }
+        : { text: daysLeft === 0 ? "Due today" : `Due in ${daysLeft} ${daysLeft === 1 ? "day" : "days"}`, tone: "plain" as const };
+  const reminder = reminderText({
+    broker: inv.billTo.name,
+    invoiceNumber: inv.invoiceNumber,
+    loadNumber: inv.load.number,
+    poNumber: inv.poNumber,
+    amount: inv.status === "invoiced" ? inv.balance : inv.total,
+    sent: inv.sent,
+    due: inv.due,
+    now,
+    origin: inv.load.origin,
+    destination: inv.load.destination
+  });
 
   return (
     <>
-      <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, alignItems: "flex-start" }}>
-        <Link href="/invoices" className="tl-btn">All invoices</Link>
-        <Link href={`/loads/${inv.id}`} className="tl-btn">Open the load</Link>
-        <PrintButton />
-        {overdue ? <CopyText size="md" label="Copy reminder" text={reminderText({ broker: inv.billTo.name, invoiceNumber: inv.invoiceNumber, loadNumber: inv.load.number, poNumber: inv.poNumber, amount: inv.total, sent: inv.sent, due: inv.due, now, origin: inv.load.origin, destination: inv.load.destination })} /> : null}
+      <div className="no-print" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
+        <Link href="/invoices" className="tl-btn">
+          All invoices
+        </Link>
+        <Link href={`/loads/${inv.id}`} className="tl-btn">
+          Open the load
+        </Link>
+        <PrintButton documentTitle={inv.invoiceNumber} />
+        {overdue ? (
+          <>
+            <CopyText size="md" label="Copy reminder" text={reminder} />
+            <ChaseActions
+              loadId={inv.id}
+              email={inv.billTo.email}
+              phone={inv.billTo.phone}
+              subject={`Invoice ${inv.invoiceNumber ?? ""} — past due`}
+              body={reminder}
+              lastChased={inv.lastChasedAt ? `${dayYear(inv.lastChasedAt)}${inv.lastChasedBy ? ` by ${inv.lastChasedBy}` : ""}` : null}
+              canChase={canBill}
+            />
+          </>
+        ) : null}
       </div>
-      {factoring ? <FactorPanel info={{ loadId: factoring.loadId, status: factoring.status, statusLabel: factoringLabel(factoring.status), referenceId: factoring.referenceId, manifest: factoring.manifest, missingOptional: factoring.missingOptional.length, blocked: factoring.blocked }} /> : null}
+      {!canBill ? <ReadOnlyBanner who={whoCan("bill")} what="this invoice" /> : null}
+      {factoring ? (
+        <FactorPanel
+          info={{
+            loadId: factoring.loadId,
+            status: factoring.status,
+            statusLabel: factoringLabel(factoring.status),
+            referenceId: factoring.referenceId,
+            manifest: factoring.manifest,
+            missingOptional: factoring.missingOptional.length,
+            blocked: factoring.blocked,
+            paid: inv.status === "paid",
+            canAct: canBill,
+            who: whoCan("bill")
+          }}
+        />
+      ) : null}
       <article className="rp">
         <DocHead
           kicker="Invoice"
           number={inv.invoiceNumber}
           company={inv.company}
-          heroLabel={inv.status === "paid" ? "Invoiced" : "Total due"}
-          hero={usd(inv.total, 2)}
-          sub={`Due ${shortDate(inv.due)} · Net ${inv.terms}`}
-          stamp={inv.status === "paid" ? { text: `Paid ${inv.paidAt ? shortDate(inv.paidAt) : ""}`.trim(), tone: "good" } : overdue ? { text: `Overdue ${Math.max(1, daysPastDue(inv.sent, inv.terms, now) ?? 1)} days`, tone: "bad" } : { text: `Due in ${Math.max(0, -(daysPastDue(inv.sent, inv.terms, now) ?? 0))} days`, tone: "plain" }}
+          heroLabel={inv.status === "paid" ? "Invoiced" : inv.paidAmount != null && inv.paidAmount > 0 ? "Balance due" : "Total due"}
+          hero={usd(inv.status === "paid" ? inv.total : inv.balance, 2)}
+          sub={`${inv.status !== "paid" && inv.paidAmount != null && inv.paidAmount > 0 ? `of ${usd(inv.total, 2)}, ${usd(inv.paidAmount, 2)} received · ` : ""}Due ${shortDate(inv.due)} · ${termsLabel(inv.terms)}`}
+          stamp={stamp}
         />
 
         <h2>Bill to</h2>
@@ -58,12 +128,12 @@ export default async function InvoicePage({ params }: { params: { id: string } }
           <tbody>
             <tr>
               <th>Invoice date</th>
-              <td>{shortDate(inv.sent)}</td>
+              <td>{dayYear(inv.sent)}</td>
               <th>Terms</th>
-              <td>Net {inv.terms}</td>
+              <td>{termsLabel(inv.terms)}</td>
               <th>Due</th>
               <td>
-                <b>{shortDate(inv.due)}</b>
+                <b>{dayYear(inv.due)}</b>
               </td>
             </tr>
             <tr>
@@ -72,7 +142,7 @@ export default async function InvoicePage({ params }: { params: { id: string } }
               <th>PO</th>
               <td>{inv.load.po ?? "—"}</td>
               <th>Delivered</th>
-              <td>{inv.load.delivered ? shortDate(inv.load.delivered) : "—"}</td>
+              <td>{inv.load.delivered ? dayYear(inv.load.delivered) : "—"}</td>
             </tr>
           </tbody>
         </table>
@@ -86,8 +156,8 @@ export default async function InvoicePage({ params }: { params: { id: string } }
             </tr>
           </thead>
           <tbody>
-            {inv.lines.map((l) => (
-              <tr key={l.label}>
+            {inv.lines.map((l, i) => (
+              <tr key={`${i}:${l.label}`}>
                 <td>{l.label}</td>
                 <td className="num">{usd(l.amount, 2)}</td>
               </tr>
@@ -139,9 +209,12 @@ export default async function InvoicePage({ params }: { params: { id: string } }
           <>
             <h2>Payment</h2>
             <p>
-              Paid {inv.paidAt ? shortDate(inv.paidAt) : ""}
+              Paid {inv.paidAt ? dayYear(inv.paidAt) : ""}
               {inv.paidMethod ? ` by ${paidMethodLabel(inv.paidMethod).toLowerCase()}` : ""}: <b>{usd(inv.paidAmount, 2)}</b>
-              {short > 0 ? <span className="rp-bad"> · {usd(short, 2)} short of the invoice, written off</span> : short < 0 ? <span> · {usd(Math.abs(short), 2)} over the invoice</span> : <span className="rp-good"> · paid in full</span>}
+              {(() => {
+                const m = moneyState({ paymentStatus: "paid", billed: inv.total, received: inv.paidAmount ?? inv.total, writeOffAmount: inv.writeOffAmount, writeOffReason: inv.writeOffReason });
+                return m.key === "paid" ? <span className="rp-good"> · paid in full</span> : <span className={m.tone === "bad" ? "rp-bad" : ""}> · {m.label.toLowerCase()}: {m.detail}</span>;
+              })()}
             </p>
           </>
         ) : null}
@@ -152,14 +225,21 @@ export default async function InvoicePage({ params }: { params: { id: string } }
               <tbody>
                 {inv.payments.map((p, i) => (
                   <tr key={i}>
-                    <td>{shortDate(p.paidAt)}{p.method ? ` · ${paidMethodLabel(p.method).toLowerCase()}` : ""}</td>
+                    <td>
+                      {dayYear(p.paidAt)}
+                      {p.method ? ` · ${paidMethodLabel(p.method).toLowerCase()}` : ""}
+                    </td>
                     <td className="num">{usd(p.amount, 2)}</td>
                   </tr>
                 ))}
                 {inv.status === "invoiced" ? (
                   <tr>
-                    <td><b>Still owed</b></td>
-                    <td className="num"><b>{usd(inv.balance, 2)}</b></td>
+                    <td>
+                      <b>Still owed</b>
+                    </td>
+                    <td className="num">
+                      <b>{usd(inv.balance, 2)}</b>
+                    </td>
                   </tr>
                 ) : null}
               </tbody>

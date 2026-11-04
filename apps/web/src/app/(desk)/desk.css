@@ -236,8 +236,9 @@
 .tl-header .gs { margin-left: 0; }
 
 /* ───────────────────────────── load drawer ───────────────────────────── */
-.dr-scrim { position: fixed; inset: 0; z-index: 70; background: var(--db-scrim); }
-.dr { position: fixed; top: 0; right: 0; bottom: 0; z-index: 71; width: min(600px, 100vw); display: flex; flex-direction: column; background: var(--db-bg); box-shadow: var(--db-shadow-drawer); animation: dr-in var(--db-dur-base) var(--db-ease); }
+.dr-scrim { position: fixed; inset: 0; z-index: 70; background: rgba(0, 0, 0, 0.32); }
+.dr { position: fixed; top: 0; right: 0; bottom: 0; z-index: 71; width: var(--dr-width, min(760px, 100vw)); max-width: 100vw; display: flex; flex-direction: column; background: var(--db-bg); box-shadow: -10px 0 36px rgba(0, 0, 0, 0.55); border-left: 1px solid var(--db-border-strong); animation: dr-in var(--db-dur-base) var(--db-ease); transition: width var(--db-dur-fast) var(--db-ease); }
+.dr[data-expanded="true"] { --dr-width: min(1180px, 94vw); }
 @keyframes dr-in { from { transform: translateX(28px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .dr { animation: none; } }
 .dr-head { flex: none; display: flex; align-items: flex-start; gap: var(--db-3); padding: var(--db-4) var(--db-5) var(--db-3); border-bottom: 1px solid var(--db-border); background: var(--db-bg-rail); }
@@ -547,9 +548,11 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .rp td.num, .rp th.num { text-align: right; }
 .rp .rp-good { color: #1b6e40; } .rp .rp-bad { color: #b3303a; }
 .rp .rp-foot { margin-top: 24px; font-size: 11px; color: #786a5f; border-top: 1px solid #d6c8b6; padding-top: 8px; }
+.print-only { display: none; }
 @media print {
   @page { margin: 14mm; }
   .tl-side, .tl-header, .no-print, .dr-scrim, .k-toasts { display: none !important; }
+  .print-only { display: block !important; }
   .tl-app, .tl-app[data-collapsed="true"] { display: block; }
   .tl-main { padding: 0; }
   html, body { background: #fff !important; }
@@ -855,7 +858,8 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
   border-top-color: var(--db-glass-rim);
   box-shadow: inset 0 1px 0 var(--db-glass-hi), inset 0 -1px 0 var(--db-glass-lo);
 }
-.k-scrim, .dr-scrim { -webkit-backdrop-filter: blur(7px) saturate(1.2); backdrop-filter: blur(7px) saturate(1.2); }
+.k-scrim { -webkit-backdrop-filter: blur(7px) saturate(1.2); backdrop-filter: blur(7px) saturate(1.2); }
+.dr-scrim { -webkit-backdrop-filter: none; backdrop-filter: none; }
 
 /* Sidebar: a floating glass panel, inset from the window's edge. */
 .tl-app { grid-template-columns: calc(var(--db-sidebar-w) + 24px) minmax(0, 1fr); }

@@ -1,0 +1,401 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   TrueLane Quote Terminal (High-Density Quoting & Negotiation Console)
+   Function-first, high-density industrial terminal for dispatchers on the phone.
+   ───────────────────────────────────────────────────────────────────────────── */
+
+.qt-cockpit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-3);
+  width: 100%;
+}
+
+/* ── Top Command Strip ──────────────────────────────────────────────────────── */
+.qt-cmd-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--db-3);
+  padding: var(--db-2) var(--db-3);
+  background: var(--db-bg-elev-1);
+  border: 1px solid var(--db-border-strong);
+  border-radius: var(--db-r-md);
+  flex-wrap: wrap;
+}
+
+.qt-cmd-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.qt-cmd-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: var(--db-r-field);
+  font-family: var(--db-font-head);
+  font-size: var(--db-text-sm);
+  font-weight: 600;
+  color: var(--db-fg-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.qt-cmd-tab:hover {
+  color: var(--db-fg);
+  background: var(--db-bg-elev-2);
+}
+
+.qt-cmd-tab[aria-selected="true"] {
+  color: var(--db-fg);
+  background: var(--db-bg-card);
+  border-color: var(--db-border-strong);
+  box-shadow: var(--db-shadow-sm, 0 1px 2px rgba(0,0,0,0.05));
+}
+
+.qt-cmd-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--db-2);
+  flex-wrap: wrap;
+}
+
+/* ── Resizable Split Workstation ───────────────────────────────────────────── */
+.qt-cockpit .qt {
+  display: block;
+  width: 100%;
+}
+
+.qt-workspace {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  width: 100%;
+  position: relative;
+  min-height: 600px;
+}
+
+.qt-pane-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-4);
+  min-width: 360px;
+  flex-shrink: 0;
+}
+
+.qt-resizer {
+  width: 12px;
+  margin: 0 4px;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  user-select: none;
+  touch-action: none;
+  flex-shrink: 0;
+}
+
+.qt-resizer::after {
+  content: "";
+  width: 2px;
+  height: 60%;
+  background: var(--db-border);
+  border-radius: 1px;
+  transition: all 0.15s ease;
+}
+
+.qt-resizer:hover::after,
+.qt-resizer[data-active="true"]::after {
+  background: var(--db-accent);
+  width: 4px;
+  height: 90%;
+}
+
+.qt-pane-eval {
+  flex: 1 1 0%;
+  min-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-4);
+  position: sticky;
+  top: 76px;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.qt-pane-eval > * {
+  flex-shrink: 0;
+}
+
+/* Reset .qt-side sticky offset when inside .qt-pane-eval to prevent artificial 76px gap */
+.qt-pane-eval .qt-side {
+  position: relative !important;
+  top: 0 !important;
+  scroll-margin-top: 0 !important;
+}
+
+/* Evaluation column glass container - never shrink, keep natural full height */
+.qt-eval-card {
+  flex-shrink: 0;
+  min-height: fit-content;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-3);
+  padding: var(--db-4);
+  border: 1px solid var(--db-border-strong);
+  border-top-color: var(--db-border-lit);
+  border-radius: var(--db-r-card);
+  background: var(--db-bg-card);
+}
+
+/* ── Fleet Comparison Matrix ───────────────────────────────────────────────── */
+.qt-matrix-wrap {
+  border: 1px solid var(--db-border-strong);
+  border-radius: var(--db-r-md);
+  overflow: hidden;
+  background: var(--db-bg-card);
+  flex-shrink: 0;
+}
+
+.qt-matrix-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px var(--db-3);
+  background: var(--db-bg-elev-1);
+  border-bottom: 1px solid var(--db-border-soft);
+}
+
+.qt-matrix-collapsed-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--db-bg-card);
+  overflow-x: auto;
+}
+
+.qt-matrix-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: var(--db-r-field);
+  font-size: 11px;
+  background: var(--db-bg-elev-1);
+  border: 1px solid var(--db-border);
+  color: var(--db-fg);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.qt-matrix-pill.qt-selected {
+  background: var(--db-accent-bg);
+  border-color: var(--db-accent);
+  font-weight: 600;
+}
+
+.qt-matrix-head h3 {
+  margin: 0;
+  font-family: var(--db-font-head);
+  font-size: var(--db-text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--db-fg-dim);
+  font-weight: 700;
+}
+
+.qt-matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--db-text-sm);
+}
+
+.qt-matrix-table th {
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--db-fg-dim);
+  text-align: left;
+  border-bottom: 1px solid var(--db-border-soft);
+  background: var(--db-bg-elev-1);
+}
+
+.qt-matrix-table td {
+  padding: 5px 8px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--db-border-soft);
+}
+
+.qt-matrix-table tbody tr {
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.qt-matrix-table tbody tr:hover {
+  background: var(--db-bg-elev-2);
+}
+
+.qt-matrix-table tbody tr.qt-selected {
+  background: var(--db-accent-bg);
+  border-left: 3px solid var(--db-accent);
+}
+
+.qt-matrix-table tbody tr.qt-blocked td {
+  color: var(--db-fg-dim);
+  opacity: 0.65;
+}
+
+/* ── Counter-Offer Negotiation Bar ─────────────────────────────────────────── */
+.qt-negotiate {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-2);
+  padding: var(--db-3);
+  background: var(--db-bg-elev-1);
+  border: 1px solid var(--db-border);
+  border-radius: var(--db-r-md);
+}
+
+.qt-negotiate-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--db-2);
+}
+
+.qt-negotiate-head span {
+  font-family: var(--db-font-head);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--db-fg-dim);
+}
+
+.qt-targets {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.qt-target-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--db-r-field);
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--db-bg-card);
+  border: 1px solid var(--db-border-strong);
+  color: var(--db-fg);
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.qt-target-chip:hover {
+  border-color: var(--db-accent);
+  background: var(--db-accent-bg);
+}
+
+.qt-target-chip .qt-diff {
+  font-size: 11px;
+  color: var(--db-pos);
+  font-weight: 700;
+}
+
+.qt-steppers {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.qt-step-btn {
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--db-bg-card);
+  border: 1px solid var(--db-border);
+  border-radius: var(--db-r-field);
+  color: var(--db-fg-mid);
+  cursor: pointer;
+}
+
+.qt-step-btn:hover {
+  color: var(--db-fg);
+  border-color: var(--db-accent);
+}
+
+/* ── Quick Paste Parser Modal ──────────────────────────────────────────────── */
+.qt-paste-modal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--db-3);
+  min-width: 480px;
+  max-width: 600px;
+}
+
+.qt-paste-textarea {
+  width: 100%;
+  min-height: 110px;
+  padding: var(--db-3);
+  font-family: var(--db-font-mono, monospace);
+  font-size: var(--db-text-sm);
+  line-height: 1.5;
+  background: var(--db-bg-input);
+  color: var(--db-fg);
+  border: 1px solid var(--db-border-strong);
+  border-radius: var(--db-r-md);
+  resize: vertical;
+}
+
+.qt-paste-preview {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 12px;
+  padding: var(--db-3);
+  background: var(--db-bg-elev-1);
+  border: 1px solid var(--db-border);
+  border-radius: var(--db-r-md);
+  font-size: 12px;
+}
+
+.qt-paste-preview dt {
+  color: var(--db-fg-dim);
+  font-weight: 500;
+}
+
+.qt-paste-preview dd {
+  color: var(--db-fg);
+  font-weight: 600;
+  margin: 0;
+}
+
+/* ── Responsive Stacking on Small Screens ───────────────────────────────────── */
+@media (max-width: 1100px) {
+  .qt-workspace {
+    flex-direction: column;
+  }
+  .qt-resizer {
+    display: none;
+  }
+  .qt-pane-entry,
+  .qt-pane-eval {
+    width: 100% !important;
+    min-width: 100%;
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+  }
+}

@@ -2,22 +2,29 @@ import React from "react";
 import Link from "next/link";
 import { ASSIGNMENT_STATUS, LOAD_STATUS, VERDICT, type Verdict } from "@/lib/desk-format";
 
-export function PageHead({ title, sub, children }: { title: string; sub?: string; children?: React.ReactNode }) {
+export function PageHead({ title, sub, children }: { title: string; sub?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <div className="tl-head">
       <div>
         <h1>{title}</h1>
-        {sub ? <p>{sub}</p> : null}
+        {sub ? typeof sub === "string" ? <p>{sub}</p> : <div>{sub}</div> : null}
       </div>
       {children ? <div className="tl-form-row">{children}</div> : null}
     </div>
   );
 }
 
-export function Card({ title, children, className }: { title?: string; children: React.ReactNode; className?: string }) {
+export function Card({ title, action, children, className }: { title?: string; action?: React.ReactNode; children: React.ReactNode; className?: string }) {
   return (
     <section className={`tl-card${className ? ` ${className}` : ""}`}>
-      {title ? <h2>{title}</h2> : null}
+      {title && action ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+          <h2 style={{ margin: 0 }}>{title}</h2>
+          {action}
+        </div>
+      ) : title ? (
+        <h2>{title}</h2>
+      ) : null}
       {children}
     </section>
   );

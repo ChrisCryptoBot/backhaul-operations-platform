@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
  * waits behind the Quote page's pricing action, and so the answer can be cached for the person's next keystroke. Server-side token; nothing is stored.
  */
 export async function GET(request: Request) {
-  const denied = await guardRoute("dispatcher");
+  const denied = await guardRoute("dispatch", "billing_details");
   if (denied) return denied;
   const over = overBudget("geo_suggest");
   if (over) return over;

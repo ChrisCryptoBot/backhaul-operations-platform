@@ -22,6 +22,8 @@ import { asBoardStatus, BOARD_STATUSES, filterBoard, isBelowCost, onTab, searchB
 import { reasonLabel } from "@/lib/disruptions";
 import { asHistoryFilter, asHistorySort, fellThrough, HISTORY_FILTERS, HISTORY_SORTS, historyDate, monthGroups } from "@/lib/loads-history";
 import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
+import { moneyState } from "@/lib/money-state";
+import { daysPastDue } from "@/lib/overdue";
 
 export const metadata = { title: "Loads · TrueLane" };
 
@@ -242,26 +244,22 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
           money:
             r.status === "cancelled" || (r.status === "tonu" && !r.paymentStatus) ? (
               <span className="dim">{reasonLabel(r.cancelReason)}</span>
-            ) : r.paymentStatus === "paid" ? (
-              <>
-                <span className="tl-chip ok">{r.writeOffAmount ? "Closed short" : "Paid"}</span>
-                <span className="sub">
-                  {r.invoiceNumber} · {shortDate(r.paidAt)}
-                  {r.writeOffAmount ? ` · ${usd(r.writeOffAmount, 2)} written off` : r.paidAmount != null && r.invoicedAmount != null && r.paidAmount < r.invoicedAmount - 0.005 ? ` · ${usd(r.invoicedAmount - r.paidAmount, 2)} short` : ""}
-                  {r.paidAmount != null && r.invoicedAmount != null && r.paidAmount > r.invoicedAmount + 0.005 ? ` · ${usd(r.paidAmount - r.invoicedAmount, 2)} over` : ""}
-                </span>
-              </>
-            ) : r.paymentStatus === "invoiced" ? (
-              <>
-                <span className={`tl-chip ${pastDue ? "bad" : "warn"}`}>{pastDue ? "Overdue" : r.paidAmount ? "Part paid" : "Out and waiting"}</span>
-                <span className="sub">
-                  {r.invoiceNumber} · sent {shortDate(r.invoicedAt)}
-                  {r.paidAmount && r.invoicedAmount != null ? ` · ${usd(r.paidAmount, 2)} in, ${usd(Math.max(0, r.invoicedAmount - r.paidAmount), 2)} to come` : ""}
-                  {r.status === "tonu" ? " · TONU" : ""}
-                </span>
-              </>
             ) : (
-              <span className="tl-chip info">Not invoiced yet</span>
+              (() => {
+                const m = moneyState({ paymentStatus: r.paymentStatus, billed: r.invoicedAmount ?? r.grossRevenue, received: r.paidAmount, writeOffAmount: r.writeOffAmount, writeOffReason: r.writeOffReason, overdueDays: pastDue ? daysPastDue(r.invoicedAt, r.payTermsDays) : null });
+                return (
+                  <>
+                    <span className={`tl-chip ${m.tone}`}>{m.label}</span>
+                    {r.paymentStatus ? (
+                      <span className="sub">
+                        {r.invoiceNumber} · {r.paymentStatus === "paid" ? shortDate(r.paidAt) : `sent ${shortDate(r.invoicedAt)}`}
+                        {m.detail ? ` · ${m.detail}` : ""}
+                        {r.status === "tonu" ? " · TONU" : ""}
+                      </span>
+                    ) : null}
+                  </>
+                );
+              })()
             )
         }
       };

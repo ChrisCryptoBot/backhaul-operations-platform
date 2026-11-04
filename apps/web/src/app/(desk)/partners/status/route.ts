@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
  * no key, no key's name, no account detail.
  */
 export async function GET() {
-  const denied = await guardRoute("viewer");
+  const denied = await guardRoute("read");
   if (denied) return denied;
   const rows = await partnerStatus();
   return NextResponse.json({ partners: rows.map((r) => ({ capability: r.capability, provider: r.provider, configured: r.configured, connected: r.connected })) }, { headers: { "Cache-Control": "private, no-store" } });

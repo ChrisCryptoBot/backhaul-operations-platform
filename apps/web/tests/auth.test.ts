@@ -1,6 +1,5 @@
 import { describe, expect, test } from "vitest";
 import { decide, isPublicPath, safeNext } from "@/lib/auth-route";
-import { ROLES, roleAtLeast } from "@/lib/roles";
 import { SESSION_TTL_SECONDS, peekSession } from "@/lib/session-cookie";
 import { BUDGETS, overBudget, resetBudgets } from "@/server/tl/budget";
 import { MIN_SECRET_LENGTH, signSession, usableSecret, verifySession } from "@/server/tl/session-token";
@@ -8,17 +7,6 @@ import { MIN_SECRET_LENGTH, signSession, usableSecret, verifySession } from "@/s
 const SECRET = "s".repeat(MIN_SECRET_LENGTH);
 const who = { uid: "user_1", ws: "ws-1", role: "dispatcher" as const, name: "Pat Lee", email: "pat@example.com" };
 const NOW = Date.UTC(2026, 9, 30, 12, 0, 0);
-
-describe("roles", () => {
-  test("an owner may do what a dispatcher may, and a dispatcher what a viewer may, never the reverse", () => {
-    expect(ROLES).toEqual(["viewer", "dispatcher", "owner"]);
-    expect(roleAtLeast("owner", "dispatcher")).toBe(true);
-    expect(roleAtLeast("dispatcher", "dispatcher")).toBe(true);
-    expect(roleAtLeast("viewer", "dispatcher")).toBe(false);
-    expect(roleAtLeast("dispatcher", "owner")).toBe(false);
-    expect(roleAtLeast("viewer", "viewer")).toBe(true);
-  });
-});
 
 describe("the desk session cookie", () => {
   test("a cookie signed with the secret reads back, for an hour", () => {
@@ -31,7 +19,7 @@ describe("the desk session cookie", () => {
   test("an edited payload, a swapped signature, another secret, a truncated or an empty cookie all read as nothing", () => {
     const token = signSession(who, SECRET, NOW);
     const [body, sig] = token.split(".") as [string, string];
-    const forged = Buffer.from(JSON.stringify({ ...who, role: "owner", exp: NOW / 1000 + 3600 })).toString("base64url");
+    const forged = Buffer.from(JSON.stringify({ ...who, role: "admin", exp: NOW / 1000 + 3600 })).toString("base64url");
     expect(verifySession(`${forged}.${sig}`, SECRET, NOW)).toBeNull();
     expect(verifySession(`${body}.${"0".repeat(sig.length)}`, SECRET, NOW)).toBeNull();
     expect(verifySession(token, "t".repeat(MIN_SECRET_LENGTH), NOW)).toBeNull();
