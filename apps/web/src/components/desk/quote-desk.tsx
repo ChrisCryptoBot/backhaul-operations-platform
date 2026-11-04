@@ -8,7 +8,7 @@ import { UNREACHABLE } from "@/lib/connection";
 import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
 import { addressReady, roundMiles } from "@/lib/geo";
 import { hosDeficit, hosDeficitLabel, hosDeficitTitle } from "@/lib/hos-deficit";
-import { BLANK_QUOTE, gateTitle, grossPerLoadedMile, HAZMAT_CLASSES, isQuoteDirty, missingTimes, OVERRIDE_REASONS, PASS_REASONS, readQuote, swapRoute, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
+import { BLANK_QUOTE, gateTitle, grossPerLoadedMile, HAZMAT_CLASSES, isQuoteDirty, missingTimes, OVERRIDE_REASONS, PASS_REASONS, quoteCautions, readQuote, swapRoute, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
 import { BRIEF_LABEL, buildBrief, type BriefKind } from "@/lib/quote-brief";
 import type { CustomerOption, FitRow, LaneBenchmark, QuoteListRow } from "@/server/tl/quote";
 import type { Measured } from "@/server/geo/measure";
@@ -245,6 +245,10 @@ export function QuoteDesk({
   }, [customer?.name]);
 
   const usedFuel = readQuote(values)?.fuelPrice ?? null;
+  const cautions = React.useMemo(() => {
+    const input = readQuote(values);
+    return input ? quoteCautions(input) : {};
+  }, [values]);
   const errors: Record<string, string> = { ...serverErrors, ...(tried && !check.ok ? check.errors : {}) };
 
   React.useEffect(() => {
@@ -723,7 +727,7 @@ export function QuoteDesk({
 
   const lane = priced?.ok ? priced.fit.lane : null;
   const benchmark: Benchmark = lane ? "lane" : "market";
-  const verdict = row ? verdictOf(row, benchmark) : null;
+  const verdict = row ? verdictOf(row, benchmark, Boolean(cautions.marketRate)) : null;
   const bookTo = row ? `${row.truckName}${row.driverName ? ` with ${row.driverName.split(" ")[0]}` : ""}` : "";
   const bookLabel = !row ? "Book it" : row.blocked ? `${row.truckName} cannot take it` : row.gate ? "Book with a reason" : `Book on ${bookTo}`;
 
@@ -1055,9 +1059,9 @@ export function QuoteDesk({
                   </div>
                   {err("fsc") ? <span className="th-err">{err("fsc")}</span> : null}
                 </div>
-                <Money label="Market rate" unit="$ total" value={values.marketRate} error={err("marketRate")} onChange={(v) => set({ marketRate: v })} hint="Blank uses recent lane history." />
+                <Money label="Market rate" unit="$ total" value={values.marketRate} error={err("marketRate")} caution={cautions.marketRate} onChange={(v) => set({ marketRate: v })} hint="Blank uses recent lane history." />
                 <Money label="Pay terms" unit="days" value={values.payTermsDays} error={err("payTermsDays")} onChange={(v) => set({ payTermsDays: v })} hint="Saved with the load for invoice." />
-                <Money label="Factoring fee" unit="%" value={values.factoringPct} error={err("factoringPct")} onChange={(v) => set({ factoringPct: v })} hint="Blank uses truck's own." />
+                <Money label="Factoring fee" unit="%" value={values.factoringPct} error={err("factoringPct")} caution={cautions.factoringPct} onChange={(v) => set({ factoringPct: v })} hint="Blank uses truck's own." />
                 <Money label="Fuel price" unit="$ a gallon" value={values.fuelPrice} error={err("fuelPrice")} onChange={(v) => set({ fuelPrice: v, fuelSource: v.trim() === "" ? "" : "typed" })} hint="Filled with weekly price." />
               </div>
               <LiveFuelPrice fuel="diesel" origin={values.stops[0]?.address ?? ""} destination={values.stops[values.stops.length - 1]?.address ?? ""} typed={values.fuelPrice} onUse={(price) => set({ fuelPrice: price, fuelSource: "regional" })} auto autoFilled={values.fuelSource === "regional"} />
@@ -1182,7 +1186,7 @@ export function QuoteDesk({
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     {fleet.map((t) => {
-                      const deadhead = values.emptyByTruck[t.id] ?? (values.emptyToPickup || "0");
+                      const deadhead = values.emptyByTruck[t.id] ?? (values.emptyToPickup || null);
                       const isSelected = row?.truckId === t.id || (selected ? selected.startsWith(t.id) : initial?.vehicleId === t.id);
                       return (
                         <button
@@ -1206,7 +1210,7 @@ export function QuoteDesk({
                           }}>
                           <b>{t.name}</b>
                           <span style={{ color: "var(--db-fg-dim)", marginLeft: 4 }}>({t.homeBaseAddress || "Base"}):</span>
-                          <b style={{ color: "var(--db-accent-fg)", marginLeft: 4 }}>{deadhead} mi</b>
+                          <b style={{ color: "var(--db-accent-fg)", marginLeft: 4 }}>{deadhead != null && deadhead !== "" ? `${deadhead} mi` : "unmeasured"}</b>
                         </button>
                       );
                     })}
@@ -1398,7 +1402,7 @@ export function QuoteDesk({
                                   className="qt-mini"
                                   inputMode="decimal"
                                   aria-label={`Empty miles for ${t.name}`}
-                                  placeholder={values.emptyToPickup || "0"}
+                                  placeholder={values.emptyToPickup || "—"}
                                   value={values.emptyByTruck[t.id] ?? ""}
                                   onClick={(e) => e.stopPropagation()}
                                   onChange={(e) => {
@@ -1443,7 +1447,10 @@ export function QuoteDesk({
                       </thead>
                       <tbody>
                         {displayRows.map((r, idx) => {
-                          const said = verdictOf(r, benchmark);
+                          const said = verdictOf(r, benchmark, Boolean(cautions.marketRate));
+                          const truckRows = rows.filter((x) => x.truckId === r.truckId);
+                          const driverIdx = truckRows.findIndex((x) => x.key === r.key);
+                          const driverSuffix = truckRows.length > 1 ? ` (driver ${driverIdx + 1} of ${truckRows.length})` : "";
                           const on = row?.key === r.key;
                           const truckInfo = fleet.find((f) => f.id === r.truckId);
                           // A note beside the verdict, never an input to it: the server's own hours check says "short", this words how far.
@@ -1472,7 +1479,7 @@ export function QuoteDesk({
                                     </span>
                                   ) : null}
                                 </div>
-                                <span className="sub">{r.driverName ? `${r.driverName} · ${shortLabour(r)}` : "No driver set"}</span>
+                                <span className="sub">{r.driverName ? `${r.driverName}${driverSuffix} · ${shortLabour(r)}` : "No driver set"}</span>
                                 {r.hos.availableHours != null ? (
                                   <div className="qt-hos-line">
                                     <span className="sub" style={{ fontSize: 11, color: "var(--db-fg-mid)" }}>
@@ -1492,7 +1499,7 @@ export function QuoteDesk({
                                   className="qt-mini"
                                   inputMode="decimal"
                                   aria-label={`Empty miles for ${r.truckName}`}
-                                  placeholder={values.emptyToPickup || "0"}
+                                  placeholder={values.emptyToPickup || "—"}
                                   value={values.emptyByTruck[r.truckId] ?? ""}
                                   onClick={(e) => e.stopPropagation()}
                                   onChange={(e) => {
@@ -1509,8 +1516,8 @@ export function QuoteDesk({
                                 <VerdictTag state={said.state} word={said.word} />
                               </td>
                               <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                                <b>{perMile(r.allInPerMile)}</b>
-                                <span className="sub" style={{ fontSize: 10 }}>floor {perMile(r.floorPerMile)}</span>
+                                <div style={{ fontWeight: 700 }}>{perMile(r.allInPerMile)}</div>
+                                <div className="sub" style={{ fontSize: 10, color: "var(--db-fg-dim)" }}>floor {perMile(r.floorPerMile)}</div>
                               </td>
                               <td
                                 style={{
@@ -1851,7 +1858,7 @@ function grossNote(offer: string, loadedMiles: string): string | undefined {
 }
 
 /** Form money input with inline unit. `note` is a live figure read off the form, a quiet line below the field (not announced: the verdict aside is the one live region). */
-function Money({ label, unit, value, error, onChange, hint, note, onEnter }: { label: string; unit: string; value: string; error?: string; onChange: (v: string) => void; hint?: string; note?: string; onEnter?: () => void }) {
+function Money({ label, unit, value, error, caution, onChange, hint, note, onEnter }: { label: string; unit: string; value: string; error?: string; caution?: string; onChange: (v: string) => void; hint?: string; note?: string; onEnter?: () => void }) {
   const id = `qt-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`;
   return (
     <div className="th-field">
@@ -1882,6 +1889,8 @@ function Money({ label, unit, value, error, onChange, hint, note, onEnter }: { l
         <span className="th-err" role="alert">
           {error}
         </span>
+      ) : caution ? (
+        <span className="th-hint" style={{ color: "var(--db-warn)" }}>{caution}</span>
       ) : hint ? (
         <span className="th-hint">{hint}</span>
       ) : null}
@@ -1891,7 +1900,7 @@ function Money({ label, unit, value, error, onChange, hint, note, onEnter }: { l
 }
 
 /** What the audited math said about one way of running the load, as a verdict. */
-function verdictOf(row: FitRow, benchmark: Benchmark): VerdictRead {
+function verdictOf(row: FitRow, benchmark: Benchmark, marketSuspect?: boolean): VerdictRead {
   const d = row.detail;
   return readVerdict({
     band: row.band,
@@ -1909,7 +1918,8 @@ function verdictOf(row: FitRow, benchmark: Benchmark): VerdictRead {
     thinMargin: d.thinMargin,
     timeTrap: d.timeTrap,
     profitPerHour: d.profitPerHour,
-    hourlyTarget: d.hourlyTarget
+    hourlyTarget: d.hourlyTarget,
+    marketSuspect
   });
 }
 
@@ -2031,7 +2041,7 @@ function VerdictPanel({ row, verdict, values, lane, milesFrom, fuelFrom }: { row
           <dt>Pay with surcharge</dt>
           <dd>{usd(d.effectiveGross, 2)}</dd>
         </div>
-        {d.marketVariancePct != null ? (
+        {d.marketVariancePct != null && !verdict.marketSuspect ? (
           <div>
             <dt>{lane ? "Against your lane" : "Against market"}</dt>
             <dd>

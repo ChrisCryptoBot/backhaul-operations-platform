@@ -422,17 +422,29 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
  * a per-mile rate typed where the total goes), and a per-mile surcharge over $3.
  */
 export function quoteWarnings(input: QuoteInput): string[] {
-  const out: string[] = [];
+  const c = quoteCautions(input);
+  return [c.marketRate, c.fsc, c.factoringPct].filter((s): s is string => s != null);
+}
+
+/** A "did you mean" note, keyed by the field it is about. */
+export type QuoteCautions = { marketRate?: string; fsc?: string; factoringPct?: string };
+
+/**
+ * The same checks as quoteWarnings, keyed by field, so the desk can show each one under its own field as the phone does (a caution card under the market
+ * rate on Calculate, `marketTotalEntryWarning`). Showing them changes no figure: the price is still worked out from what was typed.
+ */
+export function quoteCautions(input: QuoteInput): QuoteCautions {
+  const out: QuoteCautions = {};
   const miles = input.emptyToPickup + input.loadedMiles + (input.loadBack ? 0 : input.emptyHome);
   if (input.marketTotal != null && miles > 0) {
     const perMile = input.marketTotal / miles;
-    if (perMile < 0.5 || perMile > 15) out.push(`A market rate of $${input.marketTotal.toLocaleString("en-US")} over ${Math.round(miles).toLocaleString("en-US")} miles is $${perMile.toFixed(2)} a mile. The market rate is the total for the load, not a rate per mile.`);
+    if (perMile < 0.5 || perMile > 15) out.marketRate = (`A market rate of $${input.marketTotal.toLocaleString("en-US")} over ${Math.round(miles).toLocaleString("en-US")} miles is $${perMile.toFixed(2)} a mile. The market rate is the total for the load, not a rate per mile.`);
   }
-  if (input.fscUnit === "per_mile" && isUnusualValue("fscPerMile", input.fsc)) out.push(`A fuel surcharge of $${input.fsc} a loaded mile is above the usual range (under $3).`);
+  if (input.fscUnit === "per_mile" && isUnusualValue("fscPerMile", input.fsc)) out.fsc = (`A fuel surcharge of $${input.fsc} a loaded mile is above the usual range (under $3).`);
   // The phone's softer nudges: a surcharge that is half the offer, or over $2 a loaded mile, is more often a slip than a rate.
-  else if (input.fscUnit === "percent" && input.fsc >= 50) out.push(`A fuel surcharge of ${input.fsc}% of the offer is very high. Did you mean ${input.fsc / 10}% or ${input.fsc / 100}%?`);
-  else if (input.fscUnit === "per_mile" && input.fsc > 2) out.push(`A fuel surcharge of $${input.fsc} a loaded mile looks high. Check it.`);
-  if (input.factoringFraction != null && input.factoringFraction >= 0.5) out.push(`A factoring fee of ${(input.factoringFraction * 100).toFixed(0)}% is very high. Did you mean ${(input.factoringFraction * 10).toFixed(1)}%?`);
+  else if (input.fscUnit === "percent" && input.fsc >= 50) out.fsc = (`A fuel surcharge of ${input.fsc}% of the offer is very high. Did you mean ${input.fsc / 10}% or ${input.fsc / 100}%?`);
+  else if (input.fscUnit === "per_mile" && input.fsc > 2) out.fsc = (`A fuel surcharge of $${input.fsc} a loaded mile looks high. Check it.`);
+  if (input.factoringFraction != null && input.factoringFraction >= 0.5) out.factoringPct = (`A factoring fee of ${(input.factoringFraction * 100).toFixed(0)}% is very high. Did you mean ${(input.factoringFraction * 10).toFixed(1)}%?`);
   return out;
 }
 

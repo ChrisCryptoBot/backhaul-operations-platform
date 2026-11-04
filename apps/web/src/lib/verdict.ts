@@ -59,6 +59,8 @@ export type VerdictFacts = {
   timeTrap: boolean;
   profitPerHour: number | null;
   hourlyTarget: number | null;
+  /** Whether the market total typed is suspect (e.g. under $0.50/mi or over $15/mi). */
+  marketSuspect?: boolean;
 };
 
 export type RulerMark = { value: number; at: number };
@@ -73,6 +75,7 @@ export type Verdict = {
   sentence: string;
   /** Null when there is nothing honest to draw: with no fuel price the floor is not the whole cost. */
   ruler: Ruler | null;
+  marketSuspect?: boolean;
 };
 
 const dollars = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -134,6 +137,7 @@ function sentenceOf(state: VerdictState, f: VerdictFacts): string {
   }
   if (state === "unjudged") return "The truck has no mpg or fuel price, so its cost is not known yet. Add them on its page.";
   if (state === "take") {
+    if (f.marketSuspect) return `${clears}. Check the market rate typed for this check.`;
     if (f.band === "above_market") return `${clears}, and pays above ${against}.`;
     if (f.band === "at_market") return onLane ? `${clears}, and pays about what this lane usually pays you.` : `${clears}, and pays about what the market does.`;
     return `${clears}. Market not checked.`;
@@ -152,12 +156,14 @@ export function marketPerMile(f: Pick<VerdictFacts, "gross" | "marketDollars" | 
 export function readVerdict(f: VerdictFacts): Verdict {
   const state = verdictState(f);
   const drawable = state !== "unjudged" && f.allInPerMile != null;
+  const market = f.marketSuspect ? null : marketPerMile(f);
   return {
     state,
     word: VERDICT_WORD[state],
     tone: VERDICT_TONE[state],
     sentence: sentenceOf(state, f),
-    ruler: drawable ? rulerOf({ floor: f.floorPerMile, offer: f.allInPerMile!, market: marketPerMile(f), benchmark: f.benchmark }) : null
+    ruler: drawable ? rulerOf({ floor: f.floorPerMile, offer: f.allInPerMile!, market, benchmark: f.benchmark }) : null,
+    marketSuspect: f.marketSuspect
   };
 }
 

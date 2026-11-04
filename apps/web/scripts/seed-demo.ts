@@ -67,9 +67,9 @@ async function main() {
 
   const trucks = [
     // What each can carry: the tractors pull a 53 ft trailer to the legal limits; the box truck is a 26 ft straight truck with a liftgate and a pallet jack.
-    { name: "Unit 101", type: "heavy_duty", mpg: 6.8, insurance: 1450, loan: 1900, miles: 6500, base: "Dallas, TX", payload: 44000, length: 53, width: 8.5, height: 162, liftgate: false, ramp: false, jack: false },
-    { name: "Unit 102", type: "heavy_duty", mpg: 6.5, insurance: 1380, loan: 0, miles: 7000, base: "Houston, TX", payload: 44000, length: 53, width: 8.5, height: 162, liftgate: false, ramp: false, jack: false },
-    { name: "Unit 103", type: "box_truck", mpg: 9.2, insurance: 1100, loan: 1250, miles: 6000, base: "Oklahoma City, OK", payload: 9500, length: 26, width: 8, height: 96, liftgate: true, ramp: false, jack: true }
+    { name: "Unit 101", type: "heavy_duty", mpg: 6.8, insurance: 1450, loan: 1900, miles: 6500, base: "Dallas, TX", lat: 32.7767, lng: -96.7970, hos: 6, payload: 44000, length: 53, width: 8.5, height: 162, liftgate: false, ramp: false, jack: false },
+    { name: "Unit 102", type: "heavy_duty", mpg: 6.5, insurance: 1380, loan: 0, miles: 7000, base: "Houston, TX", lat: 29.7604, lng: -95.3698, hos: 24, payload: 44000, length: 53, width: 8.5, height: 162, liftgate: false, ramp: false, jack: false },
+    { name: "Unit 103", type: "box_truck", mpg: 9.2, insurance: 1100, loan: 1250, miles: 6000, base: "Oklahoma City, OK", lat: 35.4676, lng: -97.5164, hos: null, payload: 9500, length: 26, width: 8, height: 96, liftgate: true, ramp: false, jack: true }
   ];
   const vehicles: Array<{ id: string; mpg: number; breakEven: number; terminal: string }> = [];
   for (const t of trucks) {
@@ -91,6 +91,10 @@ async function main() {
         mpg: t.mpg,
         fuelType: "diesel",
         homeBaseAddress: t.base,
+        homeBaseLat: t.lat,
+        homeBaseLng: t.lng,
+        hosAvailableHours: t.hos,
+        hosSyncedAt: t.hos != null ? new Date() : null,
         terminal: t.base.split(",")[0],
         payloadLbs: t.payload,
         maxLengthFt: t.length,

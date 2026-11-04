@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { BAND_LABEL, BLANK_QUOTE, gateTitle, grossPerLoadedMile, isQuoteDirty, OVERRIDE_REASONS, quoteWarnings, readQuote, reverseStops, surchargeDollars, swapRoute, validateQuote, type QuoteStop, type QuoteValues } from "../src/lib/quote";
+import { BAND_LABEL, BLANK_QUOTE, gateTitle, grossPerLoadedMile, isQuoteDirty, OVERRIDE_REASONS, quoteCautions, quoteWarnings, readQuote, reverseStops, surchargeDollars, swapRoute, validateQuote, type QuoteStop, type QuoteValues } from "../src/lib/quote";
 import { perMile } from "../src/lib/desk-format";
 import { isQuote, notQuote, QUOTE_STATUS } from "../src/lib/quote-status";
 
@@ -78,6 +78,8 @@ describe("the quote form", () => {
     expect(quoteWarnings(readQuote({ ...good, marketRate: "99999" })!)[0]).toMatch(/\$\d+\.\d\d a mile/);
     expect(quoteWarnings(readQuote({ ...good, fsc: "4", fscUnit: "per_mile" })!)[0]).toMatch(/above the usual range/);
     expect(quoteWarnings(readQuote(good)!)).toEqual([]);
+    expect(quoteCautions(r).marketRate).toMatch(/total for the load, not a rate per mile/);
+    expect(quoteCautions(readQuote(good)!).marketRate).toBeUndefined();
   });
 
   test("the phone's wording is kept: every band has a label, and each gate asks its own question", () => {

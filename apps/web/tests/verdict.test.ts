@@ -50,6 +50,8 @@ describe("the sentence", () => {
   test("says the verdict with the money in it", () => {
     expect(readVerdict(facts()).sentence).toBe("Clears your cost by $0.84/mi, $287 on this trip, and pays above the market.");
     expect(readVerdict(facts({ band: "at_market" })).sentence).toContain("about what the market does");
+    expect(readVerdict(facts({ marketSuspect: true })).sentence).toBe("Clears your cost by $0.84/mi, $287 on this trip. Check the market rate typed for this check.");
+    expect(readVerdict(facts({ marketSuspect: true })).ruler?.market).toBeNull();
   });
 
   test("names what is wrong with a load worth a second look", () => {
