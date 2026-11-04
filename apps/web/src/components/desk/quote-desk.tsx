@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React from "react";
-import { bookQuoteAction, discardQuoteAction, listQuotesAction, passQuoteAction, priceQuoteAction, saveQuoteAction, type PricedQuote } from "@/app/(desk)/actions";
+import { bookQuoteAction, discardQuoteAction, listQuotesAction, passQuoteAction, priceQuoteAction, readSampleRateConAction, readUploadedRateConAction, saveQuoteAction, type PricedQuote, type ReadResult } from "@/app/(desk)/actions";
+import { rateConDraftToQuote } from "@/lib/rate-con-to-quote";
 import { UNREACHABLE } from "@/lib/connection";
 import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
 import { addressReady, roundMiles } from "@/lib/geo";
@@ -85,6 +86,9 @@ export function QuoteDesk({
   // Quick-Paste modal state
   const [pasteOpen, setPasteOpen] = React.useState(false);
   const [pasteText, setPasteText] = React.useState("");
+  const [readingRateCon, setReadingRateCon] = React.useState(false);
+  const [draggingFile, setDraggingFile] = React.useState(false);
+  const rateConInputRef = React.useRef<HTMLInputElement>(null);
 
   // Keyboard shortcuts modal state
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
@@ -634,6 +638,67 @@ export function QuoteDesk({
     }
   };
 
+  // Rate Confirmation File Ingestion (L1)
+  const handleRateConFile = async (file: File) => {
+    setReadingRateCon(true);
+    try {
+      const snap = snapshot();
+      let res: ReadResult;
+      if (/RC-[A-Z]+-\d+/i.test(file.name)) {
+        res = await readSampleRateConAction(file.name);
+      } else {
+        const form = new FormData();
+        form.set("file", file);
+        res = await readUploadedRateConAction(form);
+      }
+      if (res.ok) {
+        const mapped = rateConDraftToQuote(res.draft, values);
+        setValues(mapped.values);
+        manual.current = new Set(mapped.values.manual);
+        measureSeq.current += 1;
+        toast({
+          text: `Loaded ${file.name} (${mapped.filledCount} fields filled).`,
+          ms: 8000,
+          action: { label: "Undo", run: () => restore(snap) }
+        });
+      } else {
+        const msg = res.reason === "no_key"
+          ? "No Anthropic API key configured for live extraction. You can test with sample files like RC-AFB-482913.pdf."
+          : `Could not read that document (${res.reason}).`;
+        toast({ text: msg, tone: "bad" });
+      }
+    } catch {
+      toast({ text: "Could not process rate confirmation file.", tone: "bad" });
+    } finally {
+      setReadingRateCon(false);
+    }
+  };
+
+  const handleSampleRateCon = async (sampleName: string) => {
+    setReadingRateCon(true);
+    try {
+      const snap = snapshot();
+      const res = await readSampleRateConAction(sampleName);
+      if (res.ok) {
+        const mapped = rateConDraftToQuote(res.draft, values);
+        setValues(mapped.values);
+        manual.current = new Set(mapped.values.manual);
+        measureSeq.current += 1;
+        toast({
+          text: `Loaded sample ${sampleName} (${mapped.filledCount} fields filled).`,
+          ms: 8000,
+          action: { label: "Undo", run: () => restore(snap) }
+        });
+      } else {
+        toast({ text: `Could not read sample (${res.reason}).`, tone: "bad" });
+      }
+    } catch {
+      toast({ text: "Could not read sample rate confirmation.", tone: "bad" });
+    } finally {
+      setReadingRateCon(false);
+    }
+  };
+
   // Copy Brief: three texts for three readers (lib/quote-brief.ts). Only the dispatch note carries our truck and our margin.
   const copyBrief = async (kind: BriefKind) => {
     const text = buildBrief(kind, {
@@ -790,6 +855,27 @@ export function QuoteDesk({
             <span>Quick-Paste</span>
           </button>
 
+          <button
+            type="button"
+            className="tl-btn ghost sm"
+            disabled={readingRateCon}
+            onClick={() => rateConInputRef.current?.click()}
+            title="Upload or drop a rate confirmation PDF or image to fill this quote">
+            <Icon name="document" size={14} />
+            <span>{readingRateCon ? "Reading PDF…" : "Rate-Con PDF"}</span>
+          </button>
+          <input
+            ref={rateConInputRef}
+            type="file"
+            accept="application/pdf,image/png,image/jpeg,image/webp"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void handleRateConFile(f);
+              e.target.value = "";
+            }}
+          />
+
           <details className="menu qt-brief">
             <summary className="tl-btn ghost sm" title="Copy a ready-written brief of this quote">
               <Icon name="copy" size={14} />
@@ -944,7 +1030,35 @@ export function QuoteDesk({
         /* ── View 2: Split Quoting Terminal (Cockpit Mode) ──────────────────────── */
         <div id="qt-workspace" className="qt-workspace">
           {/* ── Left Pane: Load Details & Deal Entry ────────────────────────────── */}
-          <div className="qt-pane-entry" style={{ width: `${entryWidth}px` }}>
+          <div
+            className="qt-pane-entry"
+            style={{ width: `${entryWidth}px` }}
+            onDragOver={(e) => {
+              if (e.dataTransfer.types.includes("Files")) {
+                e.preventDefault();
+                setDraggingFile(true);
+              }
+            }}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                setDraggingFile(false);
+              }
+            }}
+            onDrop={(e) => {
+              if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                e.preventDefault();
+                setDraggingFile(false);
+                const file = e.dataTransfer.files[0];
+                if (file) void handleRateConFile(file);
+              }
+            }}>
+            {draggingFile ? (
+              <div className="qt-drop-overlay">
+                <Icon name="document" size={32} />
+                <b>Drop rate confirmation PDF here</b>
+                <span>Fills stops, offer, equipment and references</span>
+              </div>
+            ) : null}
             {!canWrite ? (
               <p className="tl-note warn" role="status">
                 You can price a quote here, but saving, booking and passing need a dispatcher role. Ask an admin to change your role in Settings.
@@ -1765,6 +1879,43 @@ export function QuoteDesk({
               </div>
             </dl>
           ) : null}
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--db-border)" }}>
+            <span style={{ fontSize: 11, color: "var(--db-fg-dim)", display: "block", marginBottom: 6 }}>
+              Or read a rate confirmation PDF:
+            </span>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <button
+                type="button"
+                className="tl-btn sm"
+                disabled={readingRateCon}
+                onClick={() => {
+                  setPasteOpen(false);
+                  rateConInputRef.current?.click();
+                }}>
+                Upload Rate-Con PDF
+              </button>
+              <button
+                type="button"
+                className="tl-btn ghost sm"
+                disabled={readingRateCon}
+                onClick={() => {
+                  setPasteOpen(false);
+                  void handleSampleRateCon("RC-AFB-482913_dallas-to-houston_cargo-van.pdf");
+                }}>
+                Sample: Acme ($800)
+              </button>
+              <button
+                type="button"
+                className="tl-btn ghost sm"
+                disabled={readingRateCon}
+                onClick={() => {
+                  setPasteOpen(false);
+                  void handleSampleRateCon("RC-RDL-77315_fort-worth-waco-austin_box-truck.pdf");
+                }}>
+                Sample: Redline ($640, 3 stops)
+              </button>
+            </div>
+          </div>
           <div className="dlg-actions">
             <button type="button" className="tl-btn" onClick={() => setPasteOpen(false)}>
               Cancel
