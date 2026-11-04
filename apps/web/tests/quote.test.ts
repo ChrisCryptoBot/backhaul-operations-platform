@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { BAND_LABEL, BLANK_QUOTE, gateTitle, OVERRIDE_REASONS, quoteWarnings, readQuote, surchargeDollars, validateQuote, type QuoteValues } from "../src/lib/quote";
+import { BAND_LABEL, BLANK_QUOTE, gateTitle, grossPerLoadedMile, OVERRIDE_REASONS, quoteWarnings, readQuote, surchargeDollars, validateQuote, type QuoteValues } from "../src/lib/quote";
+import { perMile } from "../src/lib/desk-format";
 import { isQuote, notQuote, QUOTE_STATUS } from "../src/lib/quote-status";
 
 const good: QuoteValues = {
@@ -122,5 +123,40 @@ describe("what the load is: weight, size, hazmat and what it needs", () => {
     expect(errorsOf({ heightIn: "-4" }).heightIn).toMatch(/above 0/);
     expect(errorsOf({ hazmatClass: "x".repeat(21) }).hazmatClass).toMatch(/20/);
     expect(errorsOf({ weightLbs: "44000", lengthFt: "53", widthFt: "8.5", heightIn: "162" })).toEqual({});
+  });
+});
+
+describe("the gross rate per loaded mile, the line under the Offer field", () => {
+  test("is the typed offer over the typed loaded miles, and reads as a rate a mile", () => {
+    expect(grossPerLoadedMile("6000", "2055")).toBeCloseTo(2.9197, 4);
+    expect(perMile(grossPerLoadedMile("6000", "2055"))).toBe("$2.92/mi");
+    expect(perMile(grossPerLoadedMile("1,500", "260"))).toBe("$5.77/mi");
+  });
+
+  test("takes the numbers as the form holds them: commas, spaces and decimals", () => {
+    expect(grossPerLoadedMile(" 6,000 ", "2,055")).toBeCloseTo(2.9197, 4);
+    expect(grossPerLoadedMile("1250.50", "400.5")).toBeCloseTo(1250.5 / 400.5, 10);
+  });
+
+  test("shows nothing until both fields are typed and mean something", () => {
+    expect(grossPerLoadedMile("", "2055")).toBeNull();
+    expect(grossPerLoadedMile("6000", "")).toBeNull();
+    expect(grossPerLoadedMile("0", "2055")).toBeNull();
+    expect(grossPerLoadedMile("-6000", "2055")).toBeNull();
+    expect(grossPerLoadedMile("6000", "0")).toBeNull();
+    expect(grossPerLoadedMile("6000", "-5")).toBeNull();
+    expect(grossPerLoadedMile("abc", "2055")).toBeNull();
+    expect(grossPerLoadedMile("6000", "Infinity")).toBeNull();
+  });
+
+  test("shows nothing under a mile of loaded run, where a rate a mile is noise", () => {
+    expect(grossPerLoadedMile("500", "0.4")).toBeNull();
+    expect(grossPerLoadedMile("500", "0.99")).toBeNull();
+    expect(grossPerLoadedMile("500", "1")).toBe(500);
+  });
+
+  test("is the typed offer only: the fuel surcharge field is not part of it", () => {
+    const v = { ...good, offer: "6000", loadedMiles: "2055", fsc: "300" };
+    expect(grossPerLoadedMile(v.offer, v.loadedMiles)).toBeCloseTo(6000 / 2055, 10);
   });
 });

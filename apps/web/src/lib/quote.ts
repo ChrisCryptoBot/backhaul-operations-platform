@@ -192,6 +192,19 @@ const positive = (s: string): number | null => {
   return n != null && n > 0 ? n : null;
 };
 
+/**
+ * The gross rate per loaded mile, for the line under the Offer field: the typed offer over the typed loaded miles, before any fee.
+ * Null until both are positive, and under a mile of loaded run, where the figure is noise. It is a quoting yardstick read straight off
+ * the two fields, so it moves the instant either is typed; it is not the verdict's "Load rate", which is net of the carrier's cut,
+ * factoring and the rider.
+ */
+export function grossPerLoadedMile(offer: string, loadedMiles: string): number | null {
+  const o = positive(offer);
+  const m = positive(loadedMiles);
+  if (o == null || m == null || m < 1) return null;
+  return o / m;
+}
+
 /** Everything the price needs and nothing it does not: an offer and loaded miles. Null until both are typed. */
 export function readQuote(values: QuoteValues): QuoteInput | null {
   const offer = positive(values.offer);

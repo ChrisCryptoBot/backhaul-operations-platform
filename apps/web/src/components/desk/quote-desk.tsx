@@ -7,7 +7,8 @@ import { bookQuoteAction, discardQuoteAction, listQuotesAction, passQuoteAction,
 import { UNREACHABLE } from "@/lib/connection";
 import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
 import { addressReady, roundMiles } from "@/lib/geo";
-import { BLANK_QUOTE, gateTitle, HAZMAT_CLASSES, missingTimes, OVERRIDE_REASONS, PASS_REASONS, readQuote, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
+import { hosDeficit, hosDeficitLabel, hosDeficitTitle } from "@/lib/hos-deficit";
+import { BLANK_QUOTE, gateTitle, grossPerLoadedMile, HAZMAT_CLASSES, missingTimes, OVERRIDE_REASONS, PASS_REASONS, readQuote, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
 import type { CustomerOption, FitRow, LaneBenchmark, QuoteListRow } from "@/server/tl/quote";
 import type { Measured } from "@/server/geo/measure";
 import { groundOf, readVerdict, type Benchmark, type Verdict as VerdictRead } from "@/lib/verdict";
@@ -955,7 +956,7 @@ export function QuoteDesk({
                     </span>
                   ) : null}
                 </label>
-                <Money label="Offer" unit="$" value={values.offer} error={err("offer")} onChange={(v) => set({ offer: v })} />
+                <Money label="Offer" unit="$" value={values.offer} error={err("offer")} onChange={(v) => set({ offer: v })} note={grossNote(values.offer, values.loadedMiles)} />
                 <div className="th-field">
                   <label htmlFor="qt-fsc">Fuel surcharge</label>
                   <div className="th-input">
@@ -1362,6 +1363,8 @@ export function QuoteDesk({
                           const said = verdictOf(r, benchmark);
                           const on = row?.key === r.key;
                           const truckInfo = fleet.find((f) => f.id === r.truckId);
+                          // A note beside the verdict, never an input to it: the server's own hours check says "short", this words how far.
+                          const deficit = hosDeficit({ level: r.hos.caution.level, availableHours: r.hos.availableHours, tripHours: r.detail.metrics.tripHours });
                           return (
                             <tr
                               key={r.key}
@@ -1388,9 +1391,16 @@ export function QuoteDesk({
                                 </div>
                                 <span className="sub">{r.driverName ? `${r.driverName} · ${shortLabour(r)}` : "No driver set"}</span>
                                 {r.hos.availableHours != null ? (
-                                  <span className="sub" style={{ fontSize: 11, color: "var(--db-fg-mid)" }}>
-                                    Hours left: {r.hos.availableHours}h{r.hos.syncedAt ? ` (${ago(r.hos.syncedAt)})` : ""}
-                                  </span>
+                                  <div className="qt-hos-line">
+                                    <span className="sub" style={{ fontSize: 11, color: "var(--db-fg-mid)" }}>
+                                      Hours left: {r.hos.availableHours}h{r.hos.syncedAt ? ` (${ago(r.hos.syncedAt)})` : ""}
+                                    </span>
+                                    {deficit ? (
+                                      <span className="tl-chip warn" title={hosDeficitTitle(deficit)}>
+                                        {hosDeficitLabel(deficit)}
+                                      </span>
+                                    ) : null}
+                                  </div>
                                 ) : null}
                                 {r.blocked ? <span className="sub neg">{r.blocked}</span> : null}
                               </td>
@@ -1732,8 +1742,14 @@ function shortLabour(r: FitRow): string {
   return m ? `pay ${m[1]}` : r.labourNote;
 }
 
-/** Form money input with inline unit. */
-function Money({ label, unit, value, error, onChange, hint }: { label: string; unit: string; value: string; error?: string; onChange: (v: string) => void; hint?: string }) {
+/** The line under the Offer field: "$2.92/mi loaded", the typed offer over the typed loaded miles (gross, before any fee). Nothing until both are typed. */
+function grossNote(offer: string, loadedMiles: string): string | undefined {
+  const g = grossPerLoadedMile(offer, loadedMiles);
+  return g == null ? undefined : `${perMile(g)} loaded`;
+}
+
+/** Form money input with inline unit. `note` is a live figure read off the form, a quiet line below the field (not announced: the verdict aside is the one live region). */
+function Money({ label, unit, value, error, onChange, hint, note }: { label: string; unit: string; value: string; error?: string; onChange: (v: string) => void; hint?: string; note?: string }) {
   const id = `qt-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`;
   return (
     <div className="th-field">
@@ -1749,6 +1765,7 @@ function Money({ label, unit, value, error, onChange, hint }: { label: string; u
       ) : hint ? (
         <span className="th-hint">{hint}</span>
       ) : null}
+      {note ? <span className="th-hint">{note}</span> : null}
     </div>
   );
 }
@@ -1921,7 +1938,7 @@ function VerdictPanel({ row, verdict, values, lane, milesFrom, fuelFrom }: { row
         <summary>See all the figures</summary>
         <dl className="rc-facts">
           <div>
-            <dt>Load rate (loaded miles)</dt>
+            <dt>Load rate after fees (loaded miles)</dt>
             <dd>{perMile(d.metrics.loadRpm)}</dd>
           </div>
           <div>

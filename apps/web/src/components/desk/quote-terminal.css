@@ -254,6 +254,20 @@
   opacity: 0.65;
 }
 
+/* A truck's hours left on the clock, with the deficit tag beside it when the load needs more than the truck has. A line of its own, so it
+   never runs into the driver line above it (the .sub spans carry no layout rule inside this table). */
+.qt-hos-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--db-1) var(--db-2);
+}
+
+.qt-hos-line .tl-chip {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
 /* ── Counter-Offer Negotiation Bar ─────────────────────────────────────────── */
 .qt-negotiate {
   display: flex;
