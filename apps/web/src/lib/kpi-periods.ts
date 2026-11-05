@@ -27,15 +27,16 @@ export function inWindow(t: number, w: TimeWindow): boolean {
   return (w.start == null || t >= w.start) && t <= w.end;
 }
 
-export function periodWindow(period: KpiPeriod, now: number): TimeWindow {
-  const p = centralParts(now);
+/** `tz` is the clock the period is counted on. The server passes the workspace's own zone when it adds up money; left out, it is the request's display zone (src/lib/tz.ts). */
+export function periodWindow(period: KpiPeriod, now: number, tz: string = activeTz()): TimeWindow {
+  const p = centralParts(now, tz);
   switch (period) {
     case "4w":
       return { start: now - 4 * WEEK_MS, end: now };
     case "month":
-      return { start: centralMidnight(p.y, p.m0, 1), end: now };
+      return { start: centralMidnight(p.y, p.m0, 1, tz), end: now };
     case "ytd":
-      return { start: centralMidnight(p.y, 0, 1), end: now };
+      return { start: centralMidnight(p.y, 0, 1, tz), end: now };
     default:
       return { start: null, end: now };
   }
@@ -45,21 +46,21 @@ export function periodWindow(period: KpiPeriod, now: number): TimeWindow {
  * The same stretch one period earlier: the four weeks before, the first N days of last month, the same dates last year.
  * Comparing a part-month to a whole month would flatter or punish the current one, so the lengths match. "All time" has none.
  */
-export function previousWindow(period: KpiPeriod, now: number): TimeWindow | null {
-  const p = centralParts(now);
-  const cur = periodWindow(period, now);
+export function previousWindow(period: KpiPeriod, now: number, tz: string = activeTz()): TimeWindow | null {
+  const p = centralParts(now, tz);
+  const cur = periodWindow(period, now, tz);
   if (period === "all" || cur.start == null) return null;
   if (period === "4w") return { start: cur.start - 4 * WEEK_MS, end: cur.start - 1 };
   if (period === "month") {
-    const start = centralMidnight(p.y, p.m0 - 1, 1);
+    const start = centralMidnight(p.y, p.m0 - 1, 1, tz);
     return { start, end: Math.min(start + (now - cur.start), cur.start - 1) };
   }
-  const start = centralMidnight(p.y - 1, 0, 1);
-  const sameDate = centralMidnight(p.y - 1, p.m0, p.d) + (now - centralMidnight(p.y, p.m0, p.d));
+  const start = centralMidnight(p.y - 1, 0, 1, tz);
+  const sameDate = centralMidnight(p.y - 1, p.m0, p.d, tz) + (now - centralMidnight(p.y, p.m0, p.d, tz));
   return { start, end: Math.min(sameDate, cur.start - 1) };
 }
 
-const day = (ms: number, withYear = false) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: withYear ? "numeric" : undefined, timeZone: activeTz() });
+const day = (ms: number, withYear = false, tz: string = activeTz()) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: withYear ? "numeric" : undefined, timeZone: tz });
 
 /**
  * "Oct 1 to Oct 28". When the window is not in the current year (last year's year to date) both ends carry the year, so two
@@ -73,9 +74,9 @@ export function windowLabel(w: TimeWindow | null, ref: number = Date.now()): str
 }
 
 /** Twelve trailing seven-day buckets ending now, oldest first, for the trends. */
-export function weekBuckets(now: number, count = 12): Array<{ start: number; end: number; label: string }> {
+export function weekBuckets(now: number, count = 12, tz: string = activeTz()): Array<{ start: number; end: number; label: string }> {
   return Array.from({ length: count }, (_, i) => {
     const end = now - (count - 1 - i) * WEEK_MS;
-    return { start: end - WEEK_MS, end, label: day(end) };
+    return { start: end - WEEK_MS, end, label: day(end, false, tz) };
   });
 }

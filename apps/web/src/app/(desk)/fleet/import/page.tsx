@@ -3,6 +3,7 @@ import React from "react";
 import { PageHead } from "@/components/desk/ui";
 import { ImportPanel } from "@/components/desk/import-panel";
 import { toLocate } from "@/server/tl/import";
+import { CanGate } from "@/components/desk/kit/can-gate";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,9 @@ export default async function ImportTrucksPage() {
       <PageHead title="Import trucks" sub="Add many trucks at once from a CSV. Each row is checked like the Add truck form; a name already in service, or repeated in the file, is left out.">
         <Link href="/fleet" className="tl-btn">All trucks</Link>
       </PageHead>
-      <ImportPanel kind="trucks" toLocate={await toLocate()} />
+      <CanGate caps={["dispatch"]} banner who="A dispatcher" what="this page">
+        <ImportPanel kind="trucks" toLocate={await toLocate()} />
+      </CanGate>
     </>
   );
 }

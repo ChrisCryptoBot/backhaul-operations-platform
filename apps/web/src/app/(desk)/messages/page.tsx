@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/desk/kit/states";
 import { PageHead } from "@/components/desk/ui";
 import { SAVED_ONLY, SAVED_ONLY_NOTE, groupByDay, snippet, stamp, timeLabel } from "@/lib/messages";
 import { getConversation, listThreads, startableDrivers } from "@/server/tl/messages";
+import { CanGate } from "@/components/desk/kit/can-gate";
 
 export const metadata: Metadata = { title: "Messages · TrueLane" };
 
@@ -125,7 +126,9 @@ export default async function MessagesPage({ searchParams }: { searchParams?: { 
                 )}
               </div>
               <p className="ms-note">{SAVED_ONLY_NOTE}</p>
-              <Composer driverId={convo.driver.id} driverName={convo.driver.name} loads={convo.loads} />
+              <CanGate caps={["dispatch", "bill"]} banner who="A dispatcher or the accounting office" what="these messages">
+                <Composer driverId={convo.driver.id} driverName={convo.driver.name} loads={convo.loads} />
+              </CanGate>
             </>
           )}
         </section>

@@ -13,6 +13,7 @@ import { miles, perMile } from "@/lib/desk-format";
 import { currentTerminal } from "@/server/tl/terminal";
 import { partnerState } from "@/server/partners/call";
 import { SyncEldButton } from "@/components/desk/partner-actions";
+import { CanGate } from "@/components/desk/kit/can-gate";
 
 export const metadata = { title: "Trucks · TrueLane" };
 
@@ -71,7 +72,11 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
       detention: t.detentionRate != null ? `$${t.detentionRate.toFixed(0)}/h` : <span className="dim">none</span>,
       loads: t.loads,
       open: t.open,
-      act: <TruckRowActions truck={{ id: t.id, name: t.name, archived: t.archived, open: t.open }} />
+      act: (
+        <CanGate caps={["dispatch"]}>
+          <TruckRowActions truck={{ id: t.id, name: t.name, archived: t.archived, open: t.open }} />
+        </CanGate>
+      )
     }
   }));
 
@@ -79,9 +84,13 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
   return (
     <>
       <PageHead title="Trucks" sub={`${terminal ? `${terminal} terminal. ` : ""}Each truck's break-even floor, from its own cost profile. Every verdict on the Loads screen is measured against it. Open a truck to change its costs and see the floor move.`}>
-        <SyncEldButton reason={eld.reason} />
+        <CanGate caps={["dispatch"]}>
+          <SyncEldButton reason={eld.reason} />
+        </CanGate>
         <Link href="/fleet/import" className="tl-btn">Import from a file</Link>
-        <AddTruck use={use} />
+        <CanGate caps={["dispatch"]}>
+          <AddTruck use={use} />
+        </CanGate>
       </PageHead>
       <DataTableTools tableId="trucks-table" total={pageData.total} placeholder="Search trucks…" server={{ path: "/fleet", q: pageData.q, keep: searchParams?.sort ? { sort: searchParams.sort } : {} }} />
       <DataTable id="trucks-table" label="Trucks" columns={COLUMNS} rows={rows} sortHref={sortHref} empty={<EmptyState icon="trucks" title="No trucks yet">A truck and its cost profile set the floor every load is measured against.</EmptyState>} />

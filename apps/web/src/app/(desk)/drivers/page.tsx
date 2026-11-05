@@ -15,6 +15,7 @@ import { currentTerminal } from "@/server/tl/terminal";
 import { partnerState } from "@/server/partners/call";
 import { vetLabel } from "@/server/partners/vetting";
 import { VetButton } from "@/components/desk/partner-actions";
+import { CanGate } from "@/components/desk/kit/can-gate";
 
 export const metadata = { title: "Drivers · TrueLane" };
 
@@ -88,7 +89,9 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
             <>
               <span className={`tl-chip ${d.vetStatus === "clear" ? "ok" : d.vetStatus === "unchecked" ? "muted" : "warn"}`}>{vetLabel(d.vetStatus)}</span>
               <span className="sub">{[d.carrierMc ? `MC ${d.carrierMc}` : null, d.carrierDot ? `DOT ${d.carrierDot}` : null].filter(Boolean).join(" · ")}{d.coiExpiresAt ? ` · insured to ${shortDate(d.coiExpiresAt)}` : ""}</span>
-              <VetButton driverId={d.id} reason={vetState.reason} />
+              <CanGate caps={["dispatch"]}>
+                <VetButton driverId={d.id} reason={vetState.reason} />
+              </CanGate>
             </>
           ) : (
             <span className="dim">—</span>
@@ -108,7 +111,11 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
             ))
           ),
         delivered: d.delivered,
-        act: <DriverRowActions driver={row} />
+        act: (
+          <CanGate caps={["dispatch"]}>
+            <DriverRowActions driver={row} />
+          </CanGate>
+        )
       }
     };
   });
@@ -118,7 +125,9 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
     <>
       <PageHead title="Drivers" sub={`${terminal ? `${terminal} terminal. ` : ""}Who can take a load today. A lapsed CDL or medical card blocks the assignment. A driver on an open load cannot be taken out of service.`}>
         <Link href="/drivers/import" className="tl-btn">Import from a file</Link>
-        <AddDriver use={use} />
+        <CanGate caps={["dispatch"]}>
+          <AddDriver use={use} />
+        </CanGate>
       </PageHead>
       <DataTableTools tableId="drivers-table" total={pageData.total} placeholder="Search driver, phone, truck…" server={{ path: "/drivers", q: pageData.q, keep: searchParams?.sort ? { sort: searchParams.sort } : {} }} />
       <DataTable id="drivers-table" label="Drivers" columns={COLUMNS} rows={rows} sortHref={sortHref} empty={<EmptyState icon="drivers" title="No drivers yet">Add a driver and they show up here with their CDL and medical card dates.</EmptyState>} />

@@ -6,6 +6,7 @@ import { deadheadMilesOf, deadheadPct, drivenMiles, loadCompletedAtMs, loadGross
 import { effectiveMiles } from "@/truelane/lib/domain/quotedMiles";
 import { loadMarketVariance } from "@/truelane/lib/domain/marketVariance";
 import { calendarDaysBetween } from "@/truelane/lib/domain/calendarDays";
+import { activeTz } from "@/lib/tz";
 import { DAY_MS, WEEK_MS, inWindow, periodWindow, previousWindow, weekBuckets, type KpiPeriod, type TimeWindow } from "@/lib/kpi-periods";
 import type { KpiFilters } from "@/lib/kpi-params";
 import { THRESHOLD_DEFAULTS, type Thresholds } from "@/lib/thresholds";
@@ -16,6 +17,7 @@ import { notQuote } from "@/lib/quote-status";
 import { ms, num, numOrNull, toAgingView, toAnalyticsInput, toMarketVarianceLoad, type LoadRow } from "./convert";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
+import { workspaceTimezone } from "./zone";
 import { answerCache, clockBucket } from "./answer-cache";
 
 /**
@@ -284,7 +286,8 @@ function applyFilters(rows: KpiLoadRow[], f: KpiFilters): KpiLoadRow[] {
 
 const uniqueSorted = (xs: Array<string | null | undefined>) => [...new Set(xs.filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b));
 
-export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: Thresholds = THRESHOLD_DEFAULTS, now: Date = new Date()): DeskKpi {
+/** `tz`: the clock the periods are counted on. The desk passes the workspace's own zone, never the display cookie, so a month's totals do not move with a browser setting. */
+export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: Thresholds = THRESHOLD_DEFAULTS, now: Date = new Date(), tz: string = activeTz()): DeskKpi {
   const nowMs = now.getTime();
   const choices = {
     lanes: uniqueSorted(rows.map(laneOf)),
@@ -295,8 +298,8 @@ export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: T
   const kept = applyFilters(rows, opts.filters);
 
   const facts = kept.filter((l) => isRevenueLoad(l)).map((l) => factOf(l, thresholds));
-  const window = periodWindow(opts.period, nowMs);
-  const previous = opts.compare ? previousWindow(opts.period, nowMs) : null;
+  const window = periodWindow(opts.period, nowMs, tz);
+  const previous = opts.compare ? previousWindow(opts.period, nowMs, tz) : null;
   const scoped = facts.filter((f) => inWindow(f.doneAt, window));
   const earlier = previous ? facts.filter((f) => inWindow(f.doneAt, previous)) : null;
 
@@ -306,7 +309,7 @@ export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: T
   const whole = computeAnalytics(facts.map((f) => toAnalyticsInput(f.row)), "all", now);
   const analytics: AnalyticsResult = { ...win, monthly: whole.monthly, maxMonthlyRevenue: whole.maxMonthlyRevenue };
 
-  const trend: TrendWeek[] = weekBuckets(nowMs, 12).map((b) => {
+  const trend: TrendWeek[] = weekBuckets(nowMs, 12, tz).map((b) => {
     const inBucket = facts.filter((f) => f.doneAt > b.start && f.doneAt <= b.end);
     const gross = inBucket.reduce((s, f) => s + f.gross, 0);
     const mi = inBucket.reduce((s, f) => s + f.revenueMiles, 0);
@@ -459,17 +462,17 @@ export const ALL_TIME_DAYS = 1095;
  * How far back the rows must reach for this period: the window itself, the one before it (for the comparison), the twelve-week trend and the six-month chart.
  * Open loads and invoices still out are read whatever their age (the pipeline and the aging use them).
  */
-export function rowsSince(period: KpiPeriod, nowMs: number): number {
-  const w = periodWindow(period, nowMs);
-  const prev = previousWindow(period, nowMs);
+export function rowsSince(period: KpiPeriod, nowMs: number, tz: string = activeTz()): number {
+  const w = periodWindow(period, nowMs, tz);
+  const prev = previousWindow(period, nowMs, tz);
   const starts = [w.start ?? nowMs - ALL_TIME_DAYS * DAY_MS, prev?.start ?? null, nowMs - 13 * WEEK_MS, nowMs - 190 * DAY_MS];
   return starts.filter((x): x is number => x != null).reduce((lo, x) => (x < lo ? x : lo), nowMs);
 }
 
 /** Where the dock waits are needed from: the window and the one before it (the older months are only for the charts). "All time" needs them all. */
-function stopsStart(period: KpiPeriod, nowMs: number, floor: number): number {
-  const w = periodWindow(period, nowMs);
-  const prev = previousWindow(period, nowMs);
+function stopsStart(period: KpiPeriod, nowMs: number, floor: number, tz: string): number {
+  const w = periodWindow(period, nowMs, tz);
+  const prev = previousWindow(period, nowMs, tz);
   const start = w.start == null ? floor : (prev?.start ?? w.start);
   return start < floor ? floor : start;
 }
@@ -538,9 +541,11 @@ export async function getDeskKpi(opts: { period: KpiPeriod; compare?: boolean; f
   const thresholds = await getThresholds(workspaceId);
   const compare = opts.compare ?? true;
   const filters = opts.filters ?? {};
-  return answers.remember([workspaceId, opts.period, compare, filters, clockBucket(now.getTime(), 3_600_000), thresholds], workspaceId, async () => {
-    const since = new Date(rowsSince(opts.period, now.getTime()));
-    const rows = await getKpiRows(workspaceId, { since, lane: filters.lane, stopsSince: new Date(stopsStart(opts.period, now.getTime(), since.getTime())) });
-    return buildDeskKpi(rows, { period: opts.period, compare, filters }, thresholds, now);
+  // A month or a year is the workspace's own: counted on its stored zone, and part of the kept answer's key so a change in Settings is never answered from the old zone.
+  const tz = await workspaceTimezone(workspaceId);
+  return answers.remember([workspaceId, opts.period, compare, filters, clockBucket(now.getTime(), 3_600_000), thresholds, tz], workspaceId, async () => {
+    const since = new Date(rowsSince(opts.period, now.getTime(), tz));
+    const rows = await getKpiRows(workspaceId, { since, lane: filters.lane, stopsSince: new Date(stopsStart(opts.period, now.getTime(), since.getTime(), tz)) });
+    return buildDeskKpi(rows, { period: opts.period, compare, filters }, thresholds, now, tz);
   });
 }

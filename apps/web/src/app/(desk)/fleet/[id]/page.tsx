@@ -9,6 +9,7 @@ import { ACTION_LABEL } from "@/lib/audit-diff";
 import { dateTime, miles, perMile, shortDate } from "@/lib/desk-format";
 import { num } from "@/server/tl/convert";
 import { FuelCardForm } from "@/components/desk/partner-actions";
+import { CanGate } from "@/components/desk/kit/can-gate";
 
 /** One truck: its details, its cost profile with the floor it produces, what is on it now, and what has been changed. */
 export default async function TruckPage({ params }: { params: { id: string } }) {
@@ -22,7 +23,9 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
     <>
       <PageHead title={t.name ?? "Truck"} sub={`${[t.make, t.model, t.year].filter(Boolean).join(" ") || (t.type?.replace("_", " ") ?? "No type set")}${t.archivedAt ? " · archived" : ""} · ${open} open ${open === 1 ? "load" : "loads"}`}>
         <Link href="/fleet" className="tl-btn">All trucks</Link>
-        <TruckRowActions hideOpen truck={{ id: t.id, name: t.name, archived: t.archivedAt != null, open }} />
+        <CanGate caps={["dispatch"]}>
+          <TruckRowActions hideOpen truck={{ id: t.id, name: t.name, archived: t.archivedAt != null, open }} />
+        </CanGate>
       </PageHead>
 
       <section className="tk-hero" aria-label="Break-even floor">
@@ -47,6 +50,7 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
         </dl>
       </section>
 
+      <CanGate caps={["dispatch"]} banner who="A dispatcher" what="this truck">
       <details className="qt-more" open={!t.type || t.mpg == null || undefined}>
         <summary>Details</summary>
         <TruckForm
@@ -79,11 +83,14 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
         </p>
         <CostProfileForm vehicleId={t.id} vehicleType={t.type} mpg={t.mpg == null ? null : num(t.mpg)} numbers={d.numbers} choices={d.choices} base={d.base} stored={d.stored ? { breakEven: d.stored.breakEven, survival: d.stored.survival } : null} openLoads={open} fuelType={t.fuelType} homeBase={t.homeBaseAddress} />
       </Card>
+      </CanGate>
 
       {d.vehicle.costProfile ? (
         <Card title="Fuel card" className="tl-card">
           <p className="tl-note" style={{ marginBottom: 10, maxWidth: "72ch" }}>The card this truck buys fuel on. When a card company is connected, a trip&apos;s fuel can be filled in from the card&apos;s purchases (it only fills an empty box).</p>
-          <FuelCardForm vehicleId={t.id} provider={d.vehicle.costProfile.fuelCardProvider} accountId={d.vehicle.costProfile.fuelCardAccountId} />
+          <CanGate caps={["dispatch"]}>
+            <FuelCardForm vehicleId={t.id} provider={d.vehicle.costProfile.fuelCardProvider} accountId={d.vehicle.costProfile.fuelCardAccountId} />
+          </CanGate>
         </Card>
       ) : null}
 

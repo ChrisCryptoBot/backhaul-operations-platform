@@ -24,6 +24,7 @@ import { asHistoryFilter, asHistorySort, fellThrough, HISTORY_FILTERS, HISTORY_S
 import { miles, perMile, shortDate, stopTime, usd } from "@/lib/desk-format";
 import { moneyState } from "@/lib/money-state";
 import { daysPastDue } from "@/lib/overdue";
+import { CanGate } from "@/components/desk/kit/can-gate";
 
 export const metadata = { title: "Loads · TrueLane" };
 
@@ -169,7 +170,11 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
             {r.note ? <span className="sub">{r.note}</span> : null}
           </>
         ),
-        restore: <RestoreLoadButton loadId={r.id} loadNumber={r.loadNumber ?? "The load"} />
+        restore: (
+          <CanGate caps={["dispatch"]}>
+            <RestoreLoadButton loadId={r.id} loadNumber={r.loadNumber ?? "The load"} />
+          </CanGate>
+        )
       }
     }));
     return (

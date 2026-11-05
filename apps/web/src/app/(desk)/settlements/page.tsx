@@ -14,6 +14,8 @@ import { periodPresets } from "@/lib/settlement";
 import { checkAccess } from "@/server/tl/access";
 import { listSettlements, settlementCounts, STATEMENTS_PAGE, unsettledByDriver } from "@/server/tl/settlement";
 import { currentTerminal } from "@/server/tl/terminal";
+import { currentWorkspaceId } from "@/server/tl/workspace";
+import { workspaceTimezone } from "@/server/tl/zone";
 
 export const metadata = { title: "Settlements · TrueLane" };
 
@@ -68,7 +70,8 @@ export default async function SettlementsPage({ searchParams }: { searchParams?:
     listSettlements(undefined, { status: "final", terminal, skip: (page - 1) * STATEMENTS_PAGE, take: STATEMENTS_PAGE }),
     listSettlements(undefined, { status: "void", terminal, skip: (voidPage - 1) * STATEMENTS_PAGE, take: STATEMENTS_PAGE })
   ]);
-  const presets = periodPresets(Date.now());
+  // "Last week" and "this month" are the workspace's own calendar, not the browser's.
+  const presets = periodPresets(Date.now(), await workspaceTimezone(currentWorkspaceId()));
   const owed = unsettled.reduce((sum, u) => sum + u.amount, 0);
   const owedLoads = unsettled.reduce((sum, u) => sum + u.loads, 0);
   const owedPage = Math.min(asPage(searchParams?.owed), Math.max(1, Math.ceil(unsettled.length / OWED_PAGE)));

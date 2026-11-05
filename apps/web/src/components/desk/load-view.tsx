@@ -383,7 +383,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         ) : (
           <p className="tl-note" style={{ marginBottom: 10 }}>No trailer unit is on this load{load.trailerType ? ` (it needs ${load.trailerType.replace(/_/g, " ")})` : ""}.</p>
         )}
-        {trailerOpen ? <AssignTrailer loadId={load.id} current={load.trailer ? { id: load.trailer.id, number: load.trailer.number } : null} /> : null}
+        {trailerOpen ? gate(<AssignTrailer loadId={load.id} current={load.trailer ? { id: load.trailer.id, number: load.trailer.number } : null} />, "dispatch") : null}
       </div>
     </section>
   );

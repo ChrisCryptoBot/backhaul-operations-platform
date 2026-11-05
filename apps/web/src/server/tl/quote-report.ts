@@ -5,6 +5,7 @@ import { cityState } from "@/lib/city-state";
 import { num } from "./convert";
 import type { DecisionDetails } from "./quote";
 import { currentWorkspaceId } from "./workspace";
+import { workspaceTimezone } from "./zone";
 import { sessionIdentity } from "./identity";
 import { can } from "@/lib/roles";
 
@@ -18,7 +19,7 @@ const KINDS = ["accepted", "overridden", "passed"] as const;
  * never writes.
  */
 export async function listQuoteDecisions(opts: { period: KpiPeriod; by?: string | null }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<{ rows: DecisionRow[]; capped: boolean }> {
-  const win = periodWindow(opts.period, now.getTime());
+  const win = periodWindow(opts.period, now.getTime(), await workspaceTimezone(workspaceId));
   const found = await prisma.loadDecision.findMany({
     where: {
       decisionType: { in: [...KINDS] },

@@ -12,6 +12,7 @@ import { complianceState, statusLabel, trailerBlocker, trailerClearanceSoon } fr
 import { OWNERSHIPS } from "@/lib/trailer-forms";
 import { trailerLabel } from "@/truelane/constants/trailerData";
 import { dateTime, shortDate } from "@/lib/desk-format";
+import { CanGate } from "@/components/desk/kit/can-gate";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +33,9 @@ export default async function TrailerPage({ params }: { params: { id: string } }
     <>
       <PageHead title={t.number} sub={`${t.type ? trailerLabel(t.type) : "No type set"} · ${OWNERSHIPS.find((o) => o.key === t.ownership)?.label ?? t.ownership}${t.archivedAt ? " · archived" : ""} · ${open} open ${open === 1 ? "load" : "loads"}`}>
         <Link href="/trailers" className="tl-btn">All trailers</Link>
-        <TrailerRowActions hideOpen trailer={{ id: t.id, number: t.number, archived: t.archivedAt != null, open }} />
+        <CanGate caps={["dispatch"]}>
+          <TrailerRowActions hideOpen trailer={{ id: t.id, number: t.number, archived: t.archivedAt != null, open }} />
+        </CanGate>
       </PageHead>
 
       <section className="tk-hero" aria-label="Can it go out">
@@ -64,13 +67,15 @@ export default async function TrailerPage({ params }: { params: { id: string } }
       </section>
 
       <Card title="Hooked to">
-        {t.archivedAt ? <p className="tl-note">An archived trailer is not hooked to anything.</p> : <HookTrailer trailerId={t.id} tractor={t.currentVehicle} />}
+        {t.archivedAt ? <p className="tl-note">An archived trailer is not hooked to anything.</p> : <CanGate caps={["dispatch"]}><HookTrailer trailerId={t.id} tractor={t.currentVehicle} /></CanGate>}
         <p className="tl-note" style={{ marginTop: 10 }}>A tractor pulls one trailer at a time. Where it is: {t.location ?? "not set"}{t.terminal ? ` · ${t.terminal} terminal` : ""}.</p>
       </Card>
 
       <details className="qt-more" open={!t.type || undefined}>
         <summary>Details</summary>
-        <TrailerForm inline trailer={{ id: t.id, ...valuesOf(t) }} />
+        <CanGate caps={["dispatch"]} banner who="A dispatcher" what="this trailer">
+          <TrailerForm inline trailer={{ id: t.id, ...valuesOf(t) }} />
+        </CanGate>
       </details>
 
       <div className="tl-grid cols-2" style={{ marginTop: 14 }}>

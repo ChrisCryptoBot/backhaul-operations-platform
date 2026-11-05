@@ -14,6 +14,7 @@ import { OWNERSHIPS } from "@/lib/trailer-forms";
 import { TRAILER_STATUSES, statusLabel } from "@/lib/trailer-clearance";
 import { TRAILER_TYPES, trailerLabel } from "@/truelane/constants/trailerData";
 import { shortDate } from "@/lib/desk-format";
+import { CanGate } from "@/components/desk/kit/can-gate";
 
 export const metadata = { title: "Trailers · TrueLane" };
 
@@ -91,7 +92,11 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
         ),
       registration: expiry(t.registrationExpiry, t.registrationExpiry != null && t.registrationExpiry.getTime() < now.getTime()),
       inspection: expiry(t.inspectionExpiry, t.inspectionExpiry != null && t.inspectionExpiry.getTime() < now.getTime()),
-      act: <TrailerRowActions trailer={{ id: t.id, number: t.number, archived: t.archived, open: t.onLoads.length }} />
+      act: (
+        <CanGate caps={["dispatch"]}>
+          <TrailerRowActions trailer={{ id: t.id, number: t.number, archived: t.archived, open: t.onLoads.length }} />
+        </CanGate>
+      )
     }
   }));
   const filtered = Boolean(data.q || type || status || ownership || compliance || archived);
@@ -102,7 +107,9 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
       <PageHead title="Trailers" sub={`${terminal ? `${terminal} terminal. ` : ""}Every trailer: its number, plate and papers, where it is, which tractor pulls it and what it is on. A trailer in the shop, out of service or with a lapsed date is kept off loads.`}>
         <a className="tl-btn" href={`/export/trailers${filtered ? `?${href({}).split("?")[1] ?? ""}` : ""}`}>Export CSV</a>
         <Link href="/trailers/import" className="tl-btn">Import from a file</Link>
-        <AddTrailer use={use} />
+        <CanGate caps={["dispatch"]}>
+          <AddTrailer use={use} />
+        </CanGate>
       </PageHead>
       <div className="dt-toolbar" style={{ margin: "12px 0" }}>
         <LiveForm path="/trailers" label="Filter the trailers" className="audit-filters">

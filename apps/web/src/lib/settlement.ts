@@ -173,7 +173,7 @@ const ymdOfUtc = (t: number) => new Date(t).toISOString().slice(0, 10);
 export const addDays = (ymd: string, days: number): string => ymdOfUtc((utcDay(ymd) ?? 0) + days * 86_400_000);
 
 /** The Dallas calendar date an instant falls on. */
-export const dallasDay = (ms: number): string => toCentralLocal(ms).slice(0, 10);
+export const dallasDay = (ms: number, tz?: string): string => toCentralLocal(ms, tz).slice(0, 10);
 
 export type PeriodCheck = { ok: true; start: string; end: string } | { ok: false; errors: { start?: string; end?: string } };
 
@@ -191,9 +191,10 @@ export function validatePeriod(start: string, end: string): PeriodCheck {
 }
 
 /** From midnight at the start of the first day to midnight at the end of the last, on the Dallas clock. */
-export function periodBounds(start: string, end: string): { from: Date; to: Date } | null {
-  const from = parseCentralLocal(`${start}T00:00`);
-  const to = parseCentralLocal(`${addDays(end, 1)}T00:00`);
+/** `tz` is the carrier's own zone: the server passes the workspace's stored zone, because which statement a load lands on is money and must not follow a browser cookie. */
+export function periodBounds(start: string, end: string, tz?: string): { from: Date; to: Date } | null {
+  const from = parseCentralLocal(`${start}T00:00`, tz);
+  const to = parseCentralLocal(`${addDays(end, 1)}T00:00`, tz);
   return from == null || to == null ? null : { from: new Date(from), to: new Date(to) };
 }
 
@@ -206,8 +207,8 @@ export function periodText(start: string, end: string): string {
 export type PeriodPreset = { key: string; label: string; start: string; end: string };
 
 /** The periods a dispatcher usually settles: last week, last two weeks, this month so far, last month. Weeks run Monday to Sunday. */
-export function periodPresets(now: number): PeriodPreset[] {
-  const today = dallasDay(now);
+export function periodPresets(now: number, tz?: string): PeriodPreset[] {
+  const today = dallasDay(now, tz);
   const dow = new Date(utcDay(today) ?? 0).getUTCDay(); // 0 is Sunday
   const monday = addDays(today, -((dow + 6) % 7));
   const firstOfMonth = `${today.slice(0, 7)}-01`;
@@ -221,7 +222,7 @@ export function periodPresets(now: number): PeriodPreset[] {
 }
 
 /** A period that covers a driver's unsettled deliveries, oldest to newest, trimmed to the longest a statement can be (the newest days win). */
-export function periodCovering(deliveredAt: Array<Date | string>): { start: string; end: string } | null {
+export function periodCovering(deliveredAt: Array<Date | string>, tz?: string): { start: string; end: string } | null {
   if (deliveredAt.length === 0) return null;
   let minMs = Infinity;
   let maxMs = -Infinity;
@@ -231,8 +232,8 @@ export function periodCovering(deliveredAt: Array<Date | string>): { start: stri
     if (ms > maxMs) maxMs = ms;
   }
   if (!Number.isFinite(minMs)) return null;
-  const oldest = dallasDay(minMs);
-  const end = minMs === maxMs ? oldest : dallasDay(maxMs);
+  const oldest = dallasDay(minMs, tz);
+  const end = minMs === maxMs ? oldest : dallasDay(maxMs, tz);
   const earliestAllowed = addDays(end, -(MAX_PERIOD_DAYS - 1));
   return { start: oldest < earliestAllowed ? earliestAllowed : oldest, end };
 }

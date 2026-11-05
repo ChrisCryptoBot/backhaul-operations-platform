@@ -12,7 +12,7 @@
 | Item from the first audit | Now |
 |---|---|
 | Load page shelf said "8 of 8 Connected", "$1M Auto Liability" | **Fixed** (V: the string is gone from `load-view.tsx`); the shelf reads real connection state |
-| Central-only time | **Fixed** locally: workspace `timezone` (ET/CT/MT/MST/PT/AKT/HST), carrier clock vs display clock vs stop-local clock (`lib/tz.ts`, `lib/zoned.ts`, `server/tl/zone.ts`). Board, Planner and the due list now also show the dock's clock with the carrier's in brackets (built locally, Wave 1; `stopClock`, `BoardRow.pickupZone`). Still on the carrier clock only: the Dispatch queue rows, typed times, KPI periods and statement weeks (cookie, not the workspace zone) |
+| Central-only time | **Fixed** locally: workspace `timezone` (ET/CT/MT/MST/PT/AKT/HST), carrier clock vs display clock vs stop-local clock (`lib/tz.ts`, `lib/zoned.ts`, `server/tl/zone.ts`). Board, Planner and the due list now also show the dock's clock with the carrier's in brackets (built locally, Wave 1; `stopClock`, `BoardRow.pickupZone`). The Dispatch queue rows too. KPI periods, the quote report, statement periods, the offered presets and the statement a delivery lands on now count on the workspace's stored zone, not the display cookie (built locally, Wave 1; tests/money-follows-workspace-zone.test.ts). Still carrier-clock only: typed times and export dates (`exports.ts` reads the display zone) |
 | No driver link | **Desk half built, dark**: `server/bridge/{core,transport,outbox,service,retry}.ts`, `Assignment.bridgeDispatchId/bridgeExecutionVersion/bridgeSyncedAt/bridgeError`, `POST /bridge/cron`, `docs/DRIVER_LINK_DESIGN.md`. Switched on per fleet by `workspaces.bridge_org_id` + `drivers.phone_user_id` + three env names. Nothing live until Chris supplies them |
 | Per-workspace partner credentials, webhook, sync, failure surface | **Built** (`server/partners/{credentials*,health,webhook*,sync}.ts`, Settings, Integrations; `docs/PARTNER_BACKBONE.md`). **No live company adapter exists** |
 | `dataMark` cross-tenant scan | **Fixed** (V: `server/tl/answer-cache.ts` now filters every subquery by workspace) |
@@ -195,7 +195,7 @@ Counsel is needed before flags flip for factoring and payroll (money) and tracki
 | Workspace lock | `lockWorkspace` serialises assignments, imports, plan-limited writes for one tenant | P2 / M |
 | Indexes | Customer name, Stop time windows, Driver name/phone search | P2 / S |
 | Multi-terminal | `terminal` is free text on trucks and drivers; the scope is a cookie and a view filter, **not a permission**; Alerts and KPI ignore it in places; no Terminal table, manager or time zone per terminal | P2 / L |
-| RBAC | four fixed roles, ten capabilities, one grant ("Can also bill"); the UI hides few actions (6 `may(` checks in components, V) so a viewer sees buttons the server refuses; no Safety-manager or Executive-viewer role; margins and driver pay visible to all with `read` | P1 (hide refused buttons) / P2 (roles) / M |
+| RBAC | four fixed roles, ten capabilities, one grant ("Can also bill"); screens now switch off the controls a role cannot use (`CanGate`, Wave 1, local); no Safety-manager or Executive-viewer role; margins and driver pay visible to all with `read` | P1 (hide refused buttons) / P2 (roles) / M |
 | Approvals / overrides | rate change, write-off, pay override, double-book override need only a typed reason; no manager gate on Reject | P2 / L |
 | Bulk ops | none beyond imports | P2 / M |
 | Multi-workspace users | one user, one workspace; no switcher | P2 / L |
@@ -212,7 +212,7 @@ Status marks: **done (local)** built and tested, unpushed; **open**. Production 
 1. Switch the link on end to end for one test fleet (inputs in section 7) and prove it against the phone's parked half. *Open: needs Chris's inputs and an un-park of the phone flag.*
 2. Relabel Demo controls as "Answer for the driver" (kept for linked drivers); audit who answered. *Done (local): the control is labelled for both cases, and the audit line reads "answered for them by the dispatcher" or "on their phone".*
 3. Close the lifecycle breaks: apply driver arrival/POD/`closed_without_pod`; Messages over the bridge with `deliveredAt`; `replaced_by_dispatch_id`. Reschedule push and the stuck-load alerts already existed (corrected). *Open, M; each needs a contract decision (section 7, 6).*
-4. Remove silent wrong answers: alerts cap (*done, local*), board and Planner stop-local time (*done, local*), role-aware buttons (*load page and Dispatch queue done; other screens not surveyed*). *Partly open, S-M.*
+4. Remove silent wrong answers: alerts cap (*done, local*), board and Planner stop-local time (*done, local*), role-aware buttons (*done, local: the load page, Dispatch queue, Drivers, Trucks, Trailers, Customers, Rate confirmations, Messages and the three imports switch off what a role cannot use; not walked as a viewer in a browser, since the demo desk is always an admin*). *Open: Settlements/Invoices/Payroll already had their own gates; export dates still on the display zone.*
 5. Done (local): honest shelf, demo labels, workspace time zone, dataMark, bridge desk half.
 
 **Wave 2 (P1): partner backbone adapters and inbound webhooks**

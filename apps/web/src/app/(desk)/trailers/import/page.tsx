@@ -2,6 +2,7 @@ import Link from "next/link";
 import React from "react";
 import { PageHead } from "@/components/desk/ui";
 import { ImportPanel } from "@/components/desk/import-panel";
+import { CanGate } from "@/components/desk/kit/can-gate";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,9 @@ export default function ImportTrailersPage() {
       <PageHead title="Import trailers" sub="Add many trailers at once from a CSV. Each row is checked like the Add trailer form; a number already in service, or repeated in the file, is left out. Hooking trailers to tractors is done on each trailer's page.">
         <Link href="/trailers" className="tl-btn">All trailers</Link>
       </PageHead>
-      <ImportPanel kind="trailers" />
+      <CanGate caps={["dispatch"]} banner who="A dispatcher" what="this page">
+        <ImportPanel kind="trailers" />
+      </CanGate>
     </>
   );
 }

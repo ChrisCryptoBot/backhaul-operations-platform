@@ -10,7 +10,7 @@ import { Card, PageHead, VerdictChip } from "@/components/desk/ui";
 import { AlertList } from "@/components/desk/alert-bits";
 import { AssignButton } from "@/components/desk/assign-modal";
 import { EmptyState } from "@/components/desk/kit/states";
-import { miles, shortDate, usd } from "@/lib/desk-format";
+import { miles, shortDate, stopTime, usd } from "@/lib/desk-format";
 
 export const metadata = { title: "Dispatch queue · TrueLane" };
 
@@ -33,7 +33,7 @@ function Row({ r, alerts, assign }: { r: BoardRow; alerts: Alert[] | undefined; 
         <Link href={`/loads/${r.id}`}>
           {r.loadNumber} <span className="dq-rate">{usd(r.grossRevenue)}</span>
         </Link>
-        <span className="tl-sub">{shortDate(r.scheduledDate)}</span>
+        <span className="tl-sub">{r.pickupAt ? stopTime(r.pickupAt, r.pickupZone) : shortDate(r.scheduledDate)}</span>
       </div>
       <div className="tl-sub">
         {r.origin} → {r.destination} · {miles(r.totalMiles)}

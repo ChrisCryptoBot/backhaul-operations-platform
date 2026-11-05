@@ -7,6 +7,7 @@ import { PageHead, StatusChip } from "@/components/desk/ui";
 import { perMile, shortDate, usd } from "@/lib/desk-format";
 import { cityState } from "@/lib/city-state";
 import { listRecentRateCons } from "@/server/ratecon/recent";
+import { CanGate } from "@/components/desk/kit/can-gate";
 
 export const metadata = { title: "Rate confirmations · TrueLane" };
 
@@ -51,7 +52,9 @@ export default async function RateConsPage() {
   return (
     <>
       <PageHead title="Rate confirmations" sub="A document in, a draft load out. Check what was read before anything is saved." />
-      <RateConIntake liveReading={Boolean(process.env.ANTHROPIC_API_KEY)} />
+      <CanGate caps={["dispatch"]} banner who="A dispatcher" what="this page">
+        <RateConIntake liveReading={Boolean(process.env.ANTHROPIC_API_KEY)} />
+      </CanGate>
 
       <div className="rc-list-head">
         <h2 className="rc-eyebrow">Read so far</h2>

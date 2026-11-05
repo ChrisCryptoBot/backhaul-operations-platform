@@ -8,6 +8,7 @@ import { CustomerForm } from "@/components/desk/customer-form";
 import { ACTION_LABEL } from "@/lib/audit-diff";
 import { BLANK_CUSTOMER, kindLabel, toCustomerValues } from "@/lib/customer";
 import { dateTime, perMile, shortDate, signedPct, usd } from "@/lib/desk-format";
+import { CanGate } from "@/components/desk/kit/can-gate";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +54,9 @@ export default async function CustomerPage({ params, searchParams }: { params: {
       ) : null}
 
       <Card title={record ? "Record" : "Details"} className="tl-card">
-        <CustomerForm id={record?.id ?? null} stored={stored} loads={d?.loadCount ?? 0} />
+        <CanGate caps={["dispatch", "billing_details"]} banner who="A dispatcher or the accounting office" what="this customer">
+          <CustomerForm id={record?.id ?? null} stored={stored} loads={d?.loadCount ?? 0} />
+        </CanGate>
       </Card>
 
       {d && d.recent.length > 0 ? (

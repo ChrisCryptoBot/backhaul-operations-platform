@@ -8,6 +8,7 @@ import { computeStatement, linePay, periodBounds, periodCovering, periodText, st
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { currentWorkspaceId } from "./workspace";
+import { workspaceTimezone } from "./zone";
 
 /**
  * Driver pay statements. A draft is a driver, a period (two Dallas dates) and whatever the dispatcher has typed so far; the loads on it are
@@ -59,7 +60,7 @@ function toSettlementLoad(l: LoadWithAssignment): SettlementLoad {
 
 /** Loads a driver delivered between two Dallas dates that are not on a final statement. */
 export async function eligibleLoads(driverId: string, start: string, end: string, workspaceId = currentWorkspaceId(), db: Db = prisma): Promise<SettlementLoad[]> {
-  const bounds = periodBounds(start, end);
+  const bounds = periodBounds(start, end, await workspaceTimezone(workspaceId));
   if (!bounds) return [];
   const loads = await db.load.findMany({
     where: { workspaceId, deletedAt: null, status: "completed", completedAt: { gte: bounds.from, lt: bounds.to }, settlement: { is: null }, assignment: { is: { driverId, status: "completed" } } },
@@ -382,13 +383,14 @@ type SettlementWithDriver = Prisma.SettlementGetPayload<{ include: { driver: tru
  */
 async function resolveSettlementRows(rows: SettlementWithDriver[], workspaceId: string): Promise<SettlementRow[]> {
   const drafts = rows.filter((s) => s.status === "draft");
+  const tz = await workspaceTimezone(workspaceId);
   const draftMap = new Map<string, { loads: SettlementLoad[]; statement: Statement }>();
   if (drafts.length > 0) {
     const boundsById = new Map<string, { from: Date; to: Date }>();
     let minFrom: Date | null = null;
     let maxTo: Date | null = null;
     for (const s of drafts) {
-      const b = periodBounds(ymd(s.periodStart), ymd(s.periodEnd));
+      const b = periodBounds(ymd(s.periodStart), ymd(s.periodEnd), tz);
       if (!b) continue;
       boundsById.set(s.id, b);
       if (!minFrom || b.from < minFrom) minFrom = b.from;
@@ -514,11 +516,12 @@ export async function unsettledByDriver(workspaceId = currentWorkspaceId(), now 
       group by a.driver_id, d.name`
   ]);
   const tonuByDriver = new Map(tonus.map((t) => [t.driverId, t.n]));
+  const tz = await workspaceTimezone(workspaceId);
   const boundsCache = new Map<string, { from: Date; to: Date } | null>();
   const getBounds = (start: string, end: string) => {
     const k = `${start}:${end}`;
     if (boundsCache.has(k)) return boundsCache.get(k)!;
-    const b = periodBounds(start, end);
+    const b = periodBounds(start, end, tz);
     boundsCache.set(k, b);
     return b;
   };
@@ -530,7 +533,7 @@ export async function unsettledByDriver(workspaceId = currentWorkspaceId(), now 
   }
   const out: Unsettled[] = [];
   for (const [driverId, g] of byDriver) {
-    const period = periodCovering(g.loads.map((l) => l.completedAt));
+    const period = periodCovering(g.loads.map((l) => l.completedAt), tz);
     if (!period) continue;
     // The period offered may be the latest stretch of a long backlog; the amount is for the loads that stretch holds, so what the row says is what the statement will pay.
     const bounds = getBounds(period.start, period.end);

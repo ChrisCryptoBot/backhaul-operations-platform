@@ -2,6 +2,7 @@ import Link from "next/link";
 import React from "react";
 import { PageHead } from "@/components/desk/ui";
 import { ImportPanel } from "@/components/desk/import-panel";
+import { CanGate } from "@/components/desk/kit/can-gate";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,9 @@ export default function ImportDriversPage() {
       <PageHead title="Import drivers" sub="Add many drivers at once from a CSV. Each row is checked like the Add driver form. The Truck column is a truck's name, so import the trucks first. The same name and phone as a driver already there is left out.">
         <Link href="/drivers" className="tl-btn">All drivers</Link>
       </PageHead>
-      <ImportPanel kind="drivers" />
+      <CanGate caps={["dispatch"]} banner who="A dispatcher" what="this page">
+        <ImportPanel kind="drivers" />
+      </CanGate>
     </>
   );
 }
