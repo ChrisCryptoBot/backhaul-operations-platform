@@ -10,6 +10,7 @@ import { factorInvoice } from "@/server/partners/factoring";
 import { saveKeysAndConnect } from "@/server/partners/setup";
 import { runPartnerSync } from "@/server/partners/sync";
 import { syncEld } from "@/server/partners/eld";
+import { sendTestEvent } from "@/server/partners/test-event";
 
 /**
  * The partner pipeline end to end on the built-in simulator, with no company chosen and no network:
@@ -178,6 +179,37 @@ describe.skipIf(!run)("the partner pipeline on the sandbox simulator", () => {
     expect(await (await post(paid.raw, paid.signature)).json()).toEqual({ ok: true, result: "applied" });
     expect((await prisma.load.findUniqueOrThrow({ where: { id: loadId } })).factoringStatus).toBe("paid");
     expect(await prisma.partnerConnection.findFirstOrThrow({ where: { workspaceId: W, capability: "factoring" } })).toMatchObject({ status: "connected", failures: 0 });
+  });
+
+  test("Send test event walks an invoice through the real receiver: sent, funded, paid; reads the ELD now; refuses without the simulator", async () => {
+    // A second delivered, invoiced load that has not gone to the factor (the first one is already paid).
+    const l2 = await prisma.load.create({ data: { workspaceId: W, loadNumber: "SBX-L2", status: "completed", completedAt: days(-1), quotedRevenue: 900, paymentStatus: "invoiced", invoiceNumber: "SBX-INV-2", invoicedAt: days(-1), invoicedAmount: 900, factoringStatus: "none" } });
+    const status = async () => (await prisma.load.findUniqueOrThrow({ where: { id: l2.id } })).factoringStatus;
+
+    const first = await sendTestEvent("factoring", "triumphpay", new Date(), W);
+    expect(first).toMatchObject({ ok: true, loadId: l2.id });
+    expect(await status()).toBe("submitted");
+    const second = await sendTestEvent("factoring", "triumphpay", new Date(), W);
+    expect(second).toMatchObject({ ok: true, loadId: l2.id, result: "the desk answered: applied" });
+    expect(await status()).toBe("funded");
+    expect(await sendTestEvent("factoring", "triumphpay", new Date(), W)).toMatchObject({ ok: true, result: "the desk answered: applied" });
+    expect(await status()).toBe("paid");
+    // Nothing is left with the factor: the next click says what to do, and changes nothing.
+    expect(await sendTestEvent("factoring", "triumphpay", new Date(), W)).toMatchObject({ ok: false });
+    expect(await status()).toBe("paid");
+
+    // The ELD one reads now.
+    expect(await sendTestEvent("eld", "motive", new Date(), W)).toMatchObject({ ok: true, what: expect.stringContaining("ELD") });
+
+    // A connection that is not the simulator, or not connected, is refused.
+    expect(await sendTestEvent("factoring", "nobody", new Date(), W)).toMatchObject({ ok: false, error: "Connect it first." });
+    process.env.TRIUMPHPAY_API_KEY = "real_key_not_a_sandbox";
+    await saveKeysAndConnect("triumphpay", { TRIUMPHPAY_API_KEY: "real_triumph_key_12345" }, new Date(), W);
+    delete process.env.TRIUMPHPAY_API_KEY;
+    expect(await sendTestEvent("factoring", "triumphpay", new Date(), W)).toMatchObject({ ok: false, error: expect.stringContaining("simulator") });
+    // Put the sandbox key back for the tests that follow.
+    await saveKeysAndConnect("triumphpay", { TRIUMPHPAY_API_KEY: "sandbox_triumph_key_01" }, new Date(), W);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   test("a company with no adapter written yet still answers 'not implemented', and nothing in any of this touched the network", async () => {

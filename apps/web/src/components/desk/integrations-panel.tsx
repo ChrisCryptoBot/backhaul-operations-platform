@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import React from "react";
-import { connectPartnerAction, disconnectPartnerAction, removePartnerKeysAction, retryPartnerAction, savePartnerKeysAction } from "@/app/(desk)/actions";
+import Link from "next/link";
+import { connectPartnerAction, disconnectPartnerAction, removePartnerKeysAction, retryPartnerAction, savePartnerKeysAction, sendTestEventAction } from "@/app/(desk)/actions";
 import { tried } from "./kit/tried";
 import { useToast } from "./kit/toast";
 
@@ -51,6 +52,8 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
   const [open, setOpen] = React.useState<string | null>(null);
   const [typed, setTyped] = React.useState<Record<string, string>>({});
   const [error, setError] = React.useState("");
+  /** What the last test event did, by company: the receipt a person can point at. */
+  const [receipts, setReceipts] = React.useState<Record<string, { what: string; result: string; loadId: string | null }>>({});
   const key = (r: IntegrationItem) => `${r.capability}:${r.provider}`;
 
   const run = (label: string, fn: () => Promise<{ ok: boolean; error?: string }>) =>
@@ -60,6 +63,18 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
       if (!got.value.ok) return setError(got.value.error ?? "That did not work.");
       setError("");
       toast({ text: label, tone: "ok" });
+      router.refresh();
+    });
+
+  const testEvent = (r: IntegrationItem) =>
+    start(async () => {
+      const got = await tried(() => sendTestEventAction(r.capability, r.provider));
+      if (!got.ok) return setError(got.message);
+      if (!got.value.ok) return setError(got.value.error);
+      setError("");
+      const { what, result, loadId } = got.value;
+      setReceipts((m) => ({ ...m, [key(r)]: { what, result, loadId } }));
+      toast({ text: what, tone: "ok" });
       router.refresh();
     });
 
@@ -169,9 +184,20 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
                             ? `The keys and the webhook address are ready. The live call to ${r.name} is not switched on yet, so nothing is sent to them.`
                             : `Nothing is sent to ${r.name} until it is connected.`}
                         </p>
+                        {receipts[key(r)] ? (
+                          <p className="t-note" role="status">
+                            {receipts[key(r)]!.what}: {receipts[key(r)]!.result}.{" "}
+                            {receipts[key(r)]!.loadId ? <Link href={`/loads/${receipts[key(r)]!.loadId}`}>Open the load</Link> : null}
+                          </p>
+                        ) : null}
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                           {r.status === "connected" || r.status === "error" ? (
                             <>
+                              {r.sandbox && canKeep ? (
+                                <button type="button" className="t-btn sm" disabled={pending} title="Runs a signed simulator event through the desk's own receiver. Nothing leaves the desk." onClick={() => testEvent(r)}>
+                                  {r.capability === "eld" ? "Read ELD now" : "Send test event"}
+                                </button>
+                              ) : null}
                               {r.status === "error" ? (
                                 <button type="button" className="t-btn sm pri" disabled={pending} onClick={() => run("Trying again.", () => retryPartnerAction(r.capability, r.provider))}>
                                   Try again now

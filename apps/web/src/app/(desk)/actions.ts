@@ -39,6 +39,7 @@ import { assignTrailerToLoad, hookTrailer, saveTrailer, setTrailerArchived, type
 import { connectPartner, disconnectPartner, retryConnection, type ConnectResult } from "@/server/partners/connections";
 import { deleteCredential } from "@/server/partners/credentials";
 import { saveKeysAndConnect, type SaveAndConnect } from "@/server/partners/setup";
+import { sendTestEvent, type TestEventResult } from "@/server/partners/test-event";
 import { applyFactoringUpdate, factorInvoice, type FactorResult } from "@/server/partners/factoring";
 import { syncEld, type SyncResult } from "@/server/partners/eld";
 import { importFuelForLoad, saveFuelCard, type FuelCardResult, type SaveFuelCard } from "@/server/partners/fuel-card";
@@ -769,6 +770,14 @@ export async function retryPartnerAction(capability: string, provider: string): 
   await requireCan("admin");
   const out = await retryConnection(String(capability), String(provider));
   if (out.ok) revalidatePath("/settings");
+  return out;
+}
+
+/** The demo's one-click proof: a signed simulator event through the real receiver (or a simulated ELD read). Admin only; refuses unless the keys run the simulator. */
+export async function sendTestEventAction(capability: string, provider: string): Promise<TestEventResult> {
+  await requireCan("admin");
+  const out = await sendTestEvent(String(capability), String(provider));
+  if (out.ok) revalidatePath("/", "layout");
   return out;
 }
 
