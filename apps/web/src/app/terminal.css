@@ -366,3 +366,63 @@ input::placeholder,textarea::placeholder{color:var(--dim);opacity:1}
 
 /* A count under a figure sits on its own line. */
 dd>.sub{display:block;color:var(--dim)}
+
+/* ============================================================================================================================
+   GLASS PACKAGING. Flat means record, glass means transient. This whole block is the glass pass (its own commit): delete it and the desk is the same terminal, flat.
+   Glass is only what floats above the data for a moment: the command bar, the load drawer, dialogs, menus, the search results, toasts.
+   Tables, panels, the verdict ticket, the ledger, charts and sheets stay opaque, square and flat. No glow, no drop shadow, no decorative gradient.
+   Recipe: a strong wash over a blur (the wash is tested so text holds 4.5:1 over the worst backdrop), a 1px hairline, a thin lit top edge, a 45-degree chamfer.
+   ============================================================================================================================ */
+:root,[data-theme="night"]{
+  --glass:rgba(10,10,10,.88);
+  --glass-edge:rgba(255,255,255,.18);
+  --glass-lit:rgba(255,255,255,.22);
+  --glass-light:rgba(224,162,31,.07);
+  --chamfer:6px;
+}
+[data-theme="day"]{
+  --glass:rgba(245,242,235,.88);
+  --glass-edge:rgba(60,50,30,.30);
+  --glass-lit:rgba(255,255,255,.85);
+  --glass-light:rgba(224,162,31,.10);
+}
+
+/* The one faint warm light, far behind the page: it only shows where something is translucent. */
+.t-main{background:radial-gradient(70% 60% at 92% -15%,var(--glass-light),transparent 70%),var(--bg)}
+
+.t-cmd,.dr,.k-modal,.k-toast,.t-pop,.menu-pop{
+  background:var(--glass);
+  border:1px solid var(--glass-edge);
+  box-shadow:inset 0 1px 0 var(--glass-lit);
+  -webkit-backdrop-filter:blur(14px) saturate(1.15);
+  backdrop-filter:blur(14px) saturate(1.15);
+}
+.t-cmd{border-width:0 0 1px;border-color:var(--glass-edge)}
+.dr{border-width:0 0 0 1px}
+.dr .dr-head,.dr .dr-foot{background:transparent}
+.dr .cp-nav{background:transparent}
+.k-scrim{background:var(--scrim)}
+
+/* Chamfer, never round: a small 45-degree cut echoing the octagon stop sign. Dialog on all four corners, drawer on its left two, the primary button on two. */
+.k-modal{clip-path:polygon(var(--chamfer) 0,calc(100% - var(--chamfer)) 0,100% var(--chamfer),100% calc(100% - var(--chamfer)),calc(100% - var(--chamfer)) 100%,var(--chamfer) 100%,0 calc(100% - var(--chamfer)),0 var(--chamfer))}
+.dr{clip-path:polygon(var(--chamfer) 0,100% 0,100% 100%,var(--chamfer) 100%,0 calc(100% - var(--chamfer)),0 var(--chamfer))}
+.t-btn.pri,.tl-btn.primary{clip-path:polygon(0 0,calc(100% - var(--chamfer)) 0,100% var(--chamfer),100% 100%,var(--chamfer) 100%,0 calc(100% - var(--chamfer)))}
+
+/* Motion: 110 to 140 ms, snap easing, nothing overshoots. The drawer slides in; the dialog does not bounce. */
+@media (prefers-reduced-motion:no-preference){
+  .dr{animation:glass-slide 130ms cubic-bezier(.2,.9,.3,1) both}
+  .k-modal,.k-toast,.t-pop{animation:glass-in 120ms cubic-bezier(.2,.9,.3,1) both}
+}
+@keyframes glass-slide{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+@keyframes glass-in{from{opacity:0}to{opacity:1}}
+
+/* No blur where it cannot be done honestly: solid when the browser has no backdrop-filter, or the person asked for no transparency. */
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .t-cmd,.dr,.k-modal,.k-toast,.t-pop,.menu-pop{background:var(--panel);-webkit-backdrop-filter:none;backdrop-filter:none}
+}
+@media (prefers-reduced-transparency:reduce){
+  .t-cmd,.dr,.k-modal,.k-toast,.t-pop,.menu-pop{background:var(--panel);-webkit-backdrop-filter:none;backdrop-filter:none}
+  .t-main{background:var(--bg)}
+}
+/* Printed sheets and paper never take glass. */
+@media print{.t-cmd,.dr,.k-modal,.k-toast,.t-pop,.menu-pop{-webkit-backdrop-filter:none;backdrop-filter:none;background:#fff;clip-path:none}}

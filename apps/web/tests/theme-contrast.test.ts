@@ -89,3 +89,21 @@ describe("the day theme keeps the parchment ground", () => {
     expect(day["--panel"]!.toLowerCase()).toBe("#f5f2eb");
   });
 });
+
+/**
+ * Glass (docs/TERMINAL_MIGRATION.md): the wash over the blur is the strong part. Text on glass must hold 4.5:1 over the WORST backdrop the blur can put behind it:
+ * the brightest thing on the desk for a dark wash, the darkest for a light one.
+ */
+describe.each([["night", night, "#ffffff"], ["day", day, "#000000"]] as const)("%s glass holds text over the worst backdrop", (_name, t, worst) => {
+  const m = (_name === "night" ? css.match(/:root,\[data-theme="night"\]\{\s*--glass:rgba\(([^)]*)\)/) : css.match(/\[data-theme="day"\]\{\s*--glass:rgba\(([^)]*)\)/));
+  it("--glass is a translucent wash", () => {
+    expect(m, "--glass not found").not.toBeNull();
+  });
+  it.each(["--ink", "--mid", "--dim", "--label", "--typed"])("%s on the composited wash is at least 4.5:1", (fg) => {
+    const [r, g, b, a] = m![1]!.split(",").map((v) => Number(v.trim())) as [number, number, number, number];
+    const back = rgb(worst);
+    const mix = [r, g, b].map((c, i) => Math.round(c * a + back[i]! * (1 - a)));
+    const hex = "#" + mix.map((v) => v.toString(16).padStart(2, "0")).join("");
+    expect(ratio(t[fg]!, hex), `${fg} ${t[fg]} on wash ${hex} over ${worst}`).toBeGreaterThanOrEqual(4.5);
+  });
+});
