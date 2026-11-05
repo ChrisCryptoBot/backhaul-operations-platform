@@ -736,7 +736,7 @@ export function CostProfileForm({
     return (
       <div className="th-field" role="group" aria-label={label}>
         <span className="th-label">{label}</span>
-        <div className="cp-seg">
+        <div className="t-seg">
           {options.map((o) => (
             <button key={o.key} type="button" aria-pressed={values[name] === o.key} onClick={() => set(name, o.key)}>
               {o.label}
@@ -793,7 +793,7 @@ export function CostProfileForm({
         </div>
 
         <h3 className="th-group">Insurance</h3>
-        <div className="cp-seg" role="group" aria-label="How insurance is entered" style={{ marginBottom: 10 }}>
+        <div className="t-seg" role="group" aria-label="How insurance is entered" style={{ marginBottom: 10 }}>
           <button type="button" aria-pressed={!live.insuranceItemised} onClick={() => itemise(false)}>
             One total
           </button>
@@ -862,7 +862,7 @@ export function CostProfileForm({
 
         <h3 className="th-group">Targets</h3>
         <div className="th-grid">{field("dailyRevenueTarget")}</div>
-        <div className="cp-seg" role="group" aria-label="Route minimum" style={{ margin: "14px 0 10px" }}>
+        <div className="t-seg" role="group" aria-label="Route minimum" style={{ margin: "14px 0 10px" }}>
           <button type="button" aria-pressed={!live.routeMinimumOn} onClick={() => set("routeMinimumOn", "")}>
             No route minimum
           </button>

@@ -177,25 +177,27 @@ describe("the card's skeleton (docs/VERDICT_CARD.md)", () => {
   const src = (p: string) => readFileSync(path.join(__dirname, "..", p), "utf8").replace(/\r\n/g, "\n");
   const desk = src("src/components/desk/quote-desk.tsx");
   const card = src("src/components/desk/verdict-card.tsx");
-  const css = src("src/app/(desk)/desk.css");
+  const css = src("src/app/terminal.css");
   const panel = desk.slice(desk.indexOf("function VerdictPanel("));
 
   test("keeps its order: the word and why, the figure, the ruler, the working, what it rests on", () => {
-    const at = ["<VerdictHead", 'className="qt-big"', "<VerdictRuler", 'className="rc-facts"', 'className="vc-trust"'].map((s) => panel.indexOf(s));
+    const at = ["<VerdictHead", 'className="t-hero"', "<VerdictRuler", "<VerdictLadder", "<VerdictRests"].map((s) => panel.indexOf(s));
     expect(at.every((n) => n >= 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
   });
 
-  test("each state has its own road shape, and the empty one is a ring with no fill", () => {
-    expect(card).toContain('<circle className="vc-fill"');
-    expect(card).toContain('d="M18 1.5L34.5 18 18 34.5 1.5 18z"'); // the diamond
-    expect(card).toContain('d="M11.2 2h13.6L34 11.2v13.6L24.8 34H11.2L2 24.8V11.2z"'); // the octagon
-    expect(card).toContain('className="vc-ring"');
+  test("each state has its own road shape, drawn flat: a round go, a diamond, an octagon, and an empty dashed ring", () => {
+    expect(card).toContain('className="vm"');
+    const rule = (state: string) => css.match(new RegExp(String.raw`\.vm\[data-s="?${state}"?\]\{([^}]*)\}`))?.[1] ?? "";
+    expect(rule("take")).toContain("border-radius:50%");
+    expect(rule("think")).toContain("rotate(45deg)"); // the diamond
+    expect(rule("reject")).toContain("clip-path:polygon(30% 0,70% 0,100% 30%"); // the octagon
+    expect(rule("unjudged")).toContain("dashed"); // the empty ring, no fill
   });
 
   test("hue never carries the verdict alone: the word and the figure are plain text colour, the sign keeps a light edge, and there is one light", () => {
-    expect(css).toMatch(/\.vc-word \{[^}]*color: var\(--db-fg\);/);
-    expect(css).toMatch(/\.vc-fill \{[^}]*stroke:/);
+    expect(css).toMatch(/\.vc-word\{[^}]*color:var\(--ink\)/);
+    expect(css).toMatch(/\.vc-explain\{/); // one strip, not hover tooltips
     expect(css).not.toMatch(/\.qt-side \.qt-big \{[^}]*text-shadow/);
     expect(css).not.toMatch(/\.qt-side::after/);
   });

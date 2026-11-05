@@ -16,7 +16,7 @@ import { BRIEF_LABEL, buildBrief, type BriefKind } from "@/lib/quote-brief";
 import type { CustomerOption, FitRow, LaneBenchmark, QuoteListRow } from "@/server/tl/quote";
 import type { Measured } from "@/server/geo/measure";
 import { groundOf, readVerdict, type Benchmark, type Verdict as VerdictRead } from "@/lib/verdict";
-import { VerdictHead, VerdictRuler, VerdictTag } from "./verdict-card";
+import { ExplainScope, VerdictHead, VerdictLadder, VerdictRests, VerdictRuler, VerdictTag, type LadderLine } from "./verdict-card";
 import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
 import { AddressInput } from "./address-input";
 import { AuthorityStatus, useAuthorityLookup } from "./customer-authority";
@@ -963,7 +963,7 @@ export function QuoteDesk({
             <span className="tl-sub">{list.total === 0 ? "" : `${list.total} ${listStatus === "all" ? "in all" : listStatus}`}</span>
           </div>
           <div className="qt-list-tools">
-            <div className="cp-seg" role="group" aria-label="Which quotes">
+            <div className="t-seg" role="group" aria-label="Which quotes">
               {(["open", "passed", "all"] as const).map((s) => (
                 <button
                   key={s}
@@ -1203,7 +1203,7 @@ export function QuoteDesk({
                   <label htmlFor="qt-fsc">Fuel surcharge</label>
                   <div className="th-input">
                     <input id="qt-fsc" inputMode="decimal" value={values.fsc} autoComplete="off" onChange={(e) => set({ fsc: e.target.value })} aria-invalid={err("fsc") ? true : undefined} />
-                    <div className="cp-seg" role="group" aria-label="Surcharge unit">
+                    <div className="t-seg" role="group" aria-label="Surcharge unit">
                       <button type="button" aria-pressed={values.fscUnit === "percent"} onClick={() => set({ fscUnit: "percent" })}>
                         %
                       </button>
@@ -1299,7 +1299,7 @@ export function QuoteDesk({
               </div>
               <div className="th-field qt-after" role="group" aria-label="After the delivery">
                 <span className="th-label">After the delivery</span>
-                <div className="cp-seg">
+                <div className="t-seg">
                   {(
                     [
                       ["home", "Back to truck's base"],
@@ -1453,7 +1453,7 @@ export function QuoteDesk({
                   <h3 style={{ margin: 0, fontSize: "var(--db-text-sm)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
                     Which truck & driver
                   </h3>
-                  <div className="cp-seg" role="group" aria-label="Sort matrix">
+                  <div className="t-seg" role="group" aria-label="Sort matrix">
                     <button
                       type="button"
                       aria-pressed={matrixSort === "deadhead"}
@@ -2295,40 +2295,45 @@ function VerdictPanel({ row, verdict, values, lane, milesFrom, fuelFrom }: { row
   if (d.timeTrap && d.profitPerHour != null && !verdict.sentence.includes("an hour against")) notes.push(`Profit per trip hour is ${usd(d.profitPerHour, 2)}, under the ${usd(d.hourlyTarget, 0)} an hour target.`);
   if (d.requiredRests > 0) notes.push(`A run this long needs ${d.requiredRests} ten-hour ${d.requiredRests === 1 ? "rest" : "rests"}: about ${d.elapsedHours.toFixed(0)} hours elapsed.`);
   const ground = groundOf({ miles: milesFrom, fuel: fuelFrom, market: lane ? { laneLoads: lane.loads, laneDays: lane.days } : values.marketRate.trim() === "" ? "none" : "typed", driver: /from this assignment/.test(row.labourNote) });
-  const trust = ground.filter((g) => !g.firm);
+  const sgnRate = (n: number) => `${n < 0 ? "\u2212" : "+"}$${Math.abs(n).toFixed(2)}/mi`;
+  const ladder: LadderLine[] =
+    row.allInPerMile == null || row.marginPerMile == null || row.leftOver == null
+      ? []
+      : [
+          { k: "Pay with surcharge", v: usd(d.effectiveGross, 2), tone: "typed", say: { title: "Pay with surcharge.", body: "What the load pays in all, with the fuel surcharge. It is the offer you typed." } },
+          { k: "Every mile driven", v: miles(row.totalMiles), say: { title: "Every mile driven.", body: "Empty miles to the pickup, loaded miles, and the empty way home unless a load covers it." } },
+          { k: "All-In", v: perMile(row.allInPerMile), say: { title: "All-In.", body: "Total pay over every mile driven, empty ones included." } },
+          { k: "Floor", v: perMile(row.floorPerMile), say: { title: "Floor.", body: "What a mile costs to run this truck, from its cost profile. Right of it you make money; left of it you lose it." } },
+          { k: "Margin", v: sgnRate(row.marginPerMile), tone: row.marginPerMile < 0 ? "neg" : undefined, say: { title: "Margin.", body: "All-In minus Floor, on every mile." } },
+          { k: "Left over", v: `${row.leftOver < 0 ? "\u2212" : "+"}${usd(Math.abs(row.leftOver), 0)}`, tone: row.leftOver < 0 ? "neg" : undefined, sum: true, say: { title: "Left over.", body: "Margin times every mile: what the whole trip clears after the truck is paid for." } },
+          ...(d.marketVariancePct != null && !verdict.marketSuspect
+            ? [{ k: lane ? "Against your lane" : "Against market", v: `${d.marketVariancePct >= 0 ? "+" : "\u2212"}${Math.abs(d.marketVariancePct * 100).toFixed(1)}%${d.marketVarianceDollars != null ? ` (${d.marketVarianceDollars >= 0 ? "+" : "\u2212"}${usd(Math.abs(d.marketVarianceDollars), 0)})` : ""}`, say: { title: lane ? "Against your lane." : "Against the market.", body: "It can make a good load Caution, and one over 20% under it a Reject. It never turns a verdict green." } } as LadderLine]
+            : []),
+          ...(d.fuelPerMile != null ? [{ k: "Fuel", v: perMile(d.fuelPerMile), say: { title: "Fuel.", body: "What fuel costs a mile on this trip, inside the floor." } } as LadderLine] : [])
+        ];
   return (
+    <ExplainScope>
     <div className="qt-verdict">
-      <VerdictHead verdict={verdict} />
-      <div className="qt-big">
-        {perMile(row.allInPerMile)} <span>all-in</span>
-      </div>
-      <p className="tl-note">
-        on {miles(row.totalMiles)} · {home}
-      </p>
-      {verdict.ruler ? <VerdictRuler ruler={verdict.ruler} state={verdict.state} /> : null}
-      <dl className="rc-facts">
-        <div>
-          <dt>Pay with surcharge</dt>
-          <dd>{usd(d.effectiveGross, 2)}</dd>
-        </div>
-        {d.marketVariancePct != null && !verdict.marketSuspect ? (
-          <div>
-            <dt>{lane ? "Against your lane" : "Against market"}</dt>
-            <dd>
-              {d.marketVariancePct >= 0 ? "+" : "−"}
-              {Math.abs(d.marketVariancePct * 100).toFixed(1)}%
-              {d.marketVarianceDollars != null ? ` (${d.marketVarianceDollars >= 0 ? "+" : "−"}${usd(Math.abs(d.marketVarianceDollars), 0)})` : ""}
-            </dd>
-          </div>
-        ) : null}
-        {d.fuelPerMile != null ? (
-          <div>
-            <dt>Fuel</dt>
-            <dd>{perMile(d.fuelPerMile)}</dd>
-          </div>
-        ) : null}
-      </dl>
-      <p className="tl-note">{row.labourNote}</p>
+      <VerdictHead
+        verdict={verdict}
+        figure={
+          row.allInPerMile == null ? null : (
+            <>
+              <div className="t-hero">
+                {perMile(row.allInPerMile).replace("/mi", "")}
+                <small>/mi all-in</small>
+              </div>
+              <div className="t-dim">
+                on {miles(row.totalMiles)} · {home}
+              </div>
+            </>
+          )
+        }
+      />
+      {verdict.ruler ? <VerdictRuler ruler={verdict.ruler} state={verdict.state} /> : <p className="t-note t-dim">No ruler: the card does not draw what it does not know.</p>}
+      {ladder.length > 0 ? <VerdictLadder lines={ladder} /> : null}
+      <VerdictRests ground={ground} />
+      <p className="t-note">{row.labourNote}</p>
       {d.routeMinimum ? (
         <p className="tl-note" data-met={d.routeMinimum.meets ? "yes" : "no"}>
           {d.routeMinimum.meets ? `Meets route minimum of ${usd(d.routeMinimum.expected, 0)}.` : `Under route minimum of ${usd(d.routeMinimum.expected, 0)}: pay is ${usd(d.fees.net, 0)} after fees.`}
@@ -2414,8 +2419,8 @@ function VerdictPanel({ row, verdict, values, lane, milesFrom, fuelFrom }: { row
           ))}
         </ul>
       ) : null}
-      {lane ? <p className="vc-trust">{`Compared with ${ground[2]!.label.toLowerCase()}: ${perMile(lane.perMile)} on loaded miles${verdict.ruler?.market ? `, ${perMile(verdict.ruler.market.value)} over every mile` : ""}.`}</p> : null}
-      <p className="vc-trust">{trust.length > 0 ? `Taken on trust: ${trust.map((g) => g.label.toLowerCase()).join(", ")}.` : "Every figure here was measured or is on record."}</p>
+      {lane ? <p className="t-note t-dim">{`Compared with ${ground[2]!.label.toLowerCase()}: ${perMile(lane.perMile)} on loaded miles${verdict.ruler?.market ? `, ${perMile(verdict.ruler.market.value)} over every mile` : ""}.`}</p> : null}
     </div>
+    </ExplainScope>
   );
 }

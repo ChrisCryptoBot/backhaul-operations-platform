@@ -84,7 +84,7 @@ export function CustomerForm({ id, stored, loads }: { id: string | null; stored:
         {field("name", "Name", { hint: "As it is on the rate confirmation or invoice.", extra: renaming ? <span className="th-hint">{`This renames the customer on its ${loads} ${loads === 1 ? "load" : "loads"}.`}</span> : null })}
         <div className="th-field" role="group" aria-label="Kind">
           <span className="th-label">Kind</span>
-          <div className="cp-seg">
+          <div className="t-seg">
             {CUSTOMER_KINDS.map((k) => (
               <button key={k.key} type="button" aria-pressed={values.kind === k.key} onClick={() => set("kind", k.key)}>
                 {k.label}

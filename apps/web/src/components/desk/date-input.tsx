@@ -312,7 +312,7 @@ export function DateInput({ type = "date", value, defaultValue, onChange, name, 
                       }
                     }}
                   />
-                  <div className="cp-seg" role="group" aria-label="AM or PM">
+                  <div className="t-seg" role="group" aria-label="AM or PM">
                     <button type="button" aria-pressed={!pm} onClick={() => setHour12(h12, false)}>
                       AM
                     </button>

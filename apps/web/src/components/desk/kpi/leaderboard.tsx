@@ -38,7 +38,7 @@ export function DriverLeaderboard({ drivers, thresholds, mode, hrefFor }: { driv
         rows: drivers.map((d) => [d.name, String(d.loads), usd(d.gross), perMile(d.rpm), miles(d.drivenMiles), miles(d.emptyMiles), pct(d.emptyShare, 1), usd(d.payOwed)])
       }}>
       <div className="lb-head">
-        <div className="tl-seg" role="group" aria-label="Show empty miles as">
+        <div className="t-seg" role="group" aria-label="Show empty miles as">
           <Link href={hrefFor("pct")} aria-current={mode === "pct" ? "true" : undefined} replace scroll={false}>Empty %</Link>
           <Link href={hrefFor("miles")} aria-current={mode === "miles" ? "true" : undefined} replace scroll={false}>Empty miles</Link>
         </div>

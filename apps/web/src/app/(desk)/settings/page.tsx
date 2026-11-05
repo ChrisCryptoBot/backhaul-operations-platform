@@ -115,7 +115,7 @@ export default async function SettingsPage() {
       <Card title="Appearance" className="tl-card">
         <div className="st-row">
           <span className="th-label" id="st-theme">Theme</span>
-          <form action={setAppearanceAction} className="cp-seg" role="group" aria-labelledby="st-theme">
+          <form action={setAppearanceAction} className="t-seg" role="group" aria-labelledby="st-theme">
             {THEMES.map((t) => (
               <button key={t} type="submit" name="theme" value={t} aria-pressed={theme === t}>
                 {THEME_LABEL[t].label}
@@ -126,7 +126,7 @@ export default async function SettingsPage() {
         </div>
         <div className="st-row">
           <span className="th-label" id="st-density">Row density</span>
-          <form action={setAppearanceAction} className="cp-seg" role="group" aria-labelledby="st-density">
+          <form action={setAppearanceAction} className="t-seg" role="group" aria-labelledby="st-density">
             {DENSITIES.map((d) => (
               <button key={d} type="submit" name="density" value={d} aria-pressed={density === d}>
                 {DENSITY_LABEL[d].label}
@@ -138,7 +138,7 @@ export default async function SettingsPage() {
         <div className="st-row">
           <span className="th-label" id="st-sleep">Sleep mode</span>
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-            <form action={setAppearanceAction} className="cp-seg" role="group" aria-labelledby="st-sleep">
+            <form action={setAppearanceAction} className="t-seg" role="group" aria-labelledby="st-sleep">
               {SLEEP_PRESETS.map((m) => (
                 <button key={m} type="submit" name="sleep" value={String(m)} aria-pressed={sleepMinutes === m}>
                   {sleepPresetLabel(m)}
