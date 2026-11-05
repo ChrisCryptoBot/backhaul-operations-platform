@@ -6,6 +6,7 @@ import { connectPartnerAction, disconnectPartnerAction, factorInvoiceAction, fac
 import { PROVIDERS } from "@/truelane/partners/contract";
 import { ReadOnlyBanner } from "./kit/read-only";
 import { useToast } from "./kit/toast";
+import { useDraft } from "./kit/use-draft";
 import { tried } from "./kit/tried";
 
 /**
@@ -295,8 +296,10 @@ export function FuelCardForm({ vehicleId, provider, accountId }: { vehicleId: st
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
-  const [p, setP] = React.useState(provider ?? "");
-  const [a, setA] = React.useState(accountId ?? "");
+  // What is typed is kept until the card is saved.
+  const [{ p, a }, setCard, draft] = useDraft(`fuel-card:${vehicleId}`, { p: provider ?? "", a: accountId ?? "" });
+  const setP = (v: string) => setCard((c) => ({ ...c, p: v }));
+  const setA = (v: string) => setCard((c) => ({ ...c, a: v }));
   const [error, setError] = React.useState("");
   return (
     <form
@@ -316,6 +319,7 @@ export function FuelCardForm({ vehicleId, provider, accountId }: { vehicleId: st
             return;
           }
           setError("");
+          draft.saved();
           toast({ text: out.changed ? "Fuel card saved." : "Nothing changed.", tone: "ok" });
           router.refresh();
         });

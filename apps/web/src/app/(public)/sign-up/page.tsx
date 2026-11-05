@@ -1,10 +1,10 @@
 import Link from "next/link";
 import React from "react";
 import type { Metadata } from "next";
-import { trucksStepAction } from "../actions";
 import { RequestForm } from "@/components/desk/public/request-form";
+import { TrucksStep } from "@/components/desk/public/trucks-step";
 import { ContactCard } from "@/components/desk/public/contact-card";
-import { ENTERPRISE_TRUCKS, kindFor, parseTrucks } from "@/lib/signup";
+import { kindFor, parseTrucks } from "@/lib/signup";
 
 export const metadata: Metadata = { title: "Create an account · TrueLane" };
 
@@ -22,22 +22,7 @@ export default function SignUpPage({ searchParams }: { searchParams?: { trucks?:
         {!selfServe ? (
           <>
             <p>Start with the size of your fleet. A smaller fleet sets itself up here; a large one is set up with a person.</p>
-            <form action={trucksStepAction} className="pub-form">
-              <div className="pub-field">
-                <label htmlFor="f-trucks">How many trucks do you run?</label>
-                <input id="f-trucks" name="trucks" inputMode="numeric" autoComplete="off" required defaultValue={searchParams?.trucks ?? ""} aria-invalid={searchParams?.error === "trucks" ? true : undefined} />
-                {searchParams?.error === "trucks" ? (
-                  <small className="err" role="alert">
-                    Enter a whole number of trucks, like 12.
-                  </small>
-                ) : (
-                  <small>{ENTERPRISE_TRUCKS} or more is set up by a person; under that you make your own account.</small>
-                )}
-              </div>
-              <button type="submit" className="pub-btn">
-                Continue
-              </button>
-            </form>
+            <TrucksStep typed={searchParams?.trucks ?? ""} wrong={searchParams?.error === "trucks"} />
           </>
         ) : (
           <>

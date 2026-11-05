@@ -246,7 +246,7 @@ export function HookTrailer({ trailerId, tractor }: { trailerId: string; tractor
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
-  const [pick, setPick] = React.useState<{ id: string; name: string }>({ id: "", name: "" });
+  const [pick, setPick, draft] = useDraft<{ id: string; name: string }>(`hook-trailer:${trailerId}`, { id: "", name: "" });
   const [error, setError] = React.useState("");
   const run = (vehicleId: string, done: string) =>
     start(async () => {
@@ -256,6 +256,7 @@ export function HookTrailer({ trailerId, tractor }: { trailerId: string; tractor
         return;
       }
       setError("");
+      draft.saved();
       toast({ text: done, tone: "ok" });
       router.refresh();
     });
@@ -297,7 +298,7 @@ export function AssignTrailer({ loadId, current }: { loadId: string; current: { 
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
-  const [text, setText] = React.useState("");
+  const [text, setText, draft] = useDraft(`assign-trailer:${loadId}`, "");
   const [options, setOptions] = React.useState<Offer[]>([]);
   const [error, setError] = React.useState("");
   const list = React.useId();
@@ -323,6 +324,7 @@ export function AssignTrailer({ loadId, current }: { loadId: string; current: { 
         return;
       }
       setError("");
+      draft.saved();
       setText("");
       toast({ text: done(out.warnings), tone: out.warnings.length > 0 ? "plain" : "ok" });
       router.refresh();

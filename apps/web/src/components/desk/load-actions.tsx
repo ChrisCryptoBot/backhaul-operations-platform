@@ -868,18 +868,27 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff =
   const due = owing ?? billed;
   const received = Math.round((billed - due) * 100) / 100;
   const [open, setOpen] = React.useState(false);
-  const [amount, setAmount] = React.useState(due.toFixed(2));
-  const [paidOn, setPaidOn] = React.useState(() => nowLocal().slice(0, 10));
-  const [method, setMethod] = React.useState("");
-  const [shortAction, setShortAction] = React.useState<"balance" | "writeoff">("balance");
-  const [shortReason, setShortReason] = React.useState("");
+  // What is typed is kept until the payment is recorded.
+  const [{ amount, paidOn, method, shortAction, shortReason, overAck }, setPaid, draft] = useDraft<{ amount: string; paidOn: string; method: string; shortAction: "balance" | "writeoff"; shortReason: string; overAck: boolean }>(`paid:${loadId}`, {
+    amount: due.toFixed(2),
+    paidOn: nowLocal().slice(0, 10),
+    method: "",
+    shortAction: "balance",
+    shortReason: "",
+    overAck: false
+  });
+  const setAmount = (v: string) => setPaid((p) => ({ ...p, amount: v }));
+  const setPaidOn = (v: string) => setPaid((p) => ({ ...p, paidOn: v }));
+  const setMethod = (v: string) => setPaid((p) => ({ ...p, method: v }));
+  const setShortAction = (v: "balance" | "writeoff") => setPaid((p) => ({ ...p, shortAction: v }));
+  const setShortReason = (v: string) => setPaid((p) => ({ ...p, shortReason: v }));
+  const setOverAck = (v: boolean) => setPaid((p) => ({ ...p, overAck: v }));
   const [message, setMessage] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   // Left blank, the amount is what is owed (the server reads it the same way).
   const typed = amount.trim() === "" ? due : Number(amount.replace(/,/g, ""));
   const diff = Number.isFinite(typed) ? Math.round((typed - due) * 100) / 100 : 0;
   // More than is owed closes the invoice as paid over: a stray extra zero is caught by asking for it on purpose.
-  const [overAck, setOverAck] = React.useState(false);
 
   async function pay() {
     setMessage(null);
@@ -889,6 +898,7 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff =
     if (!got.ok) return setMessage(got.message);
     const out = got.value;
     if (out.ok) {
+      draft.saved();
       setOpen(false);
       toast(
         out.balance != null
@@ -905,12 +915,6 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff =
         type="button"
         className={`tl-btn ${size === "sm" ? "sm" : "primary"}`}
         onClick={() => {
-          setAmount(due.toFixed(2));
-          setPaidOn(nowLocal().slice(0, 10));
-          setMethod("");
-          setShortAction("balance");
-          setShortReason("");
-          setOverAck(false);
           setMessage(null);
           setOpen(true);
         }}>

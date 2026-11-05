@@ -16,6 +16,7 @@ import { WaiveDetentionButton } from "./waive-detention";
 import { getThresholds } from "@/server/tl/thresholds";
 import { settlementOfLoad } from "@/server/tl/settlement";
 import { AssignFields } from "./assign-fields";
+import { DeclineNote } from "./load-view-fields";
 import { AssignTrailer } from "./trailer-forms";
 import { trailerBlocker } from "@/lib/trailer-clearance";
 import { assignAction, reopenCancelledAction, reopenDeliveredAction, respondAction, sendAction, unassignAction, undoPaidAction, undoStartAction, voidInvoiceAction } from "@/app/(desk)/actions";
@@ -395,13 +396,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         {canAssign ? (
           <form action={assignAction} className="tl-form-row" style={{ marginBottom: canUnassign ? 10 : 0 }}>
             <input type="hidden" name="loadId" value={load.id} />
-            <AssignFields loadId={load.id} drivers={drivers} initial={{ driverId: a?.driverId ?? null, payKind: a?.payKind ?? null, rate: a ? num(a.payRate) : null }} rateConTotal={rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge))} />
-            {drivers.some((d) => d.busy) ? (
-              <label className="tl-field" style={{ flexBasis: "100%" }}>
-                Reason, only for a driver who is already on another load at the same time
-                <input name="overrideReason" type="text" placeholder="For example: team run" />
-              </label>
-            ) : null}
+            <AssignFields loadId={load.id} drivers={drivers} initial={{ driverId: a?.driverId ?? null, payKind: a?.payKind ?? null, rate: a ? num(a.payRate) : null }} rateConTotal={rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge))} askOverride={drivers.some((d) => d.busy)} />
             <SubmitButton className="tl-btn sm" pending="Saving…">{a ? "Change driver or pay" : "Assign driver"}</SubmitButton>
           </form>
         ) : null}
@@ -1083,7 +1078,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
                 <input type="hidden" name="loadId" value={load.id} />
                 <button type="submit" disabled hidden tabIndex={-1} aria-hidden="true" />
                 <span className="tl-sub">Waiting on {a.driver.name}. The driver&apos;s phone is not connected in this demo, so answer for them:</span>
-                <input name="note" placeholder="Why, if the driver declines" maxLength={200} aria-label="Why the driver declines" />
+                <DeclineNote loadId={load.id} />
                 <SubmitButton name="response" value="accepted" className="tl-btn primary sm">Driver accepts</SubmitButton>
                 <SubmitButton name="response" value="declined" className="tl-btn sm">Driver declines</SubmitButton>
               </form>

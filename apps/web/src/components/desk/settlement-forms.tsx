@@ -40,9 +40,11 @@ function Fld({ label, error, hint, children }: { label: string; error?: string; 
 export function StartStatement({ presets, initial, label = "Start a statement", primary = true }: { presets: PeriodPreset[]; initial?: { driverId?: string; driverName?: string; start?: string; end?: string }; label?: string; primary?: boolean }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
-  const [driverId, setDriverId] = React.useState(initial?.driverId ?? "");
-  const [start, setStart] = React.useState(initial?.start ?? presets[0]?.start ?? "");
-  const [end, setEnd] = React.useState(initial?.end ?? presets[0]?.end ?? "");
+  // The driver and the period are kept until the statement is started.
+  const [{ driverId, start, end }, setStatement, draft] = useDraft(`statement-start:${initial?.driverId ?? "any"}`, { driverId: initial?.driverId ?? "", start: initial?.start ?? presets[0]?.start ?? "", end: initial?.end ?? presets[0]?.end ?? "" });
+  const setDriverId = (v: string) => setStatement((s) => ({ ...s, driverId: v }));
+  const setStart = (v: string) => setStatement((s) => ({ ...s, start: v }));
+  const setEnd = (v: string) => setStatement((s) => ({ ...s, end: v }));
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [message, setMessage] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -69,6 +71,7 @@ export function StartStatement({ presets, initial, label = "Start a statement", 
       }
       const out = got.value;
       if (out.ok) {
+        draft.saved();
         setOpen(false);
         router.push(`/settlements/${out.id}`);
       } else {
@@ -496,8 +499,10 @@ export function MarkSettlementPaid({ id, number, driverName, total }: { id: stri
   const toast = useToast();
   const today = () => new Date().toLocaleDateString("en-CA", { timeZone: DESK_TZ });
   const [open, setOpen] = React.useState(false);
-  const [paidOn, setPaidOn] = React.useState(today);
-  const [method, setMethod] = React.useState<string>("check");
+  // Kept until the payout is recorded.
+  const [{ paidOn, method }, setPayout, draft] = useDraft(`settlement-paid:${id}`, { paidOn: today(), method: "check" });
+  const setPaidOn = (v: string) => setPayout((p) => ({ ...p, paidOn: v }));
+  const setMethod = (v: string) => setPayout((p) => ({ ...p, method: v }));
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [message, setMessage] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -515,6 +520,7 @@ export function MarkSettlementPaid({ id, number, driverName, total }: { id: stri
       }
       const out = got.value;
       if (out.ok) {
+        draft.saved();
         setOpen(false);
         toast({ text: `${number} marked paid by ${paidMethodLabel(method).toLowerCase()}.`, tone: "ok" });
         router.refresh();
@@ -533,8 +539,6 @@ export function MarkSettlementPaid({ id, number, driverName, total }: { id: stri
         type="button"
         className="tl-btn"
         onClick={() => {
-          setPaidOn(today());
-          setMethod("check");
           setErrors({});
           setMessage(null);
           setOpen(true);

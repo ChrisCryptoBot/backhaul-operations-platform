@@ -44,6 +44,8 @@ export default async function QuotePage({ searchParams }: { searchParams: { quot
   }));
 
   const initial = saved && id ? { id, ...saved } : like ? { id: null, values: like, vehicleId: null, passedFor: null } : null;
+  // Names the form for what it keeps: each quote is its own, and each "quote like this" is its own (they start from different loads).
+  const draftId = id ?? (likeId ? `like-${likeId}` : "new");
   return (
     <>
       <PageHead title="Quote a load" sub="Price an offer against every truck and driver before you accept it." />
@@ -53,7 +55,8 @@ export default async function QuotePage({ searchParams }: { searchParams: { quot
         </p>
       ) : null}
       <QuoteDesk
-        key={id ?? (likeId ? `like-${likeId}` : "new")}
+        key={draftId}
+        draftId={draftId}
         quotes={quotes}
         brokers={brokers}
         initial={initial}

@@ -4,6 +4,7 @@ import React from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { submitRequestAction, type RequestState } from "@/app/(public)/actions";
 import { EMPTY_REQUEST, ENTERPRISE_TRUCKS, type RequestValues } from "@/lib/signup";
+import { useDraft } from "../kit/use-draft";
 
 const INITIAL: RequestState = { values: EMPTY_REQUEST, errors: {} };
 
@@ -34,13 +35,14 @@ function Field({ name, label, hint, error, children }: { name: keyof RequestValu
 /**
  * One form for both doors. `enterprise` asks for what a person needs to phone you (a number or a time, your MC number, a note); the self-serve form asks for the four things
  * an account needs. Whatever the form says, the server decides which door a request is from the truck count.
+ * What is typed is kept in this browser until the request has gone through (the page it lands on forgets it), so a refusal or a refresh does not lose it.
  */
 export function RequestForm({ enterprise, trucks }: { enterprise: boolean; trucks?: string }) {
   const [state, action] = useFormState(submitRequestAction, INITIAL);
-  const v = state.values;
+  const [v, setV] = useDraft<RequestValues>(`request:${enterprise ? "enterprise" : "self"}`, { ...EMPTY_REQUEST, trucks: trucks ?? "" });
   const e = state.errors;
   const input = (name: keyof RequestValues, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
-    <input id={`f-${name}`} name={name} defaultValue={v[name] || (name === "trucks" ? (trucks ?? "") : "")} aria-invalid={e[name] ? true : undefined} aria-describedby={e[name] ? `e-${name}` : undefined} {...props} />
+    <input id={`f-${name}`} name={name} value={v[name]} onChange={(ev) => setV((cur) => ({ ...cur, [name]: ev.target.value }))} aria-invalid={e[name] ? true : undefined} aria-describedby={e[name] ? `e-${name}` : undefined} {...props} />
   );
   return (
     <form action={action} className="pub-form" noValidate>
@@ -81,7 +83,7 @@ export function RequestForm({ enterprise, trucks }: { enterprise: boolean; truck
       </div>
       {enterprise ? (
         <Field name="note" label="Anything we should know" hint="How you dispatch today, your terminals, what you need connected." error={e.note}>
-          <textarea id="f-note" name="note" rows={4} defaultValue={v.note} />
+          <textarea id="f-note" name="note" rows={4} value={v.note} onChange={(ev) => setV((cur) => ({ ...cur, note: ev.target.value }))} />
         </Field>
       ) : null}
       <Submit label={enterprise ? "Ask for a person to set us up" : "Save my place"} />

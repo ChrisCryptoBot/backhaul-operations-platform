@@ -3,6 +3,8 @@
 import React from "react";
 import { payLabel, usd } from "@/lib/desk-format";
 import { PERCENT_MAX, RATE_CON_BASIS, percentOf } from "@/lib/pay";
+import { useDraft } from "./kit/use-draft";
+import { useClearOnSuccess } from "./kit/use-submit-outcome";
 
 type Option = { id: string; name: string; blocker: string | null; busy: string | null; payKind: string | null; payRate: number | null; terminal?: string | null };
 
@@ -14,7 +16,30 @@ const UNIT: Record<string, string> = { cpm: "$ a mile", flat: "$ for the load", 
  * A set amount is a dollar figure for this load; a percent is a share of the rate confirmation's total, shown in dollars as it is typed.
  * The list holds the best few drivers (the header's terminal first); "Find another driver" searches everyone, in any terminal, and adds the one chosen to the list.
  */
-export function AssignFields({ drivers: offered, loadId, initial, rateConTotal }: { drivers: Option[]; loadId: string; initial: { driverId: string | null; payKind: string | null; rate: number | null }; rateConTotal?: number | null }) {
+export function AssignFields({
+  drivers: offered,
+  loadId,
+  initial,
+  rateConTotal,
+  askOverride = false,
+  overrideLabel = "Reason, only for a driver who is already on another load at the same time",
+  overridePlaceholder = "For example: team run",
+  draftKey,
+  forgetRef
+}: {
+  drivers: Option[];
+  loadId: string;
+  /** A driver on the list is already on another load at that time, so say why before double-booking them. */
+  askOverride?: boolean;
+  overrideLabel?: string;
+  overridePlaceholder?: string;
+  /** What these fields are kept under; one per load by default. A form that restarts them for each suggestion gives each its own. */
+  draftKey?: string;
+  /** For a form that does not submit the way a page form does: it calls this to forget what was kept, once the assignment has gone through. */
+  forgetRef?: React.MutableRefObject<(() => void) | null>;
+  initial: { driverId: string | null; payKind: string | null; rate: number | null };
+  rateConTotal?: number | null;
+}) {
   const [found, setFound] = React.useState<Option[]>([]);
   const [added, setAdded] = React.useState<Option[]>([]);
   const [search, setSearch] = React.useState("");
@@ -34,15 +59,24 @@ export function AssignFields({ drivers: offered, loadId, initial, rateConTotal }
     };
   }, [search, loadId]);
   const firstFree = drivers.find((d) => !d.blocker)?.id ?? "";
-  const [driverId, setDriverId] = React.useState(initial.driverId ?? firstFree);
   const startsAt = (id: string) => {
     const d = drivers.find((x) => x.id === id);
     return d?.payKind && d.payRate != null ? { kind: d.payKind, rate: d.payRate } : null;
   };
   // With no usual pay to start from the rate is left blank: the dispatcher types it, rather than the form guessing one.
-  const first: { kind: string; rate: number | null } = initial.driverId ? { kind: initial.payKind ?? "cpm", rate: initial.rate } : (startsAt(driverId) ?? { kind: "cpm", rate: null });
-  const [kind, setKind] = React.useState(first.kind);
-  const [rate, setRate] = React.useState(first.rate == null ? "" : String(first.rate));
+  const firstDriver = initial.driverId ?? firstFree;
+  const first: { kind: string; rate: number | null } = initial.driverId ? { kind: initial.payKind ?? "cpm", rate: initial.rate } : (startsAt(firstDriver) ?? { kind: "cpm", rate: null });
+  // What is typed here is kept until the assignment has gone through (the form around it is the page's, so the field watches it).
+  const [{ driverId, kind, rate, overrideReason }, setPick, draft] = useDraft(draftKey ?? `assign:${loadId}`, { driverId: firstDriver, kind: first.kind, rate: first.rate == null ? "" : String(first.rate), overrideReason: "" });
+  const setDriverId = (v: string) => setPick((p) => ({ ...p, driverId: v }));
+  const setKind = (v: string) => setPick((p) => ({ ...p, kind: v }));
+  const setRate = (v: string) => setPick((p) => ({ ...p, rate: v }));
+  const setOverrideReason = (v: string) => setPick((p) => ({ ...p, overrideReason: v }));
+  const anchor = React.useRef<HTMLSpanElement>(null);
+  useClearOnSuccess(anchor, draft);
+  React.useEffect(() => {
+    if (forgetRef) forgetRef.current = draft.saved;
+  });
   const usual = drivers.find((d) => d.id === driverId);
   const usualText = usual?.payKind ? payLabel(usual.payKind, usual.payRate) : null;
   const typed = Number(rate);
@@ -126,6 +160,13 @@ export function AssignFields({ drivers: offered, loadId, initial, rateConTotal }
         </span>
       ) : null}
       {usualText ? <span className="tl-sub" style={{ flexBasis: "100%" }}>{usual?.name}&apos;s usual pay is {usualText}.</span> : null}
+      {askOverride ? (
+        <label className="tl-field" style={{ flexBasis: "100%" }}>
+          {overrideLabel}
+          <input name="overrideReason" type="text" placeholder={overridePlaceholder} value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} />
+        </label>
+      ) : null}
+      <span ref={anchor} hidden />
     </>
   );
 }

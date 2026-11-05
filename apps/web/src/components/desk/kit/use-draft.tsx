@@ -54,11 +54,14 @@ export function useDraft<T>(key: string, initial: T): [T, React.Dispatch<React.S
   const live = React.useRef({ full, initial, initialJson, baselineJson: initialJson, value, ready: false, first: true });
   const prev = React.useRef<T>(value);
 
+  // What the form starts from changes when its content changes, not when a new object with the same content is passed (a literal in the caller is a new object every render, and
+  // would otherwise reset the baseline of a form that has just been saved, and keep it all over again when it is left).
   useIsoLayoutEffect(() => {
     live.current.initial = initial;
     live.current.initialJson = initialJson;
     live.current.baselineJson = initialJson;
-  }, [initial, initialJson]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialJson]);
 
   useIsoLayoutEffect(() => {
     live.current.value = value;
@@ -139,6 +142,18 @@ export function useDraft<T>(key: string, initial: T): [T, React.Dispatch<React.S
   }, []);
 
   return [value, setValue, { kept: kept != null, changedSince: kept?.changedSince ?? false, saved, discard }];
+}
+
+/**
+ * Forgets a kept draft as soon as the page that holds this is reached. For a form whose action sends the person on to another page when it works (the request forms),
+ * which cannot tell the form that it did: the page they land on does.
+ */
+export function ForgetDraft({ draftKey }: { draftKey: string }) {
+  const scope = React.useContext(DraftScopeContext);
+  React.useEffect(() => {
+    store.drop(draftStorageKey(scope, draftKey));
+  }, [scope, draftKey]);
+  return null;
 }
 
 /** Says, where a form has been filled in from what was kept, that it was, and lets the person start over. Shows nothing otherwise. */

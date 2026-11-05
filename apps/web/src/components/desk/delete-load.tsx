@@ -7,17 +7,19 @@ import { deleteLoadAction, restoreLoadAction } from "@/app/(desk)/actions";
 import { DELETE_REASONS } from "@/lib/disruptions";
 import { Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
+import { useDraft } from "./kit/use-draft";
 
 /**
  * Delete a load that should never have been entered. It asks why (a short list, counted nowhere as lost), hides the load and its audit stays,
- * and the toast that follows has an Undo that puts it back exactly as it was.
+ * and the toast that follows has an Undo that puts it back exactly as it was. The reason and note are kept until the load is deleted.
  */
 export function DeleteLoadButton({ loadId, loadNumber, driverName, blocked }: { loadId: string; loadNumber: string; driverName: string | null; blocked: string | null }) {
   const router = useRouter();
   const toast = useToast();
   const [open, setOpen] = React.useState(false);
-  const [reason, setReason] = React.useState("");
-  const [note, setNote] = React.useState("");
+  const [{ reason, note }, setWhy, draft] = useDraft(`delete-load:${loadId}`, { reason: "", note: "" });
+  const setReason = (v: string) => setWhy((w) => ({ ...w, reason: v }));
+  const setNote = (v: string) => setWhy((w) => ({ ...w, note: v }));
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState<string | null>(null);
   const close = React.useCallback(() => setOpen(false), []);
@@ -32,6 +34,7 @@ export function DeleteLoadButton({ loadId, loadNumber, driverName, blocked }: { 
       setMessage(out.error);
       return;
     }
+    draft.saved();
     setOpen(false);
     toast({
       text: `${loadNumber} deleted.`,
@@ -58,8 +61,6 @@ export function DeleteLoadButton({ loadId, loadNumber, driverName, blocked }: { 
         disabled={blocked != null}
         title={blocked ?? undefined}
         onClick={() => {
-          setReason("");
-          setNote("");
           setMessage(null);
           setOpen(true);
         }}>

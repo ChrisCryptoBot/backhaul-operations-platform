@@ -38,6 +38,14 @@ const ago = (iso: string) => {
 type Initial = { id: string | null; values: QuoteValues; vehicleId: string | null; /** Why it was passed on, when it was: the quote is then read, not edited. */ passedFor: string | null } | null;
 
 /** What the form held before Clear or a swap, kept for a few seconds behind an Undo. */
+/** What is typed into the booking, pass and quick-paste dialogs, and which truck was picked: kept with the quote, like its fields. */
+type QuoteAsk = { reason: string; notes: string; passReason: string; passNotes: string; pasteText: string; selected: string | null };
+const BLANK_ASK: QuoteAsk = { reason: "", notes: "", passReason: "", passNotes: "", pasteText: "", selected: null };
+
+/** How the person has the module set up: which tab, how the fleet matrix is sorted and whether it is open, and the saved-quotes search. Kept for the person, not per quote. */
+type QuoteView = { viewMode: "terminal" | "saved"; matrixSort: "margin" | "deadhead"; matrixOpen: boolean; listQuery: string; listStatus: "open" | "passed" | "all" };
+const BLANK_VIEW: QuoteView = { viewMode: "terminal", matrixSort: "deadhead", matrixOpen: true, listQuery: "", listStatus: "open" };
+
 type Snap = { values: QuoteValues; quoteId: string | null; selected: string | null; reason: string; notes: string; lastRoute: string; measure: { state: "idle" | "busy" | "ok" | "error"; text: string } };
 
 export type FleetTruckOption = {
@@ -62,6 +70,7 @@ export function QuoteDesk({
   quotes: firstPage,
   brokers,
   initial,
+  draftId,
   canWrite,
   fleet = [],
   openPickups = []
@@ -69,6 +78,8 @@ export function QuoteDesk({
   quotes: { rows: QuoteListRow[]; total: number };
   brokers: CustomerOption[];
   initial: Initial;
+  /** Which quote this is for what it keeps: the quote's id, "like-<load id>" for a quote started from a load, or "new". */
+  draftId: string;
   canWrite: boolean;
   fleet?: FleetTruckOption[];
   openPickups?: OpenPickupCandidate[];
@@ -76,12 +87,15 @@ export function QuoteDesk({
   const router = useRouter();
   const toast = useToast();
 
-  // View mode: Quoting Terminal vs. Saved Quotes
-  const [viewMode, setViewMode] = React.useState<"terminal" | "saved">("terminal");
-
-  // Fleet Matrix sort mode: Closest deadhead vs best margin
-  const [matrixSort, setMatrixSort] = React.useState<"margin" | "deadhead">("deadhead");
-  const [matrixOpen, setMatrixOpen] = React.useState(true);
+  // View mode (Quoting Terminal vs. Saved Quotes), the Fleet Matrix sort (closest deadhead vs best margin) and whether it is open, and the saved-quotes search: left as they were.
+  const [view, setView] = useDraft<QuoteView>("quote-view", BLANK_VIEW);
+  const { viewMode, matrixSort, matrixOpen, listQuery, listStatus } = view;
+  const setViewMode = React.useCallback((v: QuoteView["viewMode"]) => setView((s) => ({ ...s, viewMode: v })), [setView]);
+  const setMatrixSort = React.useCallback((v: QuoteView["matrixSort"]) => setView((s) => ({ ...s, matrixSort: v })), [setView]);
+  const setMatrixOpen = React.useCallback((v: boolean | ((open: boolean) => boolean)) => setView((s) => ({ ...s, matrixOpen: typeof v === "function" ? v(s.matrixOpen) : v })), [setView]);
+  const setListQuery = React.useCallback((v: string) => setView((s) => ({ ...s, listQuery: v })), [setView]);
+  const setListStatus = React.useCallback((v: QuoteView["listStatus"]) => setView((s) => ({ ...s, listStatus: v })), [setView]);
+  const [inspectedKey, setInspectedKey] = React.useState<string | null>(null);
 
   // Draggable resizer state for entry vs eval panes (persisted in localStorage)
   const [entryWidth, setEntryWidth] = React.useState<number>(540);
@@ -89,7 +103,6 @@ export function QuoteDesk({
 
   // Quick-Paste modal state
   const [pasteOpen, setPasteOpen] = React.useState(false);
-  const [pasteText, setPasteText] = React.useState("");
   const [readingRateCon, setReadingRateCon] = React.useState(false);
   const [draggingFile, setDraggingFile] = React.useState(false);
   const rateConInputRef = React.useRef<HTMLInputElement>(null);
@@ -102,8 +115,6 @@ export function QuoteDesk({
 
   // The saved quotes, searched and filtered on the server a page at a time.
   const [list, setList] = React.useState(firstPage);
-  const [listQuery, setListQuery] = React.useState("");
-  const [listStatus, setListStatus] = React.useState<"open" | "passed" | "all">("open");
   const quotes = list.rows;
   React.useEffect(() => setList(firstPage), [firstPage]);
   const listSeq = React.useRef(0);
@@ -115,27 +126,35 @@ export function QuoteDesk({
       })
       .catch(() => undefined);
   };
+  // A search kept from before: the list is fetched for it, so the box and the rows agree.
+  React.useEffect(() => {
+    if (listQuery.trim() !== "" || listStatus !== "open") refilter(listQuery, listStatus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const readOnly = !!initial?.passedFor;
   const locked = readOnly || !canWrite;
 
   // What is typed here is kept until the person saves, books or starts over
-  const draftKey = `quote:${initial ? (initial.id ?? "like") : "new"}`;
+  const draftKey = `quote:${draftId}`;
   const [values, setValues, draft] = useDraft<QuoteValues>(draftKey, initial?.values ?? BLANK_QUOTE);
+  const [ask, setAsk, askDraft] = useDraft<QuoteAsk>(`${draftKey}:ask`, BLANK_ASK);
+  const { reason, notes, passReason, passNotes, pasteText, selected } = ask;
+  const setReason = React.useCallback((v: string) => setAsk((a) => ({ ...a, reason: v })), [setAsk]);
+  const setNotes = React.useCallback((v: string) => setAsk((a) => ({ ...a, notes: v })), [setAsk]);
+  const setPassReason = React.useCallback((v: string) => setAsk((a) => ({ ...a, passReason: v })), [setAsk]);
+  const setPassNotes = React.useCallback((v: string) => setAsk((a) => ({ ...a, passNotes: v })), [setAsk]);
+  const setPasteText = React.useCallback((v: string) => setAsk((a) => ({ ...a, pasteText: v })), [setAsk]);
+  const setSelected = React.useCallback((v: string | null) => setAsk((a) => ({ ...a, selected: v })), [setAsk]);
   const [quoteId, setQuoteId] = React.useState<string | null>(initial?.id ?? null);
   const [priced, setPriced] = React.useState<PricedQuote | null>(null);
   const [pricing, setPricing] = React.useState(false);
   const [priceFailed, setPriceFailed] = React.useState(false);
   const [priceAgain, setPriceAgain] = React.useState(0);
-  const [selected, setSelected] = React.useState<string | null>(null);
   const [tried, setTried] = React.useState(false);
   const [serverErrors, setServerErrors] = React.useState<Record<string, string>>({});
   const [message, setMessage] = React.useState<string | null>(null);
   const [asking, setAsking] = React.useState(false);
-  const [reason, setReason] = React.useState<string>("");
-  const [notes, setNotes] = React.useState("");
   const [passing, setPassing] = React.useState(false);
-  const [passReason, setPassReason] = React.useState<string>("");
-  const [passNotes, setPassNotes] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [done, setDone] = React.useState<{ loadId: string; loadNumber: string | null; note: string | null; assigned: boolean; truck: string } | null>(null);
   const seq = React.useRef(0);
@@ -402,12 +421,8 @@ export function QuoteDesk({
   const reset = () => {
     draft.discard();
     setValues(BLANK_QUOTE);
-    setReason("");
-    setNotes("");
-    setPassReason("");
-    setPassNotes("");
+    askDraft.discard();
     setQuoteId(null);
-    setSelected(null);
     setTried(false);
     setServerErrors({});
     setMessage(null);
@@ -488,6 +503,7 @@ export function QuoteDesk({
     if (out.ok) {
       setAsking(false);
       draft.saved();
+      askDraft.saved();
       setDone({ loadId: out.loadId, loadNumber: out.loadNumber, note: out.note, assigned: out.assigned, truck: row.truckName });
       router.refresh();
       return;
@@ -496,7 +512,7 @@ export function QuoteDesk({
     if (out.errors) setTried(true);
     if (out.gate) setAsking(true);
     setMessage(out.error ?? (out.errors ? "Fix what is marked, then book it." : null));
-  }, [row, values, quoteId, draft, router]);
+  }, [row, values, quoteId, draft, askDraft, router]);
 
   const onBook = React.useCallback(() => {
     setTried(true);
@@ -532,6 +548,7 @@ export function QuoteDesk({
       setQuoteId(out.id);
       setMessage(null);
       draft.saved();
+      askDraft.saved();
       toast({ text: "Quote saved. It is not on the board until you book it.", tone: "ok" });
       router.replace(`/quote?quote=${out.id}`);
       router.refresh();
@@ -539,7 +556,7 @@ export function QuoteDesk({
       setServerErrors(out.errors ?? {});
       setMessage(out.error ?? "Fix what is marked, then save it.");
     }
-  }, [check.ok, values, row?.driverId, row?.truckId, quoteId, draft, toast, router]);
+  }, [check.ok, values, row?.driverId, row?.truckId, quoteId, draft, askDraft, toast, router]);
 
   const onOpenPass = React.useCallback(() => {
     setTried(true);
@@ -547,8 +564,6 @@ export function QuoteDesk({
       setMessage("Fix what is marked, then pass on it.");
       return;
     }
-    setPassReason("");
-    setPassNotes("");
     setPassing(true);
   }, [check.ok]);
 
@@ -1585,7 +1600,11 @@ export function QuoteDesk({
                           <th style={{ textAlign: "right" }}>Left Over</th>
                         </tr>
                       </thead>
-                      <tbody>
+                      <tbody
+                        onMouseLeave={() => setInspectedKey(null)}
+                        onBlur={(e) => {
+                          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setInspectedKey(null);
+                        }}>
                         {displayRows.map((r, idx) => {
                           const said = verdictOf(r, benchmark, Boolean(cautions.marketRate));
                           const truckRows = rows.filter((x) => x.truckId === r.truckId);
@@ -1599,6 +1618,9 @@ export function QuoteDesk({
                             <tr
                               key={r.key}
                               className={`${on ? "qt-selected" : ""}${r.blocked ? " qt-blocked" : ""}`.trim()}
+                              data-inspected={inspectedKey === r.key ? "true" : undefined}
+                              onMouseEnter={() => setInspectedKey(r.key)}
+                              onFocus={() => setInspectedKey(r.key)}
                               onClick={() => setSelected(r.key)}>
                               <td>
                                 <input
@@ -1676,6 +1698,77 @@ export function QuoteDesk({
                   )}
                 </div>
               )}
+
+              {/* The truck under the pointer or the keyboard focus, else the selected one. */}
+                {priced?.ok && displayRows.length > 0 ? (() => {
+                  const activeInspection = displayRows.find((r) => r.key === inspectedKey) || row;
+                  if (!activeInspection) return null;
+                  const truckInfo = fleet.find((f) => f.id === activeInspection.truckId);
+                  const deficit = hosDeficit({
+                    level: activeInspection.hos.caution.level,
+                    availableHours: activeInspection.hos.availableHours,
+                    tripHours: activeInspection.detail.metrics.tripHours
+                  });
+                  const isHovered = Boolean(inspectedKey && inspectedKey !== row?.key);
+                  return (
+                    <div className="qt-matrix-inspector" role="region" aria-label="Truck inspector" data-mode={isHovered ? "inspect" : "active"}>
+                      <div className="qt-mi-left">
+                        <div className="qt-mi-headline">
+                          <span className="qt-mi-eyebrow">
+                            <span className="qt-mi-dot" aria-hidden="true" />
+                            {isHovered ? "Truck in view" : "Selected truck"} · {activeInspection.truckName}
+                          </span>
+                          {activeInspection.driverName ? (
+                            <span className="qt-mi-driver">
+                              {activeInspection.driverName} · {shortLabour(activeInspection)}
+                            </span>
+                          ) : (
+                            <span className="qt-mi-driver" style={{ color: "var(--db-fg-dim)" }}>Unassigned driver</span>
+                          )}
+                        </div>
+                        <div className="qt-mi-telemetry">
+                          {activeInspection.hos.availableHours != null ? (
+                            <span className={`qt-mi-pill ${deficit ? "warn" : "ok"}`}>
+                              <i>{deficit ? "▲" : "●"}</i>
+                              <span>
+                                {activeInspection.hos.availableHours}h drive left{activeInspection.hos.syncedAt ? ` (${ago(activeInspection.hos.syncedAt)})` : ""}
+                                {activeInspection.detail.metrics.tripHours ? ` (trip needs ${activeInspection.detail.metrics.tripHours}h)` : ""}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="qt-mi-pill dim">No ELD connected</span>
+                          )}
+                          {truckInfo?.homeBaseAddress ? (
+                            <span className="qt-mi-pill base">
+                              <span>Base: {truckInfo.homeBaseAddress}</span>
+                            </span>
+                          ) : null}
+                          {activeInspection.blocked ? (
+                            <span className="qt-mi-pill neg">
+                              <span>{activeInspection.blocked}</span>
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="qt-mi-right">
+                        <div className="qt-mi-stat">
+                          <span className="qt-mi-stat-lbl">ALL-IN $/MI</span>
+                          <span className="qt-mi-stat-val">{perMile(activeInspection.allInPerMile)}</span>
+                        </div>
+                        <div className="qt-mi-stat">
+                          <span className="qt-mi-stat-lbl">COST FLOOR</span>
+                          <span className="qt-mi-stat-val">{perMile(activeInspection.floorPerMile)}</span>
+                        </div>
+                        <div className="qt-mi-stat">
+                          <span className="qt-mi-stat-lbl">TRIP NET</span>
+                          <span className={`qt-mi-stat-val ${activeInspection.leftOver != null && activeInspection.leftOver >= 0 ? "pos" : "neg"}`}>
+                            {activeInspection.leftOver == null ? "—" : `${activeInspection.leftOver < 0 ? "−" : "+"}${usd(Math.abs(activeInspection.leftOver), 0)}`}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })() : null}
             </div>
 
             {/* 2. Selected Truck Live Verdict Card */}

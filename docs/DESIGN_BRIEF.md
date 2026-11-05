@@ -26,6 +26,7 @@ A dispatcher looking at a load, a driver or a bill and deciding something. Every
 10. **Documents are paper.** Invoice, pay statement and management report use `DocHead`: the issuer and the document number on the left, the one figure as the hero on the right, a stamp for where it stands (Paid, Overdue 12 days, Finalized). Sheets stay paper-white in both themes because they are printed or saved as PDF.
 11. **Empty states are one line.** A sentence and, if useful, a link. No centred icon-and-paragraph blocks. A list with nothing to show says so in words.
 12. **Destructive actions can be taken back.** Delete a load with a reason and a 20 second Undo (soft delete). Void a statement with a reason. Every change is written to the audit log in the same transaction.
+13. **Fields are kept.** What a person has typed stays until they change it themselves: leaving for another module, refreshing or closing the tab does not lose it. A form's values live in `useDraft(key, initial)` (`components/desk/kit/use-draft.tsx`), not `useState`; call `draft.saved()` once a save has gone through, `draft.discard()` for Start over, and never reset the fields when a dialog opens. A form that posts to a server action which redirects back uses `useSubmitOutcome` so it clears on `?note=` and keeps its fields on `?error=`. Search and filters live in the address and the sidebar remembers them per module. `tests/forms-keep-fields.test.ts` scans every file that draws a typed control: a new form must use `useDraft` or be named in its `EXEMPT` list with a reason.
 
 ## 3. Tokens
 

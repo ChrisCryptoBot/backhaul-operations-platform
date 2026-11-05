@@ -19,6 +19,8 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
   const router = useRouter();
   const toast = useToast();
   const formRef = React.useRef<HTMLFormElement>(null);
+  // The fields inside keep what was typed; once the assignment has gone through they are told to forget it.
+  const forget = React.useRef<(() => void) | null>(null);
   const [open, setOpen] = React.useState(false);
   const [data, setData] = React.useState<AssignOptions | null | undefined>(undefined);
   const [chosen, setChosen] = React.useState("");
@@ -57,6 +59,7 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
       setError(out.error);
       return;
     }
+    forget.current?.();
     setOpen(false);
     toast({ text: `${loadNumber} assigned. Send it to the driver when you are ready.`, tone: "ok" });
     router.refresh();
@@ -131,13 +134,13 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
                 e.preventDefault();
                 void go();
               }}>
-              <AssignFields key={chosen} loadId={loadId} drivers={data.drivers} initial={{ driverId: chosen || null, payKind: chosenOption?.payKind ?? null, rate: chosenOption?.payRate ?? null }} rateConTotal={data.rateConTotal} />
-              {needsReason ? (
-                <label className="tl-field" style={{ flexBasis: "100%" }}>
-                  Why double-book this driver?
-                  <input name="overrideReason" autoComplete="off" placeholder="A few words, kept in the audit log" />
-                </label>
-              ) : null}
+              <AssignFields key={chosen} loadId={loadId} drivers={data.drivers} initial={{ driverId: chosen || null, payKind: chosenOption?.payKind ?? null, rate: chosenOption?.payRate ?? null }} rateConTotal={data.rateConTotal}
+                draftKey={`assign-queue:${loadId}:${chosen}`}
+                forgetRef={forget}
+                askOverride={needsReason}
+                overrideLabel="Why double-book this driver?"
+                overridePlaceholder="A few words, kept in the audit log"
+              />
             </form>
           </div>
         ) : null}
