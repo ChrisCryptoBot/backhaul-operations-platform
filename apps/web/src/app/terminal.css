@@ -301,3 +301,53 @@ textarea.t-ta{width:100%;min-height:56px;border:1px solid var(--line-hi);backgro
 .t-main>.t-pagehead{margin:0 0 10px;border-bottom:1px solid var(--line-hi)}
 .t-main>:last-child{margin-bottom:12px}
 .t-pagehead .acts form{display:inline-flex}
+
+/* ---- Typed ink: anything a person types into is blue, everywhere (typed wins, made visible). ---- */
+input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=button]):not([type=submit]):not([type=range]),select,textarea{color:var(--typed)}
+input::placeholder,textarea::placeholder{color:var(--dim);opacity:1}
+
+/* ---- Form labels: what a field is called is gold small caps; what is in it is blue mono. ---- */
+.tl-field{color:var(--label);font-size:11px;letter-spacing:.05em;text-transform:uppercase}
+.tl-field :is(input,select,textarea){text-transform:none;letter-spacing:0;font-size:12px}
+.tl-field :is(small,.rc-hint,.tl-sub,.sub,span[role=alert]){text-transform:none;letter-spacing:0;font:11px/14px var(--sans);color:var(--dim)}
+.tl-field span[role=alert]{color:var(--neg)}
+.rc-grid .tl-field{color:var(--dim)}
+
+/* ---- Load drawer: same functions, terminal skin. Specificity is raised with .dr so the old cockpit.css loses without being edited. ---- */
+.dr{background:var(--panel);border-left:1px solid var(--line-hi)}
+.dr .dr-head{background:var(--head);border-bottom:1px solid var(--line-hi);padding:6px var(--pad)}
+.dr .dr-head h2{font:600 14px/18px var(--mono);letter-spacing:.04em;color:var(--ink)}
+.dr .dr-head .sub{font:12px/16px var(--sans);color:var(--mid)}
+.dr .dr-foot{background:var(--head);border-top:1px solid var(--line-hi);padding:4px var(--pad)}
+.dr .dr-btn-icon,.dr .dr-close{border:1px solid var(--line-hi);background:transparent;color:var(--ink);width:24px;height:24px}
+.dr .dr-btn-icon:hover,.dr .dr-close:hover{background:var(--ink);color:var(--bg)}
+.dr .cp-kbd{border:1px solid var(--line-hi);background:var(--sunk);color:var(--mid);font:11px var(--mono);padding:0 4px}
+.dr .cp-ribbon,.dr .cp-metrics-bar{background:var(--panel);border:1px solid var(--line);border-top-color:var(--line-hi)}
+.dr .cp-metric{border-left:1px solid var(--line);padding:6px var(--pad)}
+.dr .cp-metric-val,.dr .cp-metric-val.ok,.dr .cp-metric-val.warn,.dr .cp-metric-val.bad{color:var(--ink);font:500 20px/24px var(--mono)}
+.dr .cp-metric-val::before{content:"";display:inline-block;width:7px;height:7px;margin-right:8px;vertical-align:middle;background:var(--dim)}
+.dr .cp-metric-val.ok::before{background:var(--pos-fill)}.dr .cp-metric-val.warn::before{background:var(--warn-fill)}.dr .cp-metric-val.bad::before{background:var(--neg-fill)}
+.dr .cp-metric-lbl{color:var(--label);font:500 11px/16px var(--mono);letter-spacing:.06em;text-transform:uppercase}
+.dr .cp-metric-sub{color:var(--dim);font:11px/14px var(--mono)}
+.dr .cp-gate{border:1px solid var(--line-hi);background:transparent;color:var(--ink);height:22px;padding:0 6px;font:500 11px/16px var(--mono);letter-spacing:.05em;white-space:nowrap}
+.dr .cp-gate::before{content:"";width:7px;height:7px;background:var(--dim)}
+.dr .cp-gate.ok::before{background:var(--pos-fill)}.dr .cp-gate.warn::before{background:var(--warn-fill)}.dr .cp-gate.bad::before{background:var(--neg-fill)}
+.dr .cp-gate.ok,.dr .cp-gate.warn,.dr .cp-gate.bad{background:transparent;border-color:var(--line-hi);color:var(--ink)}
+.dr .cp-nav{gap:0;border-bottom:1px solid var(--line-hi);background:var(--panel)}
+.dr .cp-tab-btn{min-height:24px;height:24px;margin:0;padding:0 12px;border:0;border-right:1px solid var(--line);color:var(--mid);font:500 11px/16px var(--mono);letter-spacing:.06em;white-space:nowrap}
+.dr .cp-tab-btn:hover{background:var(--hover);color:var(--ink)}
+.dr .cp-tab-btn[aria-selected=true]{background:var(--bar);color:var(--on-bar);font-weight:600}
+.dr .cp-tab-btn[aria-selected=true] .cp-kbd{background:transparent;color:var(--on-bar);border-color:var(--on-bar)}
+.dr .sec>h3,.lv-page .sec>h3{color:var(--label);font:500 11px/16px var(--mono);letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--line-hi)}
+.dr .cp-ledger-card{background:var(--panel);border:1px solid var(--line)}
+.dr .cp-ledger-card h4,.dr .cp-ledger-card.rev h4,.dr .cp-ledger-card.exp h4{color:var(--label);font:500 11px/16px var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.dr .cp-detention-box,.dr .cp-detention-box.active-wait,.dr .cp-detention-box.billable-wait{background:var(--sunk);border:1px solid var(--line-hi)}
+.dr .cp-detention-box.billable-wait{border-color:var(--warn)}
+.dr .cp-panel{animation:none}
+@media (prefers-reduced-motion:no-preference){.dr{animation-duration:130ms;animation-timing-function:steps(6,end)}}
+
+/* Quote and Settings fields (.th-field) are labelled the same way as .tl-field. */
+.th-field{color:var(--label);font-size:11px;letter-spacing:.05em;text-transform:uppercase;font-weight:500}
+.th-field :is(input,select,textarea){text-transform:none;letter-spacing:0;font-size:12px}
+.th-field :is(small,.tl-sub,.sub,span[role=alert]),.th-field>span:not(.th-label){text-transform:none;letter-spacing:0}
+.th-field :is(small,.tl-sub,.sub){font:11px/14px var(--sans);color:var(--dim)}
