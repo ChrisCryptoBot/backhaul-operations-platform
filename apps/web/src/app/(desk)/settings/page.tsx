@@ -31,6 +31,7 @@ import { planSummary } from "@/server/tl/plan";
 import { partnerStatus } from "@/server/partners/connections";
 import { IntegrationsPanel } from "@/components/desk/integrations-panel";
 import { allCredentialStatus, credentialsAvailable } from "@/server/partners/credentials";
+import { sandboxAllowed } from "@/server/partners/adapters/sandbox";
 import { webhookPaths } from "@/server/partners/connections";
 import { headers } from "next/headers";
 import { dateTime } from "@/lib/desk-format";
@@ -123,6 +124,7 @@ export default async function SettingsPage() {
         </p>
         <IntegrationsPanel
           canKeep={credentialsAvailable() && can(me.role, me.grants, "admin")}
+          sandboxOn={sandboxAllowed()}
           whyNot={credentialsAvailable() ? "An admin sets the keys." : "This server cannot keep a fleet's own keys yet. Whoever runs it sets the credential key first."}
           origin={integrationsOrigin}
           items={partners.map((r) => ({
@@ -137,6 +139,7 @@ export default async function SettingsPage() {
             lastSyncedAt: r.lastSyncedAt ? dateTime(r.lastSyncedAt) : null,
             rhythm: r.rhythm,
             overdue: r.overdue,
+            sandbox: r.sandbox,
             fields: keyStatus.get(r.provider) ?? [],
             webhookPath: hooks.get(`${r.capability}:${r.provider}`) ?? null
           }))}

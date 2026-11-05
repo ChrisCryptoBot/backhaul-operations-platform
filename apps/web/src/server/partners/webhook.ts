@@ -6,7 +6,7 @@ import { recordAudit } from "@/server/tl/audit";
 import { workspaceReader } from "./credentials";
 import { applyFactoringUpdate } from "./factoring";
 import { recordHealth } from "./health";
-import { MAX_WEBHOOK_BYTES, factoringStatusOf, readNeutralEvent, signatureHeaderFor, verifySignature } from "./webhook-core";
+import { MAX_WEBHOOK_BYTES, factoringStatusOf, readEvent, signatureHeaderFor, verifySignature } from "./webhook-core";
 
 /**
  * A company tells the desk something (a factor has funded an invoice). The address carries the fleet (an unguessable token on the connection), the signature proves the company sent it,
@@ -26,7 +26,8 @@ export async function handleWebhook(i: { provider: string; token: string; raw: s
   if (Buffer.byteLength(i.raw, "utf8") > MAX_WEBHOOK_BYTES) return answer(413, { ok: false, error: "Too large." });
   if (!/^[A-Za-z0-9_-]{20,80}$/.test(i.token)) return answer(404, { ok: false, error: "Not found." });
   const conn = await prisma.partnerConnection.findUnique({ where: { webhookToken: i.token } });
-  if (!conn || conn.provider !== i.provider || (conn.status !== "connected" && conn.status !== "error")) return answer(404, { ok: false, error: "Not found." });
+  // The address names the company, or the kind of service it is ("factoring"): either way the token is what finds the connection, and a name that does not fit it is a 404.
+  if (!conn || (conn.provider !== i.provider && conn.capability !== i.provider) || (conn.status !== "connected" && conn.status !== "error")) return answer(404, { ok: false, error: "Not found." });
 
   const secretName = WEBHOOK_SECRET_ENV[conn.provider];
   const secret = secretName ? (await workspaceReader(conn.provider, conn.workspaceId))(secretName) : undefined;
@@ -38,7 +39,7 @@ export async function handleWebhook(i: { provider: string; token: string; raw: s
   } catch {
     return answer(400, { ok: false, error: "Not JSON." });
   }
-  const event = readNeutralEvent(parsed, i.raw);
+  const event = readEvent(conn.provider, parsed, i.raw);
   const eventKey = event ? `${conn.workspaceId}:${event.id}` : `${conn.workspaceId}:unread:${randomBytes(9).toString("hex")}`;
   // Recorded first: the unique key is what makes a repeat one event, even when two deliveries arrive at the same moment.
   try {

@@ -128,6 +128,10 @@ model Vehicle {
   eldVehicleId      String?   @map("eld_vehicle_id")
   hosAvailableHours Decimal?  @map("hos_available_hours") @db.Decimal(5, 2)
   hosSyncedAt       DateTime? @map("hos_synced_at")
+  /// Where the ELD last put the tractor, and when it said so. Shown as 'last seen'; never an input to a verdict.
+  lastLat           Decimal?  @map("last_lat") @db.Decimal(9, 6)
+  lastLng           Decimal?  @map("last_lng") @db.Decimal(9, 6)
+  lastLocatedAt     DateTime? @map("last_located_at")
   active            Boolean   @default(true)
   archivedAt        DateTime? @map("archived_at")
   createdAt         DateTime  @default(now()) @map("created_at")
@@ -418,6 +422,12 @@ model Driver {
   payrollWorkerType String?   @map("payroll_worker_type")
   /// The driver's own phone account (their Clerk user id on the bridge). Blank = no phone account: the dispatcher records their answers.
   phoneUserId       String?   @map("phone_user_id")
+  /// The driver's id in the ELD, and the minutes left on each clock as it last reported them (drive, shift, 70-hour cycle). A caution, never a rule.
+  eldDriverId       String?   @map("eld_driver_id")
+  hosDriveMinutes   Int?      @map("hos_drive_minutes")
+  hosShiftMinutes   Int?      @map("hos_shift_minutes")
+  hosCycleMinutes   Int?      @map("hos_cycle_minutes")
+  hosSyncedAt       DateTime? @map("hos_synced_at")
   /// The carrier authority the driver (or their company) runs under, and what the last insurance check found.
   carrierMcNumber   String?   @map("carrier_mc_number")
   carrierDotNumber  String?   @map("carrier_dot_number")

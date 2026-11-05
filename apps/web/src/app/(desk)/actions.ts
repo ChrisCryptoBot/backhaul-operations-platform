@@ -37,7 +37,8 @@ import { assignFromQueue, assignOptions, type AssignOptions, type AssignOutcome 
 import { currentTerminal } from "@/server/tl/terminal";
 import { assignTrailerToLoad, hookTrailer, saveTrailer, setTrailerArchived, type AssignTrailerResult, type SaveResult as TrailerSaveResult } from "@/server/tl/trailers";
 import { connectPartner, disconnectPartner, retryConnection, type ConnectResult } from "@/server/partners/connections";
-import { deleteCredential, saveCredential, type SaveCredentialResult } from "@/server/partners/credentials";
+import { deleteCredential } from "@/server/partners/credentials";
+import { saveKeysAndConnect, type SaveAndConnect } from "@/server/partners/setup";
 import { applyFactoringUpdate, factorInvoice, type FactorResult } from "@/server/partners/factoring";
 import { syncEld, type SyncResult } from "@/server/partners/eld";
 import { importFuelForLoad, saveFuelCard, type FuelCardResult, type SaveFuelCard } from "@/server/partners/fuel-card";
@@ -747,11 +748,11 @@ export async function connectPartnerAction(capability: string, provider: string,
 }
 
 /** Save this fleet's own keys for a company (sealed on the server; nothing comes back but whether it worked). Admin only. */
-export async function savePartnerKeysAction(provider: string, values: Record<string, string>): Promise<SaveCredentialResult> {
+export async function savePartnerKeysAction(provider: string, values: Record<string, string>): Promise<SaveAndConnect> {
   await requireCan("admin");
   const clean: Record<string, string> = {};
   if (values && typeof values === "object") for (const [k, v] of Object.entries(values)) if (typeof v === "string") clean[String(k)] = v;
-  const out = await saveCredential(String(provider), clean);
+  const out = await saveKeysAndConnect(String(provider), clean);
   if (out.ok) revalidatePath("/settings");
   return out;
 }

@@ -23,6 +23,8 @@ export type IntegrationItem = {
   rhythm: string;
   /** Read on a clock, and has not answered for longer than that rhythm allows. */
   overdue: boolean;
+  /** The keys are test keys: calls go to the built-in simulator and nothing leaves the desk. */
+  sandbox: boolean;
   fields: KeyField[];
   /** Where the company posts its events for this fleet, once connected. */
   webhookPath: string | null;
@@ -42,7 +44,7 @@ function stateOf(r: IntegrationItem): { word: string; tone: "ok" | "warn" | "bad
  * the address the company posts its events to, and the buttons that move it. Secrets are typed here and sent once: they are never kept in the browser (no draft, no storage), and the
  * boxes are emptied the moment they are saved. The live link to a company is its own piece of work: a connected company says so honestly until its link is switched on.
  */
-export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the keys.", origin }: { items: IntegrationItem[]; canKeep: boolean; whyNot?: string; origin: string }) {
+export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the keys.", sandboxOn = false, origin }: { items: IntegrationItem[]; canKeep: boolean; whyNot?: string; /** The built-in simulator may run on this desk (the demo desk). */ sandboxOn?: boolean; origin: string }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
@@ -70,7 +72,7 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
       // The secrets leave this page the moment they are saved.
       setTyped((t) => Object.fromEntries(Object.entries(t).filter(([k]) => !k.startsWith(`${r.provider}:`))));
       setError("");
-      toast({ text: `${r.name} keys saved.`, tone: "ok" });
+      toast({ text: got.value.sandbox && got.value.connected ? `${r.name} keys saved. Connected to the simulator.` : `${r.name} keys saved.`, tone: "ok" });
       router.refresh();
     });
   };
@@ -99,6 +101,7 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
                     <span className="t-st" data-tone={st.tone}>{st.word}</span>
                     {r.status === "error" ? <span className="t-dim"> · {WHY[r.lastError ?? ""] ?? "Calls are failing."} ({r.failures} in a row)</span> : null}
                     {r.status === "connected" ? <span className="t-dim"> · {r.lastSyncedAt ? `answered ${r.lastSyncedAt}` : "not called yet"}</span> : null}
+                    {r.sandbox ? <span className="t-st" data-tone="warn" title="These are test keys. Calls go to the built-in simulator and nothing leaves the desk.">Simulator</span> : null}
                     {r.overdue ? <span className="t-st" data-tone="warn" title="This one is read on a clock and has not answered for longer than it should.">Overdue</span> : null}
                   </td>
                   <td className="n">
@@ -160,6 +163,7 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
                           </div>
                         ) : null}
                         {r.rhythm ? <p className="t-note">{r.rhythm}</p> : null}
+                        {sandboxOn ? <p className="t-note">To try {r.name} without an account, type a key that starts with sandbox_ (any text after it). It runs the built-in simulator, connects at once, and nothing leaves the desk.</p> : null}
                         <p className="t-note">
                           {r.status === "connected" || r.status === "error"
                             ? `The keys and the webhook address are ready. The live call to ${r.name} is not switched on yet, so nothing is sent to them.`

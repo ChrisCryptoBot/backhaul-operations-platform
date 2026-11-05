@@ -3,6 +3,12 @@ import { PROVIDERS, SECRET_ENV, err, isCapability, providerConfigured, resolvePr
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { workspaceReader } from "./credentials";
 import { recordHealth } from "./health";
+import { routed } from "./adapters";
+import type { Adapter } from "./adapters/types";
+import { notImplemented } from "./not-implemented";
+
+export type { Adapter };
+export { notImplemented };
 
 /**
  * The one path every call to a partner company takes from the desk, the same order as the Edge Functions' (supabase/functions/_shared/partners/run.ts): the provider is
@@ -11,16 +17,19 @@ import { recordHealth } from "./health";
  * "not connected yet". The adapters live in a registry so the day a company is chosen its call replaces one entry, and a test can stand one in.
  */
 /** `secret(name)` is one of the company's keys by name, the fleet's own first and then the server's, read for this call only: an adapter never has to know where it came from. */
-export type Adapter<I = never, O = unknown> = (call: { provider: string; input: I; secret: (name: string) => string | undefined }) => Promise<PartnerResult<O>>;
-
-export const notImplemented = (provider: string): PartnerResult<never> => err("not_implemented", `${provider} is not connected to TrueLane yet.`);
-
 const stub: Adapter<never, never> = async ({ provider }) => notImplemented(provider);
 
 /** What each capability's adapter reads and answers: the desk's own shapes, not any company's. */
 export type AdapterShapes = {
   factoring: { in: { loadId: string; loadNumber: string | null; invoiceNumber: string | null; amount: number; packet: string[] }; out: { referenceId: string; status: string } };
-  eld: { in: { vehicles: Array<{ id: string; name: string | null; eldVehicleId: string | null }> }; out: { vehicles: Array<{ id: string; eldVehicleId: string | null; hosAvailableHours: number | null }> } };
+  eld: {
+    in: { vehicles: Array<{ id: string; name: string | null; eldVehicleId: string | null }>; drivers?: Array<{ id: string; name: string; eldDriverId: string | null; vehicleId: string | null }> };
+    out: {
+      vehicles: Array<{ id: string; eldVehicleId: string | null; hosAvailableHours: number | null; /** Where the tractor was last seen. */ location?: { lat: number; lng: number; at: string } | null }>;
+      /** The minutes left on each of a driver's clocks. */
+      drivers?: Array<{ id: string; eldDriverId: string | null; driveMinutes: number; shiftMinutes: number; cycleMinutes: number }>;
+    };
+  };
   fuel_card: { in: { vehicleName: string | null; accountId: string; since: string | null; until: string | null }; out: { purchases: Array<{ on: string; gallons: number | null; amount: number }> } };
   tracking: { in: { loadId: string; share: boolean }; out: { sharing: boolean } };
   vetting: { in: { mcNumber: string | null; dotNumber: string | null }; out: { status: "clear" | "review" | "failed"; coiExpiresAt: string | null } };
@@ -29,8 +38,8 @@ export type AdapterShapes = {
 };
 
 export const partnerAdapters: { [K in Capability]: Adapter<AdapterShapes[K]["in"], AdapterShapes[K]["out"]> } = {
-  factoring: stub as never,
-  eld: stub as never,
+  factoring: routed("factoring"),
+  eld: routed("eld"),
   fuel_card: stub as never,
   tracking: stub as never,
   vetting: stub as never,

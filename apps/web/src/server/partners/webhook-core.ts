@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { triumphEventToNeutral } from "./adapters/triumphpay";
 
 /**
  * A company's webhook, the pure part (docs/PARTNER_BACKBONE.md). No company's real signing scheme or payload is in this repo, and none is guessed: the receiver verifies a hex HMAC-SHA256 of the
@@ -47,6 +48,15 @@ export function readNeutralEvent(parsed: unknown, raw: string): NeutralEvent | n
   if (!type || !(EVENT_KINDS as readonly string[]).includes(type)) return null;
   const id = text(parsed.id, 120) ?? text(parsed.event_id, 120) ?? `sha256:${createHash("sha256").update(raw, "utf8").digest("hex")}`;
   return { id, kind: type as PartnerEventKind, reference: text(parsed.reference, 80), referenceId: text(parsed.reference_id, 80) };
+}
+
+/**
+ * An event as the receiver reads it: the company's own shape when it has an adapter that knows it (TriumphPay's, modeled in adapters/triumphpay.ts), else the neutral envelope. A body that is
+ * neither is null, recorded as ignored.
+ */
+const OWN_SHAPE: Record<string, (parsed: unknown) => NeutralEvent | null> = { triumphpay: triumphEventToNeutral };
+export function readEvent(provider: string, parsed: unknown, raw: string): NeutralEvent | null {
+  return OWN_SHAPE[provider]?.(parsed) ?? readNeutralEvent(parsed, raw);
 }
 
 /** The factoring status an event moves a load to, or null for an event that is not a factoring move. */

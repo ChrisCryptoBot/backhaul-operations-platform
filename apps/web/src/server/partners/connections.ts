@@ -6,6 +6,7 @@ import { providerName } from "./call";
 import { readersFor, workspaceReader } from "./credentials";
 import { newWebhookToken } from "./credentials-core";
 import { isOverdue, rhythmOf } from "./sync-policy";
+import { keyMode } from "./adapters/sandbox";
 
 /** Which companies the fleet has connected, and whether the server holds each one's keys. Booleans and words only: a key's name or value is never sent to a screen. */
 export type ConnectionRow = {
@@ -28,6 +29,8 @@ export type ConnectionRow = {
   rhythm: string;
   /** A connection that should be read on a clock and has not answered for longer than its rhythm allows. */
   overdue: boolean;
+  /** The keys are test keys and the calls go to the built-in simulator: nothing leaves the desk. */
+  sandbox: boolean;
 };
 
 const env = (name: string) => process.env[name];
@@ -52,7 +55,8 @@ export async function partnerStatus(workspaceId = currentWorkspaceId(), now = ne
         failures: live?.failures ?? 0,
         lastSyncedAt: live?.lastSyncedAt ?? null,
         rhythm: rhythmOf(capability),
-        overdue: row ? isOverdue({ capability, status: row.status, lastSyncedAt: row.lastSyncedAt, connectedAt: row.connectedAt }, now) : false
+        overdue: row ? isOverdue({ capability, status: row.status, lastSyncedAt: row.lastSyncedAt, connectedAt: row.connectedAt }, now) : false,
+        sandbox: keyMode(provider, readerOf(provider)) === "sandbox"
       };
     })
   );
