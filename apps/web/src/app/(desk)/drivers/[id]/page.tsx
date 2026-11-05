@@ -49,6 +49,7 @@ export default async function DriverPage({ params }: { params: { id: string } })
     carrierDot: p.carrierDotNumber ?? "",
     payrollWorkerType: p.payrollWorkerType ?? "",
     payrollEmployeeId: p.payrollEmployeeId ?? "",
+    phoneUserId: p.phoneUserId ?? "",
     active: p.active,
     onLoads: d.open.length,
     onLoadNumbers: d.open.map((o) => o.loadNumber ?? "a load")

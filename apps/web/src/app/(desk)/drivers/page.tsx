@@ -65,6 +65,7 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
       carrierDot: d.carrierDot ?? "",
       payrollWorkerType: d.payrollWorkerType ?? "",
       payrollEmployeeId: d.payrollEmployeeId ?? "",
+      phoneUserId: d.phoneUserId ?? "",
       active: d.active,
       onLoads: d.openLoadNumbers.length,
       onLoadNumbers: d.openLoadNumbers

@@ -149,6 +149,7 @@ export async function listDriversPage(query: DriverPageQuery = {}, workspaceId =
       carrierDot: d.carrierDotNumber,
       payrollWorkerType: d.payrollWorkerType,
       payrollEmployeeId: d.payrollEmployeeId,
+      phoneUserId: d.phoneUserId,
       vetStatus: d.vetStatus,
       coiExpiresAt: d.coiExpiresAt,
       vetCheckedAt: d.vetCheckedAt,

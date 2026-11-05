@@ -39,6 +39,8 @@ export type DriverValues = {
   /** Payroll: "employee" or "contractor", and the id the payroll company knows them by. */
   payrollWorkerType: string;
   payrollEmployeeId: string;
+  /** The driver's own phone account (the id their TrueLane app signs in with). Blank: you record their answers on the desk. */
+  phoneUserId: string;
 };
 
 export const PAY_KINDS = [
@@ -87,13 +89,15 @@ export function validateDriver(input: Raw): DriverCheck {
     carrierMc: str(input.carrierMc).replace(/^mc[\s-]*/i, ""),
     carrierDot: str(input.carrierDot).replace(/^dot[\s-]*/i, ""),
     payrollWorkerType: str(input.payrollWorkerType),
-    payrollEmployeeId: str(input.payrollEmployeeId)
+    payrollEmployeeId: str(input.payrollEmployeeId),
+    phoneUserId: str(input.phoneUserId)
   };
   const errors: Partial<Record<keyof DriverValues, string>> = {};
   if (v.carrierMc && !/^\d{3,8}$/.test(v.carrierMc)) errors.carrierMc = "Digits only, for example 123456.";
   if (v.carrierDot && !/^\d{3,8}$/.test(v.carrierDot)) errors.carrierDot = "Digits only, for example 1234567.";
   if (v.payrollWorkerType && v.payrollWorkerType !== "employee" && v.payrollWorkerType !== "contractor") errors.payrollWorkerType = "Employee or contractor.";
   if (v.payrollEmployeeId.length > 60) errors.payrollEmployeeId = "That id is too long.";
+  if (v.phoneUserId && !/^[A-Za-z0-9_.:@-]{3,200}$/.test(v.phoneUserId)) errors.phoneUserId = "Paste the id exactly as the driver's app shows it: letters, digits and _ . : @ - only.";
   if (v.terminal.length > TERMINAL_MAX_LENGTH) errors.terminal = "That terminal name is too long.";
   if (v.name.length < 2) errors.name = "Type the driver's name.";
   else if (v.name.length > 80) errors.name = "That name is too long.";

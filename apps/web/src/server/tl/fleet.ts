@@ -39,7 +39,7 @@ function payText(kind: string, rate: string): string | null {
 }
 
 function driverSnapshot(v: DriverValues, truckName: string | null): AuditSnapshot {
-  return { Name: v.name, Phone: v.phone || null, Email: v.email || null, "CDL class": v.cdlClass || null, "CDL good through": v.cdlExpiry || null, "Medical card good through": v.medicalCardExpiry || null, Truck: truckName, "Usual pay": payText(v.payKind, v.payRate), Terminal: v.terminal || null, "Carrier MC": v.carrierMc || null, "Carrier DOT": v.carrierDot || null, "Worker type": v.payrollWorkerType || null, "Payroll id": v.payrollEmployeeId || null };
+  return { Name: v.name, Phone: v.phone || null, Email: v.email || null, "CDL class": v.cdlClass || null, "CDL good through": v.cdlExpiry || null, "Medical card good through": v.medicalCardExpiry || null, Truck: truckName, "Usual pay": payText(v.payKind, v.payRate), Terminal: v.terminal || null, "Carrier MC": v.carrierMc || null, "Carrier DOT": v.carrierDot || null, "Worker type": v.payrollWorkerType || null, "Payroll id": v.payrollEmployeeId || null, "Phone account": v.phoneUserId || null };
 }
 
 export async function saveDriver(raw: Record<string, unknown>, id: string | null, now = new Date()): Promise<SaveResult<keyof DriverValues>> {
@@ -49,8 +49,13 @@ export async function saveDriver(raw: Record<string, unknown>, id: string | null
   const v = check.value;
   const truck = v.assignedVehicleId ? await prisma.vehicle.findFirst({ where: { id: v.assignedVehicleId, workspaceId: ws.id, archivedAt: null } }) : null;
   if (v.assignedVehicleId && !truck) return { ok: false, errors: { assignedVehicleId: "That truck is not available." } };
-  const data = { name: v.name, phone: v.phone || null, email: v.email || null, cdlClass: v.cdlClass || null, cdlExpiry: check.cdlExpiry, medicalCardExpiry: check.medicalCardExpiry, assignedVehicleId: truck?.id ?? null, defaultPayKind: v.payKind || null, defaultPayRate: check.payRate, terminal: v.terminal || null, carrierMcNumber: v.carrierMc || null, carrierDotNumber: v.carrierDot || null, payrollWorkerType: v.payrollWorkerType || null, payrollEmployeeId: v.payrollEmployeeId || null };
+  const data = { name: v.name, phone: v.phone || null, email: v.email || null, cdlClass: v.cdlClass || null, cdlExpiry: check.cdlExpiry, medicalCardExpiry: check.medicalCardExpiry, assignedVehicleId: truck?.id ?? null, defaultPayKind: v.payKind || null, defaultPayRate: check.payRate, terminal: v.terminal || null, carrierMcNumber: v.carrierMc || null, carrierDotNumber: v.carrierDot || null, payrollWorkerType: v.payrollWorkerType || null, payrollEmployeeId: v.payrollEmployeeId || null, phoneUserId: v.phoneUserId || null };
   const after = driverSnapshot(v, truck?.name ?? null);
+  // One phone account is one driver on a desk: a second driver with the same id would get the first one's loads.
+  if (v.phoneUserId) {
+    const taken = await prisma.driver.findFirst({ where: { workspaceId: ws.id, phoneUserId: v.phoneUserId, ...(id ? { id: { not: id } } : {}) }, select: { name: true } });
+    if (taken) return { ok: false, errors: { phoneUserId: `That phone account is already ${taken.name}'s.` } };
+  }
 
   if (id == null) {
     const created = await prisma.$transaction(async (tx) => {
@@ -69,7 +74,7 @@ export async function saveDriver(raw: Record<string, unknown>, id: string | null
   const prev = await prisma.driver.findFirst({ where: { id, workspaceId: ws.id }, include: { assignedVehicle: true } });
   if (!prev) return { ok: false, error: "That driver does not exist." };
   const before = driverSnapshot(
-    { name: prev.name, phone: prev.phone ?? "", email: prev.email ?? "", cdlClass: prev.cdlClass ?? "", cdlExpiry: ymdOf(prev.cdlExpiry), medicalCardExpiry: ymdOf(prev.medicalCardExpiry), assignedVehicleId: prev.assignedVehicleId ?? "", payKind: prev.defaultPayKind ?? "", payRate: prev.defaultPayRate == null ? "" : String(num(prev.defaultPayRate)), terminal: prev.terminal ?? "", carrierMc: prev.carrierMcNumber ?? "", carrierDot: prev.carrierDotNumber ?? "", payrollWorkerType: prev.payrollWorkerType ?? "", payrollEmployeeId: prev.payrollEmployeeId ?? "" },
+    { name: prev.name, phone: prev.phone ?? "", email: prev.email ?? "", cdlClass: prev.cdlClass ?? "", cdlExpiry: ymdOf(prev.cdlExpiry), medicalCardExpiry: ymdOf(prev.medicalCardExpiry), assignedVehicleId: prev.assignedVehicleId ?? "", payKind: prev.defaultPayKind ?? "", payRate: prev.defaultPayRate == null ? "" : String(num(prev.defaultPayRate)), terminal: prev.terminal ?? "", carrierMc: prev.carrierMcNumber ?? "", carrierDot: prev.carrierDotNumber ?? "", payrollWorkerType: prev.payrollWorkerType ?? "", payrollEmployeeId: prev.payrollEmployeeId ?? "", phoneUserId: prev.phoneUserId ?? "" },
     prev.assignedVehicle?.name ?? null
   );
   const moved = Object.keys(after).filter((k) => (before[k] ?? null) !== (after[k] ?? null));

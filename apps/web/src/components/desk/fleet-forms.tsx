@@ -64,14 +64,14 @@ function useShownErrors<K extends string>() {
 
 // ── Drivers ────────────────────────────────────────────────────────────────────────────────────
 
-export type DriverRow = { id: string; name: string; phone: string | null; email: string | null; cdlClass: string | null; cdlExpiry: string; medicalCardExpiry: string; truckId: string | null; truckName: string | null; payKind: string; payRate: string; terminal: string; carrierMc: string; carrierDot: string; payrollWorkerType: string; payrollEmployeeId: string; active: boolean; onLoads: number; onLoadNumbers: string[] };
+export type DriverRow = { id: string; name: string; phone: string | null; email: string | null; cdlClass: string | null; cdlExpiry: string; medicalCardExpiry: string; truckId: string | null; truckName: string | null; payKind: string; payRate: string; terminal: string; carrierMc: string; carrierDot: string; payrollWorkerType: string; payrollEmployeeId: string; phoneUserId: string; active: boolean; onLoads: number; onLoadNumbers: string[] };
 
 function DriverDialog({ open, onClose, driver }: { open: boolean; onClose: () => void; driver?: DriverRow }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
-  const blank: Record<keyof DriverValues, string> = { name: "", phone: "", email: "", cdlClass: "A", cdlExpiry: "", medicalCardExpiry: "", assignedVehicleId: "", payKind: "", payRate: "", terminal: "", carrierMc: "", carrierDot: "", payrollWorkerType: "", payrollEmployeeId: "" };
-  const initial = driver ? { name: driver.name, phone: driver.phone ?? "", email: driver.email ?? "", cdlClass: driver.cdlClass ?? "", cdlExpiry: driver.cdlExpiry, medicalCardExpiry: driver.medicalCardExpiry, assignedVehicleId: driver.truckId ?? "", payKind: driver.payKind, payRate: driver.payRate, terminal: driver.terminal, carrierMc: driver.carrierMc, carrierDot: driver.carrierDot, payrollWorkerType: driver.payrollWorkerType, payrollEmployeeId: driver.payrollEmployeeId } : blank;
+  const blank: Record<keyof DriverValues, string> = { name: "", phone: "", email: "", cdlClass: "A", cdlExpiry: "", medicalCardExpiry: "", assignedVehicleId: "", payKind: "", payRate: "", terminal: "", carrierMc: "", carrierDot: "", payrollWorkerType: "", payrollEmployeeId: "", phoneUserId: "" };
+  const initial = driver ? { name: driver.name, phone: driver.phone ?? "", email: driver.email ?? "", cdlClass: driver.cdlClass ?? "", cdlExpiry: driver.cdlExpiry, medicalCardExpiry: driver.medicalCardExpiry, assignedVehicleId: driver.truckId ?? "", payKind: driver.payKind, payRate: driver.payRate, terminal: driver.terminal, carrierMc: driver.carrierMc, carrierDot: driver.carrierDot, payrollWorkerType: driver.payrollWorkerType, payrollEmployeeId: driver.payrollEmployeeId, phoneUserId: driver.phoneUserId } : blank;
   const [values, setValues, draft] = useDraft<Record<keyof DriverValues, string>>(`driver:${driver?.id ?? "new"}`, initial);
   const [serverErrors, setServerErrors] = React.useState<Partial<Record<keyof DriverValues, string>>>({});
   const [message, setMessage] = React.useState("");
@@ -190,6 +190,9 @@ function DriverDialog({ open, onClose, driver }: { open: boolean; onClose: () =>
           </Field>
           <Field label="Payroll id" error={errors.payrollEmployeeId} hint="What the payroll company calls them.">
             <input value={values.payrollEmployeeId} onChange={set("payrollEmployeeId")} autoComplete="off" maxLength={60} />
+          </Field>
+          <Field label="Phone account" error={errors.phoneUserId} hint="The id their TrueLane app signs in with. Blank: you record their answers here.">
+            <input value={values.phoneUserId} onChange={set("phoneUserId")} autoComplete="off" maxLength={200} />
           </Field>
         </div>
         {message ? (

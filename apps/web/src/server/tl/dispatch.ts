@@ -14,6 +14,7 @@ import { driveHoursFor } from "./evaluate";
 import { lockWorkspace } from "./plan";
 import { claimAssignment, claimLoad, dropAssignment, LoadMoved } from "./claim";
 import { currentWorkspaceId } from "./workspace";
+import { enqueueBridge } from "@/server/bridge/outbox";
 
 export { driverBlocker };
 
@@ -209,6 +210,8 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
           data: { ...data, status: "draft", driverResponse: Prisma.JsonNull, assignmentVersion: { increment: 1 }, dispatchedAt: null, respondedAt: null }
         })
       : await tx.assignment.create({ data: { loadId: load.id, status: "draft", ...data } });
+    // The last driver, if they had it on their phone, is taken off it; the new one is sent it when the dispatcher sends.
+    if (prev && replacing) await enqueueBridge(tx, { workspaceId, loadId: load.id, kind: "reassign_old", driverId: prev.driverId, now });
     // A new driver has not said yes: a load that was accepted by the last one goes back to draft with the assignment (src/lib/load-state.ts).
     if (load.status !== loadStatusFor("draft")) await tx.load.update({ where: { id: load.id }, data: { status: loadStatusFor("draft") } });
     // Who is driving, and at what pay, is now known: freeze it with the rest of what the load was booked with.
@@ -253,6 +256,8 @@ export async function unassignLoad(loadId: string, reason: string | null, now = 
   if (needsReason && why.length < 3) throw new DispatchError("reason_required", "Say why the driver is coming off a load that was already sent.");
 
   await prisma.$transaction(async (tx) => {
+    // The driver's phone is told the load is off them (the row is closed, never deleted: that is the phone's signal).
+    if (needsReason) await enqueueBridge(tx, { workspaceId, loadId, kind: "cancel", driverId: a.driverId, now });
     try {
       // The load has to still be the state it was read in (not picked up, cancelled or deleted since), and the assignment is taken off once.
       await claimLoad(tx, loadId, workspaceId, ["draft", "accepted"], load.status === "accepted" ? { status: "draft" } : {});
@@ -348,6 +353,8 @@ export async function dispatchLoad(loadId: string, now = new Date(), opts: { sen
       },
       tx
     );
+    // A driver with a phone account is told through the driver link, in this same transaction (docs/DRIVER_LINK_DESIGN.md); any other driver is answered for by the dispatcher.
+    await enqueueBridge(tx, { workspaceId, loadId, kind: "dispatch", driverId: a.driverId, now });
     return next;
   });
   return { assignment: updated, summary };

@@ -9,6 +9,7 @@ import { requireCan } from "@/server/tl/access";
 import { removeLoadDocument, type DocResult } from "@/server/tl/documents";
 import { addMember, setMemberGrants, removeMember, setMemberRole, type MemberResult } from "@/server/tl/members";
 import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
+import { retryBridgeDelivery } from "@/server/bridge/retry";
 import { cancelLoad, recordTonu, reopenCancelled, rescheduleLoad } from "@/server/tl/disruptions";
 import { invoiceLoad, markLoadPaid } from "@/server/tl/invoicing";
 import { parseCentralLocal } from "@/lib/zoned";
@@ -131,6 +132,17 @@ export async function sendAction(formData: FormData) {
     if (gaps.length > 0 && !sendAnyway) throw new DispatchError("not_ready", `Not ready: still missing ${missing}. Send anyway if the driver has it another way.`);
     await dispatchLoad(loadId, new Date(), gaps.length > 0 ? { sentWithout: missing } : {});
     return gaps.length > 0 ? `Sent without ${missing}.` : "Sent to the driver.";
+  });
+}
+
+/** Try again to put a load on the driver's phone after it could not be delivered. The same delivery the schedule makes, asked for now. */
+export async function retryBridgeAction(formData: FormData) {
+  await requireCan("dispatch");
+  const loadId = String(formData.get("loadId"));
+  await attempt(loadId, async () => {
+    const r = await retryBridgeDelivery(loadId);
+    if (r === "nothing") throw new DispatchError("not_sent", "There is nothing waiting to be delivered for this load.");
+    return r === "delivered" ? "Delivered to the driver's phone." : "Still could not reach the driver's phone. It will keep trying.";
   });
 }
 

@@ -10,6 +10,7 @@ import { recordAudit } from "./audit";
 import { claimAssignment, claimLoad, dropAssignment, LoadMoved } from "./claim";
 import { num } from "./convert";
 import { findTwinLoad, duplicateMessage } from "./twins";
+import { enqueueForLoad } from "@/server/bridge/outbox";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -53,6 +54,7 @@ export async function cancelLoad(input: Why & { loadId: string }, now = new Date
   const a = load.assignment;
   await movedBy(() => prisma.$transaction(async (tx) => {
     await claimLoad(tx, load.id, workspaceId, CAN_CANCEL, { status: "cancelled", cancelledAt: now, cancelReason: input.reason, cancelNote: input.note?.trim() || null });
+    if (a) await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "cancel", now });
     if (a) await dropAssignment(tx, load.id);
     await recordAudit(
       {
@@ -84,6 +86,7 @@ export async function recordTonu(input: Why & { loadId: string; fee: number }, n
   const fee = input.fee.toFixed(2);
   await movedBy(() => prisma.$transaction(async (tx) => {
     await claimLoad(tx, load.id, workspaceId, CAN_TONU, { status: "tonu", tonuRevenue: input.fee, cancelledAt: now, cancelReason: input.reason, cancelNote: input.note?.trim() || null });
+    if (a) await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "cancel", now });
     if (a) await tx.assignment.updateMany({ where: { loadId: load.id }, data: { status: "completed", respondedAt: a.respondedAt ?? now } });
     await recordAudit(
       {
@@ -137,6 +140,7 @@ export async function rescheduleLoad(input: Why & { loadId: string; newPickup: D
     if (reconfirm) {
       // The driver has to say yes again, so the load is no longer accepted (src/lib/load-state.ts: a sent assignment goes with a draft load).
       await claimAssignment(tx, load.id, ["dispatched", "accepted"], { status: "dispatched", dispatchedAt: now, respondedAt: null, driverResponse: Prisma.JsonNull, assignmentVersion: { increment: 1 } });
+      await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "dispatch", now });
     }
     await recordAudit(
       {

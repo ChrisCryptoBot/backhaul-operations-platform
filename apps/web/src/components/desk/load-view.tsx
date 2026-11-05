@@ -19,7 +19,7 @@ import { AssignFields } from "./assign-fields";
 import { DeclineNote } from "./load-view-fields";
 import { AssignTrailer } from "./trailer-forms";
 import { trailerBlocker } from "@/lib/trailer-clearance";
-import { assignAction, reopenCancelledAction, reopenDeliveredAction, respondAction, sendAction, unassignAction, undoPaidAction, undoStartAction, voidInvoiceAction } from "@/app/(desk)/actions";
+import { assignAction, reopenCancelledAction, reopenDeliveredAction, respondAction, retryBridgeAction, sendAction, unassignAction, undoPaidAction, undoStartAction, voidInvoiceAction } from "@/app/(desk)/actions";
 import { InvoiceDialog, LoadEditDialog, PaidDialog, TripEntry } from "./load-actions";
 import { billedOf } from "@/lib/billed";
 import { moneyState } from "@/lib/money-state";
@@ -36,6 +36,8 @@ import { ACTION_LABEL } from "@/lib/audit-diff";
 import { gapsPhrase, refList, sendReadiness } from "@/lib/send-readiness";
 import { SHELF_CAPABILITIES, shelfFor, shelfHeader, type ShelfCapability } from "@/lib/partner-shelf";
 import { partnerStatus } from "@/server/partners/connections";
+import { linkStateFor } from "@/server/bridge/outbox";
+import { FAILURE_TEXT, type FailureWord } from "@/server/bridge/core";
 import { AssignmentChip, StatusChip, VerdictChip } from "./ui";
 import { AlertList } from "./alert-bits";
 import { SubmitButton } from "./kit/submit-button";
@@ -202,6 +204,9 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   const docs = await listLoadDocuments(load.id);
   // The shelf says only what is true: which companies this fleet has really connected (none, until a company is chosen and its keys are set).
   const connectionRows = await partnerStatus();
+  // The driver link: how this load's driver is reached, and where a delivery to their phone stands.
+  const link = a ? await linkStateFor(load.id, a.driverId) : null;
+  const linked = link?.mode.mode === "bridged";
   const shelfConnected: Partial<Record<ShelfCapability, boolean>> = {};
   for (const c of SHELF_CAPABILITIES) shelfConnected[c] = connectionRows.some((r) => r.capability === c && r.connected && r.configured);
   const shelf = shelfFor({
@@ -973,9 +978,26 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
               </SubmitButton>
             </form>
           ) : null}
+          {a?.status === "dispatched" && linked ? (
+            <p className="tl-sub" role="status">
+              {link!.item?.status === "failed"
+                ? `Not delivered to ${a.driver.name}'s phone: ${FAILURE_TEXT[(link!.item.lastError ?? "unreachable") as FailureWord] ?? FAILURE_TEXT.unreachable} Retry, or call them and answer for them below.`
+                : link!.item
+                  ? link!.item.attempts > 0
+                    ? `Could not reach ${a.driver.name}'s phone yet. Trying again.`
+                    : `Sending to ${a.driver.name}'s phone…`
+                  : `On ${a.driver.name}'s phone. Waiting for their answer.`}
+            </p>
+          ) : null}
+          {a?.status === "dispatched" && link?.item?.status === "failed" ? (
+            <form action={retryBridgeAction}>
+              <input type="hidden" name="loadId" value={load.id} />
+              <SubmitButton className="tl-btn sm" pending="Trying…">Retry delivery</SubmitButton>
+            </form>
+          ) : null}
           {a?.status === "dispatched" ? (
             <details className="demo-controls">
-              <summary>Driver&apos;s answer (phone not connected)</summary>
+              <summary>{linked ? "Answer for them (their phone is connected)" : "Driver\u2019s answer (phone not connected)"}</summary>
               <form action={respondAction}>
                 <input type="hidden" name="loadId" value={load.id} />
                 <button type="submit" disabled hidden tabIndex={-1} aria-hidden="true" />

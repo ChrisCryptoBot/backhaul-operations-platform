@@ -51,7 +51,12 @@ model Workspace {
 
   /// The plan the workspace is on (starter | growth | pro | enterprise). A missing plan is read as Starter (src/lib/plans.ts effectivePlan), never as "no limit".
   plan               String?  @default("starter")
+  /// The driver link (docs/DRIVER_LINK_DESIGN.md): the Clerk Organization this workspace is mapped to on the bridge (null = not bridged: the dispatcher records the driver's answers), and the
+  /// last `sync_seq` of the bridge table read, so each pull continues where the last one ended.
+  bridgeOrgId        String?  @map("bridge_org_id")
+  bridgeCursor       BigInt   @default(0) @map("bridge_cursor")
   partnerConnections PartnerConnection[]
+  bridgeOutbox       BridgeOutbox[]
   members            Member[]
   threads            Thread[]
   vehicles           Vehicle[]
@@ -406,6 +411,8 @@ model Driver {
   payrollEmployeeId String?   @map("payroll_employee_id")
   payrollStatus     String    @default("none") @map("payroll_status")
   payrollWorkerType String?   @map("payroll_worker_type")
+  /// The driver's own phone account (their Clerk user id on the bridge). Blank = no phone account: the dispatcher records their answers.
+  phoneUserId       String?   @map("phone_user_id")
   /// The carrier authority the driver (or their company) runs under, and what the last insurance check found.
   carrierMcNumber   String?   @map("carrier_mc_number")
   carrierDotNumber  String?   @map("carrier_dot_number")
@@ -425,6 +432,7 @@ model Driver {
   @@index([workspaceId, active, name])
   @@index([workspaceId, terminal])
   @@index([assignedVehicleId])
+  @@unique([workspaceId, phoneUserId])
   @@map("drivers")
 }
 
@@ -443,6 +451,11 @@ model Assignment {
   driverResponse    Json?     @map("driver_response")
   dispatchedAt      DateTime? @map("dispatched_at")
   respondedAt       DateTime? @map("responded_at")
+  /// The driver link: the bridge row this assignment is on, the last execution version of it the desk applied, when it last went through, and why a delivery failed (a word, never a body).
+  bridgeDispatchId        String?   @map("bridge_dispatch_id")
+  bridgeExecutionVersion  Int       @default(0) @map("bridge_execution_version")
+  bridgeSyncedAt          DateTime? @map("bridge_synced_at")
+  bridgeError             String?   @map("bridge_error")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
@@ -598,6 +611,33 @@ model PartnerConnection {
 
   @@unique([workspaceId, capability, provider])
   @@map("partner_connections")
+}
+
+/// What still has to be told to a driver's phone: written in the same transaction as the desk change it follows (send, change, reassign, unassign), then delivered and retried by the flusher.
+/// No payload is kept: the summary is rebuilt from the load at delivery time, so a late delivery sends the current truth, checked again for anything a driver must not see.
+model BridgeOutbox {
+  id            String    @id @default(cuid())
+  workspaceId   String    @map("workspace_id")
+  loadId        String    @map("load_id")
+  /// dispatch | update | reassign_old | cancel
+  kind          String
+  /// The driver the row is for (their phone account), so a reassign can say who is being taken off.
+  phoneUserId   String    @map("phone_user_id")
+  /// The bridge row to supersede or cancel (reassign_old and cancel), else null.
+  dispatchId    String?   @map("dispatch_id")
+  /// pending | done | failed
+  status        String    @default("pending")
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at")
+  lastError     String?   @map("last_error")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  doneAt        DateTime? @map("done_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status, nextAttemptAt])
+  @@index([loadId])
+  @@map("bridge_outbox")
 }
 
 /// The desk's conversation with one driver: one thread per driver, newest message last. A message can be about a load (its chip links to it).

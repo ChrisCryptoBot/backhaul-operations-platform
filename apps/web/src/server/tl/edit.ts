@@ -16,6 +16,7 @@ import { findDriverClash, findTruckClash, windowText } from "./dispatch";
 import { truckFit } from "@/lib/load-fit";
 import { truckLimits } from "./quote";
 import { duplicateMessage, findTwinLoad } from "./twins";
+import { enqueueForLoad } from "@/server/bridge/outbox";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -217,6 +218,8 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
       // The driver has to say yes again, so the load is no longer accepted (src/lib/load-state.ts: a sent assignment goes with a draft load).
       if (load.status !== loadStatusFor("dispatched")) await tx.load.update({ where: { id: load.id }, data: { status: loadStatusFor("dispatched") } });
     }
+    // The driver's phone: a change they have to confirm again is a re-offer; any other change to a load that is on their phone reaches them as an update (the driver link).
+    await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: reconfirm ? "dispatch" : "update", now });
     if (payChanged) await tx.assignment.update({ where: { loadId: load.id }, data: { payEstimate: newEstimate! } });
     // A load that has not started carries the cost floor of the truck and the miles it was booked with: refresh it when either changed.
     if (deal && (truckChanged || moneyChanged) && ["draft", "accepted"].includes(load.status)) await freezeLoadSnapshot(tx, load.id, { labour: load.assignment != null, refresh: truckChanged });
