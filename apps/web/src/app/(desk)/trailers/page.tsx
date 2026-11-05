@@ -13,11 +13,15 @@ import { EmptyState } from "@/components/desk/kit/states";
 import { OWNERSHIPS } from "@/lib/trailer-forms";
 import { TRAILER_STATUSES, statusLabel } from "@/lib/trailer-clearance";
 import { TRAILER_TYPES, trailerLabel } from "@/truelane/constants/trailerData";
-import { shortDate } from "@/lib/desk-format";
+import { feet, shortDate } from "@/lib/desk-format";
 import { CanGate } from "@/components/desk/kit/can-gate";
-import { RadarStrip } from "@/components/desk/radar-map";
+import { FleetMapPanel } from "@/components/desk/radar-map";
+import { readRadarParams } from "@/lib/radar-points";
+import { clampRadius, milesText } from "@/lib/radius";
 import { DwellAdjust, DwellLine } from "@/components/desk/dwell";
 import { getRadarData } from "@/server/tl/radar";
+import { radarPoints } from "@/server/tl/radar-query";
+import { unitsNear } from "@/server/tl/radar-near";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 
 export const metadata = { title: "Trailers · TrueLane" };
@@ -27,6 +31,7 @@ export const dynamic = "force-dynamic";
 const COLUMNS: Column[] = [
   { key: "number", sortable: true, label: "Trailer", group: "Trailer", sticky: true, width: 170 },
   { key: "type", sortable: true, label: "Type", group: "Trailer" },
+  { key: "length", sortable: true, label: "Length", group: "Trailer", align: "num" },
   { key: "plate", label: "Plate", group: "Trailer" },
   { key: "ownership", label: "Ownership", group: "Trailer" },
   { key: "status", sortable: true, label: "Status", group: "Where it is" },
@@ -39,7 +44,7 @@ const COLUMNS: Column[] = [
   { key: "act", label: "", group: "" }
 ];
 
-type Params = { q?: string; sort?: string; page?: string; type?: string; status?: string; ownership?: string; compliance?: string; archived?: string };
+type Params = { q?: string; sort?: string; page?: string; type?: string; status?: string; ownership?: string; compliance?: string; archived?: string; near?: string; r?: string };
 
 /** The trailer registry, a page at a time: search by number, plate or VIN, and filter by type, state, ownership, compliance and terminal (the header's). */
 export default async function TrailersPage({ searchParams }: { searchParams?: Params }) {
@@ -49,9 +54,16 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
   const ownership = OWNERSHIPS.some((o) => o.key === searchParams?.ownership) ? searchParams?.ownership : undefined;
   const compliance = (COMPLIANCE_FILTERS as readonly string[]).includes(searchParams?.compliance ?? "") ? searchParams?.compliance : undefined;
   const archived = searchParams?.archived === "1";
-  const data = await listTrailersPage({ q: searchParams?.q, sort: searchParams?.sort, page: asPage(searchParams?.page), terminal, type, status, ownership, compliance, archived });
+  const nearText = searchParams?.near?.trim() ?? "";
+  const rGiven = searchParams?.r ? clampRadius(searchParams.r) : null;
+  const near = nearText ? await unitsNear("trailers", nearText, rGiven, currentWorkspaceId(), terminal) : null;
+  const nearOk = near && !("error" in near) ? near : null;
+  const data = await listTrailersPage({ onlyIds: nearOk ? [...nearOk.miles.keys()] : undefined, q: searchParams?.q, sort: searchParams?.sort, page: asPage(searchParams?.page), terminal, type, status, ownership, compliance, archived });
   const now = new Date();
   const radar = await getRadarData(currentWorkspaceId(), terminal);
+  const mapParams = readRadarParams((k) => (k === "kind" ? "trailer" : searchParams?.[k as "near" | "r"]));
+  const points = await radarPoints(radar, mapParams);
+  const columns: Column[] = nearOk ? [...COLUMNS.slice(0, 3), { key: "away", label: "Away", group: "Trailer", align: "num" }, ...COLUMNS.slice(3)] : COLUMNS;
   const sortParam = searchParams?.sort ? { key: data.sort.key as string, dir: data.sort.dir } : null;
   const href = (p: { sort?: string | null; page?: number }) => {
     const u = new URLSearchParams();
@@ -61,6 +73,8 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
     if (ownership) u.set("ownership", ownership);
     if (compliance) u.set("compliance", compliance);
     if (archived) u.set("archived", "1");
+    if (nearText) u.set("near", nearText);
+    if (nearText && searchParams?.r) u.set("r", searchParams.r);
     if (p.sort) u.set("sort", p.sort);
     if (p.page && p.page > 1) u.set("page", String(p.page));
     const s = u.toString();
@@ -81,6 +95,8 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
         </>
       ),
       type: t.type ? trailerLabel(t.type) : <span className="dim">—</span>,
+      length: feet(t.lengthFt),
+      away: nearOk?.miles.has(t.id) ? milesText(nearOk.miles.get(t.id)!) : "—",
       plate: t.plate ? `${t.plate}${t.plateState ? ` · ${t.plateState}` : ""}` : <span className="dim">—</span>,
       ownership: OWNERSHIPS.find((o) => o.key === t.ownership)?.label ?? t.ownership,
       status: t.status === "available" ? statusLabel(t.status) : <span className="tl-chip warn">{statusLabel(t.status)}</span>,
@@ -118,18 +134,12 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
   const filtered = Boolean(data.q || type || status || ownership || compliance || archived);
 
   const use = await unitUse("trailer");
-  return (
+  const table = (
     <>
-      <PageHead title="Trailers" sub={`${terminal ? `${terminal} terminal. ` : ""}Every trailer: its number, plate and papers, where it is, which tractor pulls it and what it is on. A trailer in the shop, out of service or with a lapsed date is kept off loads.`}>
-        <a className="tl-btn" href={`/export/trailers${filtered ? `?${href({}).split("?")[1] ?? ""}` : ""}`}>Export CSV</a>
-        <Link href="/trailers/import" className="tl-btn">Import from a file</Link>
-        <CanGate caps={["dispatch"]}>
-          <AddTrailer use={use} />
-        </CanGate>
-      </PageHead>
-      {radar.tractors.length > 0 || radar.trailers.length > 0 ? <RadarStrip initial={radar} /> : null}
       <div className="dt-toolbar" style={{ margin: "12px 0" }}>
         <LiveForm path="/trailers" label="Filter the trailers" className="audit-filters">
+          {nearText ? <input type="hidden" name="near" value={nearText} /> : null}
+          {nearText && searchParams?.r ? <input type="hidden" name="r" value={searchParams.r} /> : null}
           <input type="search" name="q" defaultValue={data.q} placeholder="Search number, plate or VIN…" aria-label="Search the trailers" autoComplete="off" className="audit-q" />
           <select name="type" defaultValue={type ?? ""} aria-label="Type">
             <option value="">Any type</option>
@@ -163,8 +173,21 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
         <span className="dt-spacer" />
         <span className="dt-count">{data.total.toLocaleString("en-US")} {data.total === 1 ? "trailer" : "trailers"}</span>
       </div>
-      <DataTable id="trailers-table" label="Trailers" columns={COLUMNS} rows={rows} sortHref={sortHref} empty={<EmptyState icon="trailers" title={filtered ? "No trailer matches" : "No trailers yet"}>{filtered ? "Try another word or filter, or clear them." : "Add one, or import a spreadsheet of them."}</EmptyState>} />
+      <DataTable id="trailers-table" label="Trailers" columns={columns} rows={rows} sortHref={sortHref} empty={<EmptyState icon="trailers" title={filtered ? "No trailer matches" : "No trailers yet"}>{filtered ? "Try another word or filter, or clear them." : "Add one, or import a spreadsheet of them."}</EmptyState>} />
       <Pager page={data.page} pageSize={data.pageSize} total={data.total} hrefFor={(n) => href({ sort: searchParams?.sort, page: n })} newer="Previous" older="Next" />
+    </>
+  );
+  const showMap = radar.tractors.length > 0 || radar.trailers.length > 0;
+  return (
+    <>
+      <PageHead title="Trailers" sub={`${terminal ? `${terminal} terminal. ` : ""}Every trailer: its number, plate and papers, where it is, which tractor pulls it and what it is on. A trailer in the shop, out of service or with a lapsed date is kept off loads.`}>
+        <a className="tl-btn" href={`/export/trailers${filtered ? `?${href({}).split("?")[1] ?? ""}` : ""}`}>Export CSV</a>
+        <Link href="/trailers/import" className="tl-btn">Import from a file</Link>
+        <CanGate caps={["dispatch"]}>
+          <AddTrailer use={use} />
+        </CanGate>
+      </PageHead>
+      {showMap ? <FleetMapPanel initial={points} params={{ near: nearText, r: nearOk?.radius ?? rGiven ?? 50, rGiven: rGiven != null }} fullHref={`/fleet/map?kind=trailer${nearText ? `&near=${encodeURIComponent(nearText)}${rGiven ? `&r=${rGiven}` : ""}` : ""}`}>{table}</FleetMapPanel> : table}
     </>
   );
 }

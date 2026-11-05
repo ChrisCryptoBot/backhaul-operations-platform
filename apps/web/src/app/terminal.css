@@ -480,11 +480,13 @@ dd>.sub{display:block;color:var(--dim)}
 
 
 /* Radar map (docs/TELEMATICS_RADAR.md): the map canvas takes the page background, land is the panel, the rail is ruled, status is a square dot and a word, and a person's typed figure is --typed. No edge strips, no radius. */
-.rd{display:grid;grid-template-columns:minmax(0,1fr) 300px;border:1px solid var(--line);background:var(--panel)}
-.rd-map{position:relative;min-height:520px;height:calc(100vh - 190px);background:var(--bg)}
+.rd{height:calc(100vh - 190px);min-height:520px;border:1px solid var(--line);background:var(--panel)}
+.rd>.spl{height:100%}
+.rd>.spl>.spl-first,.rd>.spl>.spl-second{height:100%}
+.rd-map{position:relative;height:100%;background:var(--bg)}
 .rd-canvas,.rd-canvas.maplibregl-map{position:absolute;inset:0}
 .rd-empty{position:absolute;left:12px;right:12px;top:12px;margin:0;padding:8px 10px;border:1px solid var(--line-hi);background:var(--panel);color:var(--mid);font:500 12px/18px var(--mono)}
-.rd-rail{border-left:1px solid var(--line);padding:12px 14px;overflow:auto;max-height:calc(100vh - 190px)}
+.rd-rail{height:100%;padding:0 14px 12px;overflow:auto;background:var(--panel)}
 .rd-h{margin:0 0 8px;font:600 11px/14px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--label)}
 .rd-hud,.rd-kv{display:grid;grid-template-columns:1fr auto;gap:2px 12px;margin:0 0 8px;font:500 12px/18px var(--mono)}
 .rd-hud dt,.rd-kv dt{color:var(--dim)}
@@ -516,7 +518,6 @@ dd>.sub{display:block;color:var(--dim)}
 .rd-strip-link{position:absolute;inset:0}
 .rd-strip-line{margin:0;padding:6px 10px;border-top:1px solid var(--line);font:500 12px/18px var(--mono);color:var(--mid)}
 .rd-strip-line b{color:var(--ink);font-weight:600}
-@media (max-width:1100px){.rd{grid-template-columns:minmax(0,1fr) 240px}}
 
 /* Where it is (load tracking tab): the lane drawn from the desk's tokens; a green line when the truck is inside a stop's geofence. */
 .lt{display:grid;gap:8px}
@@ -525,3 +526,61 @@ dd>.sub{display:block;color:var(--dim)}
 .lt-svg{width:100%;height:auto;max-height:300px;border:1px solid var(--line);background:var(--bg)}
 .lt-geo{margin:0;font:600 12px/18px var(--mono);color:var(--pos)}
 .lt-sub{margin:0;font:500 11px/16px var(--mono);color:var(--dim)}
+
+/* Split pane: two panes and a draggable bar between them (src/components/desk/kit/split-pane.tsx). Flat, 1px rules, square. */
+.spl{display:flex;min-width:0}
+.spl-vertical{flex-direction:column}
+.spl-horizontal{flex-direction:row;align-items:stretch}
+.spl-first{position:relative;min-width:0;min-height:0;overflow:hidden;flex:0 0 auto}
+.spl-second{flex:1 1 auto;min-width:0;min-height:0}
+.spl-bar{display:flex;align-items:center;gap:8px;flex:0 0 28px;height:28px;padding:0 8px;border:1px solid var(--line-hi);border-width:1px 0;background:var(--head);cursor:row-resize;touch-action:none;user-select:none}
+.spl-horizontal>.spl-bar{flex:0 0 14px;width:14px;height:auto;padding:0;border-width:0 1px;justify-content:center;cursor:col-resize}
+.spl-horizontal>.spl-bar .spl-tools{display:none}
+.spl-bar:hover,.spl-dragging>.spl-bar{background:var(--hover)}
+.spl-bar:focus-visible{outline:2px solid var(--label-hi);outline-offset:-2px}
+.spl-grip{flex:0 0 auto;width:36px;height:6px;border-top:1px solid var(--line-hi);border-bottom:1px solid var(--line-hi)}
+.spl-horizontal>.spl-bar .spl-grip{width:6px;height:36px;border-top:0;border-bottom:0;border-left:1px solid var(--line-hi);border-right:1px solid var(--line-hi)}
+.spl-tools{display:flex;align-items:center;gap:6px;margin-left:auto;cursor:default}
+.spl-dragging{cursor:inherit}
+.spl-dragging .spl-first,.spl-dragging .spl-second{pointer-events:none}
+.spl-folded>.spl-bar{cursor:default}
+
+/* Radar: the panel's tabs, the list, the radius search, and the map panel above the Trucks and Trailers tables. Flat, square, 1px rules. */
+.rd-tabs{display:flex;gap:0;margin:0 -14px 10px;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:2;background:var(--panel)}
+.rd-tab{height:28px;padding:0 14px;border:0;border-right:1px solid var(--line);background:transparent;color:var(--mid);font:500 11px/16px var(--mono);letter-spacing:.06em;text-transform:uppercase;cursor:pointer}
+.rd-tab:hover{background:var(--hover);color:var(--ink)}
+.rd-tab[aria-selected=true]{background:var(--bar);color:var(--on-bar);font-weight:600}
+.rd-pinned{position:relative;margin:0 0 10px;padding:0 0 8px;border-bottom:1px solid var(--line)}
+.rd-x{position:absolute;right:0;top:0}
+.rs{display:grid;gap:8px;margin:0 0 10px}
+.rs-form{display:flex;flex-wrap:wrap;gap:8px;align-items:end}
+.rs-compact{margin:0 0 8px}
+.rs-found{margin:0;font:500 12px/18px var(--mono);color:var(--mid)}
+.rs-found b{color:var(--ink);font-weight:600}
+.rs-error{margin:0;font:500 12px/18px var(--mono);color:var(--neg)}
+.rs-filters{display:flex;flex-wrap:wrap;gap:8px;align-items:end;padding-top:8px;border-top:1px solid var(--line)}
+.rd-listbar{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin:0 0 6px}
+.rd-table{width:100%;table-layout:auto}
+.rd-table th,.rd-table td{white-space:normal;overflow-wrap:anywhere}
+.rd-table .rd-leak{max-width:200px}
+.rd-table th,.rd-table td{padding:3px 6px;vertical-align:top;text-align:left;font:500 11px/16px var(--mono)}
+.rd-table td.num{text-align:right}
+.rd-table thead th{color:var(--label);font-weight:500;letter-spacing:.05em;text-transform:uppercase}
+.rd-row{cursor:pointer}
+.rd-row:hover{background:var(--hover)}
+.rd-row.sel{background:var(--hover);outline:1px solid var(--label-hi);outline-offset:-1px}
+.rd-rowbtn{padding:0;border:0;background:transparent;color:var(--ink);font:600 12px/16px var(--mono);cursor:pointer;text-decoration:underline;text-decoration-color:var(--line-hi);text-underline-offset:2px}
+.rd-row .rd-sub{display:block;margin:0}
+.rd-leak-row{display:block;margin:2px 0 0;font-weight:500}
+.rd-group-head th{background:var(--head);border-top:1px solid var(--line-hi);color:var(--ink)}
+.rd-pager{display:flex;gap:10px;align-items:center;margin:8px 0 0}
+.fm{margin:0 0 12px;border:1px solid var(--line);background:var(--panel)}
+.fm>.rs{margin:0;padding:8px 10px;border-bottom:1px solid var(--line)}
+.fm-map{position:relative;height:100%;background:var(--bg)}
+.fm-table{padding:10px 10px 0}
+.fm-pick{position:absolute;left:10px;bottom:10px;margin:0;padding:6px 10px;border:1px solid var(--line-hi);background:var(--panel);font:500 12px/18px var(--mono);color:var(--mid)}
+.fm-pick b{color:var(--ink);font-weight:600}
+.fm .maplibregl-ctrl-group{border-radius:0;box-shadow:none;background:var(--panel);border:1px solid var(--line-hi)}
+.fm .maplibregl-ctrl-group button{background-color:var(--panel);border-color:var(--line)}
+.fm .maplibregl-ctrl-icon{filter:invert(1)}
+[data-theme=day] .fm .maplibregl-ctrl-icon{filter:none}

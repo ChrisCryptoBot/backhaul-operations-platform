@@ -258,7 +258,7 @@ export async function assignTrailerToLoad(loadId: string, trailerId: string | nu
 // ── Reading ────────────────────────────────────────────────────────────────────────────────────
 
 export const TRAILER_PAGE_SIZE = 50;
-export const TRAILER_SORTS = ["number", "type", "status", "terminal", "registration", "inspection"] as const;
+export const TRAILER_SORTS = ["number", "type", "length", "status", "terminal", "registration", "inspection"] as const;
 export type TrailerSort = (typeof TRAILER_SORTS)[number];
 export const COMPLIANCE_FILTERS = ["lapsed", "soon", "ok"] as const;
 
@@ -266,6 +266,7 @@ const order = (key: TrailerSort, dir: SortDir): Prisma.TrailerOrderByWithRelatio
   const nulls = "last" as const;
   switch (key) {
     case "type": return { type: { sort: dir, nulls } };
+    case "length": return { lengthFt: { sort: dir, nulls } };
     case "status": return { status: dir };
     case "terminal": return { terminal: { sort: dir, nulls } };
     case "registration": return { registrationExpiry: { sort: dir, nulls } };
@@ -274,7 +275,7 @@ const order = (key: TrailerSort, dir: SortDir): Prisma.TrailerOrderByWithRelatio
   }
 };
 
-export type TrailerPageQuery = { q?: string; sort?: string; page?: number; pageSize?: number; terminal?: string | null; type?: string; status?: string; ownership?: string; compliance?: string; archived?: boolean };
+export type TrailerPageQuery = { q?: string; sort?: string; page?: number; pageSize?: number; terminal?: string | null; type?: string; status?: string; ownership?: string; compliance?: string; archived?: boolean; /** Only these trailers (the ones inside a radius search). */ onlyIds?: string[] };
 
 /** The compliance filter as a where clause: lapsed is a date in the past, soon a date within the window, ok neither. */
 function complianceWhere(kind: string | undefined, now: Date, days: number): Prisma.TrailerWhereInput {
@@ -299,6 +300,7 @@ export async function listTrailersPage(query: TrailerPageQuery = {}, now = new D
   const where: Prisma.TrailerWhereInput = {
     workspaceId,
     archivedAt: query.archived ? { not: null } : null,
+    ...(query.onlyIds ? { id: { in: query.onlyIds } } : {}),
     ...(query.terminal ? { terminal: query.terminal } : {}),
     ...(query.type ? { type: query.type } : {}),
     ...(query.status ? { status: query.status } : {}),
@@ -320,6 +322,7 @@ export async function listTrailersPage(query: TrailerPageQuery = {}, now = new D
     id: t.id,
     number: t.number,
     type: t.type,
+    lengthFt: numOrNull(t.lengthFt),
     plate: t.plate,
     plateState: t.plateState,
     ownership: t.ownership,

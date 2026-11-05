@@ -19,6 +19,9 @@ export const perMile = (n: number | null | undefined): string => {
   return `${n < 0 && /[1-9]/.test(text) ? MINUS : ""}$${text}/mi`;
 };
 
+/** A length in feet: "53 ft", "48.5 ft". Not known is a dash, never 0. */
+export const feet = (n: number | null | undefined): string => (n == null || !Number.isFinite(n) || n <= 0 ? "\u2014" : `${n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 1 })} ft`);
+
 export const miles = (n: number | null | undefined): string => (n == null || !Number.isFinite(n) ? "—" : `${Math.round(n).toLocaleString("en-US")} mi`);
 
 /**

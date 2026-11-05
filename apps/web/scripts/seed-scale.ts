@@ -47,6 +47,13 @@ const CITIES = [
   "Dallas, TX", "Houston, TX", "Atlanta, GA", "Chicago, IL", "Memphis, TN", "Nashville, TN", "Columbus, OH", "Harrisburg, PA", "Charlotte, NC",
   "Indianapolis, IN", "Kansas City, MO", "St. Louis, MO", "Oklahoma City, OK", "Louisville, KY", "Savannah, GA", "Denver, CO", "Phoenix, AZ", "Salt Lake City, UT"
 ] as const;
+// Where each home city is, so every tractor and trailer can be given a position and the radar, its clusters and its radius search have a fleet to show.
+const XY: Record<string, [number, number]> = {
+  "Dallas, TX": [32.78, -96.8], "Houston, TX": [29.76, -95.37], "Atlanta, GA": [33.75, -84.39], "Chicago, IL": [41.88, -87.63], "Memphis, TN": [35.15, -90.05], "Nashville, TN": [36.16, -86.78],
+  "Columbus, OH": [39.96, -83.0], "Harrisburg, PA": [40.27, -76.88], "Charlotte, NC": [35.23, -80.84], "Indianapolis, IN": [39.77, -86.16], "Kansas City, MO": [39.1, -94.58],
+  "St. Louis, MO": [38.63, -90.2], "Oklahoma City, OK": [35.47, -97.52], "Louisville, KY": [38.25, -85.76], "Savannah, GA": [32.08, -81.09], "Denver, CO": [39.74, -104.99],
+  "Phoenix, AZ": [33.45, -112.07], "Salt Lake City, UT": [40.76, -111.89]
+};
 const CUSTOMERS = Array.from({ length: 60 }, (_, i) => `Customer ${String(i + 1).padStart(2, "0")}`);
 const TRAILERS = ["dry_van", "reefer", "flatbed", "step_deck"] as const;
 const FIRST = ["Alex", "Sam", "Jordan", "Taylor", "Casey", "Morgan", "Riley", "Jamie", "Drew", "Quinn", "Avery", "Reese"];
@@ -63,11 +70,25 @@ async function main() {
   const now = Date.now();
 
   const vehicleIds: string[] = [];
+  const truckAt: Array<[number, number]> = [];
   const vehicles = Array.from({ length: TRUCKS }, (_, i) => {
     const id = randomUUID();
     vehicleIds.push(id);
     const base = pick(CITIES);
+    // Out on the road within about a state of home, with an engine state, so the radar has movers, idlers and parked trucks.
+    const [bl, bg] = XY[base]!;
+    const at: [number, number] = [round(bl + between(-2, 2), 4), round(bg + between(-3, 3), 4)];
+    truckAt.push(at);
+    const e = rand();
     return {
+      lastLat: at[0],
+      lastLng: at[1],
+      lastLocatedAt: new Date(now - between(1, 14) * 60_000),
+      engineState: e < 0.55 ? "moving" : e < 0.75 ? "idle" : "off",
+      lastSpeedMph: e < 0.55 ? round(between(52, 69), 1) : 0,
+      lastHeadingDeg: Math.floor(rand() * 360),
+      idleHoursToday: e >= 0.55 && e < 0.75 ? round(between(0.3, 5), 2) : 0,
+      idleSince: e >= 0.55 && e < 0.75 ? new Date(now - between(20, 300) * 60_000) : null,
       id,
       workspaceId: WORKSPACE_ID,
       name: `Unit ${1000 + i}`,
@@ -110,10 +131,21 @@ async function main() {
 
   // Trailers: mostly dry vans, a third hooked to a tractor, a few in the shop, some with papers lapsed or due.
   const TRAILER_KINDS = ["dry_van", "dry_van", "dry_van", "reefer", "flatbed", "step_deck"] as const;
+  // Dropped trailers sit in yards: a few exact spots in each home city that fill up (twenty or fifty on one spot, which no amount of zooming pulls apart), the rest scattered.
+  const YARDS = CITIES.flatMap((c) => Array.from({ length: 2 }, (_, k): [string, number, number] => [c, round(XY[c]![0] + (k === 0 ? 0.04 : -0.07), 4), round(XY[c]![1] + (k === 0 ? 0.05 : -0.03), 4)]));
   const trailers = Array.from({ length: TRAILER_COUNT }, (_, i) => {
     const base = pick(CITIES);
     const r = rand();
+    const hooked = i < vehicleIds.length / 3;
+    const yard = pick(YARDS);
+    const inYard = rand() < 0.6;
+    const [tl, tg]: [number, number] = hooked ? truckAt[i]! : inYard ? [yard[1], yard[2]] : [round(XY[base]![0] + between(-4, 4), 4), round(XY[base]![1] + between(-5, 5), 4)];
     return {
+      lastLat: tl,
+      lastLng: tg,
+      lastLocatedAt: new Date(now - between(5, 90) * 60_000),
+      hookedAt: hooked ? new Date(now - between(1, 20) * 3_600_000) : null,
+      unhookedAt: hooked ? null : new Date(now - between(2, 150) * 3_600_000),
       id: randomUUID(),
       workspaceId: WORKSPACE_ID,
       number: `T-${String(i + 1).padStart(5, "0")}`,

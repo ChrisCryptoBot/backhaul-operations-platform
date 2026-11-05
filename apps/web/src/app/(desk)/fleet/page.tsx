@@ -14,8 +14,12 @@ import { currentTerminal } from "@/server/tl/terminal";
 import { partnerState } from "@/server/partners/call";
 import { SyncEldButton } from "@/components/desk/partner-actions";
 import { CanGate } from "@/components/desk/kit/can-gate";
-import { RadarStrip } from "@/components/desk/radar-map";
+import { FleetMapPanel } from "@/components/desk/radar-map";
+import { readRadarParams } from "@/lib/radar-points";
+import { clampRadius, milesText } from "@/lib/radius";
 import { getRadarData } from "@/server/tl/radar";
+import { radarPoints } from "@/server/tl/radar-query";
+import { unitsNear } from "@/server/tl/radar-near";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 
 export const metadata = { title: "Trucks · TrueLane" };
@@ -36,19 +40,29 @@ const COLUMNS: Column[] = [
   { key: "act", label: "", group: "" }
 ];
 
-export default async function FleetPage({ searchParams }: { searchParams?: { q?: string; sort?: string; page?: string } }) {
+export default async function FleetPage({ searchParams }: { searchParams?: { q?: string; sort?: string; page?: string; near?: string; r?: string } }) {
   // Read a page at a time: the database searches, sorts and counts, so a fleet of thousands opens as fast as a fleet of three.
   const terminal = await currentTerminal();
   const eld = await partnerState("eld");
-  const pageData = await listTrucksPage({ q: searchParams?.q, sort: searchParams?.sort, page: asPage(searchParams?.page), terminal });
+  // A search by place ("75201", "Dallas, TX", "TX") narrows the table and the map to the trucks within a radius of it.
+  const nearText = searchParams?.near?.trim() ?? "";
+  const rGiven = searchParams?.r ? clampRadius(searchParams.r) : null;
+  const near = nearText ? await unitsNear("trucks", nearText, rGiven, currentWorkspaceId(), terminal) : null;
+  const nearOk = near && !("error" in near) ? near : null;
+  const pageData = await listTrucksPage({ q: searchParams?.q, sort: searchParams?.sort, page: asPage(searchParams?.page), terminal, onlyIds: nearOk ? [...nearOk.miles.keys()] : undefined });
   // Where every tractor is and what standing with the engine on is costing: one read for the strip and the Idling cell.
   const radar = await getRadarData(currentWorkspaceId(), terminal);
   const radarOf = new Map(radar.tractors.map((u) => [u.id, u]));
+  const mapParams = readRadarParams((k) => (k === "kind" ? "tractor" : searchParams?.[k as "near" | "r"]));
+  const points = await radarPoints(radar, mapParams);
+  const columns: Column[] = nearOk ? [...COLUMNS.slice(0, 3), { key: "away", label: "Away", group: "Truck", align: "num" }, ...COLUMNS.slice(3)] : COLUMNS;
   const trucks = pageData.rows;
   const sortParam = searchParams?.sort ? { key: pageData.sort.key as string, dir: pageData.sort.dir } : null;
   const href = (p: { sort?: string | null; page?: number }) => {
     const q = new URLSearchParams();
     if (pageData.q) q.set("q", pageData.q);
+    if (nearText) q.set("near", nearText);
+    if (nearText && searchParams?.r) q.set("r", searchParams.r);
     if (p.sort) q.set("sort", p.sort);
     if (p.page && p.page > 1) q.set("page", String(p.page));
     const s = q.toString();
@@ -71,6 +85,7 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
       ),
       type: t.type?.replace("_", " ") ?? "—",
       terminal: t.terminal ?? <span className="dim">—</span>,
+      away: nearOk?.miles.has(t.id) ? milesText(nearOk.miles.get(t.id)!) : "—",
       mpg: t.mpg ?? "—",
       fuel: perGallon(t.fuelPrice),
       planned: miles(t.monthlyMiles),
@@ -93,6 +108,14 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
   }));
 
   const use = await unitUse("truck");
+  const table = (
+    <>
+      <DataTableTools tableId="trucks-table" total={pageData.total} placeholder="Search trucks…" server={{ path: "/fleet", q: pageData.q, keep: { ...(searchParams?.sort ? { sort: searchParams.sort } : {}), ...(nearText ? { near: nearText } : {}), ...(nearText && searchParams?.r ? { r: searchParams.r } : {}) } }} />
+      <DataTable id="trucks-table" label="Trucks" columns={columns} rows={rows} sortHref={sortHref} empty={<EmptyState icon="trucks" title="No trucks yet">A truck and its cost profile set the floor every load is measured against.</EmptyState>} />
+      <Pager page={pageData.page} pageSize={pageData.pageSize} total={pageData.total} hrefFor={(n) => href({ sort: searchParams?.sort, page: n })} newer="Previous" older="Next" />
+    </>
+  );
+  const showMap = radar.tractors.length > 0 || radar.connected;
   return (
     <>
       <PageHead title="Trucks" sub={`${terminal ? `${terminal} terminal. ` : ""}Each truck's break-even floor, from its own cost profile. Every verdict on the Loads screen is measured against it. Open a truck to change its costs and see the floor move.`}>
@@ -104,10 +127,7 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
           <AddTruck use={use} />
         </CanGate>
       </PageHead>
-      {radar.tractors.length > 0 || radar.connected ? <RadarStrip initial={radar} /> : null}
-      <DataTableTools tableId="trucks-table" total={pageData.total} placeholder="Search trucks…" server={{ path: "/fleet", q: pageData.q, keep: searchParams?.sort ? { sort: searchParams.sort } : {} }} />
-      <DataTable id="trucks-table" label="Trucks" columns={COLUMNS} rows={rows} sortHref={sortHref} empty={<EmptyState icon="trucks" title="No trucks yet">A truck and its cost profile set the floor every load is measured against.</EmptyState>} />
-      <Pager page={pageData.page} pageSize={pageData.pageSize} total={pageData.total} hrefFor={(n) => href({ sort: searchParams?.sort, page: n })} newer="Previous" older="Next" />
+      {showMap ? <FleetMapPanel initial={points} params={{ near: nearText, r: nearOk?.radius ?? rGiven ?? 50, rGiven: rGiven != null }} fullHref={`/fleet/map?kind=tractor${nearText ? `&near=${encodeURIComponent(nearText)}${rGiven ? `&r=${rGiven}` : ""}` : ""}`}>{table}</FleetMapPanel> : table}
       <p className="tl-note" style={{ marginTop: 12 }}>
         The break-even floor is cost per mile before fuel (fixed costs spread over planned miles, plus maintenance and tires). The verdict adds fuel for the load&apos;s own miles.
       </p>

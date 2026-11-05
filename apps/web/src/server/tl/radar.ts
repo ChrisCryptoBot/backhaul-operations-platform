@@ -38,6 +38,8 @@ export type RadarTrailer = {
   id: string;
   number: string;
   code: string;
+  /** The trailer's length in feet, when it is known. */
+  lengthFt: number | null;
   lat: number;
   lng: number;
   hooked: boolean;
@@ -147,6 +149,7 @@ export async function getRadarData(workspaceId = currentWorkspaceId(), terminal:
       id: tr.id,
       number: tr.number,
       code: equipmentCode(tr.type, numOrNull(tr.lengthFt)),
+      lengthFt: numOrNull(tr.lengthFt),
       lat,
       lng,
       hooked: tr.currentVehicleId != null,

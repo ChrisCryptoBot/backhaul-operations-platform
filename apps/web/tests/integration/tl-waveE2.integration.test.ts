@@ -158,6 +158,21 @@ describe.skipIf(!run)("the trailer registry", () => {
     expect((await listTrailersPage({ archived: true }, new Date(), W)).rows.every((r) => r.archived)).toBe(true);
   });
 
+  test("the list carries each trailer's length and sorts by it, with the ones that have none last", async () => {
+    await saveTrailer(t({ number: "E2-LEN48", lengthFt: "48", plate: "LEN48" }), null, new Date(), W);
+    await saveTrailer(t({ number: "E2-LENNONE", lengthFt: "", plate: "LENNO" }), null, new Date(), W);
+    const asc = await listTrailersPage({ sort: "length", pageSize: 100 }, new Date(), W);
+    const lens = asc.rows.map((r) => r.lengthFt);
+    expect(asc.rows.find((r) => r.number === "E2-LEN48")!.lengthFt).toBe(48);
+    expect(asc.rows.find((r) => r.number === "E2-LENNONE")!.lengthFt).toBeNull();
+    const known = lens.filter((l): l is number => l != null);
+    expect(known).toEqual([...known].sort((x, y) => x - y)); // shortest first
+    expect(lens.slice(lens.length - lens.filter((l) => l == null).length).every((l) => l == null)).toBe(true); // unknown last
+    const desc = await listTrailersPage({ sort: "-length", pageSize: 100 }, new Date(), W);
+    const dk = desc.rows.map((r) => r.lengthFt).filter((l): l is number => l != null);
+    expect(dk).toEqual([...dk].sort((x, y) => y - x));
+  });
+
   test("the Quote counts the free trailers of the kind it needs, and says nothing when the desk keeps none", async () => {
     const free = await countTrailersAvailable("dry_van", null, new Date(), W);
     const expected = await prisma.trailer.count({ where: { workspaceId: W, archivedAt: null, status: "available", type: "dry_van", registrationExpiry: { gte: new Date() }, loads: { none: { deletedAt: null, status: { in: ["draft", "accepted", "in_progress"] } } } } });

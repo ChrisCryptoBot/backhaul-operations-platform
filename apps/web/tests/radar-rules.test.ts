@@ -10,19 +10,49 @@ const read = (p: string) => fs.readFileSync(path.join(__dirname, "..", p), "utf8
  */
 describe("the radar map is offline and drawn from tokens", () => {
   const map = read("src/components/desk/radar-map.tsx");
+  // The map, its list, its search and the panel over the tables are one family: none of them may reach outside the desk.
+  const family = [map, read("src/components/desk/radar-list.tsx"), read("src/components/desk/radius-search.tsx")];
   it("has no tile server, glyph or sprite endpoint, no external address, and no hex colour", () => {
-    expect(map).not.toMatch(/https?:\/\//);
-    expect(map).not.toMatch(/\b(glyphs|sprite|tiles)\s*:/);
-    expect(map.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "")).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
-    // The only thing it fetches is the desk's own data route.
-    expect([...map.matchAll(/fetch\(\s*"([^"]+)"/g)].map((m) => m[1])).toEqual(["/fleet/map/data"]);
+    for (const src of family) {
+      expect(src).not.toMatch(/https?:\/\//);
+      expect(src).not.toMatch(/(glyphs|sprite|tiles)\s*:/);
+      expect(src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "")).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+    }
+  });
+  it("fetches only the desk's own data route", () => {
+    const urls = family.flatMap((src) => [...src.matchAll(/fetch\(\s*[`"]([^`"$?]+)/g)].map((m) => m[1]));
+    expect(urls.length).toBeGreaterThan(0);
+    expect([...new Set(urls)]).toEqual(["/fleet/map/data"]);
   });
   it("reads its colours from the live CSS tokens, so night and day both work", () => {
     for (const token of ["--bg", "--panel", "--line", "--line-hi", "--label", "--warn-fill", "--ink", "--dim", "--pos-fill"]) expect(map, token).toContain(token);
   });
-  it("draws squares (fillRect/strokeRect) and no circles for its glyphs", () => {
+  it("draws squares (fillRect/strokeRect) and no circles for its glyphs or its clusters", () => {
     expect(map).toMatch(/fillRect/);
     expect(map).not.toMatch(/\.arc\(|circle/);
+  });
+});
+
+describe("the radar clusters thousands of units and hands stacks over as a list", () => {
+  const map = read("src/components/desk/radar-map.tsx");
+  it("clusters in one source, splits a cluster on click, and opens units stacked on one spot as a list", () => {
+    expect(map).toContain("cluster: true");
+    expect(map).toContain("clusterProperties");
+    expect(map).toContain("getClusterExpansionZoom");
+    expect(map).toContain("getClusterLeaves");
+    expect(map).toContain("setMissingStyleImageResolver"); // a cluster's square is drawn when the map first asks for its size
+    expect(map).toContain("setClusterOptions"); // clusters can be switched off
+    expect(map).toMatch(/maxZoom: MAP_MAX_ZOOM/);
+  });
+  it("the Trucks and Trailers pages carry the map above the table on a split, narrowed by the same search", () => {
+    for (const page of ["src/app/(desk)/fleet/page.tsx", "src/app/(desk)/trailers/page.tsx"]) {
+      const src = read(page);
+      expect(src, page).toContain("<FleetMapPanel");
+      expect(src, page).toContain("unitsNear(");
+      expect(src, page).toContain("onlyIds");
+    }
+    expect(map).toContain('orientation="vertical"');
+    expect(map).toContain('orientation="horizontal"');
   });
 });
 

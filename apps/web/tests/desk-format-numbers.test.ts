@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { gallons, miles, perGallon, perMile, usd } from "@/lib/desk-format";
+import { feet, gallons, miles, perGallon, perMile, usd } from "@/lib/desk-format";
 
 describe("numbers are the product: one minus, honest blanks, fixed decimals", () => {
   it("a loss carries the real minus (U+2212), never a hyphen", () => {
@@ -37,6 +37,14 @@ describe("numbers are the product: one minus, honest blanks, fixed decimals", ()
     expect(gallons(null)).toBe("—");
     expect(gallons(1234.56)).toBe("1,234.6");
     expect(gallons(100)).toBe("100");
+  });
+
+  it("a trailer length is feet to a tenth, and a dash when not known", () => {
+    expect(feet(53)).toBe("53 ft");
+    expect(feet(48.5)).toBe("48.5 ft");
+    expect(feet(null)).toBe("—");
+    expect(feet(Number.NaN)).toBe("—");
+    expect(feet(0)).toBe("—");
   });
 
   it("no screen builds its own dollars with a raw template: they go through desk-format", () => {

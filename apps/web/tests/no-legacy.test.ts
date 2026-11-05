@@ -35,7 +35,8 @@ const self = path.join(__dirname, "no-legacy.test.ts");
 
 describe("the old app and its employer are gone", () => {
   it("names the employer nowhere in the repo outside migration history", () => {
-    const files = walk(repo, (p) => SKIP(p) || p.includes(`${path.sep}migrations${path.sep}`)).filter((f) => f !== self);
+    // The bundled Census gazetteer (src/lib/gazetteer) lists every US town, and some towns share a name with the old employer's: that is a place, not the employer.
+    const files = walk(repo, (p) => SKIP(p) || p.includes(`${path.sep}migrations${path.sep}`) || p.includes(`${path.sep}lib${path.sep}gazetteer${path.sep}`)).filter((f) => f !== self);
     const hits = files.filter((f) => EMPLOYER.test(fs.readFileSync(f, "utf8"))).map(rel);
     expect(hits).toEqual([]);
   });

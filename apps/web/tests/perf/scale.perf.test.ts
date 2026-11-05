@@ -12,6 +12,10 @@ import { listDriversPage, listTrucksPage } from "@/server/tl/fleet-list";
 import { listHistory } from "@/server/tl/history";
 import { clearKpiCache, getDeskKpi } from "@/server/tl/kpi";
 import { getPlannerData } from "@/server/tl/planner";
+import { readRadarParams } from "@/lib/radar-points";
+import { getRadarData } from "@/server/tl/radar";
+import { unitsNear } from "@/server/tl/radar-near";
+import { radarList, radarPoints } from "@/server/tl/radar-query";
 import { agingFor, countInvoices, listBoardRows, listInvoiceRows } from "@/server/tl/queries";
 import { fitQuote } from "@/server/tl/quote";
 import { listSettlements, settlementCounts, unsettledByDriver } from "@/server/tl/settlement";
@@ -154,4 +158,29 @@ describe.runIf(run)("the desk at the size of a big fleet", () => {
     expect(await best(() => getDeskKpi({ period: "all", compare: false }), 1)).toBeLessThan(20_000);
     expect(await best(() => getDeskKpi({ period: "all", compare: false }))).toBeLessThan(300);
   }, 120_000);
+
+  test("Radar: lean points, a radius search, the list and its groups, and the radius on Trucks and Trailers, at 1,500 tractors and 5,000 trailers", async () => {
+    const q = (o: Record<string, string>) => readRadarParams((k) => o[k]);
+    const data = await getRadarData();
+    expect(data.tractors.length).toBeGreaterThan(1_000);
+    expect(data.trailers.length).toBeGreaterThan(3_000);
+    const all = await radarPoints(data, q({}));
+    // The map is sent points, not cards: a unit costs well under 200 bytes however big the fleet is.
+    expect(JSON.stringify(all.points).length / all.points.length).toBeLessThan(200);
+    expect(await best(() => getRadarData())).toBeLessThan(3_000);
+    expect(await best(() => radarPoints(data, q({})))).toBeLessThan(300);
+    // A ZIP, a city and a state: found offline, so the cost is the measuring, not a lookup.
+    for (const near of ["75201", "Atlanta, GA", "TX"]) expect(await best(() => radarPoints(data, q({ near, r: "100" })))).toBeLessThan(400);
+    const dallas = await radarPoints(data, q({ near: "75201", r: "100" }));
+    expect(dallas.search).toMatchObject({ ok: true });
+    expect(await best(() => radarList(data, q({ near: "75201", r: "100" })))).toBeLessThan(500);
+    expect(await best(() => radarList(data, q({ near: "75201", r: "100", group: "1" })))).toBeLessThan(500);
+    expect(await best(() => radarList(data, q({ sort: "name", page: "40" })))).toBeLessThan(500);
+    // The tables answer the same question.
+    const terminal = (await prisma.vehicle.findFirst({ where: { terminal: { not: null } }, select: { terminal: true } }))?.terminal ?? null;
+    const near = await unitsNear("trailers", "75201", 100, undefined, terminal);
+    expect("error" in near).toBe(false);
+    expect(await best(() => unitsNear("trucks", "Atlanta, GA", 100))).toBeLessThan(500);
+    expect(await best(() => unitsNear("trailers", "Atlanta, GA", 100))).toBeLessThan(800);
+  }, 60_000);
 });
