@@ -11,7 +11,8 @@
     "dev": "npm run dev --workspace apps/web",
     "lint": "npm run lint --workspace apps/web",
     "test": "npm run test --workspace apps/web",
-    "typecheck": "npm run typecheck --workspace apps/web"
+    "typecheck": "npm run typecheck --workspace apps/web",
+    "db:export-supabase": "node apps/web/scripts/export-supabase.mjs"
   },
   "dependencies": {},
   "devDependencies": {

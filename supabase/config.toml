@@ -1,0 +1,6 @@
+# The dispatch desk's own Supabase project (not the phone's truelane-prod). This file only lets the Supabase CLI treat dispatch-desk as a project
+# directory, so `supabase db push --db-url <direct connection string>` finds supabase/migrations. See supabase/README.md.
+project_id = "truelane-desk"
+
+[db]
+major_version = 15
