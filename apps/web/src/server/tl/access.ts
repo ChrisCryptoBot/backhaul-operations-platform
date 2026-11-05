@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { canAny, cleanGrants, whoCan, type Capability, type Role } from "@/lib/roles";
-import { authOn, sessionIdentity, type Identity } from "./identity";
+import { authOn, demoIdentity, sessionIdentity, type Identity } from "./identity";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -19,7 +19,13 @@ export const DEMO_NAME = "Dispatcher";
  */
 export async function checkAccess(...capabilities: Capability[]): Promise<Access> {
   const needs: Capability[] = capabilities.length > 0 ? capabilities : ["read"];
-  if (!authOn()) return { ok: true, identity: { userId: "demo", workspaceId: currentWorkspaceId(), role: "admin", grants: [], name: DEMO_NAME, email: null } };
+  if (!authOn()) {
+    // The demo desk: whoever the demo button signed in as, held to the same role matrix as a real desk (no cookie, a script or a test: the admin it always was).
+    const demo = demoIdentity();
+    const role: Role = demo?.role ?? "admin";
+    if (!canAny(role, [], needs)) return { ok: false, reason: "forbidden" };
+    return { ok: true, identity: { userId: "demo", workspaceId: currentWorkspaceId(), role, grants: [], name: demo?.name ?? DEMO_NAME, email: demo?.email ?? null } };
+  }
   const id = sessionIdentity();
   if (!id) return { ok: false, reason: "signed_out" };
   const m = await prisma.member.findFirst({ where: { clerkUserId: id.userId, workspaceId: id.workspaceId }, select: { role: true, grants: true, name: true, email: true } });
@@ -67,7 +73,8 @@ export async function guardRoute(...capabilities: Capability[]): Promise<NextRes
  * With sign-in off the demo shows everything.
  */
 export function isPlatformAdmin(identity: Identity): boolean {
-  if (!authOn()) return true;
+  // The demo shows everything to its admin, and only to its admin.
+  if (!authOn()) return identity.role === "admin";
   const list = (process.env.DESK_ADMIN_EMAILS ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
   return identity.email != null && list.includes(identity.email.toLowerCase());
 }

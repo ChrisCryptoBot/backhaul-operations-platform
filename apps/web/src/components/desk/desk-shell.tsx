@@ -15,45 +15,50 @@ import { TERMINAL_LIST_ID } from "@/lib/terminal";
 import { useUnderlay } from "./underlay";
 import { perMile, pct, usd } from "@/lib/desk-format";
 import type { ShellData } from "@/server/tl/shell";
+import { type Role } from "@/lib/roles";
+import { DEMO_USERS } from "@/lib/demo-session";
+
+/** What the demo calls each way of using the desk ("Billing" for the accounting role). */
+const demoLabel = (role: Role) => DEMO_USERS.find((u) => u.role === role)?.label ?? role;
 
 
 /** `code` is the two-letter mnemonic the rail leads with (and the panel header repeats): a list of places, not a list of icons. */
-type Item = { href: string; label: string; code: string; pill?: (c: ShellData["counts"]) => { n: number; tone?: "alert" | "warn" } | null };
+type Item = { href: string; label: string; code: string; pill?: (c: ShellData["counts"]) => { n: number; tone?: "alert" | "warn" } | null; /** Who the rail shows it to (src/lib/roles.ts); left out, everyone. The server refuses what a role may not do whether or not the link is shown. */ roles?: Role[] };
 
 const NAV: Array<{ label: string; items: Item[] }> = [
   {
     label: "Dispatch",
     items: [
-      { href: "/quote", label: "Quote a load", code: "QT" },
+      { href: "/quote", label: "Quote a load", code: "QT", roles: ["admin", "dispatcher"] },
       { href: "/loads", label: "Loads", code: "LD" },
-      { href: "/dispatch", label: "Dispatch queue", code: "DQ", pill: (c) => (c.needsDriver > 0 ? { n: c.needsDriver, tone: "warn" } : null) },
-      { href: "/messages", label: "Messages", code: "MS", pill: (c) => (c.unreadMessages > 0 ? { n: c.unreadMessages, tone: "warn" } : null) },
-      { href: "/planner", label: "Planner", code: "PL" },
+      { href: "/dispatch", label: "Dispatch queue", code: "DQ", pill: (c) => (c.needsDriver > 0 ? { n: c.needsDriver, tone: "warn" } : null), roles: ["admin", "dispatcher"] },
+      { href: "/messages", label: "Messages", code: "MS", pill: (c) => (c.unreadMessages > 0 ? { n: c.unreadMessages, tone: "warn" } : null), roles: ["admin", "dispatcher", "accounting"] },
+      { href: "/planner", label: "Planner", code: "PL", roles: ["admin", "dispatcher", "viewer"] },
       { href: "/alerts", label: "Alerts", code: "AL", pill: (c) => (c.alertsBlock > 0 ? { n: c.alertsBlock + c.alertsWarn, tone: "alert" } : c.alertsWarn > 0 ? { n: c.alertsWarn, tone: "warn" } : null) },
-      { href: "/rate-cons", label: "Rate confirmations", code: "RC" }
+      { href: "/rate-cons", label: "Rate confirmations", code: "RC", roles: ["admin", "dispatcher"] }
     ]
   },
   {
     label: "Fleet",
     items: [
       { href: "/drivers", label: "Drivers", code: "DR" },
-      { href: "/fleet", label: "Trucks", code: "TK" },
-      { href: "/trailers", label: "Trailers", code: "TR" }
+      { href: "/fleet", label: "Trucks", code: "TK", roles: ["admin", "dispatcher", "viewer"] },
+      { href: "/trailers", label: "Trailers", code: "TR", roles: ["admin", "dispatcher", "viewer"] }
     ]
   },
   {
     label: "Market",
     items: [
       { href: "/customers", label: "Customers", code: "CU" },
-      { href: "/lanes", label: "Lanes", code: "LN" }
+      { href: "/lanes", label: "Lanes", code: "LN", roles: ["admin", "dispatcher", "viewer"] }
     ]
   },
   {
     label: "Money",
     items: [
       { href: "/invoices", label: "Invoices", code: "IV", pill: (c) => (c.overdue > 0 ? { n: c.overdue, tone: "alert" } : c.readyToInvoice > 0 ? { n: c.readyToInvoice } : null) },
-      { href: "/settlements", label: "Settlements", code: "ST" },
-      { href: "/payroll", label: "Payroll", code: "PY" },
+      { href: "/settlements", label: "Settlements", code: "ST", roles: ["admin", "accounting"] },
+      { href: "/payroll", label: "Payroll", code: "PY", roles: ["admin", "accounting"] },
       { href: "/kpi", label: "KPI dashboard", code: "KP" }
     ]
   },
@@ -165,6 +170,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
           <GlobalSearch />
           <TerminalScope terminals={data.terminals} terminal={data.terminal} />
           <Link href="/enterprise" className="t-mid">Talk to a person</Link>
+          {!data.account.on && demoLogin && data.account.role ? <span className="t-mid who" title={`Signed in to the demo as ${demoLabel(data.account.role as Role)}`}>{demoLabel(data.account.role as Role)}</span> : null}
           {data.account.on && data.account.name ? <span className="t-mid who" title={`${data.account.name}${role ? `, ${role}` : ""}`}>{data.account.name}{role ? ` · ${role}` : ""}</span> : null}
           {data.account.on ? <AuthSignOutButton className="t-mid t-linkbtn">Sign out</AuthSignOutButton> : demoLogin ? <a href="/auth/leave" className="t-mid">Sign out</a> : null}
         </header>
@@ -176,7 +182,9 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
           <div><span>Empty miles</span><b>{pct(t.emptyShare)}</b></div>
         </div>
         <nav id="t-sections" className="t-rail" aria-label="Sections">
-          {NAV.map((group) => (
+          {NAV.map((group) => ({ ...group, items: group.items.filter((i) => !role || !i.roles || i.roles.includes(role as Role)) }))
+            .filter((group) => group.items.length > 0)
+            .map((group) => (
             <React.Fragment key={group.label}>
               <h2>{group.label}</h2>
               {group.items.map((item) => {

@@ -35,7 +35,8 @@ describe("the demo sign-in and sign-out are wired", () => {
     expect(page).toContain("<DemoSignIn");
     const form = src("src/components/desk/public/demo-sign-in.tsx");
     expect(form).toContain('action="/auth/demo"');
-    expect(form).toContain("Use demo credentials");
+    expect(form).toContain("Demo as ${u.label}"); // one button for each way of using the desk (src/lib/demo-session.ts)
+    expect(form).toContain("DEMO_USERS");
     expect(form).toContain("requestSubmit");
   });
 

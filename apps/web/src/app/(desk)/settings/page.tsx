@@ -42,18 +42,21 @@ import { listMembers } from "@/server/tl/members";
 import { can } from "@/lib/roles";
 import { CARRIER_ZONES, clockName } from "@/lib/tz";
 import { workspaceTimezone } from "@/server/tl/zone";
+import { SettingsTabs, type SettingsTab } from "@/components/desk/settings-tabs";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 
 export const metadata = { title: "Settings · TrueLane" };
 
 /** Settings: appearance (theme, row density, idle sleep mode) and the thresholds the desk judges by. Appearance buttons save straight away. */
-export default async function SettingsPage() {
+export default async function SettingsPage({ searchParams }: { searchParams?: { tab?: string } }) {
   const jar = cookies();
   const theme = asTheme(jar.get(THEME_COOKIE)?.value);
   const density = asDensity(jar.get(DENSITY_COOKIE)?.value);
   const sleepMinutes = asSleepMinutes(jar.get(SLEEP_COOKIE)?.value);
   const isCustomSleep = !(SLEEP_PRESETS as readonly number[]).includes(sleepMinutes);
   const me = await requirePage("read");
+  // The company, the plan, the team, the integrations, the clock and the thresholds are the admin's: everyone else sees how the desk looks for them and the alert rules, and the actions behind the rest refuse them as well.
+  const admin = can(me.role, me.grants, "admin");
   const zone = await workspaceTimezone(currentWorkspaceId());
   const [keyStatus, hooks] = await Promise.all([allCredentialStatus(), webhookPaths()]);
   const host = headers().get("x-forwarded-host") ?? headers().get("host") ?? "";
@@ -62,17 +65,18 @@ export default async function SettingsPage() {
   const seats = plan.units.find((u) => u.kind === "member")!;
   const stored = Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, row[f.key] ?? null])) as Record<keyof Thresholds, number | null>;
 
-  return (
+  const companyTab = (
     <>
-      <PageHead title="Settings" sub="Your company on the paperwork, how the desk looks, and the numbers it judges by." />
-
       <Card title="Company" className="tl-card">
         <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
           Printed at the top of every invoice and driver statement, with where a customer should send the payment. Only the name is required; a sheet prints just what is filled in.
         </p>
         <CompanyForm stored={toCompanyValues(company)} />
       </Card>
-
+    </>
+  );
+  const planTab = (
+    <>
       <div id="plan">
       <Card title="Plan" className="tl-card">
         <p style={{ margin: "0 0 6px" }}>
@@ -112,11 +116,17 @@ export default async function SettingsPage() {
         </table>
       </Card>
       </div>
-
+    </>
+  );
+  const teamTab = (
+    <>
       <Card title="Team" className="tl-card">
         <TeamCard rows={members.map((m) => ({ id: m.id, email: m.email, name: m.name, role: m.role, grants: m.grants, signedIn: m.signedIn, you: m.email === me.email }))} canEdit={can(me.role, me.grants, "admin")} seats={{ used: seats.used, limit: seats.limit }} />
       </Card>
-
+    </>
+  );
+  const integrationsTab = (
+    <>
       <Card title="Integrations" className="tl-card">
         <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
           Companies TrueLane can work with for the freight, trucks, fuel, insurance and pay of this fleet. Each takes this fleet&apos;s own keys (kept sealed on the server; only the last four characters are ever shown) or the server&apos;s. Nothing is sent to a company that is not connected.
@@ -145,29 +155,10 @@ export default async function SettingsPage() {
           }))}
         />
       </Card>
-
-      <Card title="Time zone" className="tl-card">
-        <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
-          The carrier&apos;s own clock. It decides where a billing day ends, how an invoice ages, which week a driver&apos;s statement covers and what &ldquo;this month&rdquo; means, and every time on the desk is
-          shown on it. A stop keeps its own clock: an appointment at a dock in another zone is shown where the dock is, with your time beside it.
-        </p>
-        <div className="st-row">
-          <span className="th-label" id="st-zone">Your clock</span>
-          {can(me.role, me.grants, "admin") ? (
-            <form action={saveTimezoneAction} className="t-seg" role="group" aria-labelledby="st-zone">
-              {CARRIER_ZONES.map((z) => (
-                <button key={z.id} type="submit" name="timezone" value={z.id} aria-pressed={zone === z.id} title={z.name}>
-                  {z.abbr}
-                </button>
-              ))}
-            </form>
-          ) : (
-            <span>{CARRIER_ZONES.find((z) => z.id === zone)?.name ?? zone}</span>
-          )}
-          <span className="tl-sub">{clockName(zone)}. {can(me.role, me.grants, "admin") ? "Saves straight away." : "An admin can change it."}</span>
-        </div>
-      </Card>
-
+    </>
+  );
+  const displayTab = (
+    <>
       <Card title="Appearance" className="tl-card">
         <div className="st-row">
           <span className="th-label" id="st-theme">Theme</span>
@@ -223,25 +214,73 @@ export default async function SettingsPage() {
           <span className="tl-sub">{sleepBlurb(sleepMinutes)}</span>
         </div>
       </Card>
-
+      {admin ? (
+        <>
+      <Card title="Time zone" className="tl-card">
+        <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
+          The carrier&apos;s own clock. It decides where a billing day ends, how an invoice ages, which week a driver&apos;s statement covers and what &ldquo;this month&rdquo; means, and every time on the desk is
+          shown on it. A stop keeps its own clock: an appointment at a dock in another zone is shown where the dock is, with your time beside it.
+        </p>
+        <div className="st-row">
+          <span className="th-label" id="st-zone">Your clock</span>
+          {can(me.role, me.grants, "admin") ? (
+            <form action={saveTimezoneAction} className="t-seg" role="group" aria-labelledby="st-zone">
+              {CARRIER_ZONES.map((z) => (
+                <button key={z.id} type="submit" name="timezone" value={z.id} aria-pressed={zone === z.id} title={z.name}>
+                  {z.abbr}
+                </button>
+              ))}
+            </form>
+          ) : (
+            <span>{CARRIER_ZONES.find((z) => z.id === zone)?.name ?? zone}</span>
+          )}
+          <span className="tl-sub">{clockName(zone)}. {can(me.role, me.grants, "admin") ? "Saves straight away." : "An admin can change it."}</span>
+        </div>
+      </Card>
+        </>
+      ) : null}
+    </>
+  );
+  const rulesTab = (
+    <>
+      {admin ? (
+        <>
       <Card title="Thresholds" className="tl-card">
         <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
           The lines the dashboard, the alerts, the invoices and the verdict card judge by. They are shared by everyone using this desk, and each change is recorded in the audit log.
         </p>
         <ThresholdsForm stored={stored} fleetEmptyShare={kpi.current.emptyShare} />
       </Card>
-
+        </>
+      ) : null}
       <Card title="Alert rules" className="tl-card">
         <p className="tl-note" style={{ marginBottom: 10 }}>What raises a block, warn or info alert on a load, with the timings above.</p>
         <Link href="/settings/rules" className="tl-btn">See the rules</Link>
       </Card>
-
       {isPlatformAdmin(me) ? (
         <Card title="Sign-up requests" className="tl-card">
           <p className="tl-note" style={{ marginBottom: 10 }}>Who has asked for an account, and which large fleets are waiting for a person to set them up.</p>
           <Link href="/settings/requests" className="tl-btn">See the requests</Link>
         </Card>
       ) : null}
+    </>
+  );
+  // The same tabs the load drawer has. The company, the plan, the team and the integrations are the admin's, so everyone else is not even shown them.
+  const tabs: SettingsTab[] = [
+    ...(admin ? [{ key: "company", label: "Company", panel: companyTab }, { key: "plan", label: "Plan", panel: planTab }, { key: "team", label: "Team", panel: teamTab }, { key: "integrations", label: "Integrations", panel: integrationsTab }] : []),
+    { key: "display", label: "Display", panel: displayTab },
+    { key: "rules", label: "Rules", panel: rulesTab }
+  ];
+
+  return (
+    <>
+      <PageHead title="Settings" sub={admin ? "Your company on the paperwork, how the desk looks, and the numbers it judges by." : "How the desk looks for you, and what raises an alert."} />
+      {admin ? null : (
+        <p className="tl-note" role="note" style={{ marginBottom: 14 }}>
+          The company, the plan, the team, the integrations, the clock and the thresholds are changed by an admin.
+        </p>
+      )}
+      <SettingsTabs tabs={tabs} initial={searchParams?.tab} anchors={{ plan: "plan", "team-card": "team" }} />
     </>
   );
 }

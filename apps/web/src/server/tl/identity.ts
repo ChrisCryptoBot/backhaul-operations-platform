@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/session-cookie";
+import { DEMO_COOKIE, demoUserOf, type DemoUser } from "@/lib/demo-session";
 import type { Grant, Role } from "@/lib/roles";
 import { clerkSeam } from "./clerk";
 import { verifySession } from "./session-token";
@@ -28,11 +29,21 @@ export function sessionIdentity(): Identity | null {
   }
 }
 
+/** The demo person for this request (src/lib/demo-session.ts), or null: sign-in is on, there is no demo cookie, or this is a script or a test, where the demo desk is an admin as it always was. */
+export function demoIdentity(): DemoUser | null {
+  if (authOn()) return null;
+  try {
+    return demoUserOf(cookies().get(DEMO_COOKIE)?.value);
+  } catch {
+    return null;
+  }
+}
+
 export const DESK_ACTOR = "Dispatcher";
 
 /** The name an audit event is written under: the signed-in person's, or "Dispatcher" with sign-in off (or outside a request, a script or a test). */
 export function currentActor(): string {
-  return sessionIdentity()?.name || DESK_ACTOR;
+  return sessionIdentity()?.name || demoIdentity()?.name || DESK_ACTOR;
 }
 
 /** Thrown by the tenancy seam when sign-in is on and nobody is signed in to the desk: nothing may fall back to the demo's data. */

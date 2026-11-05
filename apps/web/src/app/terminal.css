@@ -443,3 +443,15 @@ dd>.sub{display:block;color:var(--dim)}
 
 /* The public pages' brand mark never takes a fill on hover. */
 .pub-brand:hover{background:transparent;color:inherit}
+
+/* Settings tabs: the load drawer's tabs, square, the open one inverted amber, the number key beside each. */
+.st-tablist{display:flex;flex-wrap:wrap;gap:0;margin:0 0 14px;border:1px solid var(--line-hi);border-radius:0;background:var(--panel)}
+.st-tab{display:inline-flex;align-items:center;gap:8px;height:28px;min-height:28px;margin:0;padding:0 14px;border:0;border-right:1px solid var(--line);border-radius:0;background:transparent;color:var(--mid);font:500 11px/16px var(--mono);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;cursor:pointer}
+.st-tab:last-child{border-right:0}
+.st-tab:hover{background:var(--hover);color:var(--ink)}
+.st-tab:focus-visible{outline:1px solid var(--bar-hi);outline-offset:-3px}
+.st-tab[aria-selected=true]{background:var(--bar);color:var(--on-bar);font-weight:600}
+.st-kbd{padding:0 4px;border:1px solid var(--line-hi);border-radius:0;color:var(--dim);font-size:10px;line-height:14px}
+.st-tab[aria-selected=true] .st-kbd{border-color:var(--on-bar);color:var(--on-bar)}
+.st-panel[hidden]{display:none!important}
+

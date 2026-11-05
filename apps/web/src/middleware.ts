@@ -1,7 +1,7 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse, type NextFetchEvent, type NextRequest } from "next/server";
 import { decide } from "@/lib/auth-route";
-import { DEMO_COOKIE, demoDecide, demoLoginOn } from "@/lib/demo-session";
+import { DEMO_COOKIE, demoDecide, demoLoginOn, demoUserOf } from "@/lib/demo-session";
 import { SESSION_COOKIE, peekSession } from "@/lib/session-cookie";
 
 /**
@@ -34,7 +34,7 @@ export default function middleware(req: NextRequest, evt: NextFetchEvent) {
   if (process.env.DESK_AUTH !== "on") {
     if (!demoLoginOn(process.env)) return NextResponse.next();
     // The demo door: no accounts, but a sign-in page and a Sign out (src/lib/demo-session.ts).
-    const door = demoDecide({ path: req.nextUrl.pathname, method: req.method, hasDemo: req.cookies.get(DEMO_COOKIE)?.value === "1", wantsHtml: (req.headers.get("accept") ?? "").includes("text/html") });
+    const door = demoDecide({ path: req.nextUrl.pathname, method: req.method, hasDemo: demoUserOf(req.cookies.get(DEMO_COOKIE)?.value) != null, wantsHtml: (req.headers.get("accept") ?? "").includes("text/html") });
     if (door.kind === "sign_in") return NextResponse.redirect(new URL("/sign-in", req.url));
     if (door.kind === "unauthorized") return NextResponse.json({ ok: false, error: "Sign in to use the desk." }, { status: 401 });
     return NextResponse.next();

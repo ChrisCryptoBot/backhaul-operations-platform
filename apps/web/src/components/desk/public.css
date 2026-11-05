@@ -45,7 +45,8 @@
 .pub-btn:disabled { opacity: 0.6; cursor: default; }
 @media (max-width: 900px) { .pub-split { grid-template-columns: minmax(0, 1fr); } .pub-grid { grid-template-columns: minmax(0, 1fr); } }
 
-.pub-demo-form { display: grid; gap: 10px; margin: 12px 0 0; max-width: 360px; }
+.pub-demo-form { display: grid; gap: 10px; margin: 12px 0 0; max-width: 560px; }
+.pub-demo-form label { max-width: 360px; }
 .pub-demo-form label { display: grid; gap: 4px; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--label); }
 .pub-demo-form input { height: 28px; padding: 0 8px; border: 1px solid var(--line-hi); background: var(--sunk); color: var(--typed); text-transform: none; letter-spacing: 0; font-size: 12px; }
 .pub-demo-form .pub-btn { margin-top: 4px; cursor: pointer; border: 0; }
@@ -55,3 +56,12 @@
 .pub-field .pub-inline { display: grid; gap: 8px; width: 100%; min-width: 0; }
 .pub-field .pub-inline select { width: 100%; min-width: 0; min-height: 40px; border: 1px solid var(--db-border-strong); background: var(--db-bg-input); color: var(--typed); padding: 0 var(--db-3); font: inherit; font-size: 12px; }
 .pub-field .pub-inline select:focus-visible { outline: none; border-color: var(--db-accent); box-shadow: 0 0 0 3px var(--db-accent-ring); }
+
+/* The demo's sign-in: a square button for each way of using the desk, one pixel border, no rounding. */
+.pub-demo-roles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.pub-demo-roles .pub-demo-role { display: grid; align-content: start; gap: 4px; margin: 0; min-height: 0; padding: 10px 12px; border: 1px solid var(--line-hi); border-radius: 0; background: var(--panel); color: var(--ink); text-align: left; font-weight: 400; }
+.pub-demo-roles .pub-demo-role b { color: var(--bar); font-size: 13px; letter-spacing: .02em; }
+.pub-demo-roles .pub-demo-role span { color: var(--mid); font-size: 11px; line-height: 1.35; }
+.pub-demo-roles .pub-demo-role:hover:not(:disabled) { background: var(--hover); border-color: var(--bar); }
+.pub-demo-roles .pub-demo-role[data-picked="true"] { border-color: var(--bar); }
+@media (max-width: 560px) { .pub-demo-roles { grid-template-columns: 1fr; } }

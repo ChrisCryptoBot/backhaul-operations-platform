@@ -1,7 +1,7 @@
 import { notQuote } from "@/lib/quote-status";
 import { prisma } from "@/lib/db";
 import type { Role } from "@/lib/roles";
-import { authOn, sessionIdentity } from "./identity";
+import { authOn, demoIdentity, sessionIdentity } from "./identity";
 import { computeAnalytics } from "@/truelane/lib/analytics";
 import { computeAgingSummary } from "@/truelane/lib/invoice";
 import { deadheadMilesOf, deadheadPct, drivenMiles } from "@/truelane/lib/domain/loadEconomics";
@@ -94,6 +94,7 @@ export async function getShellData(workspaceId = currentWorkspaceId()): Promise<
   ]);
   const terminal = await currentTerminal(workspaceId);
   const who = sessionIdentity();
+  const demo = demoIdentity();
   const overdue = owed.overdueCount;
   return {
     counts: { needsDriver, sentWaiting, onTheRoad, readyToInvoice, overdue, alertsBlock: alerts.counts.block, alertsWarn: alerts.counts.warn, unreadMessages },
@@ -102,6 +103,6 @@ export async function getShellData(workspaceId = currentWorkspaceId()): Promise<
     terminal,
     workspaceName: workspace?.name ?? "",
     timezone: asZone(workspace?.timezone),
-    account: { on: authOn(), name: who?.name ?? "", role: who?.role ?? null }
+    account: { on: authOn(), name: who?.name ?? demo?.name ?? "", role: who?.role ?? demo?.role ?? null }
   };
 }
