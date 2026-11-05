@@ -15,6 +15,8 @@ type StoredColumns = {
   alertClearanceDays: number | null;
   laneMinLoads: number | null;
   laneDays: number | null;
+  dwellFreeHours: number | null;
+  dwellPerDayRate: Prisma.Decimal | null;
 };
 
 /** The workspace's stored columns as the thresholds' own keys (the alert columns are named for the screen they belong to). */
@@ -28,7 +30,9 @@ function toRow(ws: StoredColumns): ThresholdRow {
     sentNoAnswerHours: ws.alertSentHours,
     clearanceDays: ws.alertClearanceDays,
     laneMinLoads: ws.laneMinLoads,
-    laneDays: ws.laneDays
+    laneDays: ws.laneDays,
+    dwellFreeHours: ws.dwellFreeHours,
+    dwellPerDayRate: numOrNull(ws.dwellPerDayRate)
   };
 }
 
@@ -73,7 +77,9 @@ export async function saveThresholds(input: Record<string, unknown>, now = new D
         alertSentHours: check.stored.sentNoAnswerHours,
         alertClearanceDays: check.stored.clearanceDays,
         laneMinLoads: check.stored.laneMinLoads,
-        laneDays: check.stored.laneDays
+        laneDays: check.stored.laneDays,
+        dwellFreeHours: check.stored.dwellFreeHours,
+        dwellPerDayRate: check.stored.dwellPerDayRate
       }
     });
     const shown = (t: Thresholds, only: Array<keyof Thresholds>) => Object.fromEntries(only.map((k) => [fieldLabel(k), t[k]]));

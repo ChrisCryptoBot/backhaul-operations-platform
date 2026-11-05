@@ -22,6 +22,9 @@ export type Thresholds = {
   /** The verdict card with no market rate typed: how many finished loads on the lane it takes to stand in for one, and how recent they must be. */
   laneMinLoads: number;
   laneDays: number;
+  /** Trailer dwell: hours an unhooked trailer may sit before it is a dwell alert, and what a day over costs. Industry-average defaults; the company's figures win, and a person's typed figure on a trailer wins over both. */
+  dwellFreeHours: number;
+  dwellPerDayRate: number;
 };
 
 export const THRESHOLD_DEFAULTS: Thresholds = {
@@ -33,7 +36,9 @@ export const THRESHOLD_DEFAULTS: Thresholds = {
   sentNoAnswerHours: 4,
   clearanceDays: 30,
   laneMinLoads: LANE_MIN_LOADS,
-  laneDays: LANE_DAYS
+  laneDays: LANE_DAYS,
+  dwellFreeHours: 48,
+  dwellPerDayRate: 75
 };
 
 /** What is stored: a number, or null meaning "use the default". */
@@ -64,7 +69,9 @@ export const THRESHOLD_FIELDS: ThresholdField[] = [
   { key: "clearanceDays", label: "Warn when a CDL or medical card lapses within", unit: "days", min: 1, max: 180, step: 1, whole: true, hint: "Raises a warn alert." },
   // The most loads read is 25 (LANE_SAMPLE in server/tl/quote.ts), so asking for more than that could never be met.
   { key: "laneMinLoads", label: "A lane stands in for a market rate after", unit: "loads", min: 2, max: 25, step: 1, whole: true, hint: "Finished loads on the same two cities. With fewer, the card judges on your cost alone." },
-  { key: "laneDays", label: "Counting finished loads from the last", unit: "days", min: 14, max: 365, step: 1, whole: true, hint: "Older loads are left out, because rates move." }
+  { key: "laneDays", label: "Counting finished loads from the last", unit: "days", min: 14, max: 365, step: 1, whole: true, hint: "Older loads are left out, because rates move." },
+  { key: "dwellFreeHours", label: "A dropped trailer may sit free for", unit: "hours", min: 0, max: 720, step: 1, whole: true, hint: "Past this, with no reload for it, it is a dwell alert. The industry norm is 48." },
+  { key: "dwellPerDayRate", label: "Dwell charge per day after that", unit: "$ a day", min: 0, max: 1000, step: 5, whole: false, hint: "Typical contracts run $75 to $100. A dispatcher or billing person can still change it, or waive it, on any one trailer." }
 ];
 
 export type ThresholdCheck =

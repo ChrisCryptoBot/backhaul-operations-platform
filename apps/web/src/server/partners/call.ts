@@ -19,15 +19,51 @@ export { notImplemented };
 /** `secret(name)` is one of the company's keys by name, the fleet's own first and then the server's, read for this call only: an adapter never has to know where it came from. */
 const stub: Adapter<never, never> = async ({ provider }) => notImplemented(provider);
 
+/** A load's lane for the simulator: where the tractor picks up and delivers, when, and whether the load is on the road (then it is somewhere along the lane whatever the clock says). */
+export type SimTrip = { origin: { lat: number; lng: number }; destination: { lat: number; lng: number }; startsAt: number; endsAt: number; inProgress: boolean };
+
 /** What each capability's adapter reads and answers: the desk's own shapes, not any company's. */
 export type AdapterShapes = {
   factoring: { in: { loadId: string; loadNumber: string | null; invoiceNumber: string | null; amount: number; packet: string[] }; out: { referenceId: string; status: string } };
   eld: {
-    in: { vehicles: Array<{ id: string; name: string | null; eldVehicleId: string | null }>; drivers?: Array<{ id: string; name: string; eldDriverId: string | null; vehicleId: string | null }> };
+    in: {
+      vehicles: Array<{
+        id: string;
+        name: string | null;
+        eldVehicleId: string | null;
+        /** What the simulator needs to put a tractor on its lane: the open load's places and times, and where the tractor lives. A live adapter ignores both. */
+        trip?: SimTrip | null;
+        home?: { lat: number; lng: number } | null;
+      }>;
+      drivers?: Array<{ id: string; name: string; eldDriverId: string | null; vehicleId: string | null }>;
+      /** Also list everything the company has (its whole fleet and roster), for the one-click import. */
+      discover?: boolean;
+      /** The moment this read is for (epoch ms). A live adapter reads the company at the moment it is called; the simulator answers for this one, so a read at the same moment answers the same. */
+      asOf?: number;
+    };
     out: {
-      vehicles: Array<{ id: string; eldVehicleId: string | null; hosAvailableHours: number | null; /** Where the tractor was last seen. */ location?: { lat: number; lng: number; at: string } | null }>;
+      vehicles: Array<{
+        id: string;
+        eldVehicleId: string | null;
+        hosAvailableHours: number | null;
+        /** Where the tractor was last seen. */
+        location?: { lat: number; lng: number; at: string } | null;
+        /** What the ELD said about the engine at that fix. */
+        speedMph?: number | null;
+        headingDeg?: number | null;
+        engine?: "moving" | "idle" | "off" | null;
+        /** Hours the engine has idled today, and how long it has been standing with the engine on (minutes). */
+        idleHoursToday?: number | null;
+        idleMinutes?: number | null;
+        vin?: string | null;
+      }>;
       /** The minutes left on each of a driver's clocks. */
       drivers?: Array<{ id: string; eldDriverId: string | null; driveMinutes: number; shiftMinutes: number; cycleMinutes: number }>;
+      /** With `discover`: the company's whole fleet and roster, as the desk would add them. */
+      roster?: {
+        vehicles: Array<{ eldVehicleId: string; number: string; vin: string | null; make: string | null; model: string | null; year: number | null }>;
+        drivers: Array<{ eldDriverId: string; name: string; licenseNumber: string | null; /** The company's vehicle this driver is assigned to. */ eldVehicleId?: string | null; driveMinutes: number; shiftMinutes: number; cycleMinutes: number }>;
+      };
     };
   };
   fuel_card: {

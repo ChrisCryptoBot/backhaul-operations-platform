@@ -107,3 +107,11 @@ describe.each([["night", night, "#ffffff"], ["day", day, "#000000"]] as const)("
     expect(ratio(t[fg]!, hex), `${fg} ${t[fg]} on wash ${hex} over ${worst}`).toBeGreaterThanOrEqual(4.5);
   });
 });
+
+// The radar draws squares and lines (not text) in the desk's tokens: each mark has to be told apart from the map's canvas and land, 3:1 for graphics.
+describe.each(Object.entries(THEMES))("%s theme: radar marks", (_name, t) => {
+  const MARKS = ["--label", "--warn-fill", "--ink", "--dim", "--pos-fill", "--neg-fill"];
+  it.each(MARKS.flatMap((fg) => ["--bg", "--panel"].map((bg) => [fg, bg] as const)))("%s on %s is at least 3:1", (fg, bg) => {
+    expect(ratio(t[fg]!, t[bg]!), `${fg} ${t[fg]} on ${bg} ${t[bg]}`).toBeGreaterThanOrEqual(3);
+  });
+});

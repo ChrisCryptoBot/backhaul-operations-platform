@@ -46,6 +46,25 @@ const LANES: Array<{ from: string; to: string; miles: number; rpm: number }> = [
 ];
 const DRIVERS = ["Alex Rivera", "Sam Okafor", "Jordan Lee", "Casey Brooks"];
 
+// Where each lane city is, so the radar has a lane to put a truck on and the load's Where it is tab has a corridor to draw (the desk geocodes real addresses itself; a seed has no network).
+const CITY: Record<string, { lat: number; lng: number }> = {
+  "Harrisburg, PA": { lat: 40.2732, lng: -76.8867 },
+  "Columbus, OH": { lat: 39.9612, lng: -82.9988 },
+  "Dallas, TX": { lat: 32.7767, lng: -96.797 },
+  "Atlanta, GA": { lat: 33.749, lng: -84.388 },
+  "Houston, TX": { lat: 29.7604, lng: -95.3698 },
+  "Memphis, TN": { lat: 35.1495, lng: -90.049 },
+  "Chicago, IL": { lat: 41.8781, lng: -87.6298 },
+  "Indianapolis, IN": { lat: 39.7684, lng: -86.1581 },
+  "Charlotte, NC": { lat: 35.2271, lng: -80.8431 },
+  "Nashville, TN": { lat: 36.1627, lng: -86.7816 },
+  "Louisville, KY": { lat: 38.2527, lng: -85.7585 },
+  "Oklahoma City, OK": { lat: 35.4676, lng: -97.5164 },
+  "Pittsburgh, PA": { lat: 40.4406, lng: -79.9959 },
+  "Kansas City, MO": { lat: 39.0997, lng: -94.5786 },
+  "St. Louis, MO": { lat: 38.627, lng: -90.1994 }
+};
+
 const profileBase = {
   monthlyAuthority: 120,
   monthlyPhoneSubscriptions: 90,
@@ -134,10 +153,10 @@ async function main() {
   const TRAILERS = [
     { number: "T-101", type: "dry_van", terminal: "Dallas", hook: 0, reg: 300, insp: 200, plate: "TLA1101", location: "Dallas yard" },
     { number: "T-102", type: "reefer", terminal: "Houston", hook: 1, reg: 220, insp: 150, plate: "TLA1102", location: "Houston yard" },
-    { number: "T-103", type: "flatbed", terminal: "Dallas", hook: -1, reg: 400, insp: 250, plate: "TLA1103", location: "Dallas yard, door 4" },
+    { number: "T-103", type: "flatbed", terminal: "Dallas", hook: -1, reg: 400, insp: 250, plate: "TLA1103", location: "Dallas yard, door 4", droppedDaysAgo: 4.2 },
     { number: "T-104", type: "dry_van", terminal: "Dallas", hook: -1, reg: 300, insp: 200, plate: "TLA1104", location: "Dallas shop", status: "in_shop" },
-    { number: "T-105", type: "dry_van", terminal: "Houston", hook: -1, reg: -10, insp: 120, plate: "TLA1105", location: "Houston yard" },
-    { number: "T-106", type: "dry_van", terminal: "Houston", hook: -1, reg: 180, insp: 12, plate: "TLA1106", location: "Houston yard" }
+    { number: "T-105", type: "dry_van", terminal: "Houston", hook: -1, reg: -10, insp: 120, plate: "TLA1105", location: "Houston yard", droppedDaysAgo: 1.1 },
+    { number: "T-106", type: "dry_van", terminal: "Houston", hook: -1, reg: 180, insp: 12, plate: "TLA1106", location: "Houston yard", droppedDaysAgo: 6.5 }
   ];
   for (const t of TRAILERS) {
     await prisma.trailer.create({
@@ -156,6 +175,10 @@ async function main() {
         terminal: t.terminal,
         location: t.location,
         currentVehicleId: t.hook >= 0 ? vehicles[t.hook]!.id : null,
+        // A dropped trailer sits where it was left, and the time since starts its dwell clock.
+        ...(t.droppedDaysAgo != null
+          ? { unhookedAt: inDays(-t.droppedDaysAgo), lastLat: CITY[t.terminal === "Dallas" ? "Dallas, TX" : "Houston, TX"]!.lat + 0.01, lastLng: CITY[t.terminal === "Dallas" ? "Dallas, TX" : "Houston, TX"]!.lng - 0.01, lastLocatedAt: inDays(-t.droppedDaysAgo) }
+          : {}),
         registrationExpiry: inDays(t.reg),
         inspectionExpiry: inDays(t.insp)
       }
@@ -383,6 +406,8 @@ async function main() {
               stopType: "pickup",
               stopRole: "pickup",
               addressString: p.lane.from,
+              lat: CITY[p.lane.from]?.lat,
+              lng: CITY[p.lane.from]?.lng,
               facilityName: `${p.lane.from.split(",")[0]} Distribution`,
               timeWindowEarliest: new Date(pk0),
               timeWindowLatest: new Date(pk1),
@@ -395,6 +420,8 @@ async function main() {
               stopType: "delivery",
               stopRole: "delivery",
               addressString: p.lane.to,
+              lat: CITY[p.lane.to]?.lat,
+              lng: CITY[p.lane.to]?.lng,
               facilityName: `${p.lane.to.split(",")[0]} Receiving`,
               timeWindowEarliest: new Date(dl0),
               timeWindowLatest: new Date(dl1),

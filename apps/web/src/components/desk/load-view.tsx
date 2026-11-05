@@ -56,6 +56,8 @@ import { dateTime, miles, PAY_KIND_LABEL, payLabel, perMile, signedPct, stopTime
 import { rateConTotal } from "@/lib/pay";
 import { telHref } from "@/lib/contact";
 import { LoadCockpit, SplitDocViewer, DriverCabSheet } from "./load-cockpit";
+import { LoadTracker } from "./load-tracker";
+import { getLoadTracking } from "@/server/tl/load-tracking";
 import "./cockpit.css";
 
 const TONE: Record<string, "ok" | "warn" | "bad"> = { accept: "ok", caution: "warn", reject: "bad" };
@@ -80,11 +82,12 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     <p className="tl-note" role="note">You can read this load but not change it. A dispatcher or the accounting office can.</p>
   );
 
-  const [{ byLoad }, feed, settled, waivedMap] = await Promise.all([
+  const [{ byLoad }, feed, settled, waivedMap, tracking] = await Promise.all([
     getAlerts(new Date(), currentWorkspaceId(), "open", id),
     listLoadAudit(id),
     settlementOfLoad(id),
-    waivedDetentionLoads([id])
+    waivedDetentionLoads([id]),
+    getLoadTracking(id)
   ]);
   const waivedReason = waivedMap.get(id) ?? null;
   const { load, evaluation, flipped, driverView, drivers } = detail;
@@ -1134,6 +1137,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
       marginWorkbench={marginWorkbench}
       docsWorkbench={docsWorkbench}
       partnersWorkbench={partnersWorkbench}
+      trackingWorkbench={<LoadTracker t={tracking} />}
       docsCount={docs.length}
       alertsCount={alerts.length}
     />

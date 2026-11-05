@@ -40,7 +40,9 @@ import { currentTerminal } from "@/server/tl/terminal";
 import { assignTrailerToLoad, hookTrailer, saveTrailer, setTrailerArchived, type AssignTrailerResult, type SaveResult as TrailerSaveResult } from "@/server/tl/trailers";
 import { connectPartner, disconnectPartner, retryConnection, type ConnectResult } from "@/server/partners/connections";
 import { deleteCredential } from "@/server/partners/credentials";
-import { saveKeysAndConnect, type SaveAndConnect } from "@/server/partners/setup";
+import { capabilityOf, saveKeysAndConnect, type SaveAndConnect } from "@/server/partners/setup";
+import { importEldFleet, type ImportEldResult } from "@/server/partners/eld-import";
+import { adjustTrailerDwell, clearTrailerDwell, waiveTrailerDwell, type DwellInput, type DwellResult } from "@/server/tl/dwell";
 import { sendTestEvent, type TestEventResult } from "@/server/partners/test-event";
 import { shareLoadLocation, type ShareResult } from "@/server/partners/tracking";
 import { syncFuelCards, type FuelSync } from "@/server/partners/fuel-store";
@@ -362,6 +364,29 @@ export async function archiveTerminalAction(id: string): Promise<TerminalResult>
   await requireCan("admin");
   const out = await archiveTerminal(id);
   if (out.ok) refreshFleet();
+  return out;
+}
+
+// ── A dropped trailer's dwell figure: the company's terms are the start, and a dispatcher or a billing person has the last word (docs/TELEMATICS_RADAR.md). ──
+
+export async function adjustTrailerDwellAction(trailerId: string, input: DwellInput): Promise<DwellResult> {
+  await requireCan("dispatch", "bill");
+  const out = await adjustTrailerDwell(String(trailerId), input && typeof input === "object" ? input : {});
+  if (out.ok) revalidatePath("/trailers");
+  return out;
+}
+
+export async function waiveTrailerDwellAction(trailerId: string, note: string | null): Promise<DwellResult> {
+  await requireCan("dispatch", "bill");
+  const out = await waiveTrailerDwell(String(trailerId), typeof note === "string" ? note : null);
+  if (out.ok) revalidatePath("/trailers");
+  return out;
+}
+
+export async function clearTrailerDwellAction(trailerId: string): Promise<DwellResult> {
+  await requireCan("dispatch", "bill");
+  const out = await clearTrailerDwell(String(trailerId));
+  if (out.ok) revalidatePath("/trailers");
   return out;
 }
 
@@ -826,12 +851,24 @@ export async function connectPartnerAction(capability: string, provider: string,
 }
 
 /** Save this fleet's own keys for a company (sealed on the server; nothing comes back but whether it worked). Admin only. */
-export async function savePartnerKeysAction(provider: string, values: Record<string, string>): Promise<SaveAndConnect> {
+export async function savePartnerKeysAction(provider: string, values: Record<string, string>): Promise<SaveAndConnect & { imported?: ImportEldResult }> {
   await requireCan("admin");
   const clean: Record<string, string> = {};
   if (values && typeof values === "object") for (const [k, v] of Object.entries(values)) if (typeof v === "string") clean[String(k)] = v;
   const out = await saveKeysAndConnect(String(provider), clean);
-  if (out.ok) revalidatePath("/settings");
+  if (!out.ok) return out;
+  // A test key on an ELD is the whole setup: the fleet it lists is added as trucks and drivers and read for where they are, so the radar lights up at once (docs/TELEMATICS_RADAR.md).
+  const imported = out.sandbox && out.connected && capabilityOf(String(provider)) === "eld" ? await importEldFleet() : undefined;
+  revalidatePath("/settings");
+  if (imported?.ok) revalidatePath("/", "layout");
+  return imported ? { ...out, imported } : out;
+}
+
+/** Read the connected ELD's whole fleet again and add any truck or driver the desk does not have yet. Nothing the desk has is changed. Admin only. */
+export async function importEldFleetAction(): Promise<ImportEldResult> {
+  await requireCan("admin");
+  const out = await importEldFleet();
+  if (out.ok) revalidatePath("/", "layout");
   return out;
 }
 

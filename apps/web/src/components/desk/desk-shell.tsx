@@ -44,6 +44,7 @@ const NAV: Array<{ label: string; items: Item[] }> = [
     items: [
       { href: "/drivers", label: "Drivers", code: "DR" },
       { href: "/schedules", label: "Schedules", code: "SC", roles: ["admin", "dispatcher", "driver_manager", "viewer"] },
+      { href: "/fleet/map", label: "Radar map", code: "MP", roles: ["admin", "dispatcher", "driver_manager", "viewer"] },
       { href: "/fleet", label: "Trucks", code: "TK", roles: ["admin", "dispatcher", "driver_manager", "viewer"] },
       { href: "/trailers", label: "Trailers", code: "TR", roles: ["admin", "dispatcher", "viewer"] }
     ]
@@ -88,6 +89,13 @@ function ZoneSync({ zone }: { zone: string }) {
   return null;
 }
 
+/** The rail item a path belongs to: the longest href that is the path or a parent of it, so /fleet/map is the Radar map and not also Trucks. */
+function activeItem(path: string): Item | undefined {
+  let best: Item | undefined;
+  for (const i of NAV.flatMap((g) => g.items)) if ((path === i.href || path.startsWith(`${i.href}/`)) && (!best || i.href.length > best.href.length)) best = i;
+  return best;
+}
+
 export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinutes = 15, demoLogin = false }: { children: React.ReactNode; drawer?: React.ReactNode; data: ShellData; initialCollapsed: boolean; sleepMinutes?: number; demoLogin?: boolean }) {
   const underlay = useUnderlay();
   // With a load open in the drawer the URL is the load's, but the page you are on (and the sidebar item to light) is the one underneath.
@@ -101,7 +109,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
   React.useEffect(() => {
     try {
       const key = (href: string) => `${VIEW_PREFIX}${viewScope}:${href}`;
-      const section = NAV.flatMap((g) => g.items).find((i) => here === i.href || here.startsWith(`${i.href}/`));
+      const section = activeItem(here);
       if (section && here === section.href) {
         const q = rememberedQuery(query);
         if (q === "") window.localStorage.removeItem(key(section.href));
@@ -193,7 +201,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
             <React.Fragment key={group.label}>
               <h2>{group.label}</h2>
               {group.items.map((item) => {
-                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const active = activeItem(pathname)?.href === item.href;
                 const pill = item.pill?.(data.counts) ?? null;
                 return (
                   <Link key={item.href} href={`${item.href}${active ? "" : (views[item.href] ?? "")}`} aria-current={active ? "page" : undefined} title={collapsed ? item.label : undefined} aria-label={collapsed ? item.label : undefined}>

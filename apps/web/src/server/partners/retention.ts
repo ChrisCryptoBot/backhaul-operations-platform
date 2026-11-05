@@ -7,6 +7,14 @@ import { prisma } from "@/lib/db";
  */
 export const EVENT_KEEP_DAYS = 90;
 
+/** Position fixes are kept a week: long enough for a load's breadcrumb and a few days of idle time, short enough that a fleet of thousands does not pile up rows. */
+export const PING_KEEP_DAYS = 7;
+
+export async function purgeOldPings(now = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - PING_KEEP_DAYS * 86_400_000);
+  return (await prisma.vehiclePing.deleteMany({ where: { at: { lt: cutoff } } })).count;
+}
+
 export async function purgeOldEvents(now = new Date()): Promise<number> {
   const cutoff = new Date(now.getTime() - EVENT_KEEP_DAYS * 86_400_000);
   return (await prisma.partnerEvent.deleteMany({ where: { receivedAt: { lt: cutoff } } })).count;

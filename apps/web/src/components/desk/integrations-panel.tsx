@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React from "react";
 import Link from "next/link";
-import { connectPartnerAction, disconnectPartnerAction, removePartnerKeysAction, retryPartnerAction, savePartnerKeysAction, sendTestEventAction } from "@/app/(desk)/actions";
+import { connectPartnerAction, disconnectPartnerAction, importEldFleetAction, removePartnerKeysAction, retryPartnerAction, savePartnerKeysAction, sendTestEventAction } from "@/app/(desk)/actions";
 import { tried } from "./kit/tried";
 import { useToast } from "./kit/toast";
 
@@ -87,7 +87,9 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
       // The secrets leave this page the moment they are saved.
       setTyped((t) => Object.fromEntries(Object.entries(t).filter(([k]) => !k.startsWith(`${r.provider}:`))));
       setError("");
-      toast({ text: got.value.sandbox && got.value.connected ? `${r.name} keys saved. Connected to the simulator.` : `${r.name} keys saved.`, tone: "ok" });
+      const im = got.value.imported;
+      const added = im?.ok ? ` Imported ${im.trucks} ${im.trucks === 1 ? "truck" : "trucks"} and ${im.drivers} ${im.drivers === 1 ? "driver" : "drivers"}; ${im.onMap} on the map.${im.skippedTrucks + im.skippedDrivers > 0 ? ` ${im.skippedTrucks + im.skippedDrivers} left out: the plan is full.` : ""}` : im ? ` The fleet could not be imported: ${im.error}` : "";
+      toast({ text: (got.value.sandbox && got.value.connected ? `${r.name} keys saved. Connected to the simulator.` : `${r.name} keys saved.`) + added, tone: im && !im.ok ? "plain" : "ok" });
       router.refresh();
     });
   };
@@ -196,6 +198,25 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
                               {r.sandbox && canKeep ? (
                                 <button type="button" className="t-btn sm" disabled={pending} title="Runs a signed simulator event through the desk's own receiver. Nothing leaves the desk." onClick={() => testEvent(r)}>
                                   {r.capability === "eld" ? "Read ELD now" : "Send test event"}
+                                </button>
+                              ) : null}
+                              {r.capability === "eld" && r.sandbox && canKeep ? (
+                                <button
+                                  type="button"
+                                  className="t-btn sm"
+                                  disabled={pending}
+                                  title="Reads everything the company has and adds any truck or driver the desk does not have yet. Nothing the desk has is changed."
+                                  onClick={() =>
+                                    start(async () => {
+                                      const got = await tried(() => importEldFleetAction());
+                                      if (!got.ok) return setError(got.message);
+                                      if (!got.value.ok) return setError(got.value.error);
+                                      setError("");
+                                      toast({ text: `Imported ${got.value.trucks} ${got.value.trucks === 1 ? "truck" : "trucks"} and ${got.value.drivers} ${got.value.drivers === 1 ? "driver" : "drivers"}; ${got.value.onMap} on the map.`, tone: "ok" });
+                                      router.refresh();
+                                    })
+                                  }>
+                                  Import fleet from the ELD
                                 </button>
                               ) : null}
                               {r.status === "error" ? (

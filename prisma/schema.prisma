@@ -36,6 +36,9 @@ model Workspace {
   alertClearanceDays    Int?     @map("alert_clearance_days")
   laneMinLoads          Int?     @map("lane_min_loads")
   laneDays              Int?     @map("lane_days")
+  /// Trailer dwell: hours an unhooked trailer may sit before it is a dwell alert, and the per-day charge after that. Null = the built-in default (48 hours, $75 a day); the company's figure wins, a person's typed figure on a trailer wins over both.
+  dwellFreeHours        Int?     @map("dwell_free_hours")
+  dwellPerDayRate       Decimal? @map("dwell_per_day_rate") @db.Decimal(8, 2)
   /// The last statement number given out, so a discarded draft's number is never given again.
   settlementSeq         Int      @default(0) @map("settlement_seq")
 
@@ -64,6 +67,7 @@ model Workspace {
   partnerEvents      PartnerEvent[]
   iftaLines          IftaLine[]
   fuelTransactions   FuelTransaction[]
+  vehiclePings       VehiclePing[]
   terminals          Terminal[]
   driverSchedules    DriverSchedule[]
   driverTimeOff      DriverShiftException[]
@@ -137,6 +141,13 @@ model Vehicle {
   lastLat           Decimal?  @map("last_lat") @db.Decimal(9, 6)
   lastLng           Decimal?  @map("last_lng") @db.Decimal(9, 6)
   lastLocatedAt     DateTime? @map("last_located_at")
+  /// What the ELD said about the engine at that fix: speed, heading, moving / idle / off, hours idle today, and when the current idle began. Written only by the ELD sync.
+  vin               String?
+  lastSpeedMph      Decimal?  @map("last_speed_mph") @db.Decimal(5, 1)
+  lastHeadingDeg    Int?      @map("last_heading_deg")
+  engineState       String?   @map("engine_state")
+  idleHoursToday    Decimal?  @map("idle_hours_today") @db.Decimal(5, 2)
+  idleSince         DateTime? @map("idle_since")
   active            Boolean   @default(true)
   archivedAt        DateTime? @map("archived_at")
   createdAt         DateTime  @default(now()) @map("created_at")
@@ -147,6 +158,7 @@ model Vehicle {
   loads            Load[]
   drivers          Driver[]
   trailers         Trailer[]
+  pings            VehiclePing[]
   fuelTransactions FuelTransaction[]
 
   @@index([workspaceId, archivedAt, name])
@@ -435,6 +447,7 @@ model Driver {
   phoneUserId        String?   @map("phone_user_id")
   /// The driver's id in the ELD, and the minutes left on each clock as it last reported them (drive, shift, 70-hour cycle). A caution, never a rule.
   eldDriverId        String?   @map("eld_driver_id")
+  licenseNumber      String?   @map("license_number")
   hosDriveMinutes    Int?      @map("hos_drive_minutes")
   hosShiftMinutes    Int?      @map("hos_shift_minutes")
   hosCycleMinutes    Int?      @map("hos_cycle_minutes")
@@ -614,6 +627,19 @@ model Trailer {
   terminal           String?
   location           String?
   currentVehicleId   String?   @map("current_vehicle_id")
+  /// Where the trailer is: with its tractor while hooked, where it was dropped once unhooked. `unhookedAt` starts the dwell clock; cleared when it is hooked again.
+  lastLat            Decimal?  @map("last_lat") @db.Decimal(9, 6)
+  lastLng            Decimal?  @map("last_lng") @db.Decimal(9, 6)
+  lastLocatedAt      DateTime? @map("last_located_at")
+  hookedAt           DateTime? @map("hooked_at")
+  unhookedAt         DateTime? @map("unhooked_at")
+  /// A person's own dwell figure for this stay, which always beats the company's: a rate a day, the billable days, or the whole fee waived. Cleared when the trailer is hooked again.
+  dwellRateOverride  Decimal?  @map("dwell_rate_override") @db.Decimal(8, 2)
+  dwellDaysOverride  Decimal?  @map("dwell_days_override") @db.Decimal(6, 2)
+  dwellWaived        Boolean   @default(false) @map("dwell_waived")
+  dwellOverrideNote  String?   @map("dwell_override_note")
+  dwellOverrideBy    String?   @map("dwell_override_by")
+  dwellOverrideAt    DateTime? @map("dwell_override_at")
   registrationExpiry DateTime? @map("registration_expiry")
   inspectionExpiry   DateTime? @map("inspection_expiry")
   notes              String?
@@ -994,4 +1020,26 @@ model DriverShiftException {
   @@unique([driverId, dateKey])
   @@index([workspaceId, dateKey])
   @@map("driver_shift_exceptions")
+}
+
+/// One position fix from the ELD for a tractor, kept for a week: the breadcrumb on a load's tracking tab, and where the idle time went. Unique per (vehicle, instant) so a re-read never writes it twice.
+model VehiclePing {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  vehicleId   String   @map("vehicle_id")
+  lat         Decimal  @db.Decimal(9, 6)
+  lng         Decimal  @db.Decimal(9, 6)
+  speedMph    Decimal? @map("speed_mph") @db.Decimal(5, 1)
+  headingDeg  Int?     @map("heading_deg")
+  engine      String?
+  at          DateTime
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  vehicle   Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@unique([vehicleId, at])
+  @@index([vehicleId, at(sort: Desc)])
+  @@index([workspaceId, at])
+  @@map("vehicle_pings")
 }

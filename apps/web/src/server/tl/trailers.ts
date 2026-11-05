@@ -10,6 +10,7 @@ import { OWNERSHIPS, validateTrailer, type TrailerValues } from "@/lib/trailer-f
 import { ymdOf } from "@/lib/fleet-forms";
 import { trailerLabel } from "@/truelane/constants/trailerData";
 import { canonicalTerminals, cleanTerminalName } from "./terminal-list";
+import { dwell } from "@/lib/telematics";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { lockWorkspace, roomFor } from "./plan";
@@ -179,8 +180,11 @@ export async function hookTrailer(id: string, vehicleId: string | null, now = ne
   if (!t) return { ok: false, error: "That trailer is not available." };
   if (vehicleId == null) {
     if (!t.currentVehicleId) return { ok: true };
+    // Dropped where its tractor last was: that point is where it sits, and the time starts the dwell clock.
+    const tractor = await prisma.vehicle.findFirst({ where: { id: t.currentVehicleId, workspaceId }, select: { lastLat: true, lastLng: true, lastLocatedAt: true } });
+    const where = tractor?.lastLat != null && tractor.lastLng != null ? { lastLat: tractor.lastLat, lastLng: tractor.lastLng, lastLocatedAt: tractor.lastLocatedAt } : {};
     await prisma.$transaction(async (tx) => {
-      await tx.trailer.update({ where: { id }, data: { currentVehicleId: null } });
+      await tx.trailer.update({ where: { id }, data: { currentVehicleId: null, unhookedAt: now, ...where } });
       await recordAudit({ entity: "trailer", entityId: id, action: "trailer_unhooked", summary: `${t.number} unhooked from ${t.currentVehicle?.name ?? "its tractor"}`, before: { Tractor: t.currentVehicle?.name ?? null }, after: { Tractor: null }, at: now, workspaceId }, tx);
     });
     return { ok: true };
@@ -191,8 +195,13 @@ export async function hookTrailer(id: string, vehicleId: string | null, now = ne
   const other = await prisma.trailer.findFirst({ where: { workspaceId, archivedAt: null, currentVehicleId: truck.id, id: { not: id } }, select: { number: true } });
   if (other) return { ok: false, error: `${truck.name ?? "That tractor"} already pulls ${other.number}. Unhook it first.` };
   try {
+    const tractor = await prisma.vehicle.findFirst({ where: { id: truck.id, workspaceId }, select: { lastLat: true, lastLng: true, lastLocatedAt: true } });
+    const where = tractor?.lastLat != null && tractor.lastLng != null ? { lastLat: tractor.lastLat, lastLng: tractor.lastLng, lastLocatedAt: tractor.lastLocatedAt } : {};
+    const hadDwellFigure = t.dwellWaived || t.dwellRateOverride != null || t.dwellDaysOverride != null;
     await prisma.$transaction(async (tx) => {
-      await tx.trailer.update({ where: { id }, data: { currentVehicleId: truck.id } });
+      // Hooked again ends the stay: the clock stops and a typed dwell figure for it is cleared (the audit trail keeps what it was).
+      await tx.trailer.update({ where: { id }, data: { currentVehicleId: truck.id, hookedAt: now, unhookedAt: null, dwellRateOverride: null, dwellDaysOverride: null, dwellWaived: false, dwellOverrideNote: null, dwellOverrideBy: null, dwellOverrideAt: null, ...where } });
+      if (hadDwellFigure) await recordAudit({ entity: "trailer", entityId: id, action: "dwell_reset", summary: `${t.number}: dwell figure cleared when hooked to ${truck.name ?? "a tractor"}`, before: { Rate: t.dwellRateOverride == null ? null : String(t.dwellRateOverride), Days: t.dwellDaysOverride == null ? null : String(t.dwellDaysOverride), Waived: t.dwellWaived ? "Yes" : "No" }, after: null, at: now, workspaceId }, tx);
       await recordAudit({ entity: "trailer", entityId: id, action: "trailer_hooked", summary: `${t.number} hooked to ${truck.name ?? "a tractor"}`, before: { Tractor: t.currentVehicle?.name ?? null }, after: { Tractor: truck.name ?? null }, at: now, workspaceId }, tx);
     });
   } catch (e) {
@@ -285,7 +294,8 @@ export async function listTrailersPage(query: TrailerPageQuery = {}, now = new D
   const sort = asSort(query.sort, TRAILER_SORTS, { key: "number", dir: "asc" });
   const pageSize = query.pageSize ?? TRAILER_PAGE_SIZE;
   const q = query.q?.trim() ?? "";
-  const days = alertThresholds(await getThresholds(workspaceId)).clearanceDays;
+  const company = await getThresholds(workspaceId);
+  const days = alertThresholds(company).clearanceDays;
   const where: Prisma.TrailerWhereInput = {
     workspaceId,
     archivedAt: query.archived ? { not: null } : null,
@@ -322,9 +332,12 @@ export async function listTrailersPage(query: TrailerPageQuery = {}, now = new D
     inspectionExpiry: t.inspectionExpiry,
     compliance: complianceState(t, now, days),
     blocker: trailerBlocker(t, now),
-    archived: t.archivedAt != null
+    archived: t.archivedAt != null,
+    // How long it has sat since it was dropped and what that owes: the company's terms, unless a person typed a figure for this stay (which always wins).
+    dwell: t.currentVehicleId ? null : dwell(t.unhookedAt, now.getTime(), { freeHours: company.dwellFreeHours, perDay: company.dwellPerDayRate }, t.loads.length > 0, { ratePerDay: numOrNull(t.dwellRateOverride), billableDays: numOrNull(t.dwellDaysOverride), waived: t.dwellWaived }),
+    dwellTyped: { rate: numOrNull(t.dwellRateOverride), days: numOrNull(t.dwellDaysOverride), waived: t.dwellWaived, by: t.dwellOverrideBy, note: t.dwellOverrideNote }
   }));
-  return { rows, total, page, pages, pageSize, sort, q };
+  return { rows, total, page, pages, pageSize, sort, q, dwellTerms: { freeHours: company.dwellFreeHours, perDay: company.dwellPerDayRate } };
 }
 
 export async function getTrailerDetail(id: string, workspaceId = currentWorkspaceId()) {

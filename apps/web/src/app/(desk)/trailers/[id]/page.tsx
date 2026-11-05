@@ -13,6 +13,9 @@ import { OWNERSHIPS } from "@/lib/trailer-forms";
 import { trailerLabel } from "@/truelane/constants/trailerData";
 import { dateTime, shortDate } from "@/lib/desk-format";
 import { CanGate } from "@/components/desk/kit/can-gate";
+import { DwellAdjust, DwellLine } from "@/components/desk/dwell";
+import { dwell } from "@/lib/telematics";
+import { numOrNull } from "@/server/tl/convert";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +24,11 @@ export default async function TrailerPage({ params }: { params: { id: string } }
   const t = await getTrailerDetail(params.id);
   if (!t) notFound();
   const now = new Date();
-  const days = alertThresholds(await getThresholds()).clearanceDays;
+  const company = await getThresholds();
+  const days = alertThresholds(company).clearanceDays;
+  // Dwell: how long it has sat since it was dropped and what that owes. The company's terms are the start; a typed figure for this stay always wins.
+  const typed = { rate: numOrNull(t.dwellRateOverride), days: numOrNull(t.dwellDaysOverride), waived: t.dwellWaived, by: t.dwellOverrideBy, note: t.dwellOverrideNote };
+  const stay = t.currentVehicleId ? null : dwell(t.unhookedAt, now.getTime(), { freeHours: company.dwellFreeHours, perDay: company.dwellPerDayRate }, t.loads.length > 0, { ratePerDay: typed.rate, billableDays: typed.days, waived: typed.waived });
   const blocker = trailerBlocker(t, now);
   const soon = trailerClearanceSoon(t, now, days);
   const state = complianceState(t, now, days);
@@ -65,6 +72,16 @@ export default async function TrailerPage({ params }: { params: { id: string } }
           </div>
         </dl>
       </section>
+
+      {stay ? (
+        <Card title="Dwell">
+          <DwellLine d={stay} freeHours={company.dwellFreeHours} typed={typed} />
+          <CanGate caps={["dispatch", "bill"]}>
+            <DwellAdjust trailerId={t.id} number={t.number} d={stay} typed={typed} freeHours={company.dwellFreeHours} />
+          </CanGate>
+          <p className="tl-note" style={{ marginTop: 10 }}>A trailer dropped for longer than the free time with nothing booked for it is a dwell alert. The company sets the terms in Settings, Rules; a dispatcher or billing person can change the rate or the days, or waive the fee, for this stay.</p>
+        </Card>
+      ) : null}
 
       <Card title="Hooked to">
         {t.archivedAt ? <p className="tl-note">An archived trailer is not hooked to anything.</p> : <CanGate caps={["dispatch"]}><HookTrailer trailerId={t.id} tractor={t.currentVehicle} /></CanGate>}

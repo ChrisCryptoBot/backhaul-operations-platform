@@ -13,6 +13,7 @@ const GROUPS: Array<{ title: string; keys: Array<keyof Thresholds> }> = [
   { title: "Empty miles", keys: ["emptyAmberPct", "emptyRedPct"] },
   { title: "The verdict card", keys: ["laneMinLoads", "laneDays"] },
   { title: "Invoices and docks", keys: ["defaultPayTermsDays", "detentionGraceMinutes"] },
+  { title: "Trailer dwell", keys: ["dwellFreeHours", "dwellPerDayRate"] },
   { title: "Alerts", keys: ["pickupAlertHours", "sentNoAnswerHours", "clearanceDays"] }
 ];
 

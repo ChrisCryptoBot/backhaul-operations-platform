@@ -15,6 +15,10 @@ import { TRAILER_STATUSES, statusLabel } from "@/lib/trailer-clearance";
 import { TRAILER_TYPES, trailerLabel } from "@/truelane/constants/trailerData";
 import { shortDate } from "@/lib/desk-format";
 import { CanGate } from "@/components/desk/kit/can-gate";
+import { RadarStrip } from "@/components/desk/radar-map";
+import { DwellAdjust, DwellLine } from "@/components/desk/dwell";
+import { getRadarData } from "@/server/tl/radar";
+import { currentWorkspaceId } from "@/server/tl/workspace";
 
 export const metadata = { title: "Trailers · TrueLane" };
 
@@ -29,6 +33,7 @@ const COLUMNS: Column[] = [
   { key: "terminal", sortable: true, label: "Terminal", group: "Where it is" },
   { key: "hooked", label: "Hooked to", group: "Where it is" },
   { key: "now", label: "On now", group: "Where it is" },
+  { key: "dwell", label: "Dwell", group: "Where it is" },
   { key: "registration", sortable: true, label: "Registration", group: "Compliance" },
   { key: "inspection", sortable: true, label: "Inspection", group: "Compliance" },
   { key: "act", label: "", group: "" }
@@ -46,6 +51,7 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
   const archived = searchParams?.archived === "1";
   const data = await listTrailersPage({ q: searchParams?.q, sort: searchParams?.sort, page: asPage(searchParams?.page), terminal, type, status, ownership, compliance, archived });
   const now = new Date();
+  const radar = await getRadarData(currentWorkspaceId(), terminal);
   const sortParam = searchParams?.sort ? { key: data.sort.key as string, dir: data.sort.dir } : null;
   const href = (p: { sort?: string | null; page?: number }) => {
     const u = new URLSearchParams();
@@ -90,6 +96,16 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
             </div>
           ))
         ),
+      dwell: t.dwell ? (
+        <>
+          <DwellLine d={t.dwell} freeHours={data.dwellTerms.freeHours} typed={t.dwellTyped} />
+          <CanGate caps={["dispatch", "bill"]}>
+            <DwellAdjust trailerId={t.id} number={t.number} d={t.dwell} typed={t.dwellTyped} freeHours={data.dwellTerms.freeHours} />
+          </CanGate>
+        </>
+      ) : (
+        <span className="dim">—</span>
+      ),
       registration: expiry(t.registrationExpiry, t.registrationExpiry != null && t.registrationExpiry.getTime() < now.getTime()),
       inspection: expiry(t.inspectionExpiry, t.inspectionExpiry != null && t.inspectionExpiry.getTime() < now.getTime()),
       act: (
@@ -111,6 +127,7 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
           <AddTrailer use={use} />
         </CanGate>
       </PageHead>
+      {radar.tractors.length > 0 || radar.trailers.length > 0 ? <RadarStrip initial={radar} /> : null}
       <div className="dt-toolbar" style={{ margin: "12px 0" }}>
         <LiveForm path="/trailers" label="Filter the trailers" className="audit-filters">
           <input type="search" name="q" defaultValue={data.q} placeholder="Search number, plate or VIN…" aria-label="Search the trailers" autoComplete="off" className="audit-q" />

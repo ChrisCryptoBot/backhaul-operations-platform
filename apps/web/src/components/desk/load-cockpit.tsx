@@ -11,7 +11,7 @@ import { Icon } from "./kit/icons";
 import type { DocItem, DeliveryStopOption } from "./load-documents";
 import { LoadDocuments } from "./load-documents";
 
-export type WorkbenchTab = "route" | "margin" | "docs" | "partners";
+export type WorkbenchTab = "route" | "margin" | "docs" | "partners" | "tracking";
 
 interface LoadCockpitProps {
   variant: "drawer" | "page";
@@ -26,6 +26,8 @@ interface LoadCockpitProps {
   marginWorkbench: React.ReactNode;
   docsWorkbench: React.ReactNode;
   partnersWorkbench: React.ReactNode;
+  /** Where it is (key 5): the truck on the lane, its speed, ETA and geofence. */
+  trackingWorkbench?: React.ReactNode;
 
   docsCount: number;
   alertsCount?: number;
@@ -43,13 +45,14 @@ export function LoadCockpit({
   marginWorkbench,
   docsWorkbench,
   partnersWorkbench,
+  trackingWorkbench,
   docsCount,
   alertsCount
 }: LoadCockpitProps) {
   const [activeTab, setActiveTabState] = React.useState<WorkbenchTab>(() => {
     if (typeof window !== "undefined") {
       const saved = window.sessionStorage?.getItem("tl_cockpit_tab");
-      if (saved === "route" || saved === "margin" || saved === "docs" || saved === "partners") {
+      if (saved === "route" || saved === "margin" || saved === "docs" || saved === "partners" || saved === "tracking") {
         return saved;
       }
     }
@@ -107,6 +110,9 @@ export function LoadCockpit({
       } else if (e.key === "4") {
         e.preventDefault();
         setActiveTab("partners");
+      } else if (e.key === "5") {
+        e.preventDefault();
+        setActiveTab("tracking");
       }
     };
 
@@ -163,6 +169,18 @@ export function LoadCockpit({
         <span>Partners & History {alertsCount && alertsCount > 0 ? `(${alertsCount})` : ""}</span>
         <span className="cp-kbd">4</span>
       </button>
+
+      <button
+        type="button"
+        role="tab"
+        id="tab-tracking"
+        aria-controls="panel-tracking"
+        aria-selected={activeTab === "tracking"}
+        className="cp-tab-btn"
+        onClick={() => setActiveTab("tracking")}>
+        <span>Where it is</span>
+        <span className="cp-kbd">5</span>
+      </button>
     </nav>
   );
 
@@ -186,6 +204,11 @@ export function LoadCockpit({
       {activeTab === "partners" && (
         <div role="tabpanel" id="panel-partners" aria-labelledby="tab-partners" className="cp-panel">
           {partnersWorkbench}
+        </div>
+      )}
+      {activeTab === "tracking" && (
+        <div role="tabpanel" id="panel-tracking" aria-labelledby="tab-tracking" className="cp-panel">
+          {trackingWorkbench}
         </div>
       )}
     </div>

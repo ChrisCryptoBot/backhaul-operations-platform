@@ -477,3 +477,51 @@ dd>.sub{display:block;color:var(--dim)}
 .pl-code{display:inline-block;margin:0 6px 0 0;padding:0 4px;border:1px solid var(--line-hi);color:var(--label);font:600 10px/14px var(--mono);font-style:normal;letter-spacing:.04em;vertical-align:1px}
 .pl-flag{display:flex;align-items:center;gap:4px;margin-top:2px;font:600 10px/13px var(--mono);font-style:normal;letter-spacing:.04em;color:var(--neg)}
 .pl-load.shiftflag{outline:1px solid var(--neg-fill);outline-offset:-1px}
+
+
+/* Radar map (docs/TELEMATICS_RADAR.md): the map canvas takes the page background, land is the panel, the rail is ruled, status is a square dot and a word, and a person's typed figure is --typed. No edge strips, no radius. */
+.rd{display:grid;grid-template-columns:minmax(0,1fr) 300px;border:1px solid var(--line);background:var(--panel)}
+.rd-map{position:relative;min-height:520px;height:calc(100vh - 190px);background:var(--bg)}
+.rd-canvas,.rd-canvas.maplibregl-map{position:absolute;inset:0}
+.rd-empty{position:absolute;left:12px;right:12px;top:12px;margin:0;padding:8px 10px;border:1px solid var(--line-hi);background:var(--panel);color:var(--mid);font:500 12px/18px var(--mono)}
+.rd-rail{border-left:1px solid var(--line);padding:12px 14px;overflow:auto;max-height:calc(100vh - 190px)}
+.rd-h{margin:0 0 8px;font:600 11px/14px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--label)}
+.rd-hud,.rd-kv{display:grid;grid-template-columns:1fr auto;gap:2px 12px;margin:0 0 8px;font:500 12px/18px var(--mono)}
+.rd-hud dt,.rd-kv dt{color:var(--dim)}
+.rd-hud dd,.rd-kv dd{margin:0;text-align:right;color:var(--ink);font-variant-numeric:tabular-nums}
+.rd-hud dd{font-weight:600}
+.rd-kv{grid-template-columns:auto 1fr}
+.rd-warn{color:var(--warn)!important}
+.rd-sub{margin:0 0 8px;font:500 11px/16px var(--mono);color:var(--dim)}
+.rd-actions{margin:0 0 10px}
+.rd-check{display:flex;gap:6px;align-items:center;margin:0 0 10px;font:500 12px/18px var(--mono);color:var(--mid)}
+.rd-key{list-style:none;margin:0 0 12px;padding:8px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);font:500 11px/18px var(--mono);color:var(--mid)}
+.rd-dot{display:inline-block;width:8px;height:8px;margin-right:6px;background:var(--dim);vertical-align:0}
+.rd-dot[data-tone=label]{background:var(--label)}
+.rd-dot[data-tone=warn]{background:var(--warn-fill)}
+.rd-dot[data-tone=ink]{background:var(--ink)}
+.rd-dot[data-tone=dim]{background:var(--dim)}
+.rd-card{padding-top:4px}
+.rd-card-head{display:flex;justify-content:space-between;gap:8px;align-items:baseline;margin:0 0 6px;font:500 12px/18px var(--mono)}
+.rd-card-head b{color:var(--ink);font-weight:600}
+.rd-st{color:var(--mid);white-space:nowrap}
+.rd-leak{margin:6px 0;font:600 11px/16px var(--mono);color:var(--warn)}
+.rd-typed{color:var(--typed)!important}
+.rd .maplibregl-ctrl-group{border-radius:0;box-shadow:none;background:var(--panel);border:1px solid var(--line-hi)}
+.rd .maplibregl-ctrl-group button{background-color:var(--panel);border-color:var(--line)}
+.rd .maplibregl-ctrl-icon{filter:invert(1)}
+[data-theme=day] .rd .maplibregl-ctrl-icon{filter:none}
+.rd-strip{border:1px solid var(--line);margin:0 0 12px;background:var(--panel)}
+.rd-strip-map{position:relative;height:200px;background:var(--bg)}
+.rd-strip-link{position:absolute;inset:0}
+.rd-strip-line{margin:0;padding:6px 10px;border-top:1px solid var(--line);font:500 12px/18px var(--mono);color:var(--mid)}
+.rd-strip-line b{color:var(--ink);font-weight:600}
+@media (max-width:1100px){.rd{grid-template-columns:minmax(0,1fr) 240px}}
+
+/* Where it is (load tracking tab): the lane drawn from the desk's tokens; a green line when the truck is inside a stop's geofence. */
+.lt{display:grid;gap:8px}
+.lt-head{margin:0;font:600 13px/20px var(--mono);color:var(--ink)}
+.lt-late{color:var(--neg)}
+.lt-svg{width:100%;height:auto;max-height:300px;border:1px solid var(--line);background:var(--bg)}
+.lt-geo{margin:0;font:600 12px/18px var(--mono);color:var(--pos)}
+.lt-sub{margin:0;font:500 11px/16px var(--mono);color:var(--dim)}

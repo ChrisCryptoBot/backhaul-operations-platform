@@ -14,6 +14,9 @@ import { currentTerminal } from "@/server/tl/terminal";
 import { partnerState } from "@/server/partners/call";
 import { SyncEldButton } from "@/components/desk/partner-actions";
 import { CanGate } from "@/components/desk/kit/can-gate";
+import { RadarStrip } from "@/components/desk/radar-map";
+import { getRadarData } from "@/server/tl/radar";
+import { currentWorkspaceId } from "@/server/tl/workspace";
 
 export const metadata = { title: "Trucks · TrueLane" };
 
@@ -27,6 +30,7 @@ const COLUMNS: Column[] = [
   { key: "breakEven", sortable: true, label: "Break-even floor", group: "Cost floor", accentBand: true, align: "num" },
   { key: "survival", sortable: true, label: "Survival floor", group: "Cost floor", accentBand: true, align: "num" },
   { key: "detention", sortable: true, label: "Detention rate", group: "Dock", align: "num" },
+  { key: "idle", label: "Idling now", group: "Telemetry" },
   { key: "loads", label: "Loads", group: "Work", align: "num" },
   { key: "open", label: "Open", group: "Work", align: "num" },
   { key: "act", label: "", group: "" }
@@ -37,6 +41,9 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
   const terminal = await currentTerminal();
   const eld = await partnerState("eld");
   const pageData = await listTrucksPage({ q: searchParams?.q, sort: searchParams?.sort, page: asPage(searchParams?.page), terminal });
+  // Where every tractor is and what standing with the engine on is costing: one read for the strip and the Idling cell.
+  const radar = await getRadarData(currentWorkspaceId(), terminal);
+  const radarOf = new Map(radar.tractors.map((u) => [u.id, u]));
   const trucks = pageData.rows;
   const sortParam = searchParams?.sort ? { key: pageData.sort.key as string, dir: pageData.sort.dir } : null;
   const href = (p: { sort?: string | null; page?: number }) => {
@@ -70,6 +77,11 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
       breakEven: perMile(t.breakEvenRpm),
       survival: perMile(t.survivalFloorRpm),
       detention: t.detentionRate != null ? `${usd(t.detentionRate)}/h` : <span className="dim">none</span>,
+      idle: radarOf.get(t.id)?.idle ? (
+        <span className="rd-leak">{`\u25A0 ${radarOf.get(t.id)!.idle!.sentence}`}</span>
+      ) : (
+        <span className="dim">—</span>
+      ),
       loads: t.loads,
       open: t.open,
       act: (
@@ -92,6 +104,7 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
           <AddTruck use={use} />
         </CanGate>
       </PageHead>
+      {radar.tractors.length > 0 || radar.connected ? <RadarStrip initial={radar} /> : null}
       <DataTableTools tableId="trucks-table" total={pageData.total} placeholder="Search trucks…" server={{ path: "/fleet", q: pageData.q, keep: searchParams?.sort ? { sort: searchParams.sort } : {} }} />
       <DataTable id="trucks-table" label="Trucks" columns={COLUMNS} rows={rows} sortHref={sortHref} empty={<EmptyState icon="trucks" title="No trucks yet">A truck and its cost profile set the floor every load is measured against.</EmptyState>} />
       <Pager page={pageData.page} pageSize={pageData.pageSize} total={pageData.total} hrefFor={(n) => href({ sort: searchParams?.sort, page: n })} newer="Previous" older="Next" />
