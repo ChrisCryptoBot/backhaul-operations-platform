@@ -1002,11 +1002,13 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           ) : null}
           {a?.status === "dispatched" ? (
             <details className="demo-controls">
-              <summary>{linked ? "Answer for them (their phone is connected)" : "Driver\u2019s answer (phone not connected)"}</summary>
+              <summary>{linked ? "Answer for the driver (their phone is connected)" : "Answer for the driver (phone not connected)"}</summary>
               <form action={respondAction}>
                 <input type="hidden" name="loadId" value={load.id} />
                 <button type="submit" disabled hidden tabIndex={-1} aria-hidden="true" />
-                <span className="tl-sub">Waiting on {a.driver.name}. The driver&apos;s phone is not connected yet, so the answer is entered here on their behalf:</span>
+                <span className="tl-sub">
+                  Waiting on {a.driver.name}. {linked ? "Use this only when you have the answer by phone call or text, such as a driver out of coverage." : "Their phone is not connected, so the answer is entered here."} It is kept as answered by you:
+                </span>
                 <DeclineNote loadId={load.id} />
                 <SubmitButton name="response" value="accepted" className="tl-btn primary sm">Driver accepts</SubmitButton>
                 <SubmitButton name="response" value="declined" className="tl-btn sm">Driver declines</SubmitButton>

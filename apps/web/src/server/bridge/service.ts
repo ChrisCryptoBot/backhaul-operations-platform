@@ -138,7 +138,7 @@ export async function pullBridgeResponses(transport: BridgeTransport, opts: { wo
     let stopped: string | null = null;
     for (const step of it.steps) {
       if (step === "accepted" || step === "declined") {
-        await recordDriverResponse(a.loadId, step, now, step === "declined" ? (answer.declinedReason ?? undefined) : undefined, workspaceId);
+        await recordDriverResponse(a.loadId, step, now, step === "declined" ? (answer.declinedReason ?? undefined) : undefined, workspaceId, "phone");
       } else if (step === "in_progress") {
         const r = await startTrip(a.loadId, { arrivedAt: toCentralLocal(Date.parse(answer.startedAt ?? now.toISOString()), tz), waitMinutes: "", seal: "" }, now, workspaceId);
         if (!r.ok) {

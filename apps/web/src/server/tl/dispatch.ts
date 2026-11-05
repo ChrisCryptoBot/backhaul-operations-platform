@@ -364,7 +364,7 @@ export async function dispatchLoad(loadId: string, now = new Date(), opts: { sen
  * The driver's answer, as the phone would write it back (respond_to_dispatch). Accepting moves the load to accepted;
  * declining returns the load to the board unassigned-able. The desktop never writes the driver's execution fields.
  */
-export async function recordDriverResponse(loadId: string, response: "accepted" | "declined", now = new Date(), note?: string, workspaceId = currentWorkspaceId()) {
+export async function recordDriverResponse(loadId: string, response: "accepted" | "declined", now = new Date(), note?: string, workspaceId = currentWorkspaceId(), via: "dispatcher" | "phone" = "dispatcher") {
   const a = await prisma.assignment.findFirst({ where: { loadId, load: { workspaceId } }, include: { driver: true, load: true } });
   if (!a) throw new DispatchError("not_assigned", "Assign a driver first.");
   if (a.status !== "dispatched") throw new DispatchError("not_sent", "Send the load to the driver before recording an answer.");
@@ -386,7 +386,8 @@ export async function recordDriverResponse(loadId: string, response: "accepted" 
         action: response,
         loadId,
         loadNumber: a.load.loadNumber,
-        summary: response === "accepted" ? `${a.driver.name} accepted` : `${a.driver.name} declined`,
+        // Who gave the answer is part of the record: the driver on their phone, or the dispatcher answering for them (a driver out of coverage, or a phone that is not connected).
+        summary: `${a.driver.name} ${response === "accepted" ? "accepted" : "declined"}${via === "phone" ? " on their phone" : " (answered for them by the dispatcher)"}`,
         reason: note ?? null,
         before: { Status: "Sent, waiting" },
         after: { Status: response === "accepted" ? "Driver accepted" : "Driver declined" },

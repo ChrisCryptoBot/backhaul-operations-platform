@@ -37,7 +37,7 @@ export async function getAlertsInTerminal(terminal: string | null, now = new Dat
   const ids = [...new Set(all.alerts.map((a) => a.loadId))];
   const mine = new Set((await prisma.load.findMany({ where: { id: { in: ids }, workspaceId, ...inTerminal(terminal) }, select: { id: true } })).map((l) => l.id));
   const alerts = all.alerts.filter((a) => mine.has(a.loadId));
-  return { alerts, byLoad: alertsByLoad(alerts), counts: countAlerts(alerts) };
+  return { alerts, byLoad: alertsByLoad(alerts), counts: countAlerts(alerts), capped: all.capped, cap: all.cap };
 }
 
 const answers = answerCache<Awaited<ReturnType<typeof buildAlerts>>>(60);
@@ -109,5 +109,7 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
     input.push({ id: l.id, loadNumber: l.loadNumber, status: l.status, paymentStatus: l.paymentStatus, invoiceNumber: l.invoiceNumber, invoicedAt: l.invoicedAt, payTermsDays: l.payTermsDays, detentionUnbilled: 0, hasTruck: true, verdict: null, stops: [], assignment: null });
   }
   const alerts = deriveAlerts(input, now, alertThresholds(t));
-  return { alerts, byLoad: alertsByLoad(alerts), counts: countAlerts(alerts) };
+  // A read that hit its cap may have left older loads out: the Alerts screen says so instead of looking complete.
+  const capped = scope === "all" && (delivered.length >= DELIVERED_CAP || uninvoiced.length >= DELIVERED_CAP);
+  return { alerts, byLoad: alertsByLoad(alerts), counts: countAlerts(alerts), capped, cap: DELIVERED_CAP };
 }

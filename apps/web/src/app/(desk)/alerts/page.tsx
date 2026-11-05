@@ -16,7 +16,7 @@ const HEADING: Record<AlertLevel, string> = { block: "Fix before it goes out", w
 
 export default async function AlertsPage({ searchParams }: { searchParams?: { level?: string; page?: string } }) {
   // The header's terminal narrows the alerts too.
-  const { alerts, counts } = await getAlertsInTerminal(await currentTerminal());
+  const { alerts, counts, capped, cap } = await getAlertsInTerminal(await currentTerminal());
   const level = LEVELS.find((l) => l === searchParams?.level) ?? null;
   const filtered = level ? alerts.filter((a) => a.level === level) : alerts;
   // Most-urgent first, then a page of them at a time: a large fleet can have thousands of notes.
@@ -35,6 +35,11 @@ export default async function AlertsPage({ searchParams }: { searchParams?: { le
         hrefFor={(k) => (k === "all" ? "/alerts" : `/alerts?level=${k}`)}
         items={[{ key: "all", label: "All", count: alerts.length }, ...LEVELS.map((l) => ({ key: l, label: LEVEL_LABEL[l], count: counts[l] }))]}
       />
+      {capped ? (
+        <p className="tl-note warn" role="status" style={{ maxWidth: 820 }}>
+          This list reads the {cap} newest delivered loads. There are at least that many, so an older delivery that was never invoiced may not be shown here. Invoice the oldest first, or find the rest under Loads, History.
+        </p>
+      ) : null}
       {ordered.length === 0 ? (
         <EmptyState icon="check" title="Nothing needs attention">Every open load has a driver where it needs one, and nothing is late.</EmptyState>
       ) : (

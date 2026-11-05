@@ -107,8 +107,25 @@ describe.skipIf(!run)("audit trail, unassign and the double-booking guard", () =
     await recordDriverResponse(l.id, "declined", new Date(), "Out of hours");
     const feed = await listLoadAudit(l.id);
     expect(feed[0]).toMatchObject({ action: "declined", reason: "Out of hours" });
+    // Who gave the answer is on the record: here the dispatcher answered for the driver.
+    expect(feed[0]!.summary).toContain("answered for them by the dispatcher");
     await unassignLoad(l.id, null); // a declined assignment needs no reason to clear
     expect(await prisma.assignment.count({ where: { loadId: l.id } })).toBe(0);
+  });
+
+  test("an answer that came from the driver's phone is recorded as theirs", async () => {
+    const l = await makeLoad("AUD-4B", base + 22 * D, base + 23 * D);
+    await assignDriver({ loadId: l.id, driverId, pay: { kind: "flat", rate: 350 } });
+    await dispatchLoad(l.id);
+    await recordDriverResponse(l.id, "accepted", new Date(), undefined, undefined, "phone");
+    const feed = await listLoadAudit(l.id);
+    expect(feed[0]!.summary).toContain("accepted on their phone");
+    expect(feed[0]!.summary).not.toContain("answered for them");
+  });
+
+  test("the alerts say when their read of delivered loads was cut short", async () => {
+    const out = await getAlerts();
+    expect(out).toMatchObject({ capped: expect.any(Boolean), cap: 500 });
   });
 
   test("a load that is on the road cannot be unassigned", async () => {
