@@ -188,7 +188,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
           {children}
         </main>
         <footer className="t-status">
-          <span>SAMPLE DATA ONLY. Every name, customer and number here is invented.</span>
+          <span>{demoLogin ? "SAMPLE DATA ONLY. Every name, customer and number here is invented." : " "}</span>
           <span className="gap"><b>{data.workspaceName}</b></span>
           {role ? <span><b>{role.toUpperCase()}</b></span> : null}
         </footer>

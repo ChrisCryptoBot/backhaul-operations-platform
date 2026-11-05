@@ -34,6 +34,8 @@ import { CAN_CANCEL, CAN_RESCHEDULE, CAN_TONU, reasonLabel } from "@/lib/disrupt
 import { toCentralLocal } from "@/lib/zoned";
 import { ACTION_LABEL } from "@/lib/audit-diff";
 import { gapsPhrase, refList, sendReadiness } from "@/lib/send-readiness";
+import { SHELF_CAPABILITIES, shelfFor, shelfHeader, type ShelfCapability } from "@/lib/partner-shelf";
+import { partnerStatus } from "@/server/partners/connections";
 import { AssignmentChip, StatusChip, VerdictChip } from "./ui";
 import { AlertList } from "./alert-bits";
 import { SubmitButton } from "./kit/submit-button";
@@ -198,6 +200,22 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   const barMax = Math.max(allIn ?? 0, flippedAllIn ?? 0, evaluation?.verdictFloorRpm ?? 0, flipped?.verdictFloorRpm ?? 0, 0.01) * 1.15;
 
   const docs = await listLoadDocuments(load.id);
+  // The shelf says only what is true: which companies this fleet has really connected (none, until a company is chosen and its keys are set).
+  const connectionRows = await partnerStatus();
+  const shelfConnected: Partial<Record<ShelfCapability, boolean>> = {};
+  for (const c of SHELF_CAPABILITIES) shelfConnected[c] = connectionRows.some((r) => r.capability === c && r.connected && r.configured);
+  const shelf = shelfFor({
+    connected: shelfConnected,
+    factoringStatus: load.factoringStatus,
+    docKinds: docs.map((d) => d.kind),
+    driverName: load.assignment?.driver.name ?? null,
+    hosHours: load.vehicle?.hosAvailableHours == null ? null : Number(load.vehicle.hosAvailableHours),
+    hosSyncedAt: load.vehicle?.hosSyncedAt ? dateTime(load.vehicle.hosSyncedAt) : null,
+    vetStatus: load.assignment?.driver.vetStatus && load.assignment.driver.vetStatus !== "unchecked" ? load.assignment.driver.vetStatus : null,
+    coiExpiresAt: load.assignment?.driver.coiExpiresAt ? dateTime(load.assignment.driver.coiExpiresAt) : null,
+    onStatement: Boolean(settled),
+    totalMiles
+  });
   const deliveryStopOptions = load.stops.filter((s) => (s.stopRole ?? s.stopType) === "delivery").map((s) => ({ id: s.id, label: `Stop ${s.stopSequence}, ${s.facilityName ?? s.addressString}` }));
   const stopLabelOf = (id: string | null) => (id ? (deliveryStopOptions.find((s) => s.id === id)?.label ?? null) : null);
   const docsLocked = load.factoringStatus !== "none" && load.factoringStatus !== "rejected" ? "This load's invoice has gone to a factoring company, so its documents stay as they were sent." : null;
@@ -904,143 +922,27 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     <>
       <section className="sec">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-          <h3 style={{ margin: 0 }}>Partner Integrations & Shelf Status</h3>
-          <span style={{ fontSize: 11, color: "var(--db-fg-dim)" }}>8 of 8 Fleet Verticals Connected</span>
+          <h3 style={{ margin: 0 }}>Partner integrations</h3>
+          <span style={{ fontSize: 11, color: "var(--db-fg-dim)" }}>{shelfHeader(shelfConnected)}</span>
         </div>
         <div className="cp-shelf-grid">
-          {/* 1. Factoring */}
-          <div className="cp-shelf-card">
-            <span className="cp-shelf-corner tl">+</span>
-            <span className="cp-shelf-corner tr">+</span>
-            <span className="cp-shelf-corner bl">+</span>
-            <span className="cp-shelf-corner br">+</span>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span className="cp-shelf-title">Factoring</span>
-              <span className={`tl-chip sm ${load.factoringStatus === "funded" ? "ok" : load.factoringStatus === "submitted" ? "warn" : "muted"}`}>
-                {load.factoringStatus.toUpperCase()}
-              </span>
+          {shelf.map((card) => (
+            <div key={card.key} className="cp-shelf-card">
+              <span className="cp-shelf-corner tl">+</span>
+              <span className="cp-shelf-corner tr">+</span>
+              <span className="cp-shelf-corner bl">+</span>
+              <span className="cp-shelf-corner br">+</span>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                <span className="cp-shelf-title">{card.title}</span>
+                <span className="t-st" data-tone={card.tone === "muted" ? undefined : card.tone}>{card.chip}</span>
+              </div>
+              <span className="cp-shelf-tagline">{card.tagline}</span>
+              <div className="cp-shelf-status">
+                <span>{card.line}</span>
+                {card.byHand ? <span className="t-dim">{card.byHand}</span> : null}
+              </div>
             </div>
-            <span className="cp-shelf-tagline">At the invoice, when cash matters most.</span>
-            <div className="cp-shelf-status">
-              <span>{docs.length >= 2 ? "Packet ready (Rate Con + POD verified)" : `${docs.length} of 2 required documents kept`}</span>
-            </div>
-          </div>
-
-          {/* 2. ELD & Telematics */}
-          <div className="cp-shelf-card">
-            <span className="cp-shelf-corner tl">+</span>
-            <span className="cp-shelf-corner tr">+</span>
-            <span className="cp-shelf-corner bl">+</span>
-            <span className="cp-shelf-corner br">+</span>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span className="cp-shelf-title">ELD & Telematics</span>
-              <span className="tl-chip ok sm">HOURS OK</span>
-            </div>
-            <span className="cp-shelf-tagline">On the quote, where the hours decide the load.</span>
-            <div className="cp-shelf-status">
-              <span>{a ? `${a.driver.name}: 4h 22m drive time remaining` : "Awaiting driver assignment"}</span>
-            </div>
-          </div>
-
-          {/* 3. Fuel Cards */}
-          <div className="cp-shelf-card">
-            <span className="cp-shelf-corner tl">+</span>
-            <span className="cp-shelf-corner tr">+</span>
-            <span className="cp-shelf-corner bl">+</span>
-            <span className="cp-shelf-corner br">+</span>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span className="cp-shelf-title">Fuel Cards</span>
-              <span className="tl-chip ok sm">SYNCED</span>
-            </div>
-            <span className="cp-shelf-tagline">On the trip, where the spend happens.</span>
-            <div className="cp-shelf-status">
-              <span>Fleet card active · Route fuel stop assigned</span>
-            </div>
-          </div>
-
-          {/* 4. Load Tracking */}
-          <div className="cp-shelf-card">
-            <span className="cp-shelf-corner tl">+</span>
-            <span className="cp-shelf-corner tr">+</span>
-            <span className="cp-shelf-corner bl">+</span>
-            <span className="cp-shelf-corner br">+</span>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span className="cp-shelf-title">Load Tracking</span>
-              <span className={`tl-chip sm ${a ? "ok" : "muted"}`}>
-                {a ? "ACTIVE" : "STANDBY"}
-              </span>
-            </div>
-            <span className="cp-shelf-tagline">On the shipment, in front of the customer.</span>
-            <div className="cp-shelf-status">
-              <span>{a ? "GPS telemetry online · Customer share link ready" : "Awaiting dispatch to broadcast tracking"}</span>
-            </div>
-          </div>
-
-          {/* 5. Payroll */}
-          <div className="cp-shelf-card">
-            <span className="cp-shelf-corner tl">+</span>
-            <span className="cp-shelf-corner tr">+</span>
-            <span className="cp-shelf-corner bl">+</span>
-            <span className="cp-shelf-corner br">+</span>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span className="cp-shelf-title">Payroll</span>
-              <span className={`tl-chip sm ${settled ? "ok" : "muted"}`}>
-                {settled ? "SETTLED" : "QUEUED"}
-              </span>
-            </div>
-            <span className="cp-shelf-tagline">At the statement, every week.</span>
-            <div className="cp-shelf-status">
-              <span>{a ? `Pay statement queued for ${a.driver.name}` : "Driver pay calculation on assignment"}</span>
-            </div>
-          </div>
-
-          {/* 6. Carrier Vetting */}
-          <div className="cp-shelf-card">
-            <span className="cp-shelf-corner tl">+</span>
-            <span className="cp-shelf-corner tr">+</span>
-            <span className="cp-shelf-corner bl">+</span>
-            <span className="cp-shelf-corner br">+</span>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span className="cp-shelf-title">Carrier Vetting</span>
-              <span className="tl-chip ok sm">VERIFIED</span>
-            </div>
-            <span className="cp-shelf-tagline">Before the load goes out.</span>
-            <div className="cp-shelf-status">
-              <span>FMCSA active · Safety rating: Satisfactory</span>
-            </div>
-          </div>
-
-          {/* 7. Fuel Tax (IFTA) */}
-          <div className="cp-shelf-card">
-            <span className="cp-shelf-corner tl">+</span>
-            <span className="cp-shelf-corner tr">+</span>
-            <span className="cp-shelf-corner bl">+</span>
-            <span className="cp-shelf-corner br">+</span>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span className="cp-shelf-title">Fuel Tax (IFTA)</span>
-              <span className="tl-chip ok sm">AUDIT READY</span>
-            </div>
-            <span className="cp-shelf-tagline">At the quarter, from the same miles.</span>
-            <div className="cp-shelf-status">
-              <span>{totalMiles} mi allocated to state tax journals</span>
-            </div>
-          </div>
-
-          {/* 8. Insurance */}
-          <div className="cp-shelf-card">
-            <span className="cp-shelf-corner tl">+</span>
-            <span className="cp-shelf-corner tr">+</span>
-            <span className="cp-shelf-corner bl">+</span>
-            <span className="cp-shelf-corner br">+</span>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span className="cp-shelf-title">Insurance</span>
-              <span className="tl-chip ok sm">ACTIVE</span>
-            </div>
-            <span className="cp-shelf-tagline">The moment a truck or a load needs cover.</span>
-            <div className="cp-shelf-status">
-              <span>$1M Auto Liability · $100K Cargo Certificate valid</span>
-            </div>
-          </div>
+          ))}
         </div>
       </section>
 
@@ -1073,11 +975,11 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           ) : null}
           {a?.status === "dispatched" ? (
             <details className="demo-controls">
-              <summary>Demo controls</summary>
+              <summary>Driver&apos;s answer (phone not connected)</summary>
               <form action={respondAction}>
                 <input type="hidden" name="loadId" value={load.id} />
                 <button type="submit" disabled hidden tabIndex={-1} aria-hidden="true" />
-                <span className="tl-sub">Waiting on {a.driver.name}. The driver&apos;s phone is not connected in this demo, so answer for them:</span>
+                <span className="tl-sub">Waiting on {a.driver.name}. The driver&apos;s phone is not connected yet, so the answer is entered here on their behalf:</span>
                 <DeclineNote loadId={load.id} />
                 <SubmitButton name="response" value="accepted" className="tl-btn primary sm">Driver accepts</SubmitButton>
                 <SubmitButton name="response" value="declined" className="tl-btn sm">Driver declines</SubmitButton>

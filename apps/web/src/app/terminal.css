@@ -435,3 +435,6 @@ dd>.sub{display:block;color:var(--dim)}
 .vc-rule>[data-learn]{position:absolute}
 .vc-rule>.off[data-learn]{position:absolute}
 .vc-rule .loss[data-learn]::before,.vc-rule .flr[data-learn]::before,.vc-rule .mkt[data-learn]::before{content:"";position:absolute;inset:-8px -6px}
+
+/* The shelf's two lines (what is true, then what is done by hand) stack. */
+.dr .cp-shelf-status{display:flex;flex-direction:column;align-items:flex-start;gap:2px}

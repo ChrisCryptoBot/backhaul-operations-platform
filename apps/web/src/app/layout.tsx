@@ -15,7 +15,7 @@ const plexSans = IBM_Plex_Sans({ subsets: ["latin"], weight: ["400", "500", "600
 
 export const metadata: Metadata = {
   title: "Dispatch · TrueLane",
-  description: "A dispatcher's desk built on TrueLane's data model, with sample data."
+  description: "A dispatcher's desk built on TrueLane's data model."
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -11,7 +11,7 @@ import "./desk.css";
 
 export const metadata: Metadata = {
   title: "Dispatch · TrueLane",
-  description: "A dispatcher's desk built on TrueLane's data model, with sample data."
+  description: "A dispatcher's desk built on TrueLane's data model."
 };
 
 // Everything here reads the database on each request: the board changes the moment a load is sent.
