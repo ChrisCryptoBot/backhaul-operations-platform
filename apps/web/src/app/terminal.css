@@ -593,3 +593,14 @@ dd>.sub{display:block;color:var(--dim)}
 .rd-region:hover{background:var(--hover);color:var(--ink)}
 .rd-region[aria-pressed=true]{background:var(--bar);color:var(--on-bar);font-weight:600}
 .rd-region[aria-pressed=true] span{color:var(--on-bar)}
+
+/* KPI inputs and wide cards: a lane target typed beside its lane, the note for the weekly call, and cards that span the row. */
+.lt-form{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.lt-form input{width:78px}
+.kn-form{display:grid;gap:8px}
+.kn-form textarea{width:100%;min-height:96px;resize:vertical;font:12px/18px var(--sans);padding:6px 8px;border:1px solid var(--line-hi);background:var(--sunk)}
+.kn-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.kn-read{margin:0;white-space:pre-wrap;font:12px/18px var(--sans);color:var(--ink)}
+.kc-wide{grid-column:1/-1}
+.kc-sub{margin:0 0 6px;font:600 11px/14px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--label)}
+.tl-grid.cols-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}

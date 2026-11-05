@@ -37,7 +37,7 @@ export const MAX_EXPORT_ROWS = 25_000;
  * The CSV files the desk offers. Each is built from the same functions the screen uses (the Loads filter, the KPI engine),
  * so a file always matches what was on screen when it was asked for. Dates are the Central calendar date.
  */
-export const EXPORT_KINDS = ["loads", "invoices", "settlements", "settlement-lines", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "quote-decisions", "fuel", "ifta"] as const;
+export const EXPORT_KINDS = ["loads", "invoices", "settlements", "settlement-lines", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "kpi-trucks", "quote-decisions", "fuel", "ifta"] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
 type Query = Record<string, string | string[] | undefined>;
@@ -360,7 +360,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
     };
   }
 
-  if (kind === "kpi-drivers" || kind === "kpi-lanes" || kind === "kpi-brokers" || kind === "kpi-weeks") {
+  if (kind === "kpi-drivers" || kind === "kpi-lanes" || kind === "kpi-brokers" || kind === "kpi-weeks" || kind === "kpi-trucks") {
     const p = parseKpiParams(query);
     const k = await getDeskKpi({ period: p.period, compare: false, filters: p.filters }, now);
     const tag = `${p.period}-${day}`;
@@ -377,8 +377,8 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
       return {
         filename: `truelane-desk-kpi-lanes-${tag}.csv`,
         csv: toCsv(
-          ["Lane", "Loads", "Gross", "Per revenue mile", "Empty miles (%)", "Avg empty before pickup", "Avg empty after delivery", "Loads with a market rate", "Against market (%)", "Status"],
-          k.lanes.map((l): CsvCell[] => [l.key, l.loads, two(l.gross), two(l.rpm), pctOf(l.emptyShare), two(l.avgPickupEmpty), two(l.avgReturnEmpty), l.benchmarked, pctOf(l.marketVariancePct), l.status === "above" ? "above market" : l.status === "below" ? "below market" : "no market rate"])
+          ["Lane", "Loads", "Gross", "Revenue per load", "Per revenue mile", "Loaded miles", "Empty miles before pickup", "Empty miles after delivery", "Total empty miles", "Total trip miles", "Empty miles (%)", "Avg empty before pickup", "Avg empty after delivery", "Loads with a market rate", "Against market (%)", "Target per load", "Vs target", "Scorecard", "Status"],
+          k.lanes.map((l): CsvCell[] => [l.key, l.loads, two(l.gross), two(l.revPerLoad), two(l.rpm), two(l.loadedMiles), two(l.pickupEmptyMiles), two(l.returnEmptyMiles), two(l.pickupEmptyMiles + l.returnEmptyMiles), two(l.drivenMiles), pctOf(l.emptyShare), two(l.avgPickupEmpty), two(l.avgReturnEmpty), l.benchmarked, pctOf(l.marketVariancePct), l.targetRate == null ? "" : two(l.targetRate), l.vsTarget == null ? "" : two(l.vsTarget), l.score === "below" ? "BELOW" : l.score === "ok" ? "OK" : "NO TARGET", l.status === "above" ? "above market" : l.status === "below" ? "below market" : "no market rate"])
         )
       };
     }
@@ -386,16 +386,25 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
       return {
         filename: `truelane-desk-kpi-customers-${tag}.csv`,
         csv: toCsv(
-          ["Customer", "Loads", "Gross", "Per revenue mile", "Against market (%)", "Loads with a market rate", "Paid invoices", "Days to pay", "Average wait at a stop (min)", "Cancelled or TONU"],
-          k.brokers.map((b): CsvCell[] => [b.name, b.loads, two(b.gross), two(b.rpm), pctOf(b.marketVariancePct), b.benchmarked, b.paidLoads, two(b.avgDaysToPay), two(b.avgWaitMinutes), b.lost])
+          ["Customer", "Loads", "Gross", "Per revenue mile", "Against market (%)", "Loads with a market rate", "Paid invoices", "Days to pay", "Average wait at a stop (min)", "On time (%)", "Stops with an arrival and a window", "Books ahead (days)", "Rolled loads", "Cancelled or TONU"],
+          k.brokers.map((b): CsvCell[] => [b.name, b.loads, two(b.gross), two(b.rpm), pctOf(b.marketVariancePct), b.benchmarked, b.paidLoads, two(b.avgDaysToPay), two(b.avgWaitMinutes), pctOf(b.onTimeArrivals), b.arrivalStops, two(b.leadDays), b.rolled, b.lost])
+        )
+      };
+    }
+    if (kind === "kpi-trucks") {
+      return {
+        filename: `truelane-desk-kpi-trucks-${tag}.csv`,
+        csv: toCsv(
+          ["Truck", "Loads", "Miles driven", "Empty miles", "Empty miles (%)"],
+          k.trucks.map((r): CsvCell[] => [r.name, r.loads, two(r.drivenMiles), two(r.emptyMiles), pctOf(r.emptyShare)])
         )
       };
     }
     return {
       filename: `truelane-desk-kpi-weeks-${tag}.csv`,
       csv: toCsv(
-        ["Week ending", "Gross", "Loads", "Per revenue mile", "Empty miles (%)"],
-        k.trend.map((w): CsvCell[] => [ymd(new Date(w.end)), two(w.gross), w.loads, two(w.rpm), pctOf(w.emptyShare)])
+        ["Week ending", "Gross", "Loads", "Per revenue mile", "Empty miles (%)", "Loaded miles", "Fuel surcharge", "Surcharge per loaded mile", "Surcharge of line haul (%)", "Diesel price"],
+        k.trend.map((w): CsvCell[] => [ymd(new Date(w.end)), two(w.gross), w.loads, two(w.rpm), pctOf(w.emptyShare), two(w.loadedMiles), two(w.fsc), w.loadedMiles > 0 ? two(w.fsc / w.loadedMiles) : "", w.lineHaul > 0 ? pctOf(w.fsc / w.lineHaul) : "", w.diesel == null ? "" : two(w.diesel)])
       )
     };
   }

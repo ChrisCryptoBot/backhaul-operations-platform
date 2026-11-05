@@ -17,7 +17,6 @@ const migDir = path.join(outDir, "migrations");
 const FIRST_DESK = "20261028000000";
 const RETIRE = "20261028010000_retire_legacy_dispatch_tables";
 const EXTENSIONS_NAME = "20261027000000_extensions";
-const RLS_NAME = "20261129000000_enable_rls";
 
 const folders = fs
   .readdirSync(prismaDir, { withFileTypes: true })
@@ -26,6 +25,9 @@ const folders = fs
   .sort();
 const skipped = folders.filter((f) => f === RETIRE);
 const desk = folders.filter((f) => f !== RETIRE);
+
+// The lockdown always sorts after the last desk migration (one second later), so a later migration never lands behind it.
+const RLS_NAME = `${String(BigInt(desk[desk.length - 1].slice(0, 14)) + 1n)}_enable_rls`;
 
 const header = (from) => `-- Generated from ${from} by apps/web/scripts/export-supabase.mjs. Do not edit here: change the Prisma migration and run npm run db:export-supabase.\n\n`;
 

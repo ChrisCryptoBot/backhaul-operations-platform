@@ -3,6 +3,11 @@ import React from "react";
 import { getDeskKpi } from "@/server/tl/kpi";
 import { demoLoginOn } from "@/lib/demo-session";
 import { getCompany } from "@/server/tl/company";
+import { checkAccess } from "@/server/tl/access";
+import { getKpiNote, weekKeyOf } from "@/server/tl/kpi-inputs";
+import { workspaceTimezone } from "@/server/tl/zone";
+import { currentWorkspaceId } from "@/server/tl/workspace";
+import { NotesBox } from "@/components/desk/kpi/inputs";
 import { DocHead } from "@/components/desk/doc-head";
 import { PrintButton } from "@/components/desk/kpi/print-button";
 import { shortLane } from "@/components/desk/kpi/parts";
@@ -18,7 +23,10 @@ const PERIOD_NAME = { "4w": "Last four weeks", month: "This month", ytd: "Year t
 export default async function KpiReportPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const params = parseKpiParams(searchParams);
   const now = new Date();
-  const [k, company] = await Promise.all([getDeskKpi({ period: params.period, compare: params.compare, filters: params.filters }, now), getCompany()]);
+  const [k, company, canEdit, tz] = await Promise.all([getDeskKpi({ period: params.period, compare: params.compare, filters: params.filters }, now), getCompany(), checkAccess("dispatch", "bill"), workspaceTimezone(currentWorkspaceId())]);
+  // The note is for the week the report is read in (the Monday on the carrier's clock), whatever period is shown.
+  const weekKey = weekKeyOf(now.getTime(), tz);
+  const note = await getKpiNote(weekKey);
   const c = k.current;
   const p = k.prior;
 
@@ -32,6 +40,15 @@ export default async function KpiReportPage({ searchParams }: { searchParams?: R
     { label: "Loads that cleared the truck's floor", now: pct(c.clearedFloor), before: p ? pct(p.clearedFloor) : "—", delta: deltaOf(c.clearedFloor, p?.clearedFloor, { kind: "pts" }) },
     { label: "Invoices paid within terms", now: pct(c.paidWithinTerms), before: p ? pct(p.paidWithinTerms) : "—", delta: deltaOf(c.paidWithinTerms, p?.paidWithinTerms, { kind: "pts" }) },
     { label: "Days to pay", now: c.avgDaysToPay == null ? "—" : c.avgDaysToPay.toFixed(1), before: p?.avgDaysToPay == null ? "—" : p.avgDaysToPay.toFixed(1), delta: deltaOf(c.avgDaysToPay, p?.avgDaysToPay, { kind: "pct", lowerIsBetter: true }) },
+    { label: "Loaded miles", now: miles(c.loadedMiles), before: p ? miles(p.loadedMiles) : "—", delta: deltaOf(c.loadedMiles, p?.loadedMiles, { kind: "pct" }) },
+    { label: "Deadhead before pickup / after delivery", now: `${miles(c.pickupEmptyMiles)} / ${miles(c.returnEmptyMiles)}`, before: p ? `${miles(p.pickupEmptyMiles)} / ${miles(p.returnEmptyMiles)}` : "—", delta: null },
+    { label: "Fuel surcharge", now: usd(c.fuelSurcharge), before: p ? usd(p.fuelSurcharge) : "—", delta: deltaOf(c.fuelSurcharge, p?.fuelSurcharge, { kind: "pct" }) },
+    { label: "Fuel surcharge per loaded mile", now: perMile(c.fscPerMile), before: p ? perMile(p.fscPerMile) : "—", delta: deltaOf(c.fscPerMile, p?.fscPerMile, { kind: "pct" }) },
+    { label: "On-time pickups", now: pct(c.onTimePickup), before: p ? pct(p.onTimePickup) : "—", delta: deltaOf(c.onTimePickup, p?.onTimePickup, { kind: "pts" }) },
+    { label: "On-time deliveries", now: pct(c.onTimeDrop), before: p ? pct(p.onTimeDrop) : "—", delta: deltaOf(c.onTimeDrop, p?.onTimeDrop, { kind: "pts" }) },
+    { label: "Books ahead (days)", now: c.leadDays == null ? "—" : c.leadDays.toFixed(1), before: p?.leadDays == null ? "—" : p.leadDays.toFixed(1), delta: null },
+    { label: "Loads rolled to a new pickup time", now: String(k.rolled.count), before: k.rolled.prior == null ? "—" : String(k.rolled.prior), delta: deltaOf(k.rolled.count, k.rolled.prior, { kind: "pct", lowerIsBetter: true }) },
+    { label: "Offers received / booked (acceptance)", now: `${k.tender.current.received} / ${k.tender.current.booked} (${pct(k.tender.current.acceptance)})`, before: k.tender.prior ? `${k.tender.prior.received} / ${k.tender.prior.booked} (${pct(k.tender.prior.acceptance)})` : "—", delta: deltaOf(k.tender.current.acceptance, k.tender.prior?.acceptance, { kind: "pts" }) },
     { label: "Average wait at a stop (minutes)", now: c.avgWaitMinutes == null ? "—" : c.avgWaitMinutes.toFixed(0), before: p?.avgWaitMinutes == null ? "—" : p.avgWaitMinutes.toFixed(0), delta: deltaOf(c.avgWaitMinutes, p?.avgWaitMinutes, { kind: "pct", lowerIsBetter: true }) }
   ];
 
@@ -110,7 +127,7 @@ export default async function KpiReportPage({ searchParams }: { searchParams?: R
         ) : (
           <table aria-label="Lanes">
             <thead>
-              <tr><th>Lane</th><th className="num">Loads</th><th className="num">Gross</th><th className="num">Per mile</th><th className="num">Empty miles</th><th className="num">Against market</th></tr>
+              <tr><th>Lane</th><th className="num">Loads</th><th className="num">Gross</th><th className="num">Per load</th><th className="num">Per mile</th><th className="num">Empty miles</th><th className="num">Target</th><th>Scorecard</th></tr>
             </thead>
             <tbody>
               {k.lanes.map((l) => (
@@ -118,14 +135,23 @@ export default async function KpiReportPage({ searchParams }: { searchParams?: R
                   <td>{shortLane(l.key)}</td>
                   <td className="num">{l.loads}</td>
                   <td className="num">{usd(l.gross)}</td>
+                  <td className="num">{usd(l.revPerLoad)}</td>
                   <td className="num">{perMile(l.rpm)}</td>
                   <td className="num">{pct(l.emptyShare, 1)}</td>
-                  <td className={`num ${l.marketVariancePct == null ? "" : l.marketVariancePct < 0 ? "rp-bad" : "rp-good"}`}>{l.marketVariancePct == null ? "no market rate" : signedPct(l.marketVariancePct)}</td>
+                  <td className="num">{l.targetRate == null ? "—" : usd(l.targetRate)}</td>
+                  <td className={l.score === "below" ? "rp-bad" : l.score === "ok" ? "rp-good" : ""}>{l.score === "below" ? "BELOW" : l.score === "ok" ? "OK" : "NO TARGET"}{l.marketVariancePct == null ? "" : ` · ${signedPct(l.marketVariancePct)} vs market`}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
+
+        <h2>Notes for the call</h2>
+        <p className="rp-meta">{`Week of ${weekKey}`}</p>
+        <div className="no-print">
+          <NotesBox weekKey={weekKey} initial={note?.body ?? ""} canEdit={canEdit.ok} updatedBy={note?.updatedBy ?? null} />
+        </div>
+        <div className="print-only">{note?.body ? <p style={{ whiteSpace: "pre-wrap" }}>{note.body}</p> : <p>None.</p>}</div>
 
         <h2>Money owed</h2>
         {k.aging.count === 0 ? (

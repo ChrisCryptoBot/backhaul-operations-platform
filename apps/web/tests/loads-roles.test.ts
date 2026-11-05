@@ -45,7 +45,7 @@ const TABLE: Record<string, Capability[]> = {
   saveScheduleAction: ["roster"], applyScheduleAction: ["roster"], clearScheduleAction: ["roster"], saveTimeOffAction: ["roster"], removeTimeOffAction: ["roster"], setDriversHomeAction: ["roster"], setDriverCodeAction: ["roster"],
   addTerminalAction: ["admin"], renameTerminalAction: ["admin"], archiveTerminalAction: ["admin"],
   // the ELD fleet import (an admin), and a dropped trailer's dwell figure (a dispatcher or a billing person; either one)
-  importEldFleetAction: ["admin"], adjustTrailerDwellAction: ["dispatch", "bill"], waiveTrailerDwellAction: ["dispatch", "bill"], clearTrailerDwellAction: ["dispatch", "bill"]
+  importEldFleetAction: ["admin"], adjustTrailerDwellAction: ["dispatch", "bill"], waiveTrailerDwellAction: ["dispatch", "bill"], clearTrailerDwellAction: ["dispatch", "bill"], setLaneTargetAction: ["dispatch", "bill"], saveKpiNoteAction: ["dispatch", "bill"]
 };
 
 describe("every action asks for the capability the table says", () => {

@@ -9,7 +9,7 @@ import { DataTableTools } from "@/components/desk/data-table-tools";
 import { kindLabel } from "@/lib/customer";
 import { parseKpiParams } from "@/lib/kpi-params";
 import { KPI_PERIODS, windowLabel } from "@/lib/kpi-periods";
-import { perMile, signedPct, usd } from "@/lib/desk-format";
+import { pct, perMile, signedPct, usd } from "@/lib/desk-format";
 
 export const metadata = { title: "Customers · TrueLane" };
 
@@ -24,10 +24,13 @@ const COLUMNS: Column[] = [
   { key: "market", sortable: true, label: "Against market", align: "num" },
   { key: "pay", sortable: true, label: "Days to pay", align: "num" },
   { key: "wait", sortable: true, label: "Wait at a stop", align: "num" },
+  { key: "ontime", sortable: true, label: "On time", align: "num" },
+  { key: "lead", sortable: true, label: "Books ahead", align: "num" },
+  { key: "rolled", sortable: true, label: "Rolled", align: "num" },
   { key: "lost", sortable: true, label: "Fell through", align: "num" }
 ];
 
-const empty = (name: string): BrokerKpi => ({ name, loads: 0, gross: 0, rpm: null, marketVariancePct: null, benchmarked: 0, paidLoads: 0, avgDaysToPay: null, avgWaitMinutes: null, waitStops: 0, lost: 0 });
+const empty = (name: string): BrokerKpi => ({ name, loads: 0, gross: 0, rpm: null, marketVariancePct: null, benchmarked: 0, paidLoads: 0, avgDaysToPay: null, avgWaitMinutes: null, waitStops: 0, lost: 0, onTimeArrivals: null, arrivalStops: 0, leadDays: null, rolled: 0 });
 
 /** Who the loads are for: what each customer pays, how fast, and how often a load falls through, with the record (kind, MC, terms) beside it. */
 export default async function CustomersPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
@@ -64,6 +67,9 @@ export default async function CustomersPage({ searchParams }: { searchParams?: R
         market: b.marketVariancePct == null ? <span className="dim">no market rate</span> : <span className={b.marketVariancePct < 0 ? "tone-neg" : "tone-pos"}>{signedPct(b.marketVariancePct)}</span>,
         pay: b.avgDaysToPay == null ? <span className="dim">—</span> : `${b.avgDaysToPay.toFixed(1)} days`,
         wait: b.avgWaitMinutes == null ? <span className="dim">—</span> : `${b.avgWaitMinutes.toFixed(0)} min`,
+        ontime: b.onTimeArrivals == null ? <span className="dim">—</span> : <span className={b.onTimeArrivals < 0.9 ? "tone-warn" : ""} title={`${b.arrivalStops} stops with an arrival and a window`}>{pct(b.onTimeArrivals, 0)}</span>,
+        lead: b.leadDays == null ? <span className="dim">—</span> : `${b.leadDays.toFixed(1)} days`,
+        rolled: b.rolled > 0 ? <span className="tone-warn">{b.rolled}</span> : <span className="dim">0</span>,
         lost: b.lost > 0 ? <span className="tone-warn">{b.lost}</span> : <span className="dim">0</span>
       }
     };
@@ -83,7 +89,7 @@ export default async function CustomersPage({ searchParams }: { searchParams?: R
         unit="finished loads in the period, by customer"
         empty={all.length === 0 ? "No finished loads in this period." : undefined}
         caption={slow ? `${slow.name} is the slowest to pay: ${slow.avgDaysToPay!.toFixed(1)} days on average over ${slow.paidLoads} paid ${slow.paidLoads === 1 ? "invoice" : "invoices"}.` : "No paid invoices in this period to measure payment speed."}
-        formula="Against market is (Σ all-in pay − Σ market total) ÷ Σ market total over the customer's loads that carry a market rate. Days to pay is invoice to payment on paid invoices. Wait is the mean recorded wait at a stop. Fell through counts cancelled loads and TONUs.">
+        formula="Against market is (Σ all-in pay − Σ market total) ÷ Σ market total over the customer's loads that carry a market rate. Days to pay is invoice to payment on paid invoices. On time is the share of the customer's stops reached by the time the window closed, over stops with an arrival and a window (the SLA). Books ahead is the mean days from booking to pickup. Rolled is loads moved to a new pickup time in the period. Wait is the mean recorded wait at a stop. Fell through counts cancelled loads and TONUs.">
         <DataTableTools tableId="brokers-table" total={rows.length} placeholder="Search customers…" />
         <DataTable id="brokers-table" label="Customer scorecard" columns={COLUMNS} rows={rows} />
       </ChartFrame>

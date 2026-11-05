@@ -21,7 +21,8 @@ const mirrored = fs.readdirSync(migDir).sort();
 
 describe("the Supabase migrations folder mirrors the desk's Prisma migrations", () => {
   it("has a file for every desk migration, plus the preflight first and the lockdown last", () => {
-    expect(mirrored).toEqual(["20261027000000_extensions.sql", ...deskFolders.map((f) => `${f}.sql`), "20261129000000_enable_rls.sql"]);
+    const last = deskFolders[deskFolders.length - 1]!.slice(0, 14);
+    expect(mirrored).toEqual(["20261027000000_extensions.sql", ...deskFolders.map((f) => `${f}.sql`), `${String(BigInt(last) + 1n)}_enable_rls.sql`]);
   });
 
   it("names are 14-digit, unique and ascending, so the Supabase CLI accepts them in order", () => {
@@ -56,7 +57,7 @@ describe("the Supabase migrations folder mirrors the desk's Prisma migrations", 
   });
 
   it("the lockdown turns row security on for every table in public, with no policy, and is also kept alone to re-run", () => {
-    const rls = read(path.join(migDir, "20261129000000_enable_rls.sql"));
+    const rls = read(path.join(migDir, mirrored[mirrored.length - 1]!));
     expect(rls).toContain("schemaname = 'public'");
     expect(rls).toContain("enable row level security");
     expect(rls).not.toMatch(/create policy/i);

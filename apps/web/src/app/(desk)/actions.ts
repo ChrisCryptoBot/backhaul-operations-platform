@@ -23,6 +23,7 @@ import { saveCompany } from "@/server/tl/company";
 import { saveCustomer, type SaveCustomerResult } from "@/server/tl/customers";
 import type { CustomerValues } from "@/lib/customer";
 import type { CompanyValues } from "@/lib/company";
+import { saveKpiNote, setLaneTarget, type InputResult } from "@/server/tl/kpi-inputs";
 import { applySchedule, clearSchedule, removeTimeOff, saveSchedule, saveTimeOff, type ShiftResult, type TimeOffInput } from "@/server/tl/shifts";
 import { addTerminal, archiveTerminal, renameTerminal, setDriverCode, setDriversHome, type TerminalResult } from "@/server/tl/terminal-list";
 import { saveCostProfile, saveDriver, saveTruck, setDriverActive, setTruckArchived, type ActResult, type SaveResult } from "@/server/tl/fleet";
@@ -292,6 +293,22 @@ export async function saveDriverAction(values: Record<string, string>, id: strin
   await requireCan("dispatch");
   const out = await saveDriver(values, id);
   if (out.ok) refreshFleet();
+  return out;
+}
+
+// ── What a person types on the KPI screens: a lane's target rate and the note for the weekly call (dispatch or billing) ──
+
+export async function setLaneTargetAction(lane: string, rate: string): Promise<InputResult> {
+  await requireCan("dispatch", "bill");
+  const out = await setLaneTarget(lane, rate);
+  if (out.ok && out.changed) revalidatePath("/", "layout");
+  return out;
+}
+
+export async function saveKpiNoteAction(weekKey: string, body: string): Promise<InputResult> {
+  await requireCan("dispatch", "bill");
+  const out = await saveKpiNote(weekKey, body);
+  if (out.ok && out.changed) revalidatePath("/kpi/report");
   return out;
 }
 

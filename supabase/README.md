@@ -9,8 +9,8 @@ Prisma (`prisma/migrations`) is the source of truth. Everything in this folder i
 | File | What it is |
 |---|---|
 | `migrations/20261027000000_extensions.sql` | Preflight: `pg_trgm` (the search indexes need it). |
-| `migrations/20261028000000_…` to `…20261128000000_telematics_radar.sql` | The desk's 38 migrations, in order, verbatim from Prisma. |
-| `migrations/20261129000000_enable_rls.sql` | Row level security on for every table, no policies (see below). |
+| `migrations/20261028000000_…` onward | The desk's migrations, in order, verbatim from Prisma (the list grows as the desk does). |
+| `migrations/<last desk migration + 1 second>_enable_rls.sql` | Row level security on for every table, no policies (see below). |
 | `apply-all.sql` | All of the above in one file, for one paste into the SQL editor. |
 | `verify.sql` | Checks the result by the objects themselves. |
 | `lockdown_rls.sql` | The RLS statement alone, to re-run after any later migration. |
@@ -32,7 +32,7 @@ Supabase publishes every table in `public` through its REST API. With row securi
 
 ## Keep Prisma in step
 
-Applying by hand leaves Prisma's own history table empty. If the desk will ever run `prisma migrate deploy` against this database, run `mark-applied.sh` (or `mark-applied.ps1` on Windows) once, from `dispatch-desk`, with `DATABASE_URL` set to the new database's **direct** connection. It records all 39 desk migrations as applied, including the retire one that was never run.
+Applying by hand leaves Prisma's own history table empty. If the desk will ever run `prisma migrate deploy` against this database, run `mark-applied.sh` (or `mark-applied.ps1` on Windows) once, from `dispatch-desk`, with `DATABASE_URL` set to the new database's **direct** connection. It records every desk migration as applied, including the retire one that was never run.
 
 ## Notes
 

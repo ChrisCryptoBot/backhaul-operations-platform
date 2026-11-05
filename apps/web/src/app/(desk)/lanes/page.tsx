@@ -2,6 +2,8 @@ import React from "react";
 import { getDeskKpi } from "@/server/tl/kpi";
 import { PageHead, Tabs } from "@/components/desk/ui";
 import { LaneScorecard } from "@/components/desk/kpi/lanes";
+import { LaneWeeksCard } from "@/components/desk/kpi/operations";
+import { checkAccess } from "@/server/tl/access";
 import { DataTableTools } from "@/components/desk/data-table-tools";
 import { parseKpiParams } from "@/lib/kpi-params";
 import { KPI_PERIODS, windowLabel } from "@/lib/kpi-periods";
@@ -11,7 +13,7 @@ export const metadata = { title: "Lanes · TrueLane" };
 /** Every lane that finished a load in the period: what it paid per mile, against the market, and where the empty miles are. */
 export default async function LanesPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const params = parseKpiParams({ ...searchParams, period: searchParams?.period ?? "all" });
-  const k = await getDeskKpi({ period: params.period, compare: false });
+  const [k, edit] = await Promise.all([getDeskKpi({ period: params.period, compare: false }), checkAccess("dispatch", "bill")]);
   const query = params.period === "all" ? "" : `?period=${params.period}`;
   return (
     <>
@@ -21,7 +23,8 @@ export default async function LanesPage({ searchParams }: { searchParams?: Recor
       <Tabs active={params.period} hrefFor={(key) => (key === "all" ? "/lanes" : `/lanes?period=${key}`)} items={KPI_PERIODS} />
       <p className="tl-sub" style={{ margin: "0 0 12px" }}>{windowLabel(k.window)}</p>
       <DataTableTools tableId="kpi-lanes" total={k.lanes.length} placeholder="Search lanes…" />
-      <LaneScorecard k={k} />
+      <LaneScorecard k={k} canEdit={edit.ok} />
+      <LaneWeeksCard k={k} />
     </>
   );
 }

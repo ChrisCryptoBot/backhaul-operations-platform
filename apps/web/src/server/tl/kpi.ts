@@ -19,6 +19,8 @@ import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
 import { workspaceTimezone } from "./zone";
 import { answerCache, clockBucket } from "./answer-cache";
+import { getKpiExtras, kpiExtrasStamp } from "./kpi-extras";
+import { dieselAt, laneScore, leadDaysOf, mixLabel, mixOf, tenderStats, type KpiExtras, type LaneScore, type MixRow, type TenderStats } from "@/lib/kpi-extras";
 
 /**
  * The KPI dashboard's numbers, computed from the TrueLane-shaped tables with TrueLane's own functions (analytics, load
@@ -39,7 +41,10 @@ export type KpiLoadRow = LoadRow & {
   vehicleName: string | null;
   /** Verdict on the truck's own floor, for loads that are not finished yet. */
   verdict: Verdict | null;
-  stops: Array<{ waitMinutes: number | null; arrivedAt?: Date | null; timeWindowLatest?: Date | null }>;
+  /** The kind of equipment the load needs, and what it carries (for the load mix). */
+  trailerType?: string | null;
+  loadType?: string | null;
+  stops: Array<{ waitMinutes: number | null; arrivedAt?: Date | null; timeWindowLatest?: Date | null; /** pickup, delivery or another kind of stop. */ role?: string | null }>;
   assignment: { driverName: string; payKind: string; payEstimate: number | null; status: string } | null;
 };
 
@@ -74,6 +79,23 @@ export type PeriodStats = {
   /** Average recorded wait at a stop, minutes. */
   avgWaitMinutes: number | null;
   waitStops: number;
+  /** On-time split by kind of stop (the same rule as `onTimeArrivals`: there by the time the window closed). */
+  onTimePickup: number | null;
+  pickupStops: number;
+  onTimeDrop: number | null;
+  dropStops: number;
+  /** Average days from booking to pickup, over loads with a pickup date. */
+  leadDays: number | null;
+  leadLoads: number;
+  /** The tracker's mile columns: loaded, empty before the pickup, empty after the delivery (their sum is every empty mile). */
+  loadedMiles: number;
+  pickupEmptyMiles: number;
+  returnEmptyMiles: number;
+  /** Line haul (the rate without the fuel surcharge), the surcharge in dollars, per loaded mile, and as a share of the line haul. */
+  lineHaul: number;
+  fuelSurcharge: number;
+  fscPerMile: number | null;
+  fscPct: number | null;
 };
 
 export type DriverKpi = { name: string; loads: number; gross: number; rpm: number | null; payOwed: number; drivenMiles: number; emptyMiles: number; emptyShare: number | null };
@@ -92,6 +114,16 @@ export type LaneKpi = {
   benchmarked: number;
   marketVariancePct: number | null;
   status: LaneStatus;
+  /** The tracker's columns: loaded miles, empty miles before and after, every mile driven, and revenue per load. */
+  loadedMiles: number;
+  pickupEmptyMiles: number;
+  returnEmptyMiles: number;
+  drivenMiles: number;
+  revPerLoad: number | null;
+  /** The target rate per load a person set for this lane, how far the lane is from it (negative is under), and the verdict. */
+  targetRate: number | null;
+  vsTarget: number | null;
+  score: LaneScore;
 };
 export type ReliabilityKpi = {
   cancelled: number;
@@ -121,6 +153,12 @@ export type BrokerKpi = {
   waitStops: number;
   /** Loads this broker cancelled or turned into a TONU. */
   lost: number;
+  /** SLA: the share of this customer's stops reached by the time the window closed, how many stops that is, and how far ahead they book (days). */
+  onTimeArrivals: number | null;
+  arrivalStops: number;
+  leadDays: number | null;
+  /** Loads of theirs that were moved to a new pickup time in the period. */
+  rolled: number;
 };
 
 export type TrendWeek = {
@@ -134,7 +172,17 @@ export type TrendWeek = {
   revenueMiles: number;
   drivenMiles: number;
   emptyMiles: number;
+  /** The fuel surcharge dollars, the line haul and the loaded miles in the week, and the diesel price in force at its end (null when none has been kept). */
+  fsc: number;
+  lineHaul: number;
+  loadedMiles: number;
+  diesel: number | null;
 };
+export type TruckKpi = { name: string; loads: number; drivenMiles: number; emptyMiles: number; emptyShare: number | null };
+/** One lane across the last six weeks, oldest first, for the tracker's week-over-week grid. */
+export type LaneWeekRow = { key: string; label: string; weeks: Array<{ loads: number; gross: number; rpm: number | null; emptyShare: number | null }>; total: number };
+export type RolledKpi = { count: number; prior: number | null; reasons: Array<{ label: string; count: number }> };
+export type TenderKpi = { current: TenderStats; prior: TenderStats | null; weeks: Array<{ label: string; end: number; received: number; booked: number; passed: number; acceptance: number | null }> };
 export type OutstandingInvoice = { id: string; loadNumber: string | null; broker: string | null; billed: number; dueAt: number | null; daysPastDue: number | null };
 
 export type DeskKpi = {
@@ -160,6 +208,15 @@ export type DeskKpi = {
   verdictMix: Record<Verdict, number>;
   aging: AgingSummary;
   outstanding: OutstandingInvoice[];
+  /** What kind of freight the finished loads were, and how much of the revenue each customer is. */
+  mix: { trailer: MixRow[]; loadType: MixRow[]; customers: MixRow[] };
+  /** The worst ten trucks for empty miles in the window. */
+  trucks: TruckKpi[];
+  /** The busiest lanes week by week, for the last six weeks. */
+  laneWeeks: LaneWeekRow[];
+  /** Loads moved to a new pickup time, and offers received against loads booked. */
+  rolled: RolledKpi;
+  tender: TenderKpi;
   /** What the filter menus offer, taken before any filter is applied. */
   choices: { lanes: string[]; brokers: string[]; drivers: string[]; trucks: string[] };
 };
@@ -186,6 +243,14 @@ type Fact = {
   waits: number[];
   /** For each stop with an arrival and a window: was the driver there by the time the window closed. */
   arrivals: boolean[];
+  pickupArr: boolean[];
+  dropArr: boolean[];
+  leadDays: number | null;
+  lineHaul: number;
+  fsc: number;
+  loadedMiles: number;
+  trailerType: string | null;
+  loadType: string | null;
 };
 
 const money = (l: KpiLoadRow) => ({
@@ -209,6 +274,7 @@ const milesIn = (l: KpiLoadRow) => ({
 const doneAtOf = (l: KpiLoadRow) =>
   loadCompletedAtMs({ status: l.status, completedAt: ms(l.completedAt), cancelledAt: ms(l.cancelledAt), updatedAt: l.updatedAt, scheduledDate: ms(l.scheduledDate), createdAt: l.createdAt });
 
+const five = (xs: readonly unknown[]) => xs.length - 1;
 const mean = (xs: number[]) => (xs.length > 0 ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
 const laneOf = (l: { originAddress: string | null; destinationAddress: string | null }) => `${l.originAddress ?? "?"} → ${l.destinationAddress ?? "?"}`;
 
@@ -245,7 +311,16 @@ function factOf(l: KpiLoadRow, t: Thresholds): Fact {
     paidWithinTerms: daysToPay == null ? null : daysToPay <= (l.payTermsDays ?? t.defaultPayTermsDays),
     market: mv ? { pay: mv.pay, benchmarkTotal: mv.benchmarkTotal, variancePct: mv.variancePct } : null,
     waits: l.stops.map((s) => s.waitMinutes).filter((n): n is number => n != null),
-    arrivals: l.stops.filter((s) => s.arrivedAt != null && s.timeWindowLatest != null).map((s) => s.arrivedAt!.getTime() <= s.timeWindowLatest!.getTime())
+    arrivals: l.stops.filter((s) => s.arrivedAt != null && s.timeWindowLatest != null).map((s) => s.arrivedAt!.getTime() <= s.timeWindowLatest!.getTime()),
+    pickupArr: l.stops.filter((s) => s.role === "pickup" && s.arrivedAt != null && s.timeWindowLatest != null).map((s) => s.arrivedAt!.getTime() <= s.timeWindowLatest!.getTime()),
+    dropArr: l.stops.filter((s) => (s.role === "delivery" || s.role === "dropoff") && s.arrivedAt != null && s.timeWindowLatest != null).map((s) => s.arrivedAt!.getTime() <= s.timeWindowLatest!.getTime()),
+    leadDays: leadDaysOf(l.createdAt, l.scheduledDate),
+    lineHaul: isTonu ? 0 : (numOrNull(l.actualRevenue) ?? num(l.quotedRevenue)),
+    fsc: isTonu ? 0 : (numOrNull(l.fuelSurcharge) ?? 0),
+    // The loaded miles alone (the tracker's column); `revenueMiles` above is every mile the pay covers.
+    loadedMiles: isTonu ? 0 : eff.loaded,
+    trailerType: l.trailerType ?? null,
+    loadType: l.loadType ?? null
   };
 }
 
@@ -256,6 +331,13 @@ function statsOf(facts: Fact[], now: Date): PeriodStats {
   const paid = facts.filter((f) => f.paidWithinTerms != null);
   const waits = facts.flatMap((f) => f.waits);
   const arrivals = facts.flatMap((f) => f.arrivals);
+  const pickups = facts.flatMap((f) => f.pickupArr);
+  const drops = facts.flatMap((f) => f.dropArr);
+  const leads = facts.map((f) => f.leadDays).filter((n): n is number => n != null);
+  const sumOf = (pick: (f: Fact) => number) => facts.reduce((s, f) => s + pick(f), 0);
+  const loadedMiles = sumOf((f) => f.loadedMiles);
+  const lineHaul = sumOf((f) => f.lineHaul);
+  const fuelSurcharge = sumOf((f) => f.fsc);
   return {
     loads: a.loadCount,
     tonuLoads: facts.filter((f) => f.row.status === "tonu").length,
@@ -274,7 +356,20 @@ function statsOf(facts: Fact[], now: Date): PeriodStats {
     onTimeArrivals: arrivals.length > 0 ? arrivals.filter(Boolean).length / arrivals.length : null,
     arrivalStops: arrivals.length,
     avgWaitMinutes: mean(waits),
-    waitStops: waits.length
+    waitStops: waits.length,
+    onTimePickup: pickups.length > 0 ? pickups.filter(Boolean).length / pickups.length : null,
+    pickupStops: pickups.length,
+    onTimeDrop: drops.length > 0 ? drops.filter(Boolean).length / drops.length : null,
+    dropStops: drops.length,
+    leadDays: mean(leads),
+    leadLoads: leads.length,
+    loadedMiles,
+    pickupEmptyMiles: sumOf((f) => f.pickupEmpty),
+    returnEmptyMiles: sumOf((f) => f.returnEmpty),
+    lineHaul,
+    fuelSurcharge,
+    fscPerMile: loadedMiles > 0 ? fuelSurcharge / loadedMiles : null,
+    fscPct: lineHaul > 0 ? fuelSurcharge / lineHaul : null
   };
 }
 
@@ -287,7 +382,7 @@ function applyFilters(rows: KpiLoadRow[], f: KpiFilters): KpiLoadRow[] {
 const uniqueSorted = (xs: Array<string | null | undefined>) => [...new Set(xs.filter((x): x is string => !!x))].sort((a, b) => a.localeCompare(b));
 
 /** `tz`: the clock the periods are counted on. The desk passes the workspace's own zone, never the display cookie, so a month's totals do not move with a browser setting. */
-export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: Thresholds = THRESHOLD_DEFAULTS, now: Date = new Date(), tz: string = activeTz()): DeskKpi {
+export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: Thresholds = THRESHOLD_DEFAULTS, now: Date = new Date(), tz: string = activeTz(), extras: KpiExtras = {}): DeskKpi {
   const nowMs = now.getTime();
   const choices = {
     lanes: uniqueSorted(rows.map(laneOf)),
@@ -316,7 +411,21 @@ export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: T
     const driven = inBucket.reduce((s, f) => s + f.drivenMiles, 0);
     const empty = inBucket.reduce((s, f) => s + f.emptyMiles, 0);
     const dh = deadheadPct(inBucket.map((f) => ({ drivenMiles: f.drivenMiles, deadheadMiles: f.emptyMiles })));
-    return { label: b.label, end: b.end, gross, loads: inBucket.length, rpm: mi > 0 ? gross / mi : null, emptyShare: dh == null ? null : dh / 100, revenueMiles: mi, drivenMiles: driven, emptyMiles: empty };
+    return {
+      label: b.label,
+      end: b.end,
+      gross,
+      loads: inBucket.length,
+      rpm: mi > 0 ? gross / mi : null,
+      emptyShare: dh == null ? null : dh / 100,
+      revenueMiles: mi,
+      drivenMiles: driven,
+      emptyMiles: empty,
+      fsc: inBucket.reduce((s, f) => s + f.fsc, 0),
+      lineHaul: inBucket.reduce((s, f) => s + f.lineHaul, 0),
+      loadedMiles: inBucket.reduce((s, f) => s + f.loadedMiles, 0),
+      diesel: dieselAt(extras.diesel ?? [], b.end)
+    };
   });
 
   const byDriver = new Map<string, Fact[]>();
@@ -356,7 +465,15 @@ export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: T
         avgReturnEmpty: fs.reduce((s, f) => s + f.returnEmpty, 0) / fs.length,
         benchmarked: marked.length,
         marketVariancePct: variance,
-        status: variance == null ? ("unknown" as const) : variance >= 0 ? ("above" as const) : ("below" as const)
+        status: variance == null ? ("unknown" as const) : variance >= 0 ? ("above" as const) : ("below" as const),
+        loadedMiles: fs.reduce((s, f) => s + f.loadedMiles, 0),
+        pickupEmptyMiles: fs.reduce((s, f) => s + f.pickupEmpty, 0),
+        returnEmptyMiles: fs.reduce((s, f) => s + f.returnEmpty, 0),
+        drivenMiles: driven,
+        revPerLoad: fs.length > 0 ? gross / fs.length : null,
+        targetRate: extras.laneTargets?.get(key) ?? null,
+        vsTarget: extras.laneTargets?.get(key) != null && fs.length > 0 ? gross / fs.length - extras.laneTargets.get(key)! : null,
+        score: laneScore(fs.length > 0 ? gross / fs.length : null, extras.laneTargets?.get(key))
       };
     })
     .sort((a, b) => b.loads - a.loads || b.gross - a.gross);
@@ -383,6 +500,14 @@ export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: T
     priorRate: was ? rateOf(was) : null
   };
 
+  const rolledOf = new Map<string, number>();
+  const loadById = new Map(rows.map((l) => [l.id, l]));
+  const rolledNow = (extras.rolled ?? []).filter((e) => inWindow(e.at, window));
+  const rolledPrev = previous ? (extras.rolled ?? []).filter((e) => inWindow(e.at, previous)) : null;
+  for (const e of rolledNow) {
+    const who = loadById.get(e.loadId)?.brokerName ?? "No customer";
+    rolledOf.set(who, (rolledOf.get(who) ?? 0) + 1);
+  }
   const brokerName = (b: string | null) => b ?? "No customer";
   const byBroker = new Map<string, Fact[]>();
   for (const f of scoped) byBroker.set(brokerName(f.broker), [...(byBroker.get(brokerName(f.broker)) ?? []), f]);
@@ -407,7 +532,14 @@ export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: T
         avgDaysToPay: mean(paid.map((f) => f.daysToPay!)),
         avgWaitMinutes: mean(waits),
         waitStops: waits.length,
-        lost
+        lost,
+        onTimeArrivals: (() => {
+          const arr = fs.flatMap((f) => f.arrivals);
+          return arr.length > 0 ? arr.filter(Boolean).length / arr.length : null;
+        })(),
+        arrivalStops: fs.reduce((s, f) => s + f.arrivals.length, 0),
+        leadDays: mean(fs.map((f) => f.leadDays).filter((n): n is number => n != null)),
+        rolled: rolledOf.get(name) ?? 0
       };
     })
     .sort((a, b) => b.gross - a.gross || a.name.localeCompare(b.name));
@@ -431,6 +563,62 @@ export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: T
     })
     .sort((a, b) => (b.daysPastDue ?? -Infinity) - (a.daysPastDue ?? -Infinity));
 
+  const byTruck = new Map<string, Fact[]>();
+  for (const f of scoped) if (f.truck) byTruck.set(f.truck, [...(byTruck.get(f.truck) ?? []), f]);
+  const trucks: TruckKpi[] = [...byTruck.entries()]
+    .map(([name, fs]) => {
+      const driven = fs.reduce((s, f) => s + f.drivenMiles, 0);
+      const empty = fs.reduce((s, f) => s + f.emptyMiles, 0);
+      return { name, loads: fs.length, drivenMiles: driven, emptyMiles: empty, emptyShare: driven > 0 ? empty / driven : null };
+    })
+    .sort((a, b) => b.emptyMiles - a.emptyMiles || a.name.localeCompare(b.name))
+    .slice(0, 10);
+
+  // The busiest lanes, week by week, for the last six weeks of the trend (oldest first).
+  const six = weekBuckets(nowMs, 6, tz);
+  const inSix = facts.filter((f) => f.doneAt > six[0]!.start && f.doneAt <= six[five(six)]!.end);
+  const laneTotals = new Map<string, number>();
+  for (const f of inSix) laneTotals.set(f.lane, (laneTotals.get(f.lane) ?? 0) + 1);
+  const laneWeeks: LaneWeekRow[] = [...laneTotals.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 10)
+    .map(([key, total]) => ({
+      key,
+      label: key,
+      total,
+      weeks: six.map((b) => {
+        const fs = inSix.filter((f) => f.lane === key && f.doneAt > b.start && f.doneAt <= b.end);
+        const gross = fs.reduce((s, f) => s + f.gross, 0);
+        const mi = fs.reduce((s, f) => s + f.revenueMiles, 0);
+        const driven = fs.reduce((s, f) => s + f.drivenMiles, 0);
+        const empty = fs.reduce((s, f) => s + f.emptyMiles, 0);
+        return { loads: fs.length, gross, rpm: mi > 0 ? gross / mi : null, emptyShare: driven > 0 ? empty / driven : null };
+      })
+    }));
+
+  const mix = {
+    trailer: mixOf(scoped.map((f) => ({ key: f.trailerType, gross: f.gross })), mixLabel),
+    loadType: mixOf(scoped.map((f) => ({ key: f.loadType, gross: f.gross })), mixLabel),
+    customers: mixOf(scoped.map((f) => ({ key: f.broker, gross: f.gross })), (k) => k, "No customer").slice(0, 8)
+  };
+
+  const reasonOf = new Map<string, number>();
+  for (const e of rolledNow) reasonOf.set(e.reason?.trim() || "No reason given", (reasonOf.get(e.reason?.trim() || "No reason given") ?? 0) + 1);
+  const rolled: RolledKpi = {
+    count: rolledNow.length,
+    prior: rolledPrev ? rolledPrev.length : null,
+    reasons: [...reasonOf.entries()].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+  };
+  const tenderRows = extras.tenders ?? [];
+  const tender: TenderKpi = {
+    current: tenderStats(tenderRows, window),
+    prior: previous ? tenderStats(tenderRows, previous) : null,
+    weeks: weekBuckets(nowMs, 12, tz).map((b) => {
+      const st = tenderStats(tenderRows, { start: b.start + 1, end: b.end });
+      return { label: b.label, end: b.end, received: st.received, booked: st.booked, passed: st.passed, acceptance: st.acceptance };
+    })
+  };
+
   return {
     period: opts.period,
     compare: opts.compare,
@@ -451,6 +639,11 @@ export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: T
     verdictMix,
     aging,
     outstanding,
+    mix,
+    trucks,
+    laneWeeks,
+    rolled,
+    tender,
     choices
   };
 }
@@ -498,6 +691,7 @@ export async function getKpiRows(workspaceId = currentWorkspaceId(), opts: { sin
       l.expense_fuel_actual::float8 as "expenseFuelActual", l.expense_tolls::float8 as "expenseTolls", l.expense_misc::float8 as "expenseMisc",
       l.pickup_deadhead_miles::float8 as "pickupDeadheadMiles", l.loaded_miles::float8 as "loadedMiles", l.return_deadhead_miles::float8 as "returnDeadheadMiles",
       l.quoted_pickup_dh_miles::float8 as "quotedPickupDhMiles", l.quoted_loaded_miles::float8 as "quotedLoadedMiles", l.quoted_return_dh_miles::float8 as "quotedReturnDhMiles", l.is_backhaul as "isBackhaul",
+      l.trailer_type as "trailerType", l.load_type as "loadType",
       l.broker_name as "brokerName", l.origin_address as "originAddress", l.destination_address as "destinationAddress", l.market_benchmark::float8 as "marketBenchmark",
       l.payment_status as "paymentStatus", l.invoiced_at as "invoicedAt", l.pay_terms_days as "payTermsDays", l.invoiced_amount::float8 as "invoicedAmount", l.paid_amount::float8 as "paidAmount",
       v.name as "vehicleName", a.status as "asStatus", a.pay_kind as "asPayKind", a.pay_estimate::float8 as "asPayEstimate", d.name as "asDriver"
@@ -508,10 +702,10 @@ export async function getKpiRows(workspaceId = currentWorkspaceId(), opts: { sin
   const stopsFrom = (opts.stopsSince ?? since)?.getTime() ?? null;
   const needStops = loads.filter((l) => OPEN.includes(l.status) || stopsFrom == null || (l.completedAt ?? l.cancelledAt ?? l.updatedAt).getTime() >= stopsFrom).map((l) => l.id);
   const stopRows = needStops.length
-    ? await prisma.$queryRaw<Array<{ loadId: string; waitMinutes: number | null; arrivedAt: Date | null; timeWindowLatest: Date | null }>>`
-        select load_id as "loadId", wait_minutes as "waitMinutes", arrived_at as "arrivedAt", time_window_latest as "timeWindowLatest" from stops where load_id = any(${needStops})`
+    ? await prisma.$queryRaw<Array<{ loadId: string; waitMinutes: number | null; arrivedAt: Date | null; timeWindowLatest: Date | null; role: string | null }>>`
+        select load_id as "loadId", wait_minutes as "waitMinutes", arrived_at as "arrivedAt", time_window_latest as "timeWindowLatest", coalesce(stop_role, stop_type) as role from stops where load_id = any(${needStops})`
     : [];
-  const stopsOf = new Map<string, Array<{ waitMinutes: number | null; arrivedAt: Date | null; timeWindowLatest: Date | null }>>();
+  const stopsOf = new Map<string, Array<{ waitMinutes: number | null; arrivedAt: Date | null; timeWindowLatest: Date | null; role: string | null }>>();
   for (const st of stopRows) stopsOf.set(st.loadId, [...(stopsOf.get(st.loadId) ?? []), st]);
 
   const openIds = loads.filter((l) => OPEN.includes(l.status)).map((l) => l.id);
@@ -543,9 +737,12 @@ export async function getDeskKpi(opts: { period: KpiPeriod; compare?: boolean; f
   const filters = opts.filters ?? {};
   // A month or a year is the workspace's own: counted on its stored zone, and part of the kept answer's key so a change in Settings is never answered from the old zone.
   const tz = await workspaceTimezone(workspaceId);
-  return answers.remember([workspaceId, opts.period, compare, filters, clockBucket(now.getTime(), 3_600_000), thresholds, tz], workspaceId, async () => {
+  // The kept answer also depends on what the extras are built from (moved loads, offers, lane targets, the diesel price).
+  const stamp = await kpiExtrasStamp(workspaceId);
+  return answers.remember([workspaceId, opts.period, compare, filters, clockBucket(now.getTime(), 3_600_000), thresholds, tz, stamp], workspaceId, async () => {
     const since = new Date(rowsSince(opts.period, now.getTime(), tz));
     const rows = await getKpiRows(workspaceId, { since, lane: filters.lane, stopsSince: new Date(stopsStart(opts.period, now.getTime(), since.getTime(), tz)) });
-    return buildDeskKpi(rows, { period: opts.period, compare, filters }, thresholds, now, tz);
+    const extras = await getKpiExtras(workspaceId, since);
+    return buildDeskKpi(rows, { period: opts.period, compare, filters }, thresholds, now, tz, extras);
   });
 }

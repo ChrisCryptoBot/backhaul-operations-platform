@@ -69,6 +69,8 @@ model Workspace {
   fuelTransactions   FuelTransaction[]
   vehiclePings       VehiclePing[]
   terminals          Terminal[]
+  laneTargets        LaneTarget[]
+  kpiNotes           KpiNote[]
   driverSchedules    DriverSchedule[]
   driverTimeOff      DriverShiftException[]
   members            Member[]
@@ -1042,4 +1044,48 @@ model VehiclePing {
   @@index([vehicleId, at(sort: Desc)])
   @@index([workspaceId, at])
   @@map("vehicle_pings")
+}
+
+/// What a lane should pay per load, set by a person (the lane is the KPI's own key, "origin -> destination"). The Lanes scorecard compares each lane's revenue per load with it: BELOW, OK, or no target.
+model LaneTarget {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  lane        String
+  /// Dollars per load, all in.
+  targetRate  Decimal  @map("target_rate") @db.Decimal(12, 2)
+  setBy       String?  @map("set_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, lane])
+  @@map("lane_targets")
+}
+
+/// The weekly on-highway diesel price (EIA), kept whenever the desk reads it, so the fuel surcharge summary can compare this week with last. Shared by every fleet (a public price, no workspace).
+model DieselPrice {
+  id        String   @id @default(cuid())
+  /// The EIA week (a date, YYYY-MM-DD) and the region it is for (NUS national, R10 to R50 regional).
+  weekOf    String   @map("week_of")
+  region    String
+  price     Decimal  @db.Decimal(6, 3)
+  fetchedAt DateTime @default(now()) @map("fetched_at")
+
+  @@unique([weekOf, region])
+  @@map("diesel_prices")
+}
+
+/// "Notes for the call": what the person wants said about a week when the report is read out, one per week (`weekKey` is the Monday, YYYY-MM-DD, on the workspace's clock).
+model KpiNote {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  weekKey     String   @map("week_key")
+  body        String
+  updatedBy   String?  @map("updated_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, weekKey])
+  @@map("kpi_notes")
 }

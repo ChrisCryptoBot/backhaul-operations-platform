@@ -10,6 +10,8 @@ import { Bullets } from "@/components/desk/kpi/bullets";
 import { DeadheadBars, VarianceHistogram } from "@/components/desk/kpi/distribution";
 import { GrowthColumns, MonthlyBars, SmallMultiples } from "@/components/desk/kpi/trends";
 import { ReasonsCard } from "@/components/desk/kpi/reasons";
+import { FuelSurchargeCard, MixCard, ServiceCard, TenderCard, TruckEmptyCard } from "@/components/desk/kpi/operations";
+import { checkAccess } from "@/server/tl/access";
 import { hasFilters, kpiHref, parseKpiParams } from "@/lib/kpi-params";
 import { KPI_PERIODS, windowLabel } from "@/lib/kpi-periods";
 import { usd } from "@/lib/desk-format";
@@ -20,7 +22,7 @@ const FILTER_LABEL = { lane: "Lane", broker: "Customer", driver: "Driver", truck
 
 export default async function KpiPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const params = parseKpiParams(searchParams);
-  const k = await getDeskKpi({ period: params.period, compare: params.compare, filters: params.filters });
+  const [k, fuelAccess] = await Promise.all([getDeskKpi({ period: params.period, compare: params.compare, filters: params.filters }), checkAccess("quote", "figures")]);
   const href = (over: Partial<typeof params>) => kpiHref("/kpi", params, over);
   const choices = { lane: k.choices.lanes, broker: k.choices.brokers, driver: k.choices.drivers, truck: k.choices.trucks };
   const csv = (kind: string) => kpiHref(`/export/${kind}`, params);
@@ -35,6 +37,7 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
           <div className="menu-pop">
             <a href={csv("kpi-drivers")}>Drivers</a>
             <a href={csv("kpi-lanes")}>Lanes</a>
+            <a href={csv("kpi-trucks")}>Trucks (empty miles)</a>
             <a href={csv("kpi-weeks")}>Twelve weeks</a>
           </div>
         </details>
@@ -98,6 +101,18 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
             <ReasonsCard k={k} />
             <MonthlyBars k={k} />
           </div>
+
+          <div className="tl-grid cols-2">
+            <ServiceCard k={k} />
+            <FuelSurchargeCard k={k} canRead={fuelAccess.ok} />
+          </div>
+
+          <div className="tl-grid cols-2">
+            <TenderCard k={k} />
+            <TruckEmptyCard k={k} />
+          </div>
+
+          <MixCard k={k} />
 
         </div>
       )}

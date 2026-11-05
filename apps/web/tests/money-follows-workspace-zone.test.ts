@@ -60,7 +60,7 @@ describe("the server asks the workspace, not the cookie, wherever money is added
   it("the KPI, the quote report and every statement read take the workspace's stored zone", () => {
     const kpi = src("src/server/tl/kpi.ts");
     expect(kpi).toContain("const tz = await workspaceTimezone(workspaceId)");
-    expect(kpi).toContain("thresholds, tz]"); // the kept answer's key carries the zone
+    expect(kpi).toContain("thresholds, tz, stamp]"); // the kept answer's key carries the zone (and what the extras are built from)
     expect(src("src/server/tl/quote-report.ts")).toContain("await workspaceTimezone(workspaceId)");
     const s = src("src/server/tl/settlement.ts");
     // Every call to periodBounds on the server names a zone (the line that imports it is not a call).
