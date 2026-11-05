@@ -2,6 +2,7 @@ import { centralMidnight, centralParts } from "./zoned";
 import { loadWindow, windowsOverlap } from "./schedule";
 import { activeTz } from "./tz";
 import { stopClock } from "./desk-format";
+import { FLAG_TAG, checkLoad, dayBalance, dayShift, flagWords, type DayBalance, type DayShift, type DriverSchedule, type StopFlag } from "./shifts";
 
 /**
  * The planner: who is on what, day by day, and what is due now. Both read the loads' stop windows and the arrival times the phone
@@ -80,9 +81,15 @@ export type PlannerItem = {
   /** The clock at the first stop and at the last one, for the times the cell prints. */
   startZone: string | null;
   endZone: string | null;
+  /** The driver is scheduled, and a stop of this load falls outside their shift: after its end, before its start, or on a day off. Absent for an unscheduled driver. */
+  shiftFlag: { flag: StopFlag; tag: string; words: string } | null;
 };
 
-export type PlannerRow = { driverId: string; name: string; cells: PlannerItem[][] };
+/** `shifts` is what each day says about the driver's schedule (not set, off, on with its blocks); absent when the planner was built without schedules. */
+export type PlannerRow = { driverId: string; name: string; code?: string | null; cells: PlannerItem[][]; shifts?: DayShift[] };
+
+/** Schedules by driver and the carrier's clock they are read on. Without them nothing about shifts is said. */
+export type PlannerShifts = { schedules: ReadonlyMap<string, DriverSchedule>; tz: string };
 
 /** An open load with no pickup or delivery time on any stop: it cannot sit on a day, so it is listed beside the grid instead of vanishing. */
 export type UntimedLoad = { loadId: string; loadNumber: string | null; lane: string; status: string; driverName: string | null };
@@ -92,7 +99,7 @@ export type UntimedLoad = { loadId: string; loadNumber: string | null; lane: str
  * A load that is on the road keeps its driver's row until it is delivered, so with `now` its span runs at least to now: a truck that is late
  * on a delivery whose window closed yesterday is still in its row today, not only in the due list.
  */
-export function buildPlanner(loads: PlannerLoad[], drivers: Array<{ id: string; name: string }>, days: DayCol[], now?: number): { rows: PlannerRow[]; tray: PlannerItem[][]; untimed: UntimedLoad[] } {
+export function buildPlanner(loads: PlannerLoad[], drivers: Array<{ id: string; name: string; code?: string | null }>, days: DayCol[], now?: number, shifts?: PlannerShifts): { rows: PlannerRow[]; tray: PlannerItem[][]; untimed: UntimedLoad[]; balance: DayBalance[] | null } {
   type Raw = { l: PlannerLoad; start: number; end: number };
   const raws: Raw[] = [];
   const untimed: UntimedLoad[] = [];
@@ -120,6 +127,16 @@ export function buildPlanner(loads: PlannerLoad[], drivers: Array<{ id: string; 
     for (const a of open) for (const b of open) if (a !== b && a.start < b.end && b.start < a.end) conflicting.add(a.l.id);
   }
 
+  // A load held by a scheduled driver is checked stop by stop against their shifts (once per load, not once per day it shows on).
+  const flags = new Map<string, PlannerItem["shiftFlag"]>();
+  if (shifts) {
+    for (const r of raws) {
+      const id = driverOf(r);
+      if (!id || !OPEN.includes(r.l.status)) continue;
+      const f = checkLoad(shifts.schedules.get(id) ?? null, r.l.stops.map((s) => ({ role: s.role ?? s.type, earliest: s.earliest, latest: s.latest })), shifts.tz);
+      if (f) flags.set(r.l.id, { flag: f.flag, tag: FLAG_TAG[f.flag], words: flagWords(f, shifts.tz) });
+    }
+  }
   const item = (r: Raw, day: DayCol): PlannerItem => ({
     loadId: r.l.id,
     loadNumber: r.l.loadNumber,
@@ -134,12 +151,13 @@ export function buildPlanner(loads: PlannerLoad[], drivers: Array<{ id: string; 
     notSent: r.l.assignmentStatus === "draft",
     done: r.l.status === "completed",
     startZone: zoneOfEnd(r.l, "start"),
-    endZone: zoneOfEnd(r.l, "end")
+    endZone: zoneOfEnd(r.l, "end"),
+    shiftFlag: flags.get(r.l.id) ?? null
   });
   const cellsFor = (rs: Raw[]) => days.map((d) => rs.filter((r) => r.start <= d.end && r.end >= d.start).sort((a, b) => a.start - b.start).map((r) => item(r, d)));
 
   const known = new Set(drivers.map((d) => d.id));
-  const rows: PlannerRow[] = drivers.map((d) => ({ driverId: d.id, name: d.name, cells: cellsFor(byDriver.get(d.id) ?? []) }));
+  const rows: PlannerRow[] = drivers.map((d) => ({ driverId: d.id, name: d.name, code: d.code ?? null, cells: cellsFor(byDriver.get(d.id) ?? []), ...(shifts ? { shifts: days.map((day) => dayShift(shifts.schedules.get(d.id) ?? null, day.start, day.end, shifts.tz)) } : {}) }));
   // A driver who is no longer in the list but still holds a load must not vanish from the board.
   for (const [id, list] of byDriver) {
     if (known.has(id)) continue;
@@ -147,7 +165,16 @@ export function buildPlanner(loads: PlannerLoad[], drivers: Array<{ id: string; 
     rows.push({ driverId: id, name: list[0]!.l.driverName ?? "Former driver", cells: cellsFor(list) });
   }
   const tray = cellsFor(raws.filter((r) => !driverOf(r) && OPEN.includes(r.l.status)));
-  return { rows, tray, untimed };
+  // Supply and demand per day: loads with no driver on that day against scheduled drivers on shift with nothing open over their shift (every listed driver, not only the page shown).
+  const balance = shifts
+    ? dayBalance(
+        days,
+        drivers.map((d) => ({ schedule: shifts.schedules.get(d.id) ?? null, busy: (byDriver.get(d.id) ?? []).filter((r) => OPEN.includes(r.l.status)).map((r) => ({ start: r.start, end: r.end })) })),
+        tray.map((cell) => new Set(cell.map((i) => i.loadId)).size),
+        shifts.tz
+      )
+    : null;
+  return { rows, tray, untimed, balance };
 }
 
 /** The clock at the stop a load's window starts at (its first stop with a time) or ends at (its last one). */

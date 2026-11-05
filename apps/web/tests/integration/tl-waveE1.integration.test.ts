@@ -191,10 +191,14 @@ describe.skipIf(!run)("a terminal scope narrows the lists, the fits, the planner
     expect(scoped.total).toBe(1);
   });
 
-  test("drivers are ranked inside the terminal; a search reaches the others", async () => {
+  test("drivers based in the terminal come first; everyone else is still offered, tagged with their own home; a search reaches the others", async () => {
     const load = await prisma.load.create({ data: { workspaceId: WS, loadNumber: "E1-RANK", brokerName: "E1 Broker", quotedRevenue: 1500, vehicleId: truck.north! }, include: loadInclude });
     const inNorth = await rankDrivers(load, WS, T.north);
-    expect(inNorth.options.map((o) => o.name)).toEqual(["E1 Driver north"]);
+    // A terminal is a home base, not a fence (docs/DRIVER_SHIFTS.md): the north drivers lead and the south driver is still on the list, tagged with where they are based.
+    expect(inNorth.options[0]).toMatchObject({ name: "E1 Driver north", home: T.north });
+    expect(inNorth.options.find((o) => o.name === "E1 Driver south")).toMatchObject({ home: T.south });
+    const homeCount = inNorth.options.filter((o) => o.home === T.north).length;
+    expect(inNorth.options.slice(0, homeCount).every((o) => o.home === T.north)).toBe(true); // the home drivers lead, then the rest by fit
     const everyone = await rankDrivers(load, WS, null);
     expect(everyone.options.map((o) => o.name)).toEqual(expect.arrayContaining(["E1 Driver north", "E1 Driver south"]));
 

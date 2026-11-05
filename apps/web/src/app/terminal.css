@@ -464,3 +464,16 @@ dd>.sub{display:block;color:var(--dim)}
 .st-tab[aria-selected=true] .st-kbd{border-color:var(--on-bar);color:var(--on-bar)}
 .st-panel[hidden]{display:none!important}
 
+
+/* Planner shifts: the hours a driver works are a flat note in the cell, a day off is a sunk cell with OFF DUTY, and a load outside the shift keeps the double-booked treatment (a full outline and a tag, never an edge strip). */
+.pl-shift{display:block;margin:0 0 4px;font:500 10px/14px var(--mono);letter-spacing:.02em;color:var(--mid)}
+.pl-shift.on::before{content:"";display:inline-block;width:6px;height:6px;margin-right:5px;background:var(--pos-fill);vertical-align:0}
+.pl-shift.off{color:var(--dim);letter-spacing:.06em;font-weight:600}
+.pl td.off{background:var(--sunk)}
+.pl td.off.today{background:var(--sunk)}
+.pl .pl-bal{display:block;margin-top:2px;font:500 10px/13px var(--mono);color:var(--dim)}
+.pl .pl-bal b{display:block;font-weight:500;color:var(--mid)}
+.pl .pl-bal b.need{color:var(--ink);font-weight:600}
+.pl-code{display:inline-block;margin:0 6px 0 0;padding:0 4px;border:1px solid var(--line-hi);color:var(--label);font:600 10px/14px var(--mono);font-style:normal;letter-spacing:.04em;vertical-align:1px}
+.pl-flag{display:flex;align-items:center;gap:4px;margin-top:2px;font:600 10px/13px var(--mono);font-style:normal;letter-spacing:.04em;color:var(--neg)}
+.pl-load.shiftflag{outline:1px solid var(--neg-fill);outline-offset:-1px}

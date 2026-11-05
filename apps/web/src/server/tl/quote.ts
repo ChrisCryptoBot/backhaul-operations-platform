@@ -32,6 +32,9 @@ import { verdictState } from "@/lib/verdict";
 import { getThresholds } from "./thresholds";
 import { countTrailersAvailable } from "./trailers";
 import { hosCaution, type HosCaution } from "@/truelane/partners/contract";
+import { NO_QUOTE_SHIFT, dateKeyOf, quoteShift, type QuoteShift } from "@/lib/shifts";
+import { loadSchedules } from "./shifts";
+import { workspaceTimezone } from "./zone";
 
 /**
  * The Calculate tab for a dispatcher. An offer is priced with TrueLane's own verdict (evaluateTlLoad) against every truck that has a cost
@@ -87,6 +90,8 @@ export type FitRow = {
   warnings: string[];
   /** The hours the truck's driver has left on the clock as the ELD last said (null when no ELD is linked), when that was, and how the trip compares. A caution only: nothing in the verdict reads it. */
   hos: { availableHours: number | null; syncedAt: string | null; caution: HosCaution };
+  /** When the driver works, and a caution when the typed appointments fall outside it. Beside the hours-left note; nothing in the verdict, the ranking or booking reads it. */
+  shift?: QuoteShift;
   detail: FitDetail;
 };
 
@@ -172,7 +177,7 @@ export const truckLimits = (t: { payloadLbs: number | null; maxLengthFt: Prisma.
   hasPalletJack: t.hasPalletJack
 });
 
-function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["drivers"][number] | null, blocked: string | null): FitRow | null {
+function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["drivers"][number] | null, blocked: string | null, shift: QuoteShift = NO_QUOTE_SHIFT): FitRow | null {
   const profile = truck.costProfile;
   if (!profile) return null;
   const emptyToPickup = input.emptyByTruck[truck.id] ?? input.emptyToPickup;
@@ -213,6 +218,7 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
     blocked: blocked ?? forLoad.blocker,
     warnings: [...forLoad.warnings, ...(body ? [body] : []), ...(hos.caution.message ? [hos.caution.message] : [])],
     hos,
+    shift,
     detail: {
       effectiveGross: e.effectiveGross,
       payNeeded: e.payNeededRoundedUp,
@@ -263,6 +269,12 @@ export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspace
   const truckClashes = await truckClashesIn(trucks.map((t) => t.id), "", win, workspaceId);
   // A card that lapses before the pickup is as good as lapsed for this load.
   const pickupAt = input.stops[0]?.appointment != null ? new Date(input.stops[0].appointment) : null;
+  // Each driver's shift on the carrier's clock, from one batched read (a caution beside the hours-left one).
+  const tz = await workspaceTimezone(workspaceId);
+  const times = input.stops.map((s) => s.appointment).filter((t): t is number => t != null);
+  const anchor = times.length > 0 ? times : [now.getTime()];
+  const schedules = await loadSchedules(workspaceId, trucks.flatMap((t) => t.drivers.map((d) => d.id)), dateKeyOf(Math.min(...anchor), tz), dateKeyOf(Math.max(...anchor), tz));
+  const shiftOf = (driverId: string | undefined) => (driverId ? quoteShift(schedules.get(driverId) ?? null, input.stops, now.getTime(), tz) : NO_QUOTE_SHIFT);
   for (const t of trucks) {
     if (!t.costProfile) {
       skipped.push({ truck: t.name ?? "Truck", why: "No cost profile, so no floor to price against." });
@@ -280,7 +292,7 @@ export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspace
         blocked = blocked ?? ownBlock;
       }
       if (!ownBlock) driversAllBlocked = false;
-      const r = fitFor(judged, t, d, blocked);
+      const r = fitFor(judged, t, d, blocked, shiftOf(d?.id));
       if (r) rows.push(r);
     }
     // Every driver of this truck is out (a lapsed card, another load): the truck can still be booked now and a driver put on it from the load.

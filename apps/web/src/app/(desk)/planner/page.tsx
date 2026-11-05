@@ -17,30 +17,35 @@ const WEEK = 7 * 86_400_000;
 const ROWS_PER_PAGE = 50;
 
 /** Who is on what, day by day, and what is due now. `?start=2026-10-26` starts the week on another day. */
-export default async function PlannerPage({ searchParams }: { searchParams?: { start?: string; q?: string; page?: string; idle?: string } }) {
+export default async function PlannerPage({ searchParams }: { searchParams?: { start?: string; q?: string; page?: string; idle?: string; else?: string } }) {
   const now = Date.now();
   const from = (searchParams?.start ? parseCentralLocal(`${searchParams.start}T12:00`) : null) ?? now;
-  const terminal = await currentTerminal();
-  const { days, rows, tray, untimed, watchlist } = await getPlannerData(from, now, 7, undefined, terminal);
+  const scope = await currentTerminal();
+  // A terminal is a home base, not a fence: with one chosen the grid shows its home drivers, and one link brings in everyone else.
+  const everyone = searchParams?.else === "1";
+  const terminal = everyone ? null : scope;
+  const { days, rows, tray, untimed, watchlist, balance, tz, hiddenElsewhere } = await getPlannerData(from, now, 7, undefined, terminal);
   // Noon, so a day with a clock change in it cannot tip the neighbour week's key onto the wrong date.
   const key = (weeks: number) => planDays(days[0]!.start + weeks * WEEK + 12 * 3_600_000, 1, now)[0]!.key;
   const trayCount = new Set(tray.flat().map((i) => i.loadId)).size;
   const conflicts = new Set(rows.flatMap((r) => r.cells.flat()).filter((i) => i.conflict).map((i) => i.loadId)).size;
-  // Drivers with something this week come first and are the default view; the rest (nothing on the days shown) are one click away. Searched by name, a page at a time.
+  // Drivers with work this week, or on shift this week with nothing booked (the supply a dispatcher is looking for), are the default view; the rest (no work, and off all week or no schedule) are one click away. Searched by name or code, a page at a time.
   const q = searchParams?.q?.trim() ?? "";
   const showIdle = searchParams?.idle === "1";
-  const busy = rows.filter((r) => r.cells.some((c) => c.length > 0));
+  const busy = rows.filter((r) => r.cells.some((c) => c.length > 0) || (r.shifts ?? []).some((s) => s.kind === "on"));
   const idleCount = rows.length - busy.length;
+  const unscheduled = rows.filter((r) => r.shifts?.[0]?.kind === "unset").length;
   const needle = q.toLowerCase();
-  const pool = (showIdle ? rows : busy).filter((r) => !needle || r.name.toLowerCase().includes(needle));
+  const pool = (showIdle ? rows : busy).filter((r) => !needle || r.name.toLowerCase().includes(needle) || (r.code ?? "").toLowerCase().includes(needle));
   const page = Math.min(asPage(searchParams?.page), Math.max(1, Math.ceil(pool.length / ROWS_PER_PAGE)));
   const shownRows = pool.slice((page - 1) * ROWS_PER_PAGE, page * ROWS_PER_PAGE);
-  const href = (p: { page?: number; idle?: boolean; q?: string }) => {
+  const href = (p: { page?: number; idle?: boolean; q?: string; elsewhere?: boolean }) => {
     const u = new URLSearchParams();
     if (searchParams?.start) u.set("start", searchParams.start);
     const text = p.q ?? q;
     if (text) u.set("q", text);
     if (p.idle ?? showIdle) u.set("idle", "1");
+    if (p.elsewhere ?? everyone) u.set("else", "1");
     if (p.page && p.page > 1) u.set("page", String(p.page));
     const s = u.toString();
     return s ? `/planner?${s}` : "/planner";
@@ -78,15 +83,18 @@ export default async function PlannerPage({ searchParams }: { searchParams?: { s
       <form className="pl-find" action="/planner" method="get" role="search" style={{ display: "flex", gap: 8, alignItems: "center", margin: "0 0 10px", flexWrap: "wrap" }}>
         {searchParams?.start ? <input type="hidden" name="start" value={searchParams.start} /> : null}
         {showIdle ? <input type="hidden" name="idle" value="1" /> : null}
+        {everyone ? <input type="hidden" name="else" value="1" /> : null}
         <label className="db-sr-only" htmlFor="pl-q">Find a driver</label>
-        <input id="pl-q" type="search" name="q" defaultValue={q} placeholder="Find a driver" autoComplete="off" />
+        <input id="pl-q" type="search" name="q" defaultValue={q} placeholder="Find a driver or code" autoComplete="off" />
         <button type="submit" className="tl-btn sm">Find</button>
         <span className="tl-sub">
-          {pool.length} {pool.length === 1 ? "driver" : "drivers"}{showIdle ? "" : " with something this week"}
-          {idleCount > 0 ? <> · <Link href={href({ idle: !showIdle, page: 1 })}>{showIdle ? "Only drivers with something this week" : `Show the ${idleCount} with nothing`}</Link></> : null}
+          {pool.length} {pool.length === 1 ? "driver" : "drivers"}{showIdle ? "" : " with work or on shift this week"}
+          {idleCount > 0 ? <> · <Link href={href({ idle: !showIdle, page: 1 })}>{showIdle ? "Only drivers with work or on shift" : `Show the ${idleCount} off or with no schedule`}</Link></> : null}
+          {scope ? <> · {everyone ? <Link href={href({ elsewhere: false, page: 1 })}>Only {scope} drivers</Link> : <Link href={href({ elsewhere: true, page: 1 })}>Include drivers based elsewhere{hiddenElsewhere > 0 ? ` (${hiddenElsewhere} ${hiddenElsewhere === 1 ? "load" : "loads"} held by them)` : ""}</Link>}</> : null}
+          {unscheduled > 0 ? <> · <Link href="/schedules">{unscheduled} {unscheduled === 1 ? "driver has" : "drivers have"} no schedule</Link></> : null}
         </span>
       </form>
-      <PlannerGrid days={days} rows={shownRows} tray={tray} />
+      <PlannerGrid days={days} rows={shownRows} tray={tray} balance={balance} tz={tz} />
       <Pager page={page} pageSize={ROWS_PER_PAGE} total={pool.length} hrefFor={(n) => href({ page: n })} newer="Previous drivers" older="More drivers" />
       {untimed.length > 0 ? (
         <Card title={`No times yet · ${untimed.length}`} className="tl-card">

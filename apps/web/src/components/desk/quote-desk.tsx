@@ -1655,6 +1655,16 @@ export function QuoteDesk({
                                     ) : null}
                                   </div>
                                 ) : null}
+                                {r.shift?.tag ? (
+                                  <div className="qt-hos-line">
+                                    <span className="sub" style={{ fontSize: 11, color: "var(--db-fg-mid)" }}>{r.shift.tag}</span>
+                                    {r.shift.warn ? (
+                                      <span className="tl-chip warn" title={r.shift.title ?? undefined}>
+                                        {"⚠"} {r.shift.warn}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                ) : null}
                                 {r.blocked ? <span className="sub neg">{r.blocked}</span> : null}
                               </td>
                               <td style={{ textAlign: "right" }}>
@@ -1739,6 +1749,15 @@ export function QuoteDesk({
                           ) : (
                             <span className="qt-mi-pill dim">No ELD connected</span>
                           )}
+                          {activeInspection.shift?.tag ? (
+                            <span className={`qt-mi-pill ${activeInspection.shift.warn ? "warn" : "ok"}`} title={activeInspection.shift.title ?? undefined}>
+                              <i>{activeInspection.shift.warn ? "▲" : "●"}</i>
+                              <span>
+                                {activeInspection.shift.tag}
+                                {activeInspection.shift.warn ? ` · ${activeInspection.shift.warn}` : ""}
+                              </span>
+                            </span>
+                          ) : null}
                           {truckInfo?.homeBaseAddress ? (
                             <span className="qt-mi-pill base">
                               <span>Base: {truckInfo.homeBaseAddress}</span>

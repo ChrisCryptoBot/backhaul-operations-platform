@@ -1,6 +1,7 @@
 import Link from "next/link";
 import React from "react";
 import type { DayCol, DueItem, PlannerItem, PlannerRow } from "@/lib/planner";
+import { blockHours, hhmm, weekdayOf, type DayBalance, type DayShift } from "@/lib/shifts";
 import { spanText, timeText } from "@/lib/planner";
 import { stopClock, stopTime } from "@/lib/desk-format";
 import { AssignButton } from "./assign-modal";
@@ -41,9 +42,9 @@ export function DueNow({ items, now }: { items: DueItem[]; now: number }) {
 }
 
 function Chip({ i }: { i: PlannerItem }) {
-  const cls = ["pl-load", i.status, i.conflict ? "conflict" : "", i.notSent ? "notsent" : "", i.done ? "done" : ""].filter(Boolean).join(" ");
+  const cls = ["pl-load", i.status, i.conflict || i.shiftFlag ? "conflict" : "", i.shiftFlag ? "shiftflag" : "", i.notSent ? "notsent" : "", i.done ? "done" : ""].filter(Boolean).join(" ");
   return (
-    <Link href={`/loads/${i.loadId}`} className={cls} title={`${i.loadNumber}: ${i.lane}${i.conflict ? ". The driver is on another load at the same time." : ""}${i.notSent ? " Assigned, not sent yet." : ""}`}>
+    <Link href={`/loads/${i.loadId}`} className={cls} title={`${i.loadNumber}: ${i.lane}${i.conflict ? ". The driver is on another load at the same time." : ""}${i.shiftFlag ? ` ${i.shiftFlag.words}` : ""}${i.notSent ? " Assigned, not sent yet." : ""}`}>
       <b>
         <span className="db-sr-only">{i.done ? "Done. " : i.status === "in_progress" ? "In progress. " : i.status === "accepted" ? "Accepted. " : "Draft. "}</span>
         {i.loadNumber}
@@ -55,12 +56,34 @@ function Chip({ i }: { i: PlannerItem }) {
       </b>
       <span>{i.lane}</span>
       <small>{timeText(i)}</small>
+      {i.shiftFlag ? (
+        <em className="pl-flag">
+          <Icon name="alert" size={12} /> {i.shiftFlag.tag}
+        </em>
+      ) : null}
     </Link>
   );
 }
 
-/** Drivers down the side, days across the top, each load as a block in the cells it runs through. */
-export function PlannerGrid({ days, rows, tray }: { days: DayCol[]; rows: PlannerRow[]; tray: PlannerItem[][] }) {
+const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** What a cell says about the driver's shift. A cell with work in it keeps just the hours; an empty one says ON SHIFT in full; a day off says OFF DUTY. Nothing for a driver with no schedule. */
+function ShiftNote({ shift, tz, empty }: { shift: DayShift | undefined; tz: string; empty: boolean }) {
+  if (!shift || shift.kind === "unset") return null;
+  if (shift.kind === "off") return <span className="pl-shift off">OFF DUTY{shift.note ? ` \u00b7 ${shift.note}` : ""}</span>;
+  return (
+    <>
+      {shift.blocks.map((b) => (
+        <span key={`${b.anchor}-${b.startMs}`} className="pl-shift on">
+          {b.tail ? `${empty ? "ON SHIFT " : ""}until ${hhmm(b.endMs, tz)} (${WD[weekdayOf(b.anchor)]} night)` : `${empty ? "ON SHIFT " : ""}${hhmm(b.startMs, tz)}\u2013${hhmm(b.endMs, tz)} (${blockHours(b)}h)`}
+        </span>
+      ))}
+    </>
+  );
+}
+
+/** Drivers down the side, days across the top, each load as a block in the cells it runs through. `balance` is the supply and demand for each day (loads needing a driver, drivers on shift and free). */
+export function PlannerGrid({ days, rows, tray, balance = null, tz = activeTz() }: { days: DayCol[]; rows: PlannerRow[]; tray: PlannerItem[][]; balance?: DayBalance[] | null; tz?: string }) {
   const shown = new Set<string>();
   // Whether any block's first or last stop is on another clock than the carrier's: only then does the grid explain the brackets.
   const carrier = activeTz();
@@ -76,10 +99,16 @@ export function PlannerGrid({ days, rows, tray }: { days: DayCol[]; rows: Planne
         <thead>
           <tr>
             <th scope="col" className="pl-who">Driver</th>
-            {days.map((d) => (
+            {days.map((d, di) => (
               <th scope="col" key={d.key} className={d.isToday ? "today" : undefined}>
                 {d.weekday} <span>{d.label}</span>
                 {d.isToday ? <em>today</em> : null}
+                {balance?.[di] ? (
+                  <small className="pl-bal" title={`${balance[di]!.need} ${balance[di]!.need === 1 ? "load needs" : "loads need"} a driver \u00b7 ${balance[di]!.available} ${balance[di]!.available === 1 ? "driver" : "drivers"} on shift available`}>
+                    <b className={balance[di]!.need > 0 ? "need" : undefined}>{balance[di]!.need} need a driver</b>
+                    <b>{balance[di]!.available} on shift</b>
+                  </small>
+                ) : null}
               </th>
             ))}
           </tr>
@@ -109,10 +138,12 @@ export function PlannerGrid({ days, rows, tray }: { days: DayCol[]; rows: Planne
           {rows.map((r) => (
             <tr key={r.driverId}>
               <th scope="row" className="pl-who">
+                {r.code ? <i className="pl-code">{r.code}</i> : null}
                 {r.name}
               </th>
               {r.cells.map((cell, i) => (
-                <td key={days[i]!.key} className={days[i]!.isToday ? "today" : undefined}>
+                <td key={days[i]!.key} className={[days[i]!.isToday ? "today" : "", r.shifts?.[i]?.kind === "off" ? "off" : ""].filter(Boolean).join(" ") || undefined}>
+                  <ShiftNote shift={r.shifts?.[i]} tz={tz} empty={cell.length === 0} />
                   {cell.map((x) => (
                     <Chip key={x.loadId} i={x} />
                   ))}

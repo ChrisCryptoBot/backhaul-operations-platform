@@ -3,9 +3,12 @@ import { buildPlanner, buildWatchlist, planDays, type PlannerLoad } from "@/lib/
 import { currentWorkspaceId } from "./workspace";
 import { stopZoneOf } from "@/server/geo/stop-zone";
 import { activeTz } from "@/lib/tz";
+import { dateKeyOf } from "@/lib/shifts";
+import { loadSchedules } from "./shifts";
+import { workspaceTimezone } from "./zone";
 
 /** The planner's data: seven Central days from `from`, every active driver's loads by day, the loads still waiting for a driver, and what is due now. */
-/** `terminal`: only that terminal's drivers get a row, and loads held by other terminals' drivers are left off; loads nobody holds yet stay for everyone. */
+/** `terminal`: only that terminal's home drivers get a row, and loads held by drivers based elsewhere are left off (their number is `hiddenElsewhere`, so the page can offer to include them); loads nobody holds yet stay for everyone. */
 export async function getPlannerData(from: number, now: number = Date.now(), count = 7, workspaceId = currentWorkspaceId(), terminal: string | null = null) {
   // Only what the board can show: every open load (they are the commitments, and the ones with no times are listed beside the grid) and the delivered loads
   // that fall in or near the days shown. A fleet has tens of thousands of finished loads, none of which belong on this week.
@@ -20,7 +23,7 @@ export async function getPlannerData(from: number, now: number = Date.now(), cou
       select l.id from loads l join stops s on s.load_id = l.id
       where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status = 'completed'
         and ((s.time_window_earliest >= ${near.gte} and s.time_window_earliest <= ${near.lte}) or (s.time_window_latest >= ${near.gte} and s.time_window_latest <= ${near.lte}))`,
-    prisma.driver.findMany({ where: { workspaceId, active: true, ...(terminal ? { terminal } : {}) }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+    prisma.driver.findMany({ where: { workspaceId, active: true, ...(terminal ? { terminal } : {}) }, select: { id: true, name: true, code: true }, orderBy: { name: "asc" } })
   ]);
   const loads = named.length === 0 ? [] : await prisma.load.findMany({ where: { id: { in: named.map((n) => n.id) } }, include: { stops: { orderBy: { stopSequence: "asc" } }, assignment: { include: { driver: true } } } });
   const planner: PlannerLoad[] = loads.map((l) => ({
@@ -47,5 +50,10 @@ export async function getPlannerData(from: number, now: number = Date.now(), cou
   const days = days0;
   const inScope = new Set(drivers.map((d) => d.id));
   const visible = terminal ? planner.filter((l) => !l.driverId || inScope.has(l.driverId)) : planner;
-  return { days, ...buildPlanner(visible, drivers.map((d) => ({ id: d.id, name: d.name })), days, now), watchlist: buildWatchlist(visible, now) };
+  // Shifts are the carrier's clock (the workspace's zone); a column is matched to them by the instants it spans, so a desk reading another clock still lines up.
+  const tz = await workspaceTimezone(workspaceId);
+  const schedules = await loadSchedules(workspaceId, drivers.map((d) => d.id), dateKeyOf(days[0]!.start, tz), dateKeyOf(days[days.length - 1]!.end, tz));
+  const shownIds = new Set(visible.map((l) => l.id));
+  const hiddenElsewhere = terminal ? planner.filter((l) => !shownIds.has(l.id)).length : 0;
+  return { days, hiddenElsewhere, ...buildPlanner(visible, drivers.map((d) => ({ id: d.id, name: d.name, code: d.code })), days, now, { schedules, tz }), watchlist: buildWatchlist(visible, now), tz };
 }

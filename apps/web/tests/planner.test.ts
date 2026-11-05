@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { buildPlanner, buildWatchlist, planDays, spanText, type PlannerLoad, type PlannerStop } from "../src/lib/planner";
+import type { DriverSchedule } from "../src/lib/shifts";
 
 const H = 3_600_000;
 const utc = (s: string) => Date.parse(s);
@@ -151,5 +152,64 @@ describe("the due-now watchlist", () => {
 
   test("how long is how long", () => {
     expect([35, 60, 130, 0].map(spanText)).toEqual(["35 min", "1 h", "2 h 10 min", "0 min"]);
+  });
+});
+
+describe("the planner with driver shifts", () => {
+  // The planner's days are Central. Alex works every day 06:00 to 18:00; Sam has no schedule.
+  const days = planDays(NOW, 4, NOW);
+  const drivers = [
+    { id: "d1", name: "Alex Rivera", code: "ARIV" },
+    { id: "d2", name: "Sam Okafor", code: "SOKA" }
+  ];
+  const every = (start: number, end: number): DriverSchedule => ({ week: Array.from({ length: 7 }, () => ({ start, end })), exceptions: [] });
+  const shifts = (over: Record<string, DriverSchedule> = {}) => ({ tz: "America/Chicago", schedules: new Map<string, DriverSchedule>([["d1", every(6 * 60, 18 * 60)], ...Object.entries(over)]) });
+
+  test("without schedules every row, cell and item is exactly as it was, and there is no balance", () => {
+    const a = buildPlanner([load("1")], drivers, days, NOW);
+    expect(a.balance).toBeNull();
+    expect(a.rows[0]!.shifts).toBeUndefined();
+    expect(a.rows.flatMap((r) => r.cells.flat()).every((i) => i.shiftFlag === null)).toBe(true);
+  });
+
+  test("a driver with no schedule is neutral: never flagged, not counted as available, and said to have none", () => {
+    const { rows, balance } = buildPlanner([load("1", { driverId: "d2", driverName: "Sam Okafor" })], drivers, days, NOW, shifts());
+    expect(rows[1]!.shifts!.every((s) => s.kind === "unset")).toBe(true);
+    expect(rows[1]!.cells.flat().every((i) => i.shiftFlag === null)).toBe(true);
+    expect(balance![0]!.unscheduled).toBe(1);
+  });
+
+  test("a delivery outside the driver's shift is flagged on every day the load shows, with the tag and the words", () => {
+    // Delivery 26 to 30 hours after noon Wednesday is 2 PM to 6 PM Thursday Central, inside 06:00-18:00; push it to 03:00-05:00 Friday instead.
+    const late = load("1", {}, [stop(1, "pickup", 2, 5), stop(2, "delivery", 39, 41)]);
+    const { rows } = buildPlanner([late], drivers, days, NOW, shifts());
+    const items = rows[0]!.cells.flat();
+    expect(items.length).toBeGreaterThan(1);
+    expect(items.every((i) => i.shiftFlag?.tag === "BEFORE SHIFT START" || i.shiftFlag?.tag === "EXCEEDS SHIFT END")).toBe(true);
+    expect(items[0]!.shiftFlag!.words).toMatch(/^Delivery is /);
+  });
+
+  test("a load that fits the shift carries no flag; an off day is marked off on that day alone", () => {
+    const off = every(6 * 60, 18 * 60);
+    off.exceptions.push({ dateKey: "2026-10-29", kind: "off", start: null, end: null, note: "Home time" });
+    const { rows } = buildPlanner([load("1")], drivers, days, NOW, shifts({ d1: off }));
+    expect(rows[0]!.cells.flat().every((i) => i.shiftFlag === null || i.shiftFlag.tag === "OFF DUTY")).toBe(true);
+    expect(rows[0]!.shifts![1]).toEqual({ kind: "off", note: "Home time" });
+    expect(rows[0]!.shifts![0]!.kind).toBe("on");
+  });
+
+  test("each day counts loads needing a driver against scheduled drivers on shift with nothing over their shift", () => {
+    const tray = load("9", { driverId: null, driverName: null, assignmentStatus: null }, [stop(1, "pickup", 2, 5), stop(2, "delivery", 3, 6)]);
+    const free = buildPlanner([tray], drivers, days, NOW, shifts()).balance!;
+    expect(free[0]).toEqual({ need: 1, available: 1, unscheduled: 1 });
+    expect(free[1]!.need).toBe(0);
+    // Alex takes a load that overlaps Wednesday's shift: nobody scheduled is left free that day.
+    const busy = buildPlanner([tray, load("1", {}, [stop(1, "pickup", 2, 5), stop(2, "delivery", 3, 6)])], drivers, days, NOW, shifts()).balance!;
+    expect(busy[0]!.available).toBe(0);
+    expect(busy[1]!.available).toBe(1);
+  });
+
+  test("a row carries the driver's code", () => {
+    expect(buildPlanner([], drivers, days, NOW, shifts()).rows.map((r) => r.code)).toEqual(["ARIV", "SOKA"]);
   });
 });

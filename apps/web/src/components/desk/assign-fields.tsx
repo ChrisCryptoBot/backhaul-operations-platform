@@ -6,7 +6,10 @@ import { PERCENT_MAX, RATE_CON_BASIS, percentOf } from "@/lib/pay";
 import { useDraft } from "./kit/use-draft";
 import { useClearOnSuccess } from "./kit/use-submit-outcome";
 
-type Option = { id: string; name: string; blocker: string | null; busy: string | null; payKind: string | null; payRate: number | null; terminal?: string | null };
+/** `home` is the driver's home terminal and `shiftNote` a caution that a stop of this load falls outside their shift; neither stops an assignment. */
+type Option = { id: string; name: string; blocker: string | null; busy: string | null; payKind: string | null; payRate: number | null; code?: string | null; home?: string | null; shiftNote?: string | null };
+
+const optionText = (d: Option) => `${d.code ? `${d.code} · ` : ""}${d.name}${d.home ? ` (${d.home})` : ""}`;
 
 const UNIT: Record<string, string> = { cpm: "$ a mile", flat: "$ for the load", hourly: "$ an hour", percent: "% of the rate" };
 
@@ -100,8 +103,8 @@ export function AssignFields({
           }}>
           {drivers.map((d) => (
             <option key={d.id} value={d.id} disabled={!!d.blocker}>
-              {d.name}
-              {d.blocker ? ` — ${d.blocker}` : d.busy ? ` — ${d.busy}` : ""}
+              {optionText(d)}
+              {d.blocker ? ` — ${d.blocker}` : d.busy ? ` — ${d.busy}` : d.shiftNote ? ` — ${d.shiftNote}` : ""}
             </option>
           ))}
         </select>
@@ -129,7 +132,7 @@ export function AssignFields({
         />
         <datalist id={list}>
           {found.map((o) => (
-            <option key={o.id} value={o.name} label={[o.terminal, o.blocker ?? o.busy].filter(Boolean).join(" · ") || undefined} />
+            <option key={o.id} value={o.name} label={[o.code, o.home, o.blocker ?? o.busy ?? o.shiftNote].filter(Boolean).join(" · ") || undefined} />
           ))}
         </datalist>
       </label>
