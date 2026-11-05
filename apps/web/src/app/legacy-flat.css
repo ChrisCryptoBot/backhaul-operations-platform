@@ -1,0 +1,17 @@
+/* Transitional. The screens not yet moved to the t-* classes still carry the old hard-coded radii (50%, 3px, 999px), blurs, shadows and gradients in desk.css,
+   cockpit.css and quote-terminal.css. This flattens them so that nothing on the desk is round or frosted while the move is under way.
+   Deleted with those stylesheets (docs/TERMINAL_MIGRATION.md). The verdict mark (.vm) and the status squares keep their own shapes. */
+
+*:not(.vm):not(.vm *),
+*::before,
+*::after {
+  border-radius: 0 !important;
+}
+.vm[data-s="take"], .vm[data-s="unjudged"] { border-radius: 50% !important; }
+
+.tl-card, .tl-btn, .tl-chip, .tl-table, .tl-side, .tl-header, .qt-pane, .cp-card, .cp-panel, .gs-pop, .tl-modal, .tl-drawer, .tl-toast, .menu-pop, details.menu > div {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+  background-image: none !important;
+}

@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import React from "react";
-import { Icon } from "./kit/icons";
 import type { SearchHit } from "@/server/tl/search";
 
 const GROUPS: Array<{ kind: SearchHit["kind"]; label: string }> = [
@@ -78,9 +77,9 @@ export function GlobalSearch() {
 
   let flat = -1;
   return (
-    <div className="gs" ref={box}>
-      <div className="gs-input">
-        <Icon name="search" size={16} />
+    <div className="t-find" ref={box}>
+      <div className="t-line" role="search">
+        <b aria-hidden="true">&gt;</b>
         <input
           ref={input}
           type="text"
@@ -114,21 +113,24 @@ export function GlobalSearch() {
           }}
         />
         <kbd aria-hidden="true">/</kbd>
+        <button type="button" className="t-go" onClick={() => ordered[active] && go(ordered[active]!)} disabled={!ordered[active]}>
+          GO
+        </button>
       </div>
       {open && q.trim().length >= 2 ? (
-        <div className="gs-pop" id={listId} role="listbox">
-          {done && ordered.length === 0 ? <div className="gs-empty">Nothing matches “{q.trim()}”.</div> : null}
+        <div className="t-pop" id={listId} role="listbox">
+          {done && ordered.length === 0 ? <div className="t-pop-empty">Nothing matches “{q.trim()}”.</div> : null}
           {GROUPS.map((g) => {
             const list = hits.filter((h) => h.kind === g.kind);
             if (list.length === 0) return null;
             return (
               <div key={g.kind}>
-                <div className="gs-group">{g.label}</div>
+                <div className="t-pop-group">{g.label}</div>
                 {list.map((h) => {
                   flat += 1;
                   const i = flat;
                   return (
-                    <div key={`${h.kind}-${h.label}-${h.href}`} id={`${listId}-${i}`} role="option" aria-selected={i === active} className="gs-hit" onMouseEnter={() => setActive(i)} onMouseDown={(e) => { e.preventDefault(); go(h); }}>
+                    <div key={`${h.kind}-${h.label}-${h.href}`} id={`${listId}-${i}`} role="option" aria-selected={i === active} className="t-pop-hit" onMouseEnter={() => setActive(i)} onMouseDown={(e) => { e.preventDefault(); go(h); }}>
                       <b>{h.label}</b>
                       <span>{h.sub}</span>
                     </div>

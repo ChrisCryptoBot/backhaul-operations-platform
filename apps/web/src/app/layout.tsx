@@ -1,14 +1,17 @@
+import "./terminal.css";
 import "./globals.css";
+import "./legacy-flat.css";
 import type { Metadata } from "next";
-import { Barlow, Barlow_Condensed } from "next/font/google";
+import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import { cookies } from "next/headers";
 import { ClerkProvider } from "@clerk/nextjs";
 import React from "react";
 import { DENSITY_COOKIE, THEME_COOKIE, asDensity, asTheme } from "@/lib/appearance";
 import { authOn } from "@/server/tl/identity";
 
-const barlow = Barlow({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-barlow", display: "swap" });
-const barlowCondensed = Barlow_Condensed({ subsets: ["latin"], weight: ["500", "600", "700"], variable: "--font-barlow-cond", display: "swap" });
+// Figures and labels are set in Plex Mono (tabular, so a column of money lines up to the digit); sentences in Plex Sans.
+const plexMono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-plex-mono", display: "swap" });
+const plexSans = IBM_Plex_Sans({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-plex-sans", display: "swap" });
 
 export const metadata: Metadata = {
   title: "Dispatch · TrueLane",
@@ -20,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const theme = asTheme(jar.get(THEME_COOKIE)?.value);
   const density = asDensity(jar.get(DENSITY_COOKIE)?.value);
   const page = (
-    <html lang="en" data-theme={theme} data-density={density} className={`${barlow.variable} ${barlowCondensed.variable}`}>
+    <html lang="en" data-theme={theme} data-density={density} className={`${plexMono.variable} ${plexSans.variable}`}>
       <body>{children}</body>
     </html>
   );

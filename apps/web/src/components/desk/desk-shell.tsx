@@ -1,12 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import React from "react";
 import { AuthSignOutButton } from "./auth-sign-out";
-import { BrandMark } from "./kit/brand-mark";
 import { SleepGuard } from "./splash";
-import { Icon, type IconName } from "./kit/icons";
 import { ToastProvider } from "./kit/toast";
 import { DraftScope } from "./kit/use-draft";
 import { VIEW_PREFIX, rememberedQuery } from "@/lib/draft";
@@ -18,50 +16,51 @@ import { perMile, pct, usd } from "@/lib/desk-format";
 import type { ShellData } from "@/server/tl/shell";
 
 
-type Item = { href: string; label: string; icon: IconName; pill?: (c: ShellData["counts"]) => { n: number; tone?: "alert" | "warn" } | null };
+/** `code` is the two-letter mnemonic the rail leads with (and the panel header repeats): a list of places, not a list of icons. */
+type Item = { href: string; label: string; code: string; pill?: (c: ShellData["counts"]) => { n: number; tone?: "alert" | "warn" } | null };
 
 const NAV: Array<{ label: string; items: Item[] }> = [
   {
     label: "Dispatch",
     items: [
-      { href: "/quote", label: "Quote a load", icon: "calculator" },
-      { href: "/loads", label: "Loads", icon: "loads" },
-      { href: "/dispatch", label: "Dispatch queue", icon: "dispatch", pill: (c) => (c.needsDriver > 0 ? { n: c.needsDriver, tone: "warn" } : null) },
-      { href: "/messages", label: "Messages", icon: "message", pill: (c) => (c.unreadMessages > 0 ? { n: c.unreadMessages, tone: "warn" } : null) },
-      { href: "/planner", label: "Planner", icon: "calendar" },
-      { href: "/alerts", label: "Alerts", icon: "bell", pill: (c) => (c.alertsBlock > 0 ? { n: c.alertsBlock + c.alertsWarn, tone: "alert" } : c.alertsWarn > 0 ? { n: c.alertsWarn, tone: "warn" } : null) },
-      { href: "/rate-cons", label: "Rate confirmations", icon: "document" }
+      { href: "/quote", label: "Quote a load", code: "QT" },
+      { href: "/loads", label: "Loads", code: "LD" },
+      { href: "/dispatch", label: "Dispatch queue", code: "DQ", pill: (c) => (c.needsDriver > 0 ? { n: c.needsDriver, tone: "warn" } : null) },
+      { href: "/messages", label: "Messages", code: "MS", pill: (c) => (c.unreadMessages > 0 ? { n: c.unreadMessages, tone: "warn" } : null) },
+      { href: "/planner", label: "Planner", code: "PL" },
+      { href: "/alerts", label: "Alerts", code: "AL", pill: (c) => (c.alertsBlock > 0 ? { n: c.alertsBlock + c.alertsWarn, tone: "alert" } : c.alertsWarn > 0 ? { n: c.alertsWarn, tone: "warn" } : null) },
+      { href: "/rate-cons", label: "Rate confirmations", code: "RC" }
     ]
   },
   {
     label: "Fleet",
     items: [
-      { href: "/drivers", label: "Drivers", icon: "drivers" },
-      { href: "/fleet", label: "Trucks", icon: "trucks" },
-      { href: "/trailers", label: "Trailers", icon: "trailers" }
+      { href: "/drivers", label: "Drivers", code: "DR" },
+      { href: "/fleet", label: "Trucks", code: "TK" },
+      { href: "/trailers", label: "Trailers", code: "TR" }
     ]
   },
   {
     label: "Market",
     items: [
-      { href: "/customers", label: "Customers", icon: "building" },
-      { href: "/lanes", label: "Lanes", icon: "route" }
+      { href: "/customers", label: "Customers", code: "CU" },
+      { href: "/lanes", label: "Lanes", code: "LN" }
     ]
   },
   {
     label: "Money",
     items: [
-      { href: "/invoices", label: "Invoices", icon: "invoices", pill: (c) => (c.overdue > 0 ? { n: c.overdue, tone: "alert" } : c.readyToInvoice > 0 ? { n: c.readyToInvoice } : null) },
-      { href: "/settlements", label: "Settlements", icon: "wallet" },
-      { href: "/payroll", label: "Payroll", icon: "payroll" },
-      { href: "/kpi", label: "KPI dashboard", icon: "chart" }
+      { href: "/invoices", label: "Invoices", code: "IV", pill: (c) => (c.overdue > 0 ? { n: c.overdue, tone: "alert" } : c.readyToInvoice > 0 ? { n: c.readyToInvoice } : null) },
+      { href: "/settlements", label: "Settlements", code: "ST" },
+      { href: "/payroll", label: "Payroll", code: "PY" },
+      { href: "/kpi", label: "KPI dashboard", code: "KP" }
     ]
   },
   {
     label: "System",
     items: [
-      { href: "/audit", label: "Audit log", icon: "history" },
-      { href: "/settings", label: "Settings", icon: "settings" }
+      { href: "/audit", label: "Audit log", code: "AU" },
+      { href: "/settings", label: "Settings", code: "SE" }
     ]
   }
 ];
@@ -70,7 +69,6 @@ const SIDEBAR_COOKIE = "desk-sidebar";
 
 export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinutes = 15 }: { children: React.ReactNode; drawer?: React.ReactNode; data: ShellData; initialCollapsed: boolean; sleepMinutes?: number }) {
   const underlay = useUnderlay();
-  const router = useRouter();
   // With a load open in the drawer the URL is the load's, but the page you are on (and the sidebar item to light) is the one underneath.
   const here = usePathname() ?? "";
   const pathname = /^\/loads\/[^/]+$/.test(here) ? (underlay.current.split("?")[0] ?? "/loads") : here;
@@ -96,7 +94,6 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
     }
   }, [here, query, viewScope]);
   const toggle = React.useCallback(() => {
-    setTip(null);
     setCollapsed((was) => {
       const next = !was;
       document.cookie = `${SIDEBAR_COOKIE}=${next ? "1" : "0"}; path=/; max-age=31536000; samesite=lax`;
@@ -140,117 +137,61 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
     };
   }, []);
 
-  // A folded rail names its icons in a tooltip beside the pointer or the focused item. It is fixed-positioned, because the rail itself clips whatever leaves it.
-  const [tip, setTip] = React.useState<{ text: string; x: number; y: number } | null>(null);
-  const showTip = (e: React.SyntheticEvent) => {
-    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-tip]");
-    if (!el || !el.dataset.tip) return setTip(null);
-    const r = el.getBoundingClientRect();
-    setTip({ text: el.dataset.tip, x: r.right + 10, y: r.top + r.height / 2 });
-  };
-  const hideTip = () => setTip(null);
-
-  // The glass bubble behind the current item slides to it (the phone's tab bar does the same). Until it has measured, the item draws its own bubble (CSS), so the first paint is never bare.
-  const navRef = React.useRef<HTMLElement>(null);
-  const [bubble, setBubble] = React.useState<{ y: number; h: number } | null>(null);
-  const [settled, setSettled] = React.useState(false);
-  // When the rail is shorter than its list (a short window), a soft fade at the foot says there is more below instead of cutting an item off.
-  const [more, setMore] = React.useState(false);
-  const checkMore = React.useCallback(() => {
-    const n = navRef.current;
-    if (n) setMore(n.scrollHeight - n.scrollTop - n.clientHeight > 4);
-  }, []);
-  const measure = React.useCallback(() => {
-    const el = navRef.current?.querySelector<HTMLElement>('a[aria-current="page"]');
-    setBubble(el ? { y: el.offsetTop, h: el.offsetHeight } : null);
-    checkMore();
-  }, [checkMore]);
-  React.useLayoutEffect(measure, [measure, pathname, collapsed]);
-  React.useEffect(() => {
-    const id = requestAnimationFrame(() => setSettled(true));
-    const nav = navRef.current;
-    const ro = typeof ResizeObserver === "undefined" || !nav ? null : new ResizeObserver(measure);
-    if (nav) ro?.observe(nav);
-    void document.fonts?.ready.then(measure);
-    return () => {
-      cancelAnimationFrame(id);
-      ro?.disconnect();
-    };
-  }, [measure]);
-
+  const role = data.account.role;
   return (
     <ToastProvider>
     <DraftScope value={`${data.workspaceName}:${data.account.name}`}>
-      <div className="tl-app" data-collapsed={collapsed ? "true" : "false"}>
-        <a className="skip-link" href="#main">
+      <div className="t-app" data-collapsed={collapsed ? "true" : "false"}>
+        <a className="skip" href="#main">
           Skip to content
         </a>
-        <aside className="tl-side" aria-label="Primary" onMouseOver={collapsed ? showTip : undefined} onMouseLeave={hideTip} onFocus={collapsed ? showTip : undefined} onBlur={hideTip}>
-          <Link href="/loads" className="tl-brand" aria-label="TrueLane Dispatch, home" data-tip={collapsed ? "TrueLane Dispatch" : undefined}>
-            <span className="tl-tile" aria-hidden="true"><BrandMark size={20} className="tl-mark" /></span>
-            <span className="tl-brand-text">
-              <span className="tl-brand-name">TrueLane</span>
-              <span className="tl-brand-sub">Dispatch</span>
-            </span>
+        <header className="t-cmd" aria-label="Command line">
+          <Link href="/loads" className="t-brand" aria-label="TrueLane Dispatch, home">
+            TRUELANE <i>▸ DESK</i>
           </Link>
-          <nav id="tl-sections" className="tl-nav" aria-label="Sections" ref={navRef} onScroll={checkMore} data-more={more ? "true" : undefined} data-bubble={bubble ? "on" : undefined}>
-            {bubble ? <span className="tl-bubble" aria-hidden="true" data-settled={settled ? "true" : undefined} style={{ "--by": `${bubble.y}px`, "--bh": `${bubble.h}px` } as React.CSSProperties} /> : null}
-            {NAV.map((group) => (
-              <React.Fragment key={group.label}>
-                <div className="tl-nav-label">{group.label}</div>
-                {group.items.map((item) => {
-                  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-                  const pill = item.pill?.(data.counts) ?? null;
-                  return (
-                    <Link key={item.href} href={`${item.href}${active ? "" : (views[item.href] ?? "")}`} aria-current={active ? "page" : undefined} data-tip={collapsed ? item.label : undefined}>
-                      <Icon name={item.icon} className="ico" />
-                      <span className="lbl">{item.label}</span>
-                      {pill ? <span className={`tl-pill-n${pill.tone ? ` ${pill.tone}` : ""}`}>{pill.n}</span> : null}
-                    </Link>
-                  );
-                })}
-              </React.Fragment>
-            ))}
-          </nav>
-          <div className="tl-side-foot">
-            <div className="tl-side-note">Sample data only. Every name, customer and number here is invented.</div>
-            <div className="tl-account" aria-label="Account">
-              {data.workspaceName ? <div className="tl-ws" title={data.workspaceName}>{data.workspaceName}</div> : null}
-              {data.account.on && data.account.name ? <div className="tl-ws" title={`${data.account.name}, ${data.account.role ?? ""}`}>{data.account.name}</div> : null}
-              <Link href="/enterprise" className="tl-acc" data-tip={collapsed ? "Talk to a person" : undefined}>
-                <Icon name="message" />
-                <span className="lbl">Talk to a person</span>
-              </Link>
-              {data.account.on ? (
-                <AuthSignOutButton className="tl-acc" tip={collapsed ? "Sign out" : undefined}>
-                  <Icon name="signout" />
-                  <span className="lbl">Sign out</span>
-                </AuthSignOutButton>
-              ) : null}
-            </div>
-            <button type="button" className="tl-collapse" onClick={toggle} aria-expanded={!collapsed} aria-controls="tl-sections" aria-keyshortcuts="[" data-tip={collapsed ? "Expand sidebar" : undefined}>
-              <Icon name={collapsed ? "expand" : "collapse"} />
-              <span className="lbl">Collapse sidebar</span>
-              <kbd className="tl-kbd" aria-hidden="true">[</kbd>
-            </button>
-          </div>
-        </aside>
-        <div className="tl-col">
-          <header className="tl-header">
-            <GlobalSearch />
-            <TerminalScope terminals={data.terminals} terminal={data.terminal} />
-            <div className="tl-totals" aria-label="Fleet totals">
-              <div className="tl-total"><b>{t.open}</b><span>Open loads</span></div>
-              <div className={`tl-total${t.needsDriver > 0 ? " alert" : ""}`}><b>{t.needsDriver}</b><span>Need a driver</span></div>
-              <div className="tl-total"><b>{usd(t.gross)}</b><span>Gross, finished</span></div>
-              <div className="tl-total"><b>{perMile(t.avgRpm)}</b><span>Avg per mile</span></div>
-              <div className="tl-total"><b>{pct(t.emptyShare)}</b><span>Empty miles</span></div>
-            </div>
-          </header>
-          <main className="tl-main" id="main" tabIndex={-1}>
-            {children}
-          </main>
+          <GlobalSearch />
+          <TerminalScope terminals={data.terminals} terminal={data.terminal} />
+          <Link href="/enterprise" className="t-mid">Talk to a person</Link>
+          {data.account.on && data.account.name ? <span className="t-mid who" title={`${data.account.name}${role ? `, ${role}` : ""}`}>{data.account.name}{role ? ` · ${role}` : ""}</span> : null}
+          {data.account.on ? <AuthSignOutButton className="t-mid t-linkbtn">Sign out</AuthSignOutButton> : null}
+        </header>
+        <div className="t-tick" role="group" aria-label="Fleet totals">
+          <div><span>Open loads</span><b>{t.open}</b></div>
+          <div><span>Need a driver</span><b className={t.needsDriver > 0 ? "t-warn" : undefined}>{t.needsDriver}</b></div>
+          <div><span>Gross, finished</span><b>{usd(t.gross)}</b></div>
+          <div><span>Avg per mile</span><b>{perMile(t.avgRpm)}</b></div>
+          <div><span>Empty miles</span><b>{pct(t.emptyShare)}</b></div>
         </div>
+        <nav id="t-sections" className="t-rail" aria-label="Sections">
+          {NAV.map((group) => (
+            <React.Fragment key={group.label}>
+              <h2>{group.label}</h2>
+              {group.items.map((item) => {
+                const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const pill = item.pill?.(data.counts) ?? null;
+                return (
+                  <Link key={item.href} href={`${item.href}${active ? "" : (views[item.href] ?? "")}`} aria-current={active ? "page" : undefined} title={collapsed ? item.label : undefined} aria-label={collapsed ? item.label : undefined}>
+                    <i aria-hidden={collapsed ? "true" : undefined}>{item.code}</i>
+                    <span className="lbl">{item.label}</span>
+                    {pill ? <em data-tone={pill.tone === "alert" ? "bad" : pill.tone}>{pill.n}</em> : null}
+                  </Link>
+                );
+              })}
+            </React.Fragment>
+          ))}
+          <button type="button" className="t-collapse" onClick={toggle} aria-expanded={!collapsed} aria-controls="t-sections" aria-keyshortcuts="[" title={collapsed ? "Expand sidebar" : undefined}>
+            <i>[</i>
+            <span className="lbl">Collapse sidebar</span>
+          </button>
+        </nav>
+        <main className="t-main" id="main" tabIndex={-1}>
+          {children}
+        </main>
+        <footer className="t-status">
+          <span>SAMPLE DATA ONLY. Every name, customer and number here is invented.</span>
+          <span className="gap"><b>{data.workspaceName}</b></span>
+          {role ? <span><b>{role.toUpperCase()}</b></span> : null}
+        </footer>
       </div>
       {/* The terminals in use, offered by every Terminal box in the desk (a truck's, a driver's). */}
       <datalist id={TERMINAL_LIST_ID}>
@@ -258,11 +199,6 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
           <option key={t} value={t} />
         ))}
       </datalist>
-      {collapsed && tip ? (
-        <div className="tl-tip" role="tooltip" style={{ left: tip.x, top: tip.y }}>
-          {tip.text}
-        </div>
-      ) : null}
       {drawer}
       <SleepGuard minutes={sleepMinutes} />
     </DraftScope>

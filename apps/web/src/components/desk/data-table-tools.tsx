@@ -5,7 +5,7 @@ import React from "react";
 import { compareKeys, nextSort, sortKey, type SortDir, type SortKind } from "@/lib/table-sort";
 import { Icon } from "./kit/icons";
 
-type Density = "comfortable" | "compact";
+type Density = "dense" | "comfortable";
 
 /** The table with this id, and any table whose id continues it with "--" (a long list split into month tables shares one toolbar). */
 const tablesOf = (tableId: string) => Array.from(document.querySelectorAll<HTMLElement>(`[id="${tableId}"], [id^="${tableId}--"]`));
@@ -18,12 +18,12 @@ export function DataTableTools({ tableId, placeholder = "Search…", children, t
   const router = useRouter();
   const serverMode = server != null;
   const [q, setQ] = React.useState(server?.q ?? "");
-  const [density, setDensity] = React.useState<Density>("comfortable");
+  const [density, setDensity] = React.useState<Density>("dense");
   const [shown, setShown] = React.useState(total);
   const [sortNote, setSortNote] = React.useState("");
 
   React.useEffect(() => {
-    setDensity(document.documentElement.dataset.density === "compact" ? "compact" : "comfortable");
+    setDensity(document.documentElement.dataset.density === "comfortable" ? "comfortable" : "dense");
   }, []);
 
   // Search: hide rows whose text does not match. Done on the DOM so the table stays server-rendered.
@@ -122,9 +122,9 @@ export function DataTableTools({ tableId, placeholder = "Search…", children, t
       <span className="dt-spacer" />
       <span className="dt-count" aria-live="polite">{server || q.trim() === "" ? `${total} rows` : `${shown} of ${total}`}</span>
       <span className="db-sr-only" role="status">{sortNote}</span>
-      <div className="tl-seg" role="group" aria-label="Row density">
+      <div className="t-seg" role="group" aria-label="Row density">
+        <button type="button" aria-pressed={density === "dense"} onClick={() => pick("dense")}>Dense</button>
         <button type="button" aria-pressed={density === "comfortable"} onClick={() => pick("comfortable")}>Comfortable</button>
-        <button type="button" aria-pressed={density === "compact"} onClick={() => pick("compact")}>Compact</button>
       </div>
     </div>
   );

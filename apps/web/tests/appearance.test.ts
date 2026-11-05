@@ -10,13 +10,15 @@ import {
 } from "@/lib/appearance";
 
 describe("appearance and sleep mode settings", () => {
-  test("theme and density fall back to night and comfortable", () => {
+  test("theme and density fall back to night and dense", () => {
     expect(asTheme(undefined)).toBe("night");
     expect(asTheme("day")).toBe("day");
     expect(asTheme("bogus")).toBe("night");
-    expect(asDensity(undefined)).toBe("comfortable");
-    expect(asDensity("compact")).toBe("compact");
-    expect(asDensity("bogus")).toBe("comfortable");
+    expect(asDensity(undefined)).toBe("dense");
+    expect(asDensity("dense")).toBe("dense");
+    expect(asDensity("comfortable")).toBe("comfortable");
+    expect(asDensity("compact")).toBe("dense"); // the old name, from a cookie set before the redesign
+    expect(asDensity("bogus")).toBe("dense");
   });
 
   test("asSleepMinutes parses off, valid minutes, clamps at MAX_SLEEP_MINUTES, and defaults cleanly", () => {

@@ -13,24 +13,26 @@ export function TerminalScope({ terminals, terminal }: { terminals: string[]; te
   const [pending, start] = React.useTransition();
   if (terminals.length === 0 && !terminal) return null;
   return (
-    <label className="tl-scope" data-active={terminal ? "true" : undefined}>
+    <label className="t-scope t-dim" data-active={terminal ? "true" : undefined}>
       <span>Terminal</span>
-      <select
-        value={terminal ?? ""}
-        aria-busy={pending || undefined}
-        onChange={(e) => {
-          const v = e.target.value;
-          document.cookie = v ? `${TERMINAL_COOKIE}=${encodeURIComponent(v)}; path=/; max-age=31536000; samesite=lax` : `${TERMINAL_COOKIE}=; path=/; max-age=0; samesite=lax`;
-          start(() => router.refresh());
-        }}>
-        <option value="">All terminals</option>
-        {terminals.map((t) => (
-          <option key={t} value={t}>
-            {t}
-          </option>
-        ))}
-        {terminal && !terminals.includes(terminal) ? <option value={terminal}>{terminal}</option> : null}
-      </select>
+      <span className="t-in">
+        <select
+          value={terminal ?? ""}
+          aria-busy={pending || undefined}
+          onChange={(e) => {
+            const v = e.target.value;
+            document.cookie = v ? `${TERMINAL_COOKIE}=${encodeURIComponent(v)}; path=/; max-age=31536000; samesite=lax` : `${TERMINAL_COOKIE}=; path=/; max-age=0; samesite=lax`;
+            start(() => router.refresh());
+          }}>
+          <option value="">All terminals</option>
+          {terminals.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+          {terminal && !terminals.includes(terminal) ? <option value={terminal}>{terminal}</option> : null}
+        </select>
+      </span>
     </label>
   );
 }

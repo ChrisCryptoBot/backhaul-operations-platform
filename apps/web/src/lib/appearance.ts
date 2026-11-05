@@ -1,6 +1,6 @@
 /** The desk's appearance and idle-sleep settings. They live in cookies so the server can read them before first paint. */
 export const THEMES = ["night", "day"] as const;
-export const DENSITIES = ["comfortable", "compact"] as const;
+export const DENSITIES = ["dense", "comfortable"] as const;
 export type Theme = (typeof THEMES)[number];
 export type Density = (typeof DENSITIES)[number];
 
@@ -13,16 +13,17 @@ export const MAX_SLEEP_MINUTES = 240;
 export const SLEEP_PRESETS = [0, 1, 5, 15, 30, 60] as const;
 
 export const THEME_LABEL: Record<Theme, { label: string; blurb: string }> = {
-  night: { label: "Night", blurb: "TrueLane charcoal, gold and dark glass. The default." },
-  day: { label: "Day", blurb: "Warm paper and frosted glass, easy on a bright office." }
+  night: { label: "Night", blurb: "Black ground, gold labels, white figures. The default." },
+  day: { label: "Day", blurb: "The same system on warm paper, for a bright office." }
 };
 export const DENSITY_LABEL: Record<Density, { label: string; blurb: string }> = {
-  comfortable: { label: "Comfortable", blurb: "40px rows." },
-  compact: { label: "Compact", blurb: "32px rows, about a quarter more on screen." }
+  dense: { label: "Dense", blurb: "24px rows. The default: the most book on one screen." },
+  comfortable: { label: "Comfortable", blurb: "30px rows, a little more air." }
 };
 
 export const asTheme = (v: string | null | undefined): Theme => (THEMES as readonly string[]).includes(v ?? "") ? (v as Theme) : "night";
-export const asDensity = (v: string | null | undefined): Density => (DENSITIES as readonly string[]).includes(v ?? "") ? (v as Density) : "comfortable";
+/** "compact" is what the density was called before the terminal redesign: a cookie that still says it means dense. */
+export const asDensity = (v: string | null | undefined): Density => (v === "compact" ? "dense" : (DENSITIES as readonly string[]).includes(v ?? "") ? (v as Density) : "dense");
 
 /** Minutes of inactivity before the TrueLane curtain covers the desk (0 = Off, 1..240 = minutes). */
 export function asSleepMinutes(v: string | number | null | undefined): number {
