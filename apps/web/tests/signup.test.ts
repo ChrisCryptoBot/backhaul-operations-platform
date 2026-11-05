@@ -87,10 +87,9 @@ describe("the contact is real", () => {
 });
 
 describe("signing out", () => {
-  it("the sidebar has a Sign out button only when sign-in is on (a button that signs no one out is not shown), named in the folded rail too", () => {
-    const shell = fs.readFileSync(path.join(__dirname, "..", "src/components/desk/desk-shell.tsx"), "utf8");
-    expect(shell).toMatch(/data\.account\.on \? \(\s*<AuthSignOutButton/);
-    expect(shell).toContain('tip={collapsed ? "Sign out" : undefined}');
+  it("the command bar has a Sign out button only when sign-in is on (a button that signs no one out is not shown); it is always named, folded rail or not", () => {
+    const shell = fs.readFileSync(path.join(__dirname, "..", "src/components/desk/desk-shell.tsx"), "utf8").replace(/\r\n/g, "\n");
+    expect(shell).toMatch(/data\.account\.on \? <AuthSignOutButton[^>]*>Sign out<\/AuthSignOutButton>/);
     expect(shell).not.toContain('router.push("/sign-in")');
   });
 

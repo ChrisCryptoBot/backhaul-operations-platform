@@ -286,7 +286,7 @@
 .mb-key i { display: inline-block; width: 2px; height: 12px; background: var(--db-fg); }
 
 .al-list { display: grid; gap: 0; }
-.al { display: grid; grid-template-columns: 78px 1fr; gap: var(--db-3); align-items: start; padding: var(--db-3) var(--db-2); border-bottom: 1px solid var(--db-border-soft); color: inherit; text-decoration: none; font-size: var(--db-text-base); }
+.al { display: grid; grid-template-columns: 78px 1fr auto; gap: var(--db-3); align-items: start; padding: var(--db-3) var(--db-2); border-bottom: 1px solid var(--db-border-soft); color: inherit; text-decoration: none; font-size: var(--db-text-base); }
 a.al:hover { background: var(--db-bg-elev-1); }
 .al .lvl { --c: var(--db-fg-dim); justify-self: start; display: inline-flex; align-items: center; gap: 6px; font-family: var(--db-font-head); font-size: var(--db-text-sm); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; line-height: 20px; color: var(--c); }
 .al .lvl::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--c); }

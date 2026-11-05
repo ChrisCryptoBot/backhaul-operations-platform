@@ -37,7 +37,8 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next-scale/types/**/*.ts",
-    ".next-authcheck/types/**/*.ts"
+    ".next-authcheck/types/**/*.ts",
+    ".next-prod/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

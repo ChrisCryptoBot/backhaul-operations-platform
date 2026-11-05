@@ -71,7 +71,7 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
 
   return (
     <>
-      <button type="button" className={`tl-btn sm${compact ? " ghost" : ""}`} onClick={() => setOpen(true)}>
+      <button type="button" className="t-btn sm" onClick={() => setOpen(true)}>
         {label}
       </button>
       <Modal

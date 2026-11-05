@@ -37,12 +37,12 @@ export function ChaseActions({
   return (
     <span className="sub" style={{ display: "inline-flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
       {email ? (
-        <a href={`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`} onClick={() => note("email")}>
+        <a className="t-btn sm" href={`mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`} onClick={() => note("email")}>
           Email
         </a>
       ) : null}
       {phone ? (
-        <a href={`tel:${phone.replace(/[^\d+]/g, "")}`} onClick={() => note("phone")}>
+        <a className="t-btn sm" href={`tel:${phone.replace(/[^\d+]/g, "")}`} onClick={() => note("phone")}>
           Call
         </a>
       ) : null}

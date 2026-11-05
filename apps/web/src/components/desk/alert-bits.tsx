@@ -26,9 +26,12 @@ export function AlertList({ alerts, withLoad }: { alerts: Alert[]; withLoad?: bo
           </>
         );
         return withLoad ? (
-          <Link key={a.key} href={`/loads/${a.loadId}`} className="al" data-level={a.level}>
+          <div key={a.key} className="al" data-level={a.level}>
             {inner}
-          </Link>
+            <Link href={`/loads/${a.loadId}`} className="t-btn sm al-act" aria-label={`Open ${a.loadNumber ?? "load"}`}>
+              Open
+            </Link>
+          </div>
         ) : (
           <div key={a.key} className="al" data-level={a.level}>
             {inner}
