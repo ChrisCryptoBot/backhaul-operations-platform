@@ -9,12 +9,24 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
  */
 export const CREDENTIAL_KEY_ENV = "DESK_CREDENTIAL_KEY";
 
+/** To change the server key without losing anyone's keys: put the old one here while the new one is `DESK_CREDENTIAL_KEY`. Reading tries the new key then this one; the schedule re-seals what the old key sealed; once nothing is left, remove it. */
+export const PREVIOUS_KEY_ENV = "DESK_CREDENTIAL_KEY_PREVIOUS";
+
+function keyFrom(raw: string | undefined): Buffer | null {
+  const text = raw?.trim();
+  if (!text) return null;
+  const key = Buffer.from(text.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+  return key.length === 32 ? key : null;
+}
+
 /** The key from the environment: 32 bytes of base64 (or base64url), else null. A short or malformed key is no key: sealing with it would be a false comfort. */
 export function credentialKey(env: Record<string, string | undefined>): Buffer | null {
-  const raw = env[CREDENTIAL_KEY_ENV]?.trim();
-  if (!raw) return null;
-  const key = Buffer.from(raw.replace(/-/g, "+").replace(/_/g, "/"), "base64");
-  return key.length === 32 ? key : null;
+  return keyFrom(env[CREDENTIAL_KEY_ENV]);
+}
+
+/** The key keys are sealed with now, and the one they were sealed with before a rotation (null when none is set, or it is not a real key). */
+export function credentialKeys(env: Record<string, string | undefined>): { current: Buffer | null; previous: Buffer | null } {
+  return { current: keyFrom(env[CREDENTIAL_KEY_ENV]), previous: keyFrom(env[PREVIOUS_KEY_ENV]) };
 }
 
 const b64 = (b: Buffer) => b.toString("base64url");
@@ -41,6 +53,19 @@ export function unseal(sealed: string, key: Buffer): Record<string, string> | nu
   } catch {
     return null;
   }
+}
+
+/** Opens an envelope with the current key, else the previous one; says which opened it, so the sweep knows what still has to be re-sealed. A key that opens nothing is null, as in `unseal`. */
+export function unsealWithKeys(sealed: string, keys: { current: Buffer | null; previous: Buffer | null }): { values: Record<string, string>; usedPrevious: boolean } | null {
+  if (keys.current) {
+    const values = unseal(sealed, keys.current);
+    if (values) return { values, usedPrevious: false };
+  }
+  if (keys.previous) {
+    const values = unseal(sealed, keys.previous);
+    if (values) return { values, usedPrevious: true };
+  }
+  return null;
 }
 
 /** What a screen may show of a secret: its last four characters, "…abcd", or a bare "set" when it is too short for any of it to be safe to show. */

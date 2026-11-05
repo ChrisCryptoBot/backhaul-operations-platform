@@ -135,6 +135,8 @@ export default async function SettingsPage() {
             lastError: r.lastError,
             failures: r.failures,
             lastSyncedAt: r.lastSyncedAt ? dateTime(r.lastSyncedAt) : null,
+            rhythm: r.rhythm,
+            overdue: r.overdue,
             fields: keyStatus.get(r.provider) ?? [],
             webhookPath: hooks.get(`${r.capability}:${r.provider}`) ?? null
           }))}

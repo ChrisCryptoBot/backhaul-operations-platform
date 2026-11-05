@@ -1,5 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
+import { resealCredentials } from "@/server/partners/credentials";
+import { purgeOldEvents } from "@/server/partners/retention";
 import { runPartnerSync } from "@/server/partners/sync";
 
 /**
@@ -18,5 +20,9 @@ export async function POST(req: NextRequest) {
   const secret = process.env.PARTNER_CRON_SECRET?.trim();
   if (!secret) return NextResponse.json({ ok: false, error: "Not found." }, { status: 404 });
   if (!same(req.headers.get("x-partner-cron") ?? "", secret)) return NextResponse.json({ ok: false, error: "Not allowed." }, { status: 401 });
-  return NextResponse.json({ ok: true, ran: await runPartnerSync() });
+  // The same heartbeat does the housekeeping: connections read on a clock, keys sealed under a key that was rotated out, and webhook events past the keeping period. Counts only.
+  const ran = await runPartnerSync();
+  const resealed = await resealCredentials();
+  const purged = await purgeOldEvents();
+  return NextResponse.json({ ok: true, ran, resealed, purged });
 }

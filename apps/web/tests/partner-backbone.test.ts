@@ -2,7 +2,9 @@ import { createHmac, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { CREDENTIAL_KEY_ENV, checkCredential, credentialKey, hintOf, newWebhookToken, seal, unseal } from "@/server/partners/credentials-core";
+import { CREDENTIAL_KEY_ENV, PREVIOUS_KEY_ENV, checkCredential, credentialKey, credentialKeys, hintOf, newWebhookToken, seal, unseal, unsealWithKeys } from "@/server/partners/credentials-core";
+import { POLLED, SYNC_POLICY, isOverdue, rhythmOf } from "@/server/partners/sync-policy";
+import { CAPABILITIES } from "@/truelane/partners/contract";
 import { MAX_WEBHOOK_BYTES, factoringStatusOf, readNeutralEvent, signatureHeaderFor, verifySignature } from "@/server/partners/webhook-core";
 import { FAILURES_BEFORE_ERROR, retryMinutes } from "@/server/partners/health";
 import { SYNC_EVERY_MINUTES } from "@/server/partners/sync";
@@ -132,5 +134,66 @@ describe("what must never happen to a key", () => {
     expect(w.indexOf("verifySignature(")).toBeGreaterThan(-1);
     expect(w.indexOf("verifySignature(")).toBeLessThan(w.indexOf("JSON.parse("));
     expect(w).toContain("!secret || !verifySignature");
+  });
+});
+
+describe("rotating the server key without losing anyone's keys", () => {
+  const OLD = randomBytes(32);
+  const NEW = randomBytes(32);
+
+  it("reads the previous key from its own name, and only a real key counts", () => {
+    expect(credentialKeys({})).toEqual({ current: null, previous: null });
+    const both = credentialKeys({ [CREDENTIAL_KEY_ENV]: NEW.toString("base64"), [PREVIOUS_KEY_ENV]: OLD.toString("base64") });
+    expect(both.current!.equals(NEW)).toBe(true);
+    expect(both.previous!.equals(OLD)).toBe(true);
+    expect(credentialKeys({ [CREDENTIAL_KEY_ENV]: NEW.toString("base64"), [PREVIOUS_KEY_ENV]: "short" }).previous).toBeNull();
+  });
+
+  it("opens with the current key first, then the previous, and says which opened it", () => {
+    const keys = { current: NEW, previous: OLD };
+    expect(unsealWithKeys(seal({ A_KEY: "value-one-12345" }, NEW), keys)).toEqual({ values: { A_KEY: "value-one-12345" }, usedPrevious: false });
+    expect(unsealWithKeys(seal({ A_KEY: "value-one-12345" }, OLD), keys)).toEqual({ values: { A_KEY: "value-one-12345" }, usedPrevious: true });
+  });
+
+  it("a key that is neither opens nothing, and a rotation with no previous key opens only the current", () => {
+    expect(unsealWithKeys(seal({ A_KEY: "value-one-12345" }, randomBytes(32)), { current: NEW, previous: OLD })).toBeNull();
+    expect(unsealWithKeys(seal({ A_KEY: "value-one-12345" }, OLD), { current: NEW, previous: null })).toBeNull();
+    expect(unsealWithKeys(seal({ A_KEY: "value-one-12345" }, NEW), { current: null, previous: null })).toBeNull();
+  });
+});
+
+describe("how each kind of partner reaches the desk", () => {
+  it("every capability the contract has says how, so none can be added without a rhythm", () => {
+    expect(Object.keys(SYNC_POLICY).sort()).toEqual([...CAPABILITIES].sort());
+    for (const c of CAPABILITIES) expect(rhythmOf(c), c).not.toBe("");
+  });
+
+  it("only the polled kinds are on the schedule, at their own rhythm", () => {
+    expect(POLLED).toEqual({ eld: 15, vetting: 1440 });
+    expect(SYNC_POLICY.factoring.mode).toBe("events");
+    expect(SYNC_POLICY.payroll.mode).toBe("events");
+    expect(SYNC_POLICY.tracking.mode).toBe("events");
+    expect(SYNC_POLICY.fuel_card.mode).toBe("on_demand");
+    expect(SYNC_POLICY.ifta.mode).toBe("on_demand");
+  });
+
+  it("a polled connection is overdue only after its allowance with no answer; a told or asked-for kind never is", () => {
+    const now = new Date("2026-12-02T12:00:00Z");
+    const ago = (min: number) => new Date(now.getTime() - min * 60_000);
+    const eld = (over: Partial<{ status: string; lastSyncedAt: Date | null; connectedAt: Date | null }>) => ({ capability: "eld", status: "connected", lastSyncedAt: ago(10), connectedAt: ago(5000), ...over });
+    expect(isOverdue(eld({}), now)).toBe(false);
+    expect(isOverdue(eld({ lastSyncedAt: ago(91) }), now)).toBe(true);
+    expect(isOverdue(eld({ lastSyncedAt: ago(89) }), now)).toBe(false);
+    // Never answered: counted from when it was connected.
+    expect(isOverdue(eld({ lastSyncedAt: null, connectedAt: ago(200) }), now)).toBe(true);
+    expect(isOverdue(eld({ lastSyncedAt: null, connectedAt: ago(20) }), now)).toBe(false);
+    // Not live, or never connected: nothing to be overdue about.
+    expect(isOverdue(eld({ status: "revoked", lastSyncedAt: ago(9999) }), now)).toBe(false);
+    expect(isOverdue(eld({ status: "pending", lastSyncedAt: null, connectedAt: null }), now)).toBe(false);
+    expect(isOverdue({ capability: "factoring", status: "connected", lastSyncedAt: ago(99999), connectedAt: ago(99999) }, now)).toBe(false);
+    expect(isOverdue({ capability: "fuel_card", status: "error", lastSyncedAt: ago(99999), connectedAt: ago(99999) }, now)).toBe(false);
+    // A carrier check is read daily and allowed three.
+    expect(isOverdue({ capability: "vetting", status: "connected", lastSyncedAt: ago(3 * 1440 + 1), connectedAt: null }, now)).toBe(true);
+    expect(isOverdue({ capability: "vetting", status: "connected", lastSyncedAt: ago(2 * 1440), connectedAt: null }, now)).toBe(false);
   });
 });

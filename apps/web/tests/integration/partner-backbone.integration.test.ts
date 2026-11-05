@@ -3,7 +3,9 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { prisma } from "@/lib/db";
 import { callPartner, partnerAdapters, partnerState } from "@/server/partners/call";
 import { connectPartner, disconnectPartner, partnerStatus, retryConnection, webhookPath } from "@/server/partners/connections";
-import { allCredentialStatus, credentialStatus, deleteCredential, saveCredential, workspaceReader } from "@/server/partners/credentials";
+import { allCredentialStatus, credentialStatus, deleteCredential, resealCredentials, saveCredential, workspaceReader } from "@/server/partners/credentials";
+import { EVENT_KEEP_DAYS, purgeOldEvents } from "@/server/partners/retention";
+import { seal } from "@/server/partners/credentials-core";
 import { handleWebhook } from "@/server/partners/webhook";
 import { runPartnerSync } from "@/server/partners/sync";
 
@@ -14,7 +16,7 @@ import { runPartnerSync } from "@/server/partners/sync";
 const run = process.env.RUN_DB_INTEGRATION === "true";
 const W = "pb-backbone";
 const OTHER = "pb-other";
-const ENV_KEYS = ["DESK_CREDENTIAL_KEY", "MOTIVE_API_KEY", "SAMSARA_API_KEY", "TRIUMPHPAY_API_KEY", "TRIUMPHPAY_WEBHOOK_SECRET"];
+const ENV_KEYS = ["DESK_CREDENTIAL_KEY", "DESK_CREDENTIAL_KEY_PREVIOUS", "MOTIVE_API_KEY", "SAMSARA_API_KEY", "TRIUMPHPAY_API_KEY", "TRIUMPHPAY_WEBHOOK_SECRET"];
 const originals = { ...partnerAdapters };
 const saved: Record<string, string | undefined> = {};
 const days = (n: number) => new Date(Date.now() + n * 86_400_000);
@@ -74,6 +76,43 @@ describe.skipIf(!run)("the partner backbone", () => {
     const events = await prisma.auditEvent.findMany({ where: { workspaceId: W, action: "partner_credentials_saved" } });
     expect(events).toHaveLength(1);
     expect(events[0]!.summary).toBe("Keys saved for motive: MOTIVE_API_KEY");
+  });
+
+  test("after a key rotation, keys sealed under the old key still read, the sweep re-seals them, and the old key can then go", async () => {
+    const oldKey = Buffer.from(process.env.DESK_CREDENTIAL_KEY!, "base64");
+    const newKey = randomBytes(32);
+    await saveCredential("motive", { MOTIVE_API_KEY: "rotating-motive-key-77" }, new Date(), W);
+    const before = (await prisma.partnerCredential.findUniqueOrThrow({ where: { workspaceId_provider: { workspaceId: W, provider: "motive" } } })).sealed;
+    // The rotation: a new current key, the old one kept as the previous key.
+    process.env.DESK_CREDENTIAL_KEY = newKey.toString("base64");
+    process.env.DESK_CREDENTIAL_KEY_PREVIOUS = oldKey.toString("base64");
+    expect((await workspaceReader("motive", W))("MOTIVE_API_KEY")).toBe("rotating-motive-key-77");
+    // A row nothing opens is counted and left alone.
+    await prisma.partnerCredential.create({ data: { workspaceId: OTHER, provider: "samsara", sealed: seal({ SAMSARA_API_KEY: "x".repeat(12) }, randomBytes(32)), hints: {} } });
+    const swept = await resealCredentials();
+    expect(swept.resealed).toBeGreaterThanOrEqual(1);
+    expect(swept.unreadable).toBeGreaterThanOrEqual(1);
+    const after = (await prisma.partnerCredential.findUniqueOrThrow({ where: { workspaceId_provider: { workspaceId: W, provider: "motive" } } })).sealed;
+    expect(after).not.toBe(before);
+    // Run again: nothing left to re-seal. Then the old key is removed and the fleet's key still reads.
+    expect((await resealCredentials()).resealed).toBe(0);
+    delete process.env.DESK_CREDENTIAL_KEY_PREVIOUS;
+    expect((await workspaceReader("motive", W))("MOTIVE_API_KEY")).toBe("rotating-motive-key-77");
+    await prisma.partnerCredential.deleteMany({ where: { workspaceId: OTHER, provider: "samsara" } });
+    // Put the fleet back as the next tests found it.
+    await saveCredential("motive", { MOTIVE_API_KEY: "fleet-motive-key-0001" }, new Date(), W);
+  });
+
+  test("webhook events past the keeping period are removed, and newer ones are not", async () => {
+    const old = new Date(Date.now() - (EVENT_KEEP_DAYS + 5) * 86_400_000);
+    await prisma.partnerEvent.createMany({ data: [
+      { workspaceId: W, provider: "triumphpay", eventId: `${W}:old-evt`, kind: "ping", outcome: "ignored", receivedAt: old },
+      { workspaceId: W, provider: "triumphpay", eventId: `${W}:new-evt`, kind: "ping", outcome: "ignored", receivedAt: new Date() }
+    ] });
+    expect(await purgeOldEvents()).toBeGreaterThanOrEqual(1);
+    expect(await prisma.partnerEvent.count({ where: { eventId: `${W}:old-evt` } })).toBe(0);
+    expect(await prisma.partnerEvent.count({ where: { eventId: `${W}:new-evt` } })).toBe(1);
+    await prisma.partnerEvent.deleteMany({ where: { eventId: `${W}:new-evt` } });
   });
 
   test("a tampered or unreadable row is no credential, never a wrong one", async () => {

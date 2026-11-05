@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { recordAudit } from "@/server/tl/audit";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { SECRET_ENV, WEBHOOK_SECRET_ENV, type EnvReader } from "@/truelane/partners/contract";
-import { checkCredential, credentialKey, hintOf, seal, unseal } from "./credentials-core";
+import { checkCredential, credentialKey, credentialKeys, hintOf, seal, unsealWithKeys } from "./credentials-core";
 
 /**
  * Per-workspace partner keys (docs/PARTNER_BACKBONE.md). A fleet's own key for a company is sealed in `partner_credentials`; the server's own environment keys remain as the fallback, so a
@@ -19,11 +19,13 @@ export const credentialsAvailable = (): boolean => credentialKey(process.env as 
 /** Every secret a provider takes: its API keys and its webhook signing secret, by name. */
 export const fieldsOf = (provider: string): string[] => [...(SECRET_ENV[provider] ?? []), ...(WEBHOOK_SECRET_ENV[provider] ? [WEBHOOK_SECRET_ENV[provider]!] : [])];
 
+const keysNow = () => credentialKeys(process.env as Record<string, string | undefined>);
+
 async function storedValues(workspaceId: string, provider: string): Promise<Record<string, string>> {
-  const key = credentialKey(process.env as Record<string, string | undefined>);
-  if (!key) return {};
+  const keys = keysNow();
+  if (!keys.current) return {};
   const row = await prisma.partnerCredential.findUnique({ where: { workspaceId_provider: { workspaceId, provider } }, select: { sealed: true } });
-  return (row ? unseal(row.sealed, key) : null) ?? {};
+  return (row ? unsealWithKeys(row.sealed, keys)?.values : null) ?? {};
 }
 
 /** A reader for one fleet and one company: its own key by name, else the server's. For server code about to call the company (or check that it could). */
@@ -34,9 +36,9 @@ export async function workspaceReader(provider: string, workspaceId = currentWor
 
 /** A reader per company for one fleet, from one read of its sealed keys: for a screen that must say, for every company, whether it could be called. */
 export async function readersFor(workspaceId = currentWorkspaceId()): Promise<(provider: string) => EnvReader> {
-  const key = credentialKey(process.env as Record<string, string | undefined>);
-  const rows = key ? await prisma.partnerCredential.findMany({ where: { workspaceId }, select: { provider: true, sealed: true } }) : [];
-  const mine = new Map(rows.map((r) => [r.provider, unseal(r.sealed, key!) ?? {}]));
+  const keys = keysNow();
+  const rows = keys.current ? await prisma.partnerCredential.findMany({ where: { workspaceId }, select: { provider: true, sealed: true } }) : [];
+  const mine = new Map(rows.map((r) => [r.provider, unsealWithKeys(r.sealed, keys)?.values ?? {}]));
   return (provider) => (name) => mine.get(provider)?.[name] ?? env(name);
 }
 
@@ -91,6 +93,29 @@ export async function allCredentialStatus(workspaceId = currentWorkspaceId()): P
       provider,
       fieldsOf(provider).map((name): FieldStatus => (hints[name] ? { name, set: true, hint: hints[name]!, from: "fleet" } : (env(name) ?? "").trim() !== "" ? { name, set: true, hint: null, from: "server" } : { name, set: false, hint: null, from: null }))
     );
+  }
+  return out;
+}
+
+export type ResealResult = { resealed: number; current: number; unreadable: number };
+
+/**
+ * After a server key rotation: every row the old key sealed is opened with it and sealed again under the current key, so the old key can then be removed. A row neither key opens is counted
+ * and left alone (it reads as "no keys" until the fleet pastes them again); nothing is ever deleted or changed in what it holds. Safe to run again and again.
+ */
+export async function resealCredentials(): Promise<ResealResult> {
+  const keys = keysNow();
+  const out: ResealResult = { resealed: 0, current: 0, unreadable: 0 };
+  if (!keys.current) return out;
+  const rows = await prisma.partnerCredential.findMany({ select: { id: true, sealed: true } });
+  for (const r of rows) {
+    const opened = unsealWithKeys(r.sealed, keys);
+    if (!opened) out.unreadable += 1;
+    else if (!opened.usedPrevious) out.current += 1;
+    else {
+      await prisma.partnerCredential.update({ where: { id: r.id }, data: { sealed: seal(opened.values, keys.current) } });
+      out.resealed += 1;
+    }
   }
   return out;
 }

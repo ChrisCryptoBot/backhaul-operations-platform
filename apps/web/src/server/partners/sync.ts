@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { syncEld } from "./eld";
 import { vetDriverCarrier } from "./vetting";
+import { POLLED } from "./sync-policy";
 
 /**
  * The partner schedule (docs/PARTNER_BACKBONE.md): the connections that are read on a clock rather than told by a webhook. A connection whose time has come is run once; how each call went
@@ -8,7 +9,8 @@ import { vetDriverCarrier } from "./vetting";
  * a call that was not a failure: ELD hours every 15 minutes, carrier checks once a day. One fleet or one company failing never stops the others, and a company that is not live yet
  * (its adapter answers "not implemented") is asked again at the normal rhythm, not hammered and not marked as failing.
  */
-export const SYNC_EVERY_MINUTES: Record<string, number> = { eld: 15, vetting: 24 * 60 };
+/** From the policy table (sync-policy.ts): only the polled kinds are run here; the rest are told by webhook or asked for by a person. */
+export const SYNC_EVERY_MINUTES: Record<string, number> = POLLED;
 const VET_BATCH = 25;
 
 export type SyncResult = { ran: number; ok: number; waiting: number; failed: number };

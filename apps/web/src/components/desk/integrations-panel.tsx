@@ -19,6 +19,10 @@ export type IntegrationItem = {
   lastError: string | null;
   failures: number;
   lastSyncedAt: string | null;
+  /** How this kind of company reaches the desk, in a sentence. */
+  rhythm: string;
+  /** Read on a clock, and has not answered for longer than that rhythm allows. */
+  overdue: boolean;
   fields: KeyField[];
   /** Where the company posts its events for this fleet, once connected. */
   webhookPath: string | null;
@@ -95,6 +99,7 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
                     <span className="t-st" data-tone={st.tone}>{st.word}</span>
                     {r.status === "error" ? <span className="t-dim"> · {WHY[r.lastError ?? ""] ?? "Calls are failing."} ({r.failures} in a row)</span> : null}
                     {r.status === "connected" ? <span className="t-dim"> · {r.lastSyncedAt ? `answered ${r.lastSyncedAt}` : "not called yet"}</span> : null}
+                    {r.overdue ? <span className="t-st" data-tone="warn" title="This one is read on a clock and has not answered for longer than it should.">Overdue</span> : null}
                   </td>
                   <td className="n">
                     <button type="button" className="t-btn sm" aria-expanded={isOpen} aria-controls={`int-${key(r)}`} onClick={() => setOpen(isOpen ? null : key(r))}>
@@ -154,6 +159,7 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
                             <p className="t-note">Paste this into {r.name}&apos;s webhook settings, with the signing secret above. It carries a private token: do not share it.</p>
                           </div>
                         ) : null}
+                        {r.rhythm ? <p className="t-note">{r.rhythm}</p> : null}
                         <p className="t-note">
                           {r.status === "connected" || r.status === "error"
                             ? `The keys and the webhook address are ready. The live call to ${r.name} is not switched on yet, so nothing is sent to them.`

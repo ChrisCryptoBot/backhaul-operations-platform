@@ -46,7 +46,8 @@ A fleet is switched on by setting its Clerk Organization id on the workspace (`w
 | Name | Required | Secret | What it does |
 |---|---|---|---|
 | `DESK_CREDENTIAL_KEY` | to let a fleet keep its own keys | yes | 32 random bytes in base64. Seals each fleet's partner keys (AES-256-GCM) before they are stored; the database alone opens nothing. Without it, a fleet cannot save keys and Settings says so. Losing it loses the stored keys (they must be pasted again). |
-| `PARTNER_CRON_SECRET` | for the schedule | yes | The secret the schedule sends (header `x-partner-cron`) to `POST /partners/cron`, which reads the connections that run on a clock (ELD hours, carrier checks). Without it the route answers 404. |
+| `DESK_CREDENTIAL_KEY_PREVIOUS` | only while rotating | yes | The old `DESK_CREDENTIAL_KEY`, kept for as long as some fleet's keys are still sealed under it. To rotate: set the new key as `DESK_CREDENTIAL_KEY` and the old one here; keys sealed under the old one still read, and the schedule re-seals them under the new one (its answer says how many: `resealed`, and `unreadable` for rows neither key opens). Remove this when `resealed` is 0 on a run. |
+| `PARTNER_CRON_SECRET` | for the schedule | yes | The secret the schedule sends (header `x-partner-cron`) to `POST /partners/cron`, which reads the connections that run on a clock (ELD hours, carrier checks), re-seals keys after a rotation, and removes webhook events older than 90 days. Without it the route answers 404. |
 
 ## Partner companies (docs/platform/PARTNER_API_READINESS.md; each is off until its keys are set and a fleet connects it)
 | Name | Secret | Company and use |
