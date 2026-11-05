@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="Loads">
+  <div class="t-pagehead">
+    <h1><i>LD</i>Loads</h1>
+    <p>{{ sub }}</p>
+    <div class="acts">
+      <sc-if value="{{ notDeleted }}" hint-placeholder-val="{{ true }}"><button class="t-btn" type="button">Export CSV</button></sc-if>
+      <sc-if value="{{ canWrite }}" hint-placeholder-val="{{ true }}"><button class="t-btn pri" type="button" onClick="{{ openNew }}">New load</button></sc-if>
+    </div>
+  </div>
+  <div class="t-tabs" role="tablist" aria-label="View">
+    <sc-for list="{{ views }}" as="t" hint-placeholder-count="3"><button role="tab" aria-selected="{{ t.on }}" onClick="{{ t.go }}">{{ t.label }} <em>{{ t.n }}</em></button></sc-for>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;padding:4px var(--pad);background:var(--panel);flex-wrap:wrap">
+    <label class="t-in" style="width:280px;height:22px"><b class="t-lbl" aria-hidden="true">Find</b><input aria-label="Search loads" placeholder="load, PO, customer, MC, city, driver" value="{{ q }}" onChange="{{ setQ }}"></label>
+    <sc-if value="{{ isOpen }}" hint-placeholder-val="{{ true }}">
+      <span class="t-seg" role="group" aria-label="Status"><sc-for list="{{ filters }}" as="f" hint-placeholder-count="5"><button aria-pressed="{{ f.on }}" onClick="{{ f.go }}">{{ f.label }} {{ f.n }}</button></sc-for></span>
+      <span class="t-seg"><button aria-pressed="{{ belowOn }}" onClick="{{ toggleBelow }}">Below cost {{ belowN }}</button></span>
+    </sc-if>
+    <sc-if value="{{ isHistory }}" hint-placeholder-val="{{ false }}">
+      <span class="t-seg" role="group" aria-label="Filter"><sc-for list="{{ hfilters }}" as="f" hint-placeholder-count="5"><button aria-pressed="{{ f.on }}" onClick="{{ f.go }}">{{ f.label }}</button></sc-for></span>
+    </sc-if>
+    <span class="t-dim" style="margin-left:auto">{{ total }}</span>
+  </div>
+
+  <!-- OPEN -->
+  <sc-if value="{{ isOpen }}" hint-placeholder-val="{{ true }}">
+  <section class="t-pn" aria-label="Open loads">
+    <div class="t-tw"><table class="t-tbl" aria-label="Loads">
+      <thead>
+        <tr><th class="band stk" style="width:150px"></th><th class="band" colSpan="3">Route</th><th class="band" colSpan="4" style="border-left:1px solid var(--line)">Money</th><th class="band" colSpan="4" style="border-left:1px solid var(--line)">Dispatch</th></tr>
+        <tr>
+          <th class="stk" scope="col" aria-sort="{{ sortOf.load }}"><a href="#loads" onClick="{{ sortBy.load }}">Load {{ arrow.load }}</a></th>
+          <th scope="col">Status</th><th scope="col">Lane</th>
+          <th scope="col" aria-sort="{{ sortOf.pickup }}"><a href="#loads" onClick="{{ sortBy.pickup }}">Pickup {{ arrow.pickup }}</a></th>
+          <th scope="col">Truck</th>
+          <th scope="col" class="n" aria-sort="{{ sortOf.miles }}"><a href="#loads" onClick="{{ sortBy.miles }}">Miles {{ arrow.miles }}</a></th>
+          <th scope="col" class="n" aria-sort="{{ sortOf.pay }}"><a href="#loads" onClick="{{ sortBy.pay }}">Pay {{ arrow.pay }}</a></th>
+          <th scope="col" class="n" aria-sort="{{ sortOf.perMile }}"><a href="#loads" onClick="{{ sortBy.perMile }}">All-in {{ arrow.perMile }}</a></th>
+          <th scope="col" class="n" aria-sort="{{ sortOf.floor }}"><a href="#loads" onClick="{{ sortBy.floor }}">Floor {{ arrow.floor }}</a></th>
+          <th scope="col">Verdict</th>
+          <th scope="col" aria-sort="{{ sortOf.driver }}"><a href="#loads" onClick="{{ sortBy.driver }}">Driver {{ arrow.driver }}</a></th>
+          <th scope="col">Answer</th>
+        </tr>
+      </thead>
+      <tbody>
+        <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}"><tr><td colSpan="12"><div class="t-skel" style="width:60%"></div></td></tr><tr><td colSpan="12"><div class="t-skel" style="width:80%"></div></td></tr><tr><td colSpan="12"><div class="t-skel" style="width:45%"></div></td></tr></sc-if>
+        <sc-for list="{{ rows }}" as="r" hint-placeholder-count="6">
+          <tr aria-selected="{{ r.sel }}" onClick="{{ r.open }}">
+            <td class="stk two"><span style="display:inline-flex;gap:6px"><span class="t-neg" aria-label="{{ r.flagLabel }}" style="width:10px">{{ r.flag }}</span><a href="#loads" onClick="{{ r.open }}">{{ r.no }}</a></span><small style="padding-left:16px">{{ r.cust }}</small></td>
+            <td><span class="t-st" data-tone="{{ r.tone }}">{{ r.status }}</span><sc-if value="{{ r.extra }}" hint-placeholder-val="{{ false }}"><div class="t-st" data-tone="bad" style="margin-left:12px;font-size:11px">{{ r.extra }}</div></sc-if></td>
+            <td>{{ r.lane }}</td><td>{{ r.pu }}</td><td>{{ r.truck }}</td><td class="n">{{ r.miles }}</td><td class="n">{{ r.pay }}</td><td class="n">{{ r.perMile }}</td><td class="n t-dim">{{ r.floor }}</td>
+            <td><span style="display:inline-flex;gap:6px;align-items:center"><span class="vm" data-s="{{ r.s }}" style="--s:14px"><span>{{ r.g }}</span></span>{{ r.word }}</span></td>
+            <td>{{ r.driver }}</td><td><span class="t-st" data-tone="{{ r.ansTone }}">{{ r.answer }}</span></td>
+          </tr>
+        </sc-for>
+        <sc-if value="{{ openEmpty }}" hint-placeholder-val="{{ false }}"><tr><td colSpan="12" class="t-dim" style="height:40px">No open loads match. Another status, or clear the search.</td></tr></sc-if>
+      </tbody>
+    </table></div>
+    <div class="t-pager"><span>{{ pagerText }}</span><span class="acts"><button class="t-btn sm" disabled>Previous</button><button class="t-btn sm" disabled>Next</button></span></div>
+  </section>
+  </sc-if>
+
+  <!-- HISTORY -->
+  <sc-if value="{{ isHistory }}" hint-placeholder-val="{{ false }}">
+  <sc-if value="{{ record }}" hint-placeholder-val="{{ false }}"><div class="t-body t-note" style="background:var(--panel)"><b>{{ record }}</b></div></sc-if>
+  <sc-for list="{{ months }}" as="m" hint-placeholder-count="2">
+  <section class="t-pn" aria-label="History">
+    <div class="t-ph"><i>HI</i>{{ m.label }}<span class="meta">{{ m.meta }}</span></div>
+    <div class="t-tw"><table class="t-tbl" aria-label="History, by month">
+      <thead><tr><th class="stk" scope="col">Load</th><th scope="col">Status</th><th scope="col">Lane</th><th scope="col">Date</th><th scope="col">Truck</th><th scope="col">Driver</th><th scope="col" class="n">Pay</th><th scope="col" class="n">All-in</th><th scope="col" class="n">Net pay</th><th scope="col" class="n">Profit/mi</th><th scope="col" class="n">$/hr</th><th scope="col">Where the money is</th></tr></thead>
+      <tbody>
+        <sc-for list="{{ m.rows }}" as="r" hint-placeholder-count="3">
+          <tr onClick="{{ r.open }}">
+            <td class="stk two"><span style="display:inline-flex;gap:6px"><span class="t-neg" style="width:10px">{{ r.flag }}</span><a href="#loads" onClick="{{ r.open }}">{{ r.no }}</a></span><small style="padding-left:16px">{{ r.cust }}</small></td>
+            <td><span class="t-st" data-tone="{{ r.stTone }}">{{ r.status }}</span></td><td>{{ r.lane }}</td><td>{{ r.done }}</td><td>{{ r.truck }}</td><td>{{ r.driver }}</td>
+            <td class="n">{{ r.pay }}</td><td class="n">{{ r.perMile }}</td><td class="n">{{ r.net }}</td><td class="n">{{ r.profit }}</td><td class="n">{{ r.rph }}</td>
+            <td class="two"><span class="t-st" data-tone="{{ r.mTone }}">{{ r.mLabel }}</span><small>{{ r.mDetail }}</small></td>
+          </tr>
+        </sc-for>
+      </tbody></table></div>
+  </section>
+  </sc-for>
+  <div class="t-pager"><span>Month tables are not sortable: sorting one month would mislead. Use Sort by to reorder across months.</span><span class="acts"><button class="t-btn sm">Newer</button><button class="t-btn sm" disabled>Older</button></span></div>
+  </sc-if>
+
+  <!-- DELETED -->
+  <sc-if value="{{ isDeleted }}" hint-placeholder-val="{{ false }}">
+  <section class="t-pn" aria-label="Deleted loads">
+    <div class="t-body t-note">Deleted loads are hidden, not erased: their record and audit trail stay. Restoring one checks that its number, truck and driver are still free.</div>
+    <div class="t-tw"><table class="t-tbl" aria-label="Deleted loads">
+      <thead><tr><th class="stk" scope="col">Load</th><th scope="col">Lane</th><th scope="col">Was</th><th scope="col">Deleted</th><th scope="col">Why</th><th scope="col"><span class="sr" style="position:absolute;left:-999px">Restore</span></th></tr></thead>
+      <tbody>
+        <tr><td class="stk two"><a href="#loads">DM-40039</a><small>Sample Freight Co</small></td><td>Nashville, TN → Louisville, KY</td><td><span class="t-st" data-tone="warn">Needs a driver</span></td><td>Nov 03 16:12</td><td class="two">Duplicate of DM-40046<small>Entered twice from the same rate confirmation</small></td><td><button class="t-btn sm" disabled="{{ readOnly }}">Restore</button></td></tr>
+        <tr><td class="stk two"><a href="#loads">DM-40036</a><small>Redwood Load Partners</small></td><td>Dallas, TX → Atlanta, GA</td><td><span class="t-st" data-tone="info">Sent, waiting</span></td><td>Nov 01 09:30</td><td class="two">Customer withdrew<small>Called off before the driver answered</small></td><td><button class="t-btn sm" disabled="{{ readOnly }}">Restore</button></td></tr>
+      </tbody></table></div>
+  </section>
+  </sc-if>
+
+  <!-- drawer -->
+  <sc-if value="{{ drawerOpen }}" hint-placeholder-val="{{ false }}">
+    <div class="t-scrim" style="top:53px;bottom:23px;left:188px;background:transparent" onClick="{{ closeDrawer }}"></div>
+    <aside class="t-drawer" aria-label="Load"><dc-import name="LoadDetail" variant="drawer" load-id="{{ drawerId }}" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" on-close="{{ closeDrawer }}" on-deleted="{{ onDeleted }}" hint-size="100%,600px"></dc-import></aside>
+  </sc-if>
+  <sc-if value="{{ newOpen }}" hint-placeholder-val="{{ false }}">
+    <div class="t-scrim" onClick="{{ closeNew }}"></div>
+    <div class="t-dlg" role="dialog" aria-modal="true" aria-label="New load">
+      <div class="t-ph"><i>NL</i>New load<span class="meta">Booked without a quote: no verdict until a truck is set</span></div>
+      <div class="t-body" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <label class="t-fld"><span>Customer</span><span class="t-in"><input placeholder="Customer name"></span></label>
+        <label class="t-fld"><span>Rate</span><span class="t-in"><u>$</u><input placeholder="0"></span></label>
+        <label class="t-fld"><span>Pickup</span><span class="t-in"><input placeholder="City, ST"></span></label>
+        <label class="t-fld"><span>Delivery</span><span class="t-in"><input placeholder="City, ST"></span></label>
+        <label class="t-fld"><span>Loaded miles</span><span class="t-in"><input><u>mi</u></span></label>
+        <label class="t-fld"><span>Truck</span><span class="t-in"><select><option>Not set</option><option>Unit 101</option><option>Unit 102</option><option>Unit 103</option></select></span></label>
+        <div style="grid-column:1/3;display:flex;gap:6px;justify-content:flex-end"><button class="t-btn" onClick="{{ closeNew }}">Cancel</button><button class="t-btn pri" onClick="{{ closeNew }}">Add load</button></div>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}"><div class="t-toast" role="status"><span>{{ toast }}</span><button class="t-btn sm" onClick="{{ undo }}">Undo</button><span class="t-dim">20 s</span></div></sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1268,&quot;height&quot;:820},&quot;role&quot;:{&quot;editor&quot;:null,&quot;default&quot;:&quot;dispatcher&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;ui&quot;:{&quot;editor&quot;:null,&quot;default&quot;:&quot;normal&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { view: "open", status: "all", below: false, q: "", sort: { key: "pickup", dir: "asc" }, drawer: null, newOpen: false, toast: null, hf: "all" };
+  statusOf(r) {
+    if (r.asg === "dispatched") return ["Sent, waiting", "info"];
+    if (r.status === "draft") return ["Needs a driver", "warn"];
+    if (r.status === "accepted") return ["Accepted", "ok"];
+    return ["On the road", "info"];
+  }
+  onTab(r, k) { if (k === "all") return true; if (k === "draft") return r.status === "draft" && r.asg !== "dispatched"; if (k === "sent") return r.asg === "dispatched"; return r.status === k; }
+  search(r, q) { const w = q.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").filter(Boolean); if (!w.length) return true; const t = [r.no, r.cust, r.from, r.to, r.truck, r.driver].filter(Boolean).join(" ").toLowerCase().replace(/[^a-z0-9]+/g, " "); return w.every((x) => t.includes(x) || t.replace(/ /g, "").includes(x)); }
+  renderVals() {
+    const D = window.DESK; if (!D) return {};
+    const s = this.state, p = this.props, ui = p.ui ?? "normal", role = p.role ?? "dispatcher";
+    const G = { take: "✓", think: "!", reject: "✕", unjudged: "" };
+    const all = D.open.filter((r) => this.search(r, s.q));
+    const cnt = (k) => all.filter((r) => this.onTab(r, k)).length;
+    const below = all.filter((r) => r.v.state === "reject");
+    let shown = all.filter((r) => this.onTab(r, s.status) && (!s.below || r.v.state === "reject"));
+    if (ui === "empty") shown = [];
+    const val = { load: (r) => r.no, pickup: (r) => r.pu, miles: (r) => r.miles, pay: (r) => r.gross, perMile: (r) => r.perMile, floor: (r) => r.floor, driver: (r) => r.driver };
+    const pickupTs = (r) => { const m = r.pu.match(/(\w+) (\d+) (\d+):(\d+)/); return { Nov: 11 }[m[1]] * 1e6 + (+m[2]) * 1e4 + (+m[3]) * 100 + +m[4]; };
+    val.pickup = pickupTs;
+    const ord = [...shown].sort((a, b) => { const x = val[s.sort.key](a), y = val[s.sort.key](b); if (x == null && y == null) return 0; if (x == null) return 1; if (y == null) return -1; const c = typeof x === "number" ? x - y : String(x).localeCompare(String(y)); return s.sort.dir === "asc" ? c : -c; });
+    const sortBy = {}, sortOf = {}, arrow = {};
+    for (const k of Object.keys(val)) {
+      sortBy[k] = (e) => { e.preventDefault(); this.setState((st) => ({ sort: st.sort.key === k ? (st.sort.dir === "asc" ? { key: k, dir: "desc" } : { key: "pickup", dir: "asc" }) : { key: k, dir: "asc" } })); };
+      const on = s.sort.key === k; sortOf[k] = on ? (s.sort.dir === "asc" ? "ascending" : "descending") : "none"; arrow[k] = on ? (s.sort.dir === "asc" ? "▲" : "▼") : "";
+    }
+    const rows = ord.map((r) => { const [st, tone] = this.statusOf(r);
+      const ans = r.asg === "dispatched" ? ["Waiting " + (r.sent || ""), "info"] : r.asg === "declined" ? ["Declined", "bad"] : r.asg === "accepted" ? ["Accepted", "ok"] : r.asg === "in_progress" ? ["", "mute"] : ["", "mute"];
+      return { no: r.no, cust: r.cust, sel: s.drawer === r.id ? "true" : "false", status: st, tone, extra: r.late ? "Delivery late" : "", flag: r.v.state === "reject" ? "▼" : "", flagLabel: r.v.state === "reject" ? "Pays below the truck's cost" : "",
+        lane: `${r.from} → ${r.to}`, pu: r.pu.slice(4), truck: r.truck || "—", miles: D.mi(r.miles), pay: D.usd(r.gross), perMile: r.perMile ? D.rpm(r.perMile) : "—", floor: r.floor ? D.rpm(r.floor) : "—",
+        s: r.v.state, g: G[r.v.state], word: r.v.word, driver: r.driver || "—", answer: ans[0], ansTone: ans[1],
+        open: (e) => { e && e.preventDefault && e.preventDefault(); this.setState({ drawer: r.id }); } }; });
+    const hall = D.history.filter((h) => !s.q || [h.no, h.cust, h.from, h.to].join(" ").toLowerCase().includes(s.q.toLowerCase()));
+    const hf = { all: () => true, overdue: (h) => ["overdue", "part_overdue"].includes(h.money.key), out: (h) => ["out", "part"].includes(h.money.key), paid: (h) => ["paid", "paid_short", "closed_short", "paid_over"].includes(h.money.key), fell: (h) => h.status !== "completed" };
+    const hshown = hall.filter(hf[s.hf]);
+    const mkey = (d) => ({ Oct: "October 2026", Sep: "September 2026", Aug: "August 2026" }[d.slice(0, 3)]);
+    const months = [...new Set(hshown.map((h) => mkey(h.done)))].map((label) => { const rs = hshown.filter((h) => mkey(h.done) === label); const earned = rs.filter((h) => h.status === "completed").reduce((a, h) => a + h.gross, 0);
+      return { label, meta: `${rs.length} ${rs.length === 1 ? "load" : "loads"}${earned ? " · " + D.usd(earned) + " earned" : ""}`, rows: rs.map((h) => ({ no: h.no, cust: h.cust, flag: ["overdue", "part_overdue"].includes(h.money.key) ? "▼" : "", status: h.status === "completed" ? "Delivered" : h.status === "tonu" ? "TONU" : "Cancelled", stTone: h.status === "completed" ? "ok" : "mute",
+        lane: `${h.from} → ${h.to}`, done: h.done, truck: h.truck, driver: h.driver || "—", pay: h.status === "cancelled" ? "—" : D.usd(h.gross), perMile: h.perMile ? D.rpm(h.perMile) : "—", net: h.net == null ? "—" : D.usd(h.net), profit: h.profitMi == null ? "—" : D.rpm(h.profitMi), rph: h.rph == null ? "—" : D.usd(h.rph) + "/hr",
+        mTone: h.money.tone || "mute", mLabel: h.money.label || h.money.reason, mDetail: h.money.detail || "", open: (e) => { e && e.preventDefault && e.preventDefault(); this.setState({ drawer: "H" + h.no }); } })) }; });
+    const cust = D.customers.find((c) => s.q && c.name.toLowerCase().includes(s.q.toLowerCase()));
+    const record = cust ? `${cust.name}: ${cust.finished} loads finished, ${cust.finished - 1} invoiced, ${cust.finished - 2} paid in ${cust.days} days on average${cust.short ? ", " + cust.short + " paid short" : ""}${cust.out ? ", " + D.usd(cust.out, 2) + " still out" : ""}.` : "";
+    const v = s.view;
+    const views = [["open", "Open", all.length], ["history", "History", D.history.length], ["deleted", "Deleted", 2]].map(([k, label, n]) => ({ label, n, on: v === k ? "true" : "false", go: () => this.setState({ view: k, drawer: null }) }));
+    const filters = [["all", "All"], ["draft", "Needs a driver"], ["sent", "Sent, waiting"], ["accepted", "Accepted"], ["in_progress", "On the road"]].map(([k, label]) => ({ label, n: cnt(k), on: s.status === k && !s.below, go: () => this.setState({ status: k, below: false }) }));
+    const hfilters = [["all", "All"], ["overdue", "Overdue"], ["out", "Out"], ["paid", "Paid"], ["fell", "Fell through"]].map(([k, label]) => ({ label, on: s.hf === k, go: () => this.setState({ hf: k }) }));
+    const drawerId = s.drawer;
+    return {
+      role, ui, go: p.go, readOnly: (role === "dispatcher" || role === "admin") ? undefined : true, canWrite: role === "dispatcher" || role === "admin", notDeleted: v !== "deleted",
+      sub: v === "open" ? "What is still moving, judged on each truck's own cost." : v === "deleted" ? "Loads taken off the desk, and the way back." : "What has finished, by month, with where the money is.",
+      views, filters, hfilters, isOpen: v === "open", isHistory: v === "history", isDeleted: v === "deleted", q: s.q, setQ: (e) => this.setState({ q: e.target.value }),
+      belowOn: s.below, belowN: below.length, toggleBelow: () => this.setState((st) => ({ below: !st.below })),
+      total: v === "open" ? `${shown.length} of ${D.open.length} open` : v === "history" ? `${hshown.length} finished or fallen through` : "2 deleted",
+      rows, sortBy, sortOf, arrow, isLoading: ui === "loading", openEmpty: ui !== "loading" && shown.length === 0, pagerText: `${shown.length ? 1 : 0}–${shown.length} of ${shown.length} · 50 a page, soonest pickup first`,
+      months, record, drawerOpen: !!drawerId, drawerId: drawerId || "", closeDrawer: () => this.setState({ drawer: null }), onDeleted: (no) => this.setState({ drawer: null, toast: `${no} deleted with a reason.` }), undo: () => this.setState({ toast: null }),
+      toast: s.toast, openNew: () => this.setState({ newOpen: true }), closeNew: () => this.setState({ newOpen: false }), newOpen: s.newOpen
+    };
+  }
+}
+</script>
+</body>
+</html>

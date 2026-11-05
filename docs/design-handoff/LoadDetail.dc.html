@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="Load">
+  <div class="t-pagehead">
+    <h1><i>LD</i>{{ m.no }}</h1>
+    <span class="t-st" data-tone="{{ m.tone }}">{{ m.status }}</span>
+    <sc-if value="{{ m.money }}" hint-placeholder-val="{{ false }}"><span class="t-st" data-tone="{{ m.moneyTone }}">{{ m.money }}</span></sc-if>
+    <p>{{ m.cust }} · {{ m.mc }} · {{ m.from }} → {{ m.to }}</p>
+    <div class="acts">
+      <sc-if value="{{ isDrawer }}" hint-placeholder-val="{{ true }}"><a class="t-btn" href="#loadpage" onClick="{{ openPage }}">Open as page</a><button class="t-btn" type="button" onClick="{{ close }}" aria-label="Close the load">Close <kbd>Esc</kbd></button></sc-if>
+      <sc-if value="{{ isPage }}" hint-placeholder-val="{{ false }}"><a class="t-btn" href="#loads" onClick="{{ back }}">◂ Loads</a></sc-if>
+    </div>
+  </div>
+  <sc-if value="{{ readOnly }}" hint-placeholder-val="{{ false }}"><div class="t-banner" role="note"><b>Read only</b>You can read this load but not change it. A dispatcher or the accounting office can.</div></sc-if>
+  <sc-if value="{{ m.gaps }}" hint-placeholder-val="{{ false }}"><div class="t-banner"><b>Not ready to send</b>{{ m.gaps }}</div></sc-if>
+  <div class="t-gr" style="grid-template-columns:{{ cols }}">
+    <section class="t-pn" aria-label="Route">
+      <div class="t-ph"><i>RT</i>Route<span class="meta">{{ m.channel }}</span></div>
+      <div class="t-body" style="display:grid;gap:8px">
+        <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:10px;align-items:center">
+          <div><div class="t-lbl">Pickup</div><div style="font-weight:600">{{ m.fromCity }}</div><div class="t-dim">{{ m.puWin }}</div></div>
+          <div style="text-align:center"><div>├── {{ m.loaded }} ──┤</div><div class="t-dim" style="font-size:11px">{{ m.total }} driven · {{ m.wayHome }}</div></div>
+          <div style="text-align:right"><div class="t-lbl">Delivery</div><div style="font-weight:600">{{ m.toCity }}</div><div class="t-dim">{{ m.dlWin }}</div></div>
+        </div>
+        <div style="display:flex;gap:14px;flex-wrap:wrap" class="t-dim"><span>Empty to pickup <b class="t-mid">{{ m.dh }}</b></span><span>Loaded <b class="t-mid">{{ m.loaded }}</b></span><span>Empty home <b class="t-mid">{{ m.ret }}</b></span><span>{{ m.refs }}</span></div>
+      </div>
+    </section>
+    <sc-if value="{{ hasVerdict }}" hint-placeholder-val="{{ true }}">
+      <dc-import name="VerdictCard" gross="{{ vc.gross }}" miles="{{ vc.miles }}" floor="{{ vc.floor }}" market-total="{{ vc.market }}" benchmark="lane" for-label="{{ vc.label }}" home-text="{{ vc.home }}" hint-size="100%,420px"></dc-import>
+    </sc-if>
+    <sc-if value="{{ noVerdict }}" hint-placeholder-val="{{ false }}"><section class="t-pn"><div class="t-ph"><i>VC</i>Verdict</div><div class="t-body t-note">{{ noVerdictText }}</div></section></sc-if>
+    <section class="t-pn" aria-label="Margin ledger">
+      <div class="t-ph"><i>ML</i>Margin ledger<span class="meta">{{ ledgerNote }}</span></div>
+      <dl class="t-kv t-body" style="padding-top:0">
+        <sc-for list="{{ ledger }}" as="l" hint-placeholder-count="8"><dt>{{ l.k }}</dt><dd class="{{ l.cls }}">{{ l.v }}</dd></sc-for>
+      </dl>
+    </section>
+    <section class="t-pn" aria-label="Stops">
+      <div class="t-ph"><i>ST</i>Stops</div>
+      <div class="t-tw"><table class="t-tbl" aria-label="Stops"><thead><tr><th scope="col">#</th><th scope="col">Role</th><th scope="col">Place</th><th scope="col">Window</th><th scope="col">Arrived</th><th scope="col" class="n">Wait</th><th scope="col">Ref</th></tr></thead>
+        <tbody><sc-for list="{{ stops }}" as="s" hint-placeholder-count="2"><tr><td>{{ s.n }}</td><td>{{ s.role }}</td><td>{{ s.place }}</td><td>{{ s.win }}</td><td><span class="t-st" data-tone="{{ s.tone }}">{{ s.arrived }}</span></td><td class="n">{{ s.wait }}</td><td class="t-dim">{{ s.ref }}</td></tr></sc-for></tbody></table></div>
+    </section>
+    <section class="t-pn" aria-label="Driver and truck">
+      <div class="t-ph"><i>AS</i>Driver and truck<span class="meta">{{ m.answer }}</span></div>
+      <div class="t-body" style="display:grid;gap:8px">
+        <dl class="t-kv"><dt>Truck</dt><dd>{{ m.truck }}</dd><dt>Driver</dt><dd>{{ m.driver }}</dd><dt>Pay</dt><dd class="t-typed">{{ m.pay }}</dd><dt>Trailer</dt><dd>{{ m.trailer }}</dd></dl>
+        <sc-if value="{{ m.declined }}" hint-placeholder-val="{{ false }}"><p class="t-note"><b>Declined.</b> Casey Brooks: “Medical card appointment that morning.” The load is back on the queue.</p></sc-if>
+        <sc-if value="{{ m.guard }}" hint-placeholder-val="{{ false }}"><p class="t-note t-warn"><b>Double-booked.</b> {{ m.guard }}</p></sc-if>
+      </div>
+    </section>
+    <sc-if value="{{ tripOn }}" hint-placeholder-val="{{ false }}">
+    <section class="t-pn" aria-label="Trip entry">
+      <div class="t-ph"><i>TP</i>Trip entry<span class="meta">Typed wins. Times are Dallas.</span></div>
+      <div class="t-body" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <label class="t-fld"><span>Pickup arrived</span><span class="t-in"><input defaultValue="{{ m.arrivedIn }}"></span></label>
+        <label class="t-fld"><span>Wait at pickup</span><span class="t-in"><input placeholder="0"><u>min</u></span></label>
+        <label class="t-fld"><span>Seal</span><span class="t-in"><input placeholder="—"></span></label>
+        <label class="t-fld"><span>Delivery arrived</span><span class="t-in"><input placeholder="not yet"></span></label>
+        <label class="t-fld"><span>Wait at delivery</span><span class="t-in"><input placeholder="0"><u>min</u></span></label>
+        <div style="display:flex;align-items:flex-end"><button class="t-btn" type="button" disabled="{{ noDispatch }}">Save the trip</button></div>
+      </div>
+    </section>
+    </sc-if>
+    <section class="t-pn" aria-label="Documents">
+      <div class="t-ph"><i>DC</i>Documents<span class="meta">{{ docNote }}</span></div>
+      <div class="t-tw"><table class="t-tbl" aria-label="Documents"><tbody><sc-for list="{{ docs }}" as="d" hint-placeholder-count="2"><tr><td>{{ d.k }}</td><td class="t-dim">{{ d.v }}</td><td class="n"><span class="t-st" data-tone="{{ d.tone }}">{{ d.state }}</span></td></tr></sc-for></tbody></table></div>
+    </section>
+    <sc-if value="{{ billOn }}" hint-placeholder-val="{{ false }}">
+    <section class="t-pn" aria-label="Billing">
+      <div class="t-ph"><i>BL</i>Billing<span class="meta">{{ m.moneyDetail }}</span></div>
+      <dl class="t-kv t-body" style="padding-top:0"><dt>Invoice</dt><dd>{{ m.invoice }}</dd><dt>Billed</dt><dd>{{ m.billed }}</dd><dt>Terms</dt><dd>{{ m.terms }}</dd><dt>Received</dt><dd>{{ m.received }}</dd><dt>Balance</dt><dd class="sum">{{ m.balance }}</dd></dl>
+    </section>
+    </sc-if>
+    <sc-if value="{{ hasAlerts }}" hint-placeholder-val="{{ false }}">
+    <section class="t-pn" aria-label="Alerts on this load"><div class="t-ph"><i>AL</i>Alerts on this load</div>
+      <ul class="t-body" style="display:grid;gap:4px"><sc-for list="{{ alerts }}" as="a" hint-placeholder-count="2"><li style="display:flex;gap:8px"><span class="t-st" data-tone="{{ a.tone }}">{{ a.level }}</span><span class="t-note">{{ a.msg }}</span></li></sc-for></ul></section>
+    </sc-if>
+    <section class="t-pn" aria-label="Timeline">
+      <div class="t-ph"><i>TL</i>Where it is</div>
+      <ol class="t-body" style="display:grid;gap:2px"><sc-for list="{{ steps }}" as="s" hint-placeholder-count="6"><li style="display:flex;gap:8px;color:{{ s.ink }}"><span style="width:12px">{{ s.mark }}</span><span style="flex:1">{{ s.label }}</span><span class="t-dim">{{ s.at }}</span></li></sc-for></ol>
+    </section>
+    <section class="t-pn" aria-label="History of changes">
+      <div class="t-ph"><i>AU</i>History<span class="meta"><a href="#audit" onClick="{{ toAudit }}">Audit log</a></span></div>
+      <ul class="t-body" style="display:grid;gap:4px"><sc-for list="{{ audit }}" as="a" hint-placeholder-count="3"><li class="t-note"><span class="t-dim">{{ a.at }}</span> · {{ a.who }} · {{ a.what }}</li></sc-for></ul>
+    </section>
+  </div>
+  <div class="t-pn" style="position:sticky;bottom:0;z-index:4">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;padding:6px var(--pad);align-items:center">
+      <sc-for list="{{ actions }}" as="b" hint-placeholder-count="5"><button class="{{ b.cls }}" type="button" disabled="{{ b.dis }}" title="{{ b.why }}" onClick="{{ b.go }}">{{ b.label }}</button></sc-for>
+      <span class="t-dim" style="margin-left:auto;font-size:11px">{{ whyOff }}</span>
+    </div>
+  </div>
+
+  <sc-if value="{{ dlg }}" hint-placeholder-val="{{ false }}">
+    <div class="t-scrim" onClick="{{ closeDlg }}"></div>
+    <div class="t-dlg" role="dialog" aria-modal="true" aria-label="{{ dlg.title }}">
+      <div class="t-ph"><i>{{ dlg.code }}</i>{{ dlg.title }}<span class="meta"><button class="t-btn sm" onClick="{{ closeDlg }}">Esc</button></span></div>
+      <div class="t-body" style="display:grid;gap:8px">
+        <p class="t-note">{{ dlg.note }}</p>
+        <sc-if value="{{ dlg.warn }}" hint-placeholder-val="{{ false }}"><p class="t-note t-warn"><b>Check.</b> {{ dlg.warn }}</p></sc-if>
+        <sc-for list="{{ dlg.fields }}" as="f" hint-placeholder-count="3"><label class="t-fld"><span>{{ f.label }}</span>
+          <sc-if value="{{ f.sel }}" hint-placeholder-val="{{ false }}"><span class="t-in"><select><sc-for list="{{ f.opts }}" as="o" hint-placeholder-count="3"><option>{{ o }}</option></sc-for></select></span></sc-if>
+          <sc-if value="{{ f.txt }}" hint-placeholder-val="{{ true }}"><span class="t-in"><input defaultValue="{{ f.val }}" placeholder="{{ f.ph }}"></span></sc-if>
+          <sc-if value="{{ f.area }}" hint-placeholder-val="{{ false }}"><textarea class="t-ta" placeholder="{{ f.ph }}"></textarea></sc-if>
+          <small>{{ f.hint }}</small></label></sc-for>
+        <div style="display:flex;gap:6px;justify-content:flex-end"><button class="t-btn" onClick="{{ closeDlg }}">Back</button><button class="t-btn pri" onClick="{{ confirm }}">{{ dlg.ok }}</button></div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:640,&quot;height&quot;:900},&quot;variant&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;page&quot;,&quot;options&quot;:[&quot;page&quot;,&quot;drawer&quot;],&quot;tsType&quot;:&quot;string&quot;},&quot;loadId&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;L4&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;role&quot;:{&quot;editor&quot;:null,&quot;default&quot;:&quot;dispatcher&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;ui&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s:string)=&gt;void&quot;},&quot;onClose&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;()=&gt;void&quot;},&quot;onDeleted&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(n:string)=&gt;void&quot;}}">
+class Component extends DCLogic {
+  state = { dlg: null };
+  componentDidMount() { this._k = (e) => { if (e.key === "Escape") { if (this.state.dlg) this.setState({ dlg: null }); else if (this.props.variant === "drawer") this.props.onClose && this.props.onClose(); } }; window.addEventListener("keydown", this._k); }
+  componentWillUnmount() { window.removeEventListener("keydown", this._k); }
+  model() {
+    const D = window.DESK, id = this.props.loadId || "L4", T = Object.fromEntries(D.trucks.map((t) => [t.name, t]));
+    const nextDay = (s) => s.replace(/(\w+) (\d+)/, (a, mo, d) => mo + " " + String(+d + 1).padStart(2, "0"));
+    if (id.startsWith("H")) {
+      const h = D.history.find((x) => x.no === id.slice(1)) || D.history[0], t = T[h.truck] || D.trucks[0], fell = h.status !== "completed";
+      const total = Math.round((h.mi || 0) + 60), billed = h.gross, exp = h.net == null ? 0 : h.gross - h.net;
+      return { kind: "history", no: h.no, cust: h.cust, from: h.from, to: h.to, status: h.status === "completed" ? "Delivered" : h.status === "tonu" ? "TONU" : "Cancelled", tone: h.status === "completed" ? "ok" : "mute", asg: "completed", truck: h.truck, driver: h.driver, gross: h.gross, miles: total, dh: 40, loaded: h.mi, ret: 20, floor: t.floor, pu: h.done + " 08:00", money: h.money, fell, exp, mpg: t.mpg, marketTotal: null };
+    }
+    const r = D.open.find((x) => x.id === id) || D.open[3];
+    return { kind: "open", ...r, tone: r.asg === "dispatched" ? "info" : r.status === "draft" ? "warn" : r.status === "accepted" ? "ok" : "info", status: r.asg === "dispatched" ? "Sent, waiting" : r.status === "draft" ? "Needs a driver" : r.status === "accepted" ? "Accepted" : "On the road", t: r.truck ? T[r.truck] : null };
+  }
+  renderVals() { try { return this.vals(); } catch (e) { console.warn("LoadDetail vals: " + e.message + " @ " + (e.stack || "").split("\n")[1]); return {}; } }
+  vals() {
+    const D = window.DESK; if (!D) return {};
+    const p = this.props, role = p.role ?? "dispatcher", v = p.variant ?? "page", s = this.state, L = this.model();
+    const nextDay = (x) => x.replace(/(\w+) (\d+)/, (a, mo, d) => mo + " " + String(+d + 1).padStart(2, "0"));
+    const dispatch = role === "dispatcher" || role === "admin", bill = role === "accounting" || role === "admin";
+    const cust = D.customers.find((c) => c.name === L.cust), city = (a) => a.split(",")[0];
+    const pu = L.pu, puWin = pu + "–" + (pu.slice(-5, -3) * 1 + 3) + ":00", dlWin = nextDay(pu.slice(0, 6)) + " 08:00–12:00";
+    const totalMiles = L.miles, m = {
+      no: L.no, cust: L.cust, mc: cust ? cust.mc : "", from: L.from, to: L.to, fromCity: city(L.from), toCity: city(L.to), status: L.status, tone: L.tone,
+      channel: L.id && Number(String(L.id).slice(1)) % 3 === 0 ? "Came in as a rate confirmation" : "Booked on the desk", puWin, dlWin, loaded: D.mi(L.loaded), total: D.mi(totalMiles), dh: D.mi(L.dh), ret: D.mi(L.ret), refs: `PU-${L.no.slice(-4)} · DEL-${L.no.slice(-4)}`,
+      wayHome: L.ret === 0 ? "a load covers the way home" : "way home counted empty",
+      truck: L.truck || "Not set", driver: L.driver || "None yet", pay: L.driver ? (L.driver === "Jordan Lee" ? "$18/hr" : L.driver === "Casey Brooks" ? "$0.55/mi" : L.driver === "Alex Rivera" ? "$0.50/mi" : "$0.52/mi") + " · estimate " + D.usd((L.driver === "Jordan Lee" ? 18 * totalMiles / 50 : (L.driver === "Casey Brooks" ? 0.55 : L.driver === "Alex Rivera" ? 0.5 : 0.52) * totalMiles)) : "—",
+      trailer: L.kind === "open" && L.truck && L.truck !== "Unit 103" ? "T-10" + (L.truck === "Unit 102" ? 2 : 1) + " dry van" : "Not set",
+      answer: { dispatched: "Sent " + (L.sent || "") + ", waiting", declined: "Declined", accepted: "Accepted", in_progress: "On the road", completed: "Completed" }[L.asg] || "No driver yet",
+      declined: L.asg === "declined", gaps: L.asg === null && L.kind === "open" && L.status === "draft" && L.no === "DM-40042" ? "Missing: weight, a pickup number, the pickup time." : "",
+      guard: L.no === "DM-40046" ? "Jordan Lee is also on DM-40049, which runs Nov 03 20:00 to Nov 04 12:40. The windows overlap." : "",
+      arrivedIn: L.arrived || "", money: L.money ? L.money.label : "", moneyTone: L.money ? L.money.tone : "", moneyDetail: L.money ? L.money.detail || "" : "Not invoiced yet",
+      invoice: L.money && L.money.detail ? L.money.detail.split(" · ")[0] : "—", billed: D.usd(L.gross, 2), terms: "Net 30", received: L.money && L.money.key === "paid" ? D.usd(L.gross, 2) : L.money && L.money.key === "part_overdue" ? "$400.00" : "$0.00", balance: L.money && L.money.key === "paid" ? "$0.00" : L.money && L.money.key === "part_overdue" ? "$510.00" : D.usd(L.gross, 2)
+    };
+    const fell = L.fell, hasTruck = !!L.truck && !fell;
+    const lane = D.lanes.find((l) => l.from === L.from && l.to === L.to && l.stands);
+    const market = lane ? lane.avg * L.loaded : undefined;
+    const vc = { gross: L.gross, miles: totalMiles, floor: L.floor || 1.9, market, label: `${L.truck || ""}${L.driver ? " · " + L.driver : ""}${L.kind === "history" ? " · frozen at accept" : ""}`, home: m.wayHome };
+    const fuel = hasTruck && L.mpg !== undefined ? 0 : 0; const mpg = L.kind === "history" ? L.mpg : L.t ? L.t.mpg : 6.5;
+    const rate = L.driver === "Casey Brooks" ? 0.55 : L.driver === "Alex Rivera" ? 0.5 : L.driver === "Jordan Lee" ? 0.36 : 0.52;
+    const drv = Math.round(rate * totalMiles), fl = Math.round((totalMiles / mpg) * 3.9);
+    const lines = L.kind === "history" ? [["Linehaul", D.usd(L.gross, 2), ""], ["Fuel surcharge", "$0.00", "t-dim"], ["Revenue", D.usd(L.gross, 2), "sum"], ["Driver pay", "−" + D.usd(L.exp * 0.45, 2), ""], ["Fuel, actual", "−" + D.usd(L.exp * 0.5, 2), ""], ["Tolls and other", "−" + D.usd(L.exp * 0.05, 2), ""], ["Net", L.net == null ? D.usd(L.gross - L.exp, 2) : D.usd(L.gross - L.exp, 2), "sum"]] : [["Linehaul", D.usd(L.gross, 2), "t-typed"], ["Fuel surcharge", "$0.00", "t-dim"], ["Detention", "billed on delivery", "t-dim"], ["Revenue", D.usd(L.gross, 2), "sum"], ["Driver pay, estimate", L.driver ? "−" + D.usd(drv, 2) : "no driver yet", L.driver ? "" : "t-dim"], ["Fuel, estimate", hasTruck ? "−" + D.usd(fl, 2) : "needs a truck", ""], ["Tolls and misc", "not entered", "t-dim"], ["Net, estimate", hasTruck && L.driver ? D.usd(L.gross - drv - fl, 2) : "—", "sum"]];
+    const stopsRows = [{ n: 1, role: "Pickup", place: `${city(L.from)} Distribution`, win: puWin.slice(4), arrived: L.arrived ? L.arrived : "not yet", tone: L.arrived ? (/late/.test(L.arrived) ? "bad" : "ok") : "mute", wait: L.asg === "in_progress" ? "42 min" : "—", ref: `PU-${L.no.slice(-4)}` }, { n: 2, role: "Delivery", place: `${city(L.to)} Receiving`, win: dlWin.slice(4), arrived: L.kind === "history" ? "on time" : L.late ? L.late : L.due ? L.due : "not yet", tone: L.late ? "bad" : L.kind === "history" ? "ok" : "mute", wait: "—", ref: `DEL-${L.no.slice(-4)}` }];
+    const may = { w: dispatch };
+    const steps = [["Created on the desk", true, "Nov 02"], ["Driver chosen", !!L.driver, L.driver ? "Nov 03" : ""], ["Sent to the driver", ["dispatched", "accepted", "in_progress", "completed"].includes(L.asg), L.sent ? L.sent : ""], ["Driver accepted", ["accepted", "in_progress", "completed"].includes(L.asg), ""], ["Picked up", ["in_progress", "completed"].includes(L.asg), L.arrived || ""], ["Delivered", L.asg === "completed", L.asg === "completed" ? L.pu : ""], ["Invoiced", !!(L.money && L.money.key !== "not_invoiced"), ""], ["Paid", !!(L.money && ["paid", "paid_short", "paid_over", "closed_short"].includes(L.money.key)), ""]].map(([label, done, at]) => ({ label, at, mark: done ? "■" : "□", ink: done ? "var(--ink)" : "var(--dim)" }));
+    const alerts = D.alerts.filter((a) => a.load === L.no).map((a) => ({ level: a.level === "block" ? "Block" : a.level === "warn" ? "Look soon" : "FYI", tone: a.level === "block" ? "bad" : a.level === "warn" ? "warn" : "info", msg: a.msg }));
+    const act = (label, o = {}) => ({ label, cls: "t-btn" + (o.pri ? " pri" : ""), dis: o.off ? true : undefined, why: o.why || "", go: o.go || (() => this.setState({ dlg: o.dlg })) });
+    const acts = []; let whyOff = "";
+    if (L.kind === "open" && dispatch) {
+      if (L.status === "draft" && L.asg !== "dispatched") acts.push(act(L.driver ? "Change driver" : "Assign driver", { pri: true, dlg: "assign" }));
+      if (L.asg === "dispatched") acts.push(act("Respond for the driver", { dlg: "respond" }), act("Change driver", { dlg: "assign" }));
+      if (L.status === "draft" && L.driver && L.asg !== "dispatched") acts.push(act("Send to driver", { pri: !!L.driver, dlg: "send" }));
+      if (["draft", "accepted"].includes(L.status) && L.driver) acts.push(act("Unassign", { dlg: "unassign" }));
+      if (L.status === "in_progress") acts.push(act("Enter the delivery", { pri: true, dlg: "delivery" }));
+      acts.push(act("Reschedule", { dlg: "resched" }), act("TONU", { dlg: "tonu" }), act("Cancel load", { dlg: "cancel" }), act("Edit", { dlg: "edit" }));
+      const del = L.status === "in_progress" ? "A load on the road cannot be deleted." : "";
+      acts.push(act("Delete", { off: !!del, why: del, dlg: "delete" })); if (del) whyOff = "Delete: " + del;
+    }
+    if (L.kind === "history" && bill) {
+      const k = L.money.key;
+      if (k === "not_invoiced") acts.push(act("Invoice", { pri: true, dlg: "invoice" }));
+      if (["out", "overdue", "part", "part_overdue"].includes(k)) acts.push(act("Record a payment", { pri: true, dlg: "paid" }), act("Mark paid", { dlg: "paid" }), act("Void invoice", { dlg: "void" }));
+      if (["overdue", "part_overdue"].includes(k)) acts.push(act("Write off the shortfall", { off: role !== "admin", why: "Only an admin writes off a shortfall.", dlg: "writeoff" }));
+      if (k !== "not_invoiced") { acts.push(act("Delete", { off: true, why: "An invoiced load cannot be deleted." })); whyOff = "Delete: An invoiced load cannot be deleted."; }
+    }
+    const askDriver = D.drivers.map((d) => d.name);
+    const F = (label, o = {}) => ({ label, sel: !!o.opts, txt: !o.opts && !o.area, area: !!o.area, opts: o.opts || [], val: o.val || "", ph: o.ph || "", hint: o.hint || "" });
+    const DLG = {
+      assign: { code: "AS", title: "Assign a driver", ok: "Assign", note: "The driver's usual pay starts the pay; the assignment's own pay wins.", warn: L.no === "DM-40046" ? "Jordan Lee is booked on DM-40049 at the same time." : "", fields: [F("Driver", { opts: askDriver }), F("Pay", { val: "$0.52/mi", hint: "Usual pay for this driver" }), F("Trailer", { opts: ["T-101 dry van", "T-102 reefer", "T-103 flatbed"], hint: "T-104 is in the shop and T-105's registration has lapsed, so neither is offered." })] },
+      respond: { code: "RS", title: "Record the driver's answer", ok: "Record", note: "The driver answers on the phone. Record it here only if they told you another way.", fields: [F("Answer", { opts: ["Accepted", "Declined"] }), F("Note", { area: true, ph: "What they said" })] },
+      send: { code: "SD", title: "Send to the driver", ok: "Send", note: "The driver answers on their phone. Nothing carries a message to it yet, so the desk keeps the record.", fields: [] },
+      unassign: { code: "UA", title: "Take the driver off", ok: "Unassign", note: "The load goes back to Needs a driver.", fields: [F("Reason", { area: true, ph: "A few words" })] },
+      delivery: { code: "DL", title: "Enter the delivery", ok: "Save", note: "Typed wins over anything the desk worked out.", fields: [F("Delivery arrived", { ph: "Nov 05 08:10" }), F("Wait at delivery", { ph: "min" }), F("Proof of delivery", { ph: "what it is, or why there is none" })] },
+      resched: { code: "RS", title: "Reschedule", ok: "Reschedule", note: "A changed pickup asks the driver again: the load goes back to Sent, waiting.", fields: [F("New pickup opens", { val: pu }), F("New pickup closes", { val: pu.slice(0, 6) + " 11:00" }), F("Reason", { area: true })] },
+      tonu: { code: "TN", title: "Truck ordered not used", ok: "Record the TONU", note: "The load stays on the record as a TONU, with its fee.", fields: [F("Reason", { opts: ["Shipper not ready", "Customer cancelled at the dock", "Other"] }), F("TONU fee", { val: "175.00" }), F("Miles driven", { ph: "mi" }), F("Note", { area: true })] },
+      cancel: { code: "CX", title: "Cancel the load", ok: "Cancel load", note: "Cancelled loads leave the board and stay in History.", fields: [F("Reason", { opts: ["Customer cancelled", "Weather or road", "Shipper not ready", "Other"] }), F("Note", { area: true })] },
+      edit: { code: "ED", title: "Edit the load", ok: "Save", note: "Edits are written to the audit log.", fields: [F("Customer", { val: L.cust }), F("Rate", { val: String(L.gross) }), F("Loaded miles", { val: String(L.loaded) })] },
+      delete: { code: "DE", title: "Delete the load", ok: "Delete", note: "Hidden, not erased. You can undo for 20 seconds, and it stays in the audit log.", fields: [F("Reason (required)", { area: true, ph: "Why it is coming off the desk" })] },
+      invoice: { code: "IV", title: "Invoice this load", ok: "Create the invoice", note: "Net 30 from the customer's record.", fields: [F("Invoice number", { val: "INV-" + L.no.slice(-5) }), F("Terms (days)", { val: "30" }), F("Billed", { val: String(L.gross) })] },
+      paid: { code: "PD", title: "Record a payment", ok: "Record", note: "A payment of less than the balance leaves the invoice out with a balance.", fields: [F("Amount", { val: L.money && L.money.key === "part_overdue" ? "510.00" : String(L.gross) }), F("Day it came in", { val: "Nov 04" }), F("How", { opts: ["ACH", "Check", "Wire", "Card", "Factoring", "Other"] })] },
+      void: { code: "VD", title: "Void the invoice", ok: "Void", note: "The invoice is kept as it was, marked void.", fields: [F("Reason (required)", { area: true })] },
+      writeoff: { code: "WO", title: "Write off the shortfall", ok: "Write off", note: "The billed money that will never come in, kept with its reason so revenue and cash reconcile.", fields: [F("Reason (required)", { area: true })] }
+    };
+    const dlg = s.dlg ? DLG[s.dlg] : null;
+    const docs = [{ k: "Rate confirmation", v: m.channel.includes("rate") ? `RC-${L.no}.pdf · read into this load` : "none on file", state: m.channel.includes("rate") ? "on file" : "missing", tone: m.channel.includes("rate") ? "ok" : "mute" }, { k: "Proof of delivery", v: L.kind === "history" ? "POD-" + L.no.slice(-4) + ".jpg" : "one stop to cover", state: L.kind === "history" ? "on file" : "missing", tone: L.kind === "history" ? "ok" : "warn" }];
+    return {
+      m, isDrawer: v === "drawer", isPage: v === "page", cols: v === "drawer" ? "minmax(0,1fr)" : "repeat(2,minmax(0,1fr))",
+      readOnly: role === "viewer", noDispatch: dispatch ? undefined : true, hasVerdict: hasTruck, noVerdict: !hasTruck, noVerdictText: fell ? "A load that fell through is not judged." : "No truck is set, so there is no cost floor and no verdict yet. Set a truck to see it.", vc,
+      ledger: lines.map(([k, val, cls]) => ({ k, v: val, cls })), ledgerNote: L.kind === "history" ? "Actuals" : "Estimates until delivered",
+      stops: stopsRows, tripOn: L.kind === "open" && ["accepted", "in_progress"].includes(L.status) && dispatch, billOn: L.kind === "history" && !L.fell, docs, docNote: L.kind === "history" ? "" : "POD is collected at delivery",
+      alerts, hasAlerts: alerts.length > 0, steps,
+      audit: [{ at: "Nov 04 07:12", who: "Maya Ortiz", what: L.driver ? `Assigned ${L.driver} at ${m.pay.split(" · ")[0]}` : "Created from a quote" }, { at: "Nov 02 15:40", who: "Maya Ortiz", what: "Booked from quote with a reason kept" }],
+      actions: acts, whyOff, dlg: dlg ? { ...dlg, fields: dlg.fields } : null, closeDlg: () => this.setState({ dlg: null }),
+      confirm: () => { const k = s.dlg; this.setState({ dlg: null }); if (k === "delete") p.onDeleted && p.onDeleted(L.no); },
+      close: () => p.onClose && p.onClose(), back: (e) => { e.preventDefault(); p.go && p.go("loads"); }, toAudit: (e) => { e.preventDefault(); p.go && p.go("audit"); },
+      openPage: (e) => { e.preventDefault(); p.go && p.go("loadpage:" + (p.loadId || "L4")); }
+    };
+  }
+}
+</script>
+</body>
+</html>

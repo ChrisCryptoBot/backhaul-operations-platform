@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="Audit log">
+  <div class="t-pagehead"><h1><i>AU</i>Audit log</h1><p>What the desk did, who did it, and why. Written in the same step as the change.</p><div class="acts"><button class="t-btn">Export CSV</button></div></div>
+  <div style="display:flex;gap:8px;align-items:center;padding:4px var(--pad);background:var(--panel);flex-wrap:wrap">
+    <label class="t-in" style="width:240px;height:22px"><b class="t-lbl">Find</b><input aria-label="Search the log" placeholder="load, invoice, person"></label>
+    <label class="t-in" style="width:190px;height:22px"><b class="t-lbl">Action</b><select aria-label="Action"><option>All</option><option>Assigned</option><option>Sent</option><option>Booked</option><option>Payment</option><option>Deleted</option></select></label>
+    <label class="t-in" style="width:190px;height:22px"><b class="t-lbl">From</b><input defaultValue="Oct 05"><b class="t-lbl">to</b><input defaultValue="Nov 04"></label>
+    <span class="t-dim" style="margin-left:auto">{{ events.length }} events</span>
+  </div>
+  <section class="t-pn" aria-label="Audit events">
+    <div class="t-tw"><table class="t-tbl" aria-label="Audit log">
+      <thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Action</th><th scope="col">Load</th><th scope="col">What</th><th scope="col">Reason</th><th scope="col"></th></tr></thead>
+      <tbody>
+        <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}"><tr><td colSpan="7"><div class="t-skel" style="width:60%"></div></td></tr></sc-if>
+        <sc-for list="{{ events }}" as="e" hint-placeholder-count="6">
+          <tr><td>{{ e.at }}</td><td>{{ e.who }}</td><td><span class="t-st" data-tone="{{ e.tone }}">{{ e.action }}</span></td><td><a href="#loads" onClick="{{ toLoads }}">{{ e.load }}</a></td><td style="max-width:340px">{{ e.what }}</td><td class="t-dim" style="max-width:240px">{{ e.why }}</td><td class="n"><sc-if value="{{ e.diff }}" hint-placeholder-val="{{ false }}"><button class="t-btn sm" type="button" aria-expanded="{{ e.open }}" onClick="{{ e.toggle }}">{{ e.btn }}</button></sc-if></td></tr>
+          <sc-if value="{{ e.shown }}" hint-placeholder-val="{{ false }}"><tr><td colSpan="7" style="background:var(--sunk);height:auto;padding:6px var(--pad)"><table class="t-tbl" aria-label="Change"><thead><tr><th>Field</th><th>Before</th><th>After</th></tr></thead><tbody><sc-for list="{{ e.rows }}" as="d" hint-placeholder-count="2"><tr><td class="t-dim">{{ d.k }}</td><td class="t-neg">{{ d.b }}</td><td class="t-pos">{{ d.a }}</td></tr></sc-for></tbody></table></td></tr></sc-if>
+        </sc-for>
+        <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}"><tr><td colSpan="7" class="t-dim" style="height:40px">No events match. Another action, or widen the dates.</td></tr></sc-if>
+      </tbody></table></div>
+    <div class="t-pager"><span>Paged on the server, newest first. Not sortable: sorting one page would mislead.</span><span class="acts"><button class="t-btn sm" disabled>Newer</button><button class="t-btn sm">Older</button></span></div>
+  </section>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1268,&quot;height&quot;:620},&quot;role&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;ui&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s:string)=&gt;void&quot;}}">
+class Component extends DCLogic {
+  state = { open: null };
+  renderVals() {
+    const p = this.props, s = this.state, ui = p.ui ?? "normal";
+    const E = (id, at, who, action, tone, load, what, why, diff) => ({ id, at, who, action, tone, load, what, why, diff });
+    const all = [
+      E(1, "Nov 04 07:13", "Maya Ortiz", "Sent", "info", "DM-40044", "Sent to Sam Okafor", "", null),
+      E(2, "Nov 04 07:12", "Maya Ortiz", "Assigned", "ok", "DM-40044", "Assigned Sam Okafor", "", [["Driver", "—", "Sam Okafor"], ["Pay", "—", "$0.52/mi"], ["Trailer", "—", "T-102 reefer"]]),
+      E(3, "Nov 03 16:12", "Maya Ortiz", "Deleted", "bad", "DM-40039", "Load deleted. Undo window closed.", "Duplicate of DM-40046", [["Deleted", "no", "yes"]]),
+      E(4, "Nov 02 15:40", "Maya Ortiz", "Booked", "warn", "DM-40042", "Booked from Q-1039 on Unit 102. Read against: your lane.", "Backhaul coming", [["Verdict", "—", "Caution"], ["Rate", "—", "$640.00"]]),
+      E(5, "Nov 02 11:05", "Dana Whitfield", "Payment", "ok", "DM-40025", "Recorded $1,260.00 by ACH on INV-40025", "", [["Received", "$0.00", "$1,260.00"], ["State", "Out and waiting", "Paid"]]),
+      E(6, "Nov 02 09:30", "Dana Whitfield", "Statement", "info", "—", "ST-0008 finalized for Sam Okafor, $1,142.60", "", null),
+      E(7, "Nov 01 14:20", "Dana Whitfield", "Company", "mute", "—", "Remit-to changed", "New lockbox", [["Remit to", "Sample Bank, PO Box 11", "Sample Bank lockbox, 100 Sample Plaza"]]),
+      E(8, "Oct 31 10:08", "Maya Ortiz", "Customer", "mute", "—", "Redwood Load Partners: MC filled from the authority look-up", "", [["MC", "—", "MC 100789"]])
+    ];
+    const events = (ui === "empty" ? [] : all).map((e) => { const on = s.open === e.id; return { ...e, diff: !!e.diff, open: on ? "true" : "false", btn: on ? "Hide" : "What changed", shown: on, rows: (e.diff || []).map(([k, b, a]) => ({ k, b, a })), toggle: () => this.setState({ open: on ? null : e.id }) }; });
+    return { events, isLoading: ui === "loading", isEmpty: ui === "empty", toLoads: (e) => { e.preventDefault(); p.go && p.go("loads"); } };
+  }
+}
+</script>
+</body>
+</html>

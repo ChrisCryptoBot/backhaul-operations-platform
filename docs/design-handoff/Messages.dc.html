@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="Messages">
+  <div class="t-pagehead"><h1><i>MS</i>Messages</h1><p>One conversation per driver, newest last.</p></div>
+  <div class="t-banner" role="note"><b>Saved on the desk</b>Nothing carries a message to the driver's phone yet, so a sent message is kept here and marked saved, not delivered.</div>
+  <div style="display:grid;grid-template-columns:280px minmax(0,1fr);gap:1px;background:var(--line);flex:1;min-height:480px">
+    <section class="t-pn" aria-label="Conversations">
+      <div class="t-ph"><i>TH</i>Drivers<span class="meta">{{ unread }} unread</span></div>
+      <ul>
+        <sc-for list="{{ threads }}" as="t" hint-placeholder-count="4">
+          <li><button type="button" aria-current="{{ t.cur }}" onClick="{{ t.pick }}" style="display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:{{ t.bg }};color:{{ t.fg }};padding:6px var(--pad);cursor:pointer">
+            <div style="display:flex;gap:8px"><b style="font-weight:600">{{ t.name }}</b><span style="margin-left:auto">{{ t.at }}</span></div>
+            <div style="display:flex;gap:8px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;opacity:.8">{{ t.last }}</span><sc-if value="{{ t.n }}" hint-placeholder-val="{{ false }}"><b style="background:var(--warn-fill);color:var(--on-fill);padding:0 5px">{{ t.n }}</b></sc-if></div>
+          </button></li>
+        </sc-for>
+      </ul>
+    </section>
+    <section class="t-pn" aria-label="Conversation">
+      <div class="t-ph"><i>MS</i>{{ cur.name }}<span class="meta">{{ cur.truck }} · {{ cur.phone }}</span></div>
+      <div style="flex:1;overflow:auto;padding:var(--pad);display:flex;flex-direction:column;gap:6px;min-height:340px" aria-live="polite">
+        <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}"><p class="t-dim">No messages with {{ cur.name }} yet. Write the first one below.</p></sc-if>
+        <sc-for list="{{ msgs }}" as="m" hint-placeholder-count="5">
+          <div style="display:flex;justify-content:{{ m.side }}">
+            <div style="max-width:70%;border:1px solid var(--line-hi);padding:4px 8px;background:{{ m.bg }};color:{{ m.fg }}">
+              <div class="t-dim" style="font-size:11px;color:{{ m.meta }}">{{ m.who }} · {{ m.at }}<sc-if value="{{ m.load }}" hint-placeholder-val="{{ false }}"> · <a href="#loads" onClick="{{ toLoads }}">{{ m.load }}</a></sc-if></div>
+              <div class="t-note" style="color:inherit">{{ m.body }}</div>
+              <sc-if value="{{ m.file }}" hint-placeholder-val="{{ false }}"><div style="border-top:1px solid var(--line);margin-top:4px;padding-top:2px">▤ {{ m.file }}</div></sc-if>
+              <sc-if value="{{ m.state }}" hint-placeholder-val="{{ false }}"><div style="font-size:11px;text-align:right;color:{{ m.meta }}">{{ m.state }}</div></sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <form onSubmit="{{ send }}" style="border-top:1px solid var(--line-hi);padding:var(--pad);display:grid;gap:6px">
+        <textarea class="t-ta" aria-label="Message" placeholder="Write to the driver" value="{{ draft }}" onChange="{{ setDraft }}" disabled="{{ viewer }}"></textarea>
+        <div style="display:flex;gap:6px;align-items:center">
+          <label class="t-in" style="width:220px;height:22px"><b class="t-lbl">About</b><select aria-label="About a load"><option>No load</option><option>DM-40044</option><option>DM-40048</option></select></label>
+          <button class="t-btn" type="button" disabled="{{ viewer }}">Attach a file</button>
+          <span class="t-dim" style="margin-left:auto">Kept until you send it</span>
+          <button class="t-btn pri" type="submit" disabled="{{ viewer }}">Send</button>
+        </div>
+      </form>
+    </section>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1268,&quot;height&quot;:720},&quot;role&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;ui&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s:string)=&gt;void&quot;}}">
+class Component extends DCLogic {
+  state = { cur: "d2", draft: "", extra: [] };
+  renderVals() {
+    const D = window.DESK; if (!D) return {};
+    const s = this.state, p = this.props, viewer = (p.role ?? "dispatcher") === "viewer";
+    const th = [
+      { id: "d2", last: "Dropped at Dallas. POD attached.", at: "10:31", n: 1 },
+      { id: "d4", last: "Can't do Nov 7, medical card appointment", at: "09:58", n: 1 },
+      { id: "d1", last: "Load DM-40045 sent. Please accept.", at: "08:12", n: 1 },
+      { id: "d3", last: "On my way to the receiver", at: "Yesterday", n: 0 }
+    ];
+    const conv = {
+      d2: [["in", "Sam Okafor", "Nov 03 17:40", "Loaded and sealed at Chicago. Heading out.", "DM-40051", null], ["system", "Desk", "Nov 04 07:12", "DM-40048 was sent to Sam Okafor.", "DM-40048", null], ["out", "Maya Ortiz", "Nov 04 07:20", "Thanks. Call me if the dock holds you over two hours.", null, null], ["in", "Sam Okafor", "Nov 04 10:31", "Dropped at Indianapolis. POD attached.", "DM-40051", "POD-40051.jpg"]],
+      d4: [["system", "Desk", "Nov 03 15:02", "DM-40043 was sent to Casey Brooks.", "DM-40043", null], ["in", "Casey Brooks", "Nov 04 09:58", "Can't do Nov 7. Medical card appointment that morning.", "DM-40043", null]],
+      d1: [["system", "Desk", "Nov 04 08:12", "DM-40045 was sent to Alex Rivera.", "DM-40045", null]],
+      d3: [["in", "Jordan Lee", "Nov 03 18:05", "On my way to the receiver.", "DM-40049", null]]
+    };
+    const cur = D.drivers.find((d) => d.id === s.cur);
+    const msgs = [...(conv[s.cur] || []), ...s.extra.filter((m) => m.t === s.cur).map((m) => ["out", "Maya Ortiz", "Nov 04 10:42", m.body, null, null, "Saved, not delivered"])].map(([dir, who, at, body, load, file, st]) => ({ who, at, body, load: load || "", file: file || "", side: dir === "out" ? "flex-end" : dir === "system" ? "center" : "flex-start", bg: dir === "out" ? "var(--label)" : "transparent", fg: dir === "out" ? "var(--on-label)" : dir === "system" ? "var(--dim)" : "var(--ink)", meta: dir === "out" ? "var(--on-label)" : "var(--dim)", state: st || (dir === "out" ? "Saved, not delivered" : "") }));
+    return {
+      unread: 3, viewer: viewer ? true : undefined, isEmpty: msgs.length === 0 || p.ui === "empty", cur: { name: cur.name, truck: cur.truck, phone: cur.phone },
+      threads: th.map((t) => { const d = D.drivers.find((x) => x.id === t.id), on = s.cur === t.id; return { name: d.name, last: t.last, at: t.at, n: t.n || "", cur: on ? "true" : undefined, bg: on ? "var(--label)" : "transparent", fg: on ? "var(--on-label)" : "var(--ink)", pick: () => this.setState({ cur: t.id }) }; }),
+      msgs: p.ui === "empty" ? [] : msgs, draft: s.draft, setDraft: (e) => this.setState({ draft: e.target.value }),
+      send: (e) => { e.preventDefault(); if (!s.draft.trim()) return; this.setState({ extra: [...s.extra, { t: s.cur, body: s.draft }], draft: "" }); },
+      toLoads: (e) => { e.preventDefault(); p.go && p.go("loads"); }
+    };
+  }
+}
+</script>
+</body>
+</html>

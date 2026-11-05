@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="KPI">
+  <div class="t-pagehead"><h1><i>KP</i>KPI dashboard</h1><p>{{ sub }}</p>
+    <div class="acts"><span class="t-seg" role="group" aria-label="Period"><sc-for list="{{ periods }}" as="p" hint-placeholder-count="3"><button aria-pressed="{{ p.on }}" onClick="{{ p.go }}">{{ p.label }}</button></sc-for></span></div></div>
+  <div class="t-tabs" role="tablist"><sc-for list="{{ tabs }}" as="t" hint-placeholder-count="3"><button role="tab" aria-selected="{{ t.on }}" onClick="{{ t.go }}">{{ t.label }}</button></sc-for></div>
+
+  <sc-if value="{{ onDash }}" hint-placeholder-val="{{ true }}">
+  <section class="t-pn" aria-label="Headline">
+    <div class="t-body" style="display:flex;gap:30px;align-items:flex-end;flex-wrap:wrap">
+      <div><div class="t-lbl">Gross, finished</div><div class="t-hero" style="font-size:46px;line-height:48px">$38,420</div><div class="t-pos">▲ +9.4% on the 12 weeks before <span class="t-dim">(up is good)</span></div></div>
+      <sc-for list="{{ stats }}" as="s" hint-placeholder-count="5"><div><div class="t-lbl">{{ s.k }}</div><div style="font:500 20px/24px var(--mono)">{{ s.v }}</div><div class="{{ s.cls }}">{{ s.d }}</div></div></sc-for>
+    </div>
+  </section>
+  <div class="t-gr" style="grid-template-columns:repeat(auto-fit,minmax(380px,1fr))">
+    <section class="t-pn" aria-label="Gross by week"><div class="t-ph"><i>01</i>Gross by week<span class="meta">$ · 12 weeks</span></div>
+      <div class="t-body"><div style="display:flex;align-items:flex-end;gap:4px;height:130px;border-bottom:1px solid var(--line-hi)"><sc-for list="{{ weeks }}" as="w" hint-placeholder-count="12"><div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;align-items:center"><span class="t-dim" style="font-size:11px">{{ w.v }}</span><div style="width:100%;height:{{ w.h }};background:var(--mid)"></div></div></sc-for></div>
+        <div style="display:flex;gap:4px;margin-top:2px"><sc-for list="{{ weeks }}" as="w" hint-placeholder-count="12"><span class="t-dim" style="flex:1;text-align:center;font-size:11px">{{ w.l }}</span></sc-for></div>
+        <p class="t-note" style="margin-top:6px">The last week is not over yet. Read it as it stands.</p></div></section>
+    <section class="t-pn" aria-label="All-in against the floor"><div class="t-ph"><i>02</i>All-in against the floor<span class="meta">$/mi · finished loads</span></div>
+      <div class="t-body"><div style="position:relative;display:flex;align-items:flex-end;gap:4px;height:130px;border-bottom:1px solid var(--line-hi)"><sc-for list="{{ trend }}" as="w" hint-placeholder-count="12"><div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%;align-items:center"><span class="t-dim" style="font-size:11px">{{ w.v }}</span><div style="width:100%;height:{{ w.h }};background:{{ w.bg }}"></div></div></sc-for>
+        <div style="position:absolute;left:0;right:0;bottom:{{ floorAt }};height:0;border-top:2px solid var(--label-hi)"></div></div>
+        <p class="t-note" style="margin-top:6px"><span class="t-lbl">Gold line</span> is the fleet's average floor, {{ floorTxt }}. A bar under it lost money that week. A bar's tone repeats its word: ▲ above, ▬ at, ▼ under.</p></div></section>
+    <section class="t-pn" aria-label="Pay against the market"><div class="t-ph"><i>03</i>Pay against the market or your lane<span class="meta">30 loads</span></div>
+      <div class="t-body" style="display:grid;gap:3px"><sc-for list="{{ bins }}" as="b" hint-placeholder-count="8"><div style="display:grid;grid-template-columns:90px 1fr 28px;gap:8px;align-items:center"><span class="t-dim">{{ b.label }}</span><div style="height:12px;background:var(--sunk)"><div style="height:100%;width:{{ b.w }};background:{{ b.bg }}"></div></div><span class="n" style="text-align:right">{{ b.n }}</span></div></sc-for>
+        <p class="t-note" style="margin-top:4px">0 loads had nothing to read them against, so none is guessed into a bar.</p></div></section>
+    <section class="t-pn" aria-label="Days to pay"><div class="t-ph"><i>04</i>Days to pay by customer<span class="meta">average</span></div>
+      <div class="t-body" style="display:grid;gap:3px"><sc-for list="{{ pay }}" as="b" hint-placeholder-count="5"><div style="display:grid;grid-template-columns:170px 1fr 44px;gap:8px;align-items:center"><span class="t-mid" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ b.name }}</span><div style="height:12px;background:var(--sunk)"><div style="height:100%;width:{{ b.w }};background:{{ b.bg }}"></div></div><span style="text-align:right">{{ b.v }}</span></div></sc-for></div></section>
+    <section class="t-pn" aria-label="Drivers"><div class="t-ph"><i>05</i>Drivers<span class="meta">12 weeks</span></div>
+      <div class="t-tw"><table class="t-tbl" aria-label="Drivers"><thead><tr><th scope="col">Driver</th><th scope="col" class="n">Loads</th><th scope="col" class="n">All-in</th><th scope="col" class="n">Empty</th><th scope="col" class="n">On time</th></tr></thead><tbody><sc-for list="{{ drivers }}" as="r" hint-placeholder-count="4"><tr><td>{{ r.a }}</td><td class="n">{{ r.b }}</td><td class="n">{{ r.c }}</td><td class="n">{{ r.d }}</td><td class="n">{{ r.e }}</td></tr></sc-for></tbody></table></div></section>
+    <section class="t-pn" aria-label="Lanes"><div class="t-ph"><i>06</i>Lanes<span class="meta"><a href="#lanes" onClick="{{ toLanes }}">All lanes</a></span></div>
+      <div class="t-tw"><table class="t-tbl" aria-label="Top lanes"><thead><tr><th scope="col">Lane</th><th scope="col" class="n">Loads</th><th scope="col" class="n">All-in</th><th scope="col" class="n">Left over</th></tr></thead><tbody><sc-for list="{{ lanes }}" as="r" hint-placeholder-count="5"><tr><td>{{ r.a }}</td><td class="n">{{ r.b }}</td><td class="n">{{ r.c }}</td><td class="n {{ r.cls }}">{{ r.d }}</td></tr></sc-for></tbody></table></div></section>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ onQuotes }}" hint-placeholder-val="{{ false }}">
+  <section class="t-pn" aria-label="Quote decisions">
+    <div class="t-ph"><i>QD</i>Quote decisions<span class="meta">What the card said, and what was done</span></div>
+    <div class="t-tick" style="grid-column:auto;height:30px;border-top:1px solid var(--line)"><div><span>Decided</span><b>31</b></div><div><span>Booked</span><b>22</b></div><div><span>Booked against a Reject, with a reason</span><b class="t-warn">3</b></div><div><span>Passed on</span><b>9</b></div></div>
+    <div class="t-tw"><table class="t-tbl" aria-label="Decisions"><thead><tr><th scope="col">Decided</th><th scope="col">Quote</th><th scope="col">Customer</th><th scope="col">Verdict</th><th scope="col">Read against</th><th scope="col">Done</th><th scope="col">Reason kept</th><th scope="col" class="n">Left over</th><th scope="col" class="n">First → final offer</th></tr></thead>
+      <tbody><sc-for list="{{ decisions }}" as="r" hint-placeholder-count="6"><tr><td>{{ r.at }}</td><td>{{ r.no }}</td><td>{{ r.cust }}</td><td><span style="display:inline-flex;gap:6px;align-items:center"><span class="vm" data-s="{{ r.s }}" style="--s:14px"><span>{{ r.g }}</span></span>{{ r.word }}</span></td><td class="t-dim">{{ r.vs }}</td><td>{{ r.done }}</td><td class="t-dim">{{ r.why }}</td><td class="n {{ r.cls }}">{{ r.left }}</td><td class="n">{{ r.offer }}</td></tr></sc-for></tbody></table></div>
+    <p class="t-body t-note" style="border-top:1px solid var(--line)">Not built yet: what the verdict said against what the load actually earned. The record this report would need is not kept today.</p>
+  </section>
+  </sc-if>
+
+  <sc-if value="{{ onReport }}" hint-placeholder-val="{{ false }}">
+    <div style="display:flex;justify-content:flex-end;padding:4px var(--pad);background:var(--panel)"><button class="t-btn">Print or save as PDF</button></div>
+    <article class="t-doc">
+      <div style="display:flex;justify-content:space-between;border-bottom:2px solid #111;padding-bottom:12px"><div><div class="k">Management report</div><h1>Demo fleet</h1><div class="k" style="margin-top:4px">Aug 12 to Nov 04, 2026 · Dallas dates</div></div><div style="text-align:right"><div class="k">Gross, finished</div><div style="font:600 30px/34px 'IBM Plex Mono',monospace">$38,420</div><span class="stamp" style="margin-top:6px">12 weeks</span></div></div>
+      <table style="margin-top:14px"><thead><tr><th>Figure</th><th>What it is</th><th class="n">Value</th></tr></thead><tbody>
+        <tr><td>All-In</td><td>Revenue over every mile driven</td><td class="n">$2.18/mi</td></tr><tr><td>Floor</td><td>Average cost of a mile, per truck</td><td class="n">$1.86/mi</td></tr><tr><td>Margin</td><td>All-In minus Floor</td><td class="n">+$0.32/mi</td></tr><tr><td>Left over</td><td>Margin over every mile</td><td class="n">$9,980</td></tr><tr><td>Empty miles</td><td>Share of miles driven empty</td><td class="n">23.6%</td></tr><tr><td>Days to pay</td><td>Average, paid invoices</td><td class="n">34.6</td></tr></tbody></table>
+      <p class="k" style="margin-top:14px">Every figure uses the desk's one name for it. Sheets stay paper-white in both themes.</p>
+    </article>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1268,&quot;height&quot;:820},&quot;role&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;ui&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s:string)=&gt;void&quot;}}">
+class Component extends DCLogic {
+  state = { tab: "dash", period: "12w" };
+  renderVals() {
+    const D = window.DESK; if (!D) return {};
+    const s = this.state, p = this.props;
+    const wk = [2100, 2680, 3050, 2900, 3410, 3120, 3560, 3290, 3820, 3610, 4100, 2780], mx = 4200;
+    const rpm = [2.02, 2.11, 2.24, 2.09, 2.17, 2.12, 2.21, 2.19, 2.26, 2.14, 2.31, 2.18], fl = 1.86;
+    const bars = [1, 2, 3, 5, 7, 6, 4, 2], labels = ["under −20%", "−20 to −10", "−10 to −5", "−5 to 0", "0 to +5", "+5 to +10", "+10 to +20", "over +20%"];
+    const tone = ["var(--neg-fill)", "var(--neg-fill)", "var(--warn-fill)", "var(--warn-fill)", "var(--pos-fill)", "var(--pos-fill)", "var(--pos-fill)", "var(--pos-fill)"];
+    const dec = (at, no, cust, s2, vs, done, why, left, offer) => ({ at, no, cust, s: s2, g: { take: "✓", think: "!", reject: "✕", unjudged: "" }[s2], word: D.WORD[s2], vs, done, why, left, offer, cls: left.startsWith("−") ? "t-neg" : "" });
+    return {
+      sub: s.tab === "dash" ? "What only a dashboard can show. Customers and lanes link to their own pages." : s.tab === "quotes" ? "How quotes were decided, and what the card had said." : "A printable summary for the period.",
+      periods: [["30d", "30 days"], ["12w", "12 weeks"], ["ytd", "Year to date"]].map(([k, label]) => ({ label, on: s.period === k, go: () => this.setState({ period: k }) })),
+      tabs: [["dash", "Dashboard"], ["quotes", "Quote decisions"], ["report", "Management report"]].map(([k, label]) => ({ label, on: s.tab === k ? "true" : "false", go: () => this.setState({ tab: k }) })),
+      onDash: s.tab === "dash", onQuotes: s.tab === "quotes", onReport: s.tab === "report",
+      stats: [{ k: "Delivered", v: "30", d: "▲ +4", cls: "t-pos" }, { k: "All-In", v: "$2.18/mi", d: "▲ +$0.06", cls: "t-pos" }, { k: "Empty miles", v: "23.6%", d: "▼ −1.8 pts (down is good)", cls: "t-pos" }, { k: "Days to pay", v: "34.6", d: "▲ +2.1 (up is slower)", cls: "t-neg" }, { k: "Below cost, taken", v: "3", d: "Rejects booked with a reason", cls: "t-warn" }],
+      weeks: wk.map((v, i) => ({ v: "$" + (v / 1000).toFixed(1) + "k", h: (v / mx) * 100 + "%", l: i === 11 ? "now" : "W" + (i + 1) })), floorAt: (fl / 2.6) * 100 + "%", floorTxt: "$1.86/mi",
+      trend: rpm.map((v, i) => ({ v: v.toFixed(2), h: (v / 2.6) * 100 + "%", bg: v > fl + 0.05 ? "var(--pos-fill)" : v >= fl ? "var(--warn-fill)" : "var(--neg-fill)" })),
+      bins: bars.map((n, i) => ({ label: labels[i], n, w: (n / 8) * 100 + "%", bg: tone[i] })),
+      pay: D.customers.map((c) => ({ name: c.name, v: c.days.toFixed(1) + " d", w: (c.days / 60) * 100 + "%", bg: c.days > 45 ? "var(--neg-fill)" : c.days > 35 ? "var(--warn-fill)" : "var(--pos-fill)" })),
+      drivers: [{ a: "Sam Okafor", b: 11, c: "$2.24", d: "19.8%", e: "10 of 11" }, { a: "Alex Rivera", b: 9, c: "$2.21", d: "22.4%", e: "8 of 9" }, { a: "Casey Brooks", b: 7, c: "$2.09", d: "27.9%", e: "6 of 7" }, { a: "Jordan Lee", b: 3, c: "$1.71", d: "31.2%", e: "3 of 3" }],
+      lanes: [{ a: "Houston → Memphis", b: 4, c: "$2.20", d: "+$905", cls: "" }, { a: "Dallas → Atlanta", b: 5, c: "$2.05", d: "+$1,230", cls: "" }, { a: "Atlanta → Charlotte", b: 3, c: "$1.82", d: "−$75", cls: "t-neg" }, { a: "Chicago → Indianapolis", b: 3, c: "$2.60", d: "+$410", cls: "" }],
+      toLanes: (e) => { e.preventDefault(); p.go && p.go("lanes"); },
+      decisions: [dec("Nov 02 15:40", "Q-1039", "Northline Brokerage", "think", "Your lane", "Booked", "Backhaul coming", "+$167", "$610 → $640"), dec("Nov 04 08:05", "Q-1041", "Redwood Load Partners", "reject", "Your lane", "Passed", "Pays under the floor", "−$226", "$640"), dec("Nov 01 10:12", "Q-1034", "Blue Mesa Logistics", "reject", "Market (typed)", "Booked anyway", "Keeps the customer", "−$140", "$900 → $900"), dec("Oct 31 16:30", "Q-1033", "Sample Freight Co", "take", "Not checked", "Booked", "", "+$312", "$1,600"), dec("Oct 30 09:44", "Q-1031", "Harbor and Pine Freight", "unjudged", "Not checked", "Saved", "", "—", "$800")]
+    };
+  }
+}
+</script>
+</body>
+</html>

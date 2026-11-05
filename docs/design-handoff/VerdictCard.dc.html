@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<section class="t-pn" aria-label="The verdict" data-screen-label="Verdict card">
+  <div class="t-ph"><i>VC</i>Verdict<span class="meta">{{ forLabel }}</span></div>
+  <div class="t-body" style="display:grid;gap:10px">
+    <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
+      <div style="display:flex;align-items:center;gap:10px"><span class="vm" data-s="{{ v.state }}" style="--s:36px"><span>{{ v.glyph }}</span></span><span class="vc-word" tabindex="0" onMouseEnter="{{ sayState }}" onFocus="{{ sayState }}">{{ v.word }}</span></div>
+      <sc-if value="{{ v.hasFigure }}" hint-placeholder-val="{{ true }}"><div style="text-align:right"><div class="t-hero">{{ v.allIn }}<small>/mi all-in</small></div><div class="t-dim">on {{ v.miles }} · {{ v.homeText }}</div></div></sc-if>
+    </div>
+    <p class="vc-sent">{{ v.sentence }}</p>
+    <sc-if value="{{ v.hasRuler }}" hint-placeholder-val="{{ true }}">
+    <div>
+      <div class="vc-rule" role="img" aria-label="{{ v.said }}">
+        <div class="trk"></div><div class="loss" style="width:{{ rl.lossW }}"></div>
+        <sc-for list="{{ rl.ticks }}" as="t" hint-placeholder-count="6"><div class="tk" style="left:{{ t }}"></div></sc-for>
+        <div class="run" style="left:{{ rl.runL }};width:{{ rl.runW }};background:{{ rl.tone }}"></div>
+        <div class="flr" style="left:{{ rl.floorAt }}"></div><div class="tg" style="left:{{ rl.floorAt }}">FLOOR</div>
+        <sc-if value="{{ rl.hasMarket }}" hint-placeholder-val="{{ false }}"><div class="mkt" style="left:{{ rl.marketAt }}"></div><div class="tg" style="left:{{ rl.marketAt }}">{{ rl.marketTag }}</div></sc-if>
+        <div class="off" style="left:{{ rl.offerAt }}"><span class="vm" data-s="{{ v.state }}" style="--s:20px"><span>{{ v.glyph }}</span></span></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;gap:8px;color:var(--dim);font-size:11px;margin-top:2px"><span>▨ loses money</span><span>floor {{ rl.floorTxt }} · {{ rl.marketTxt }} · this load {{ rl.offerTxt }}</span><span>pays ▸</span></div>
+    </div>
+    </sc-if>
+    <sc-if value="{{ v.isUnjudged }}" hint-placeholder-val="{{ false }}"><p class="t-note t-dim">No ruler: the card does not draw what it does not know.</p></sc-if>
+    <sc-if value="{{ showWorking }}" hint-placeholder-val="{{ true }}">
+    <dl class="t-kv" aria-label="The working"><sc-for list="{{ ladder }}" as="l" hint-placeholder-count="6"><dt tabindex="0" onMouseEnter="{{ l.say }}" onFocus="{{ l.say }}">{{ l.k }}</dt><dd class="{{ l.cls }}">{{ l.v }}</dd></sc-for></dl>
+    </sc-if>
+    <div class="vc-rest" aria-label="What this rests on"><sc-for list="{{ ground }}" as="g" hint-placeholder-count="4"><span class="{{ g.cls }}"><i>{{ g.mark }}</i>{{ g.label }}</span></sc-for></div>
+    <div class="t-note" style="border-top:1px solid var(--line);padding-top:6px;min-height:40px"><b>{{ explain.t }}</b> {{ explain.b }}</div>
+  </div>
+</section>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:460,&quot;height&quot;:520},&quot;gross&quot;:{&quot;editor&quot;:&quot;float&quot;,&quot;default&quot;:1260,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Load&quot;},&quot;miles&quot;:{&quot;editor&quot;:&quot;float&quot;,&quot;default&quot;:572,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Load&quot;},&quot;floor&quot;:{&quot;editor&quot;:&quot;float&quot;,&quot;default&quot;:1.91,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Load&quot;},&quot;marketTotal&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;number&quot;},&quot;benchmark&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;lane&quot;,&quot;options&quot;:[&quot;lane&quot;,&quot;market&quot;],&quot;tsType&quot;:&quot;string&quot;},&quot;hasFuel&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;yes&quot;,&quot;options&quot;:[&quot;yes&quot;,&quot;no&quot;],&quot;tsType&quot;:&quot;string&quot;},&quot;forLabel&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Priced for Unit 102 · Sam Okafor&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;homeText&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;compact&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;milesFrom&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;fuelFrom&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;laneLoads&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;number&quot;},&quot;driver&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { explain: null };
+  renderVals() {
+    const D = window.DESK; if (!D) return {};
+    const p = this.props, G = { take: "✓", think: "!", reject: "✕", unjudged: "" };
+    const gross = Number(p.gross ?? 1260), miles = Number(p.miles ?? 572), floor = Number(p.floor ?? 1.91);
+    const bench = p.benchmark ?? "lane", mt = p.marketTotal === "none" ? null : p.marketTotal != null ? Number(p.marketTotal) : null;
+    const hasFuel = p.hasFuel !== "no";
+    const f = D.facts({ gross, miles, floor, marketTotal: mt, benchmark: bench, hasFuel });
+    if (!hasFuel) { f.allInPerMile = null; f.marginPerMile = null; f.leftOver = null; }
+    const v = D.readVerdict(f), sgn = (n, d = 2) => (n >= 0 ? "+" : "−") + "$" + Math.abs(n).toFixed(d);
+    const r = v.ruler;
+    const rl = r ? (() => { const floorAt = r.floor.at, offerAt = Math.max(1, Math.min(99, r.offer.at)); const ticks = []; for (let k = -6; k <= 6; k++) { const at = floorAt + k * 0.25 * r.scale; if (at > 1 && at < 99) ticks.push(at.toFixed(1) + "%"); }
+      return { floorAt: floorAt + "%", offerAt: offerAt + "%", lossW: floorAt + "%", runL: Math.min(floorAt, offerAt) + "%", runW: Math.abs(offerAt - floorAt) + "%", tone: v.state === "take" ? "var(--pos-fill)" : v.state === "think" ? "var(--warn-fill)" : "var(--neg-fill)", ticks,
+        hasMarket: !!r.market, marketAt: r.market ? Math.max(1, Math.min(99, r.market.at)) + "%" : "0%", marketTag: r.marketName === "Your lane" ? "LANE" : "MARKET", floorTxt: D.rate(r.floor.value), offerTxt: D.rate(r.offer.value), marketTxt: r.market ? r.marketName.toLowerCase() + " " + D.rate(r.market.value) : "market not checked" }; })() : { ticks: [] };
+    const say = (t, b) => () => this.setState({ explain: { t, b } });
+    const lane = bench === "lane" && mt != null;
+    const ground = D.groundOf({ miles: p.milesFrom ?? "measured", fuel: hasFuel ? (p.fuelFrom ?? "own") : "none", market: lane ? { laneLoads: Number(p.laneLoads ?? 4), laneDays: 90 } : mt != null ? "typed" : "none", driver: p.driver !== "no" }).map((g) => ({ label: g.label, cls: g.firm ? "firm" : "trust", mark: g.firm ? "■" : "□" }));
+    const ladder = f.allInPerMile == null ? [] : [
+      { k: "Pay with surcharge", v: D.usd(gross, 2), cls: "t-typed", say: say("Pay with surcharge.", "What the load pays in all, with the fuel surcharge.") },
+      { k: "Every mile driven", v: Math.round(miles) + " mi", cls: "", say: say("Every mile driven.", "Empty miles to the pickup, loaded miles, and the empty way home unless a load covers it.") },
+      { k: "All-In", v: D.rate(f.allInPerMile), cls: "", say: say("All-In.", "Total pay over every mile driven, empty ones included.") },
+      { k: "Floor", v: D.rate(floor), cls: "", say: say("Floor.", "What a mile costs to run this truck, from its cost profile. Right of it you make money; left of it you lose it.") },
+      { k: "Margin", v: sgn(f.marginPerMile) + "/mi", cls: f.marginPerMile < 0 ? "t-neg" : "", say: say("Margin.", "All-In minus Floor, on every mile.") },
+      { k: "Left over", v: sgn(f.leftOver, 0), cls: (f.leftOver < 0 ? "t-neg " : "") + "sum", say: say("Left over.", "Margin times every mile: what the whole trip clears after the truck is paid for.") }
+    ];
+    if (f.marketPct != null) ladder.push({ k: "Against " + (lane ? "your lane" : "the market"), v: `${f.marketPct >= 0 ? "+" : "−"}${Math.abs(f.marketPct * 100).toFixed(1)}% (${sgn(f.marketDollars, 0)})`, cls: "", say: say("Against " + (lane ? "your lane." : "the market."), "It can make a good load Caution, and one over 20% under it a Reject. It never turns a verdict green.") });
+    return {
+      forLabel: p.forLabel ?? "", showWorking: p.compact !== "yes",
+      v: { state: v.state, word: v.word, glyph: G[v.state], sentence: v.sentence, hasFigure: f.allInPerMile != null, allIn: f.allInPerMile == null ? "" : D.rpm(f.allInPerMile), miles: Math.round(miles) + " mi", homeText: p.homeText ?? "", hasRuler: !!r, isUnjudged: v.state === "unjudged", said: `This load pays ${f.allInPerMile ? D.rate(f.allInPerMile) : "—"} against a floor of ${D.rate(floor)}.` },
+      rl, ladder, ground, explain: this.state.explain || { t: "Hover or tab to any figure.", b: "It says what it is and how it is worked out." },
+      sayState: say(v.word + ".", { take: "It pays more than it costs to run this truck, and it is not well under the market.", think: "It clears your cost, but something deserves a second look: a thin margin, pay under the market, or slow money.", reject: "It pays less than it costs to run, or more than 20% under the market. A reason can still book it.", unjudged: "The truck needs an mpg and a fuel price before its cost is known." }[v.state])
+    };
+  }
+}
+</script>
+</body>
+</html>

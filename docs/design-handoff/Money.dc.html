@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="Money">
+  <div class="t-pagehead"><h1><i>{{ code }}</i>{{ title }}</h1><p>{{ sub }}</p>
+    <div class="acts"><sc-if value="{{ isSettle }}" hint-placeholder-val="{{ false }}"><button class="t-btn pri" disabled="{{ noBill }}">Start a statement</button></sc-if><sc-if value="{{ isInv }}" hint-placeholder-val="{{ true }}"><button class="t-btn">Export CSV</button></sc-if></div></div>
+
+  <!-- INVOICES -->
+  <sc-if value="{{ isInv }}" hint-placeholder-val="{{ true }}">
+  <div class="t-tick" style="grid-column:auto;height:28px;border-bottom:1px solid var(--line)" role="group" aria-label="Where the money is">
+    <div><span>Ready to invoice</span><b>$1,600</b></div><div><span>Out and waiting</span><b>$1,790</b></div><div><span>Overdue</span><b class="t-neg">$1,110</b></div><div><span>Paid, last 30 days</span><b>$3,420</b></div>
+  </div>
+  <div class="t-tabs" role="tablist" aria-label="Show"><sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5"><button role="tab" aria-selected="{{ t.on }}" onClick="{{ t.go }}">{{ t.label }} <em>{{ t.n }}</em></button></sc-for></div>
+  <section class="t-pn" aria-label="Invoices">
+    <div class="t-tw"><table class="t-tbl" aria-label="Invoices">
+      <thead><tr><th scope="col">Invoice</th><th scope="col">Load</th><th scope="col">Customer</th><th scope="col" class="n">Billed</th><th scope="col">Sent</th><th scope="col">Due</th><th scope="col">Where the money is</th><th scope="col" class="n">Balance</th><th scope="col"></th></tr></thead>
+      <tbody>
+        <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}"><tr><td colSpan="9"><div class="t-skel" style="width:70%"></div></td></tr></sc-if>
+        <sc-for list="{{ invs }}" as="r" hint-placeholder-count="6"><tr>
+          <td><a href="#invoices" onClick="{{ r.sheet }}">{{ r.no }}</a></td><td><a href="#loads" onClick="{{ toLoads }}">{{ r.load }}</a></td><td>{{ r.cust }}</td><td class="n">{{ r.billed }}</td><td>{{ r.sent }}</td><td>{{ r.due }}</td>
+          <td class="two"><span class="t-st" data-tone="{{ r.tone }}">{{ r.label }}</span><small>{{ r.detail }}</small></td><td class="n">{{ r.bal }}</td>
+          <td class="n"><button class="t-btn sm" type="button" disabled="{{ noBill }}" onClick="{{ r.act }}">{{ r.action }}</button></td></tr></sc-for>
+        <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}"><tr><td colSpan="9" class="t-dim" style="height:40px">Nothing here. A delivered load is ready to invoice from its page.</td></tr></sc-if>
+      </tbody></table></div>
+  </section>
+  </sc-if>
+
+  <!-- SETTLEMENTS -->
+  <sc-if value="{{ isSettle }}" hint-placeholder-val="{{ false }}">
+  <div class="t-gr" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
+    <section class="t-pn" aria-label="Statements"><div class="t-ph"><i>ST</i>Driver statements<span class="meta">Periods are Dallas dates</span></div>
+      <div class="t-tw"><table class="t-tbl" aria-label="Statements"><thead><tr><th scope="col">Statement</th><th scope="col">Driver</th><th scope="col">Period</th><th scope="col" class="n">Total</th><th scope="col">State</th><th scope="col"></th></tr></thead>
+        <tbody><sc-for list="{{ stmts }}" as="r" hint-placeholder-count="4"><tr aria-selected="{{ r.sel }}" onClick="{{ r.pick }}"><td>{{ r.no }}</td><td>{{ r.driver }}</td><td>{{ r.period }}</td><td class="n">{{ r.total }}</td><td class="two"><span class="t-st" data-tone="{{ r.tone }}">{{ r.state }}</span><small>{{ r.detail }}</small></td><td class="n"><button class="t-btn sm" disabled="{{ r.off }}" onClick="{{ r.act }}">{{ r.action }}</button></td></tr></sc-for></tbody></table></div></section>
+    <section class="t-pn" aria-label="Draft statement"><div class="t-ph"><i>DR</i>ST-0009 · Casey Brooks · draft<span class="meta">Worked out from delivered loads each time it is shown</span></div>
+      <div class="t-tw"><table class="t-tbl" aria-label="Loads on the statement"><thead><tr><th scope="col">Load</th><th scope="col">Route</th><th scope="col" class="n">Miles</th><th scope="col" class="n">Rate</th><th scope="col" class="n">Amount</th></tr></thead>
+        <tbody><tr><td>DM-40027</td><td>Atlanta → Charlotte</td><td class="n">438</td><td class="n">$0.55/mi</td><td class="n">$240.90</td></tr><tr><td>DM-40023</td><td>Kansas City → St. Louis</td><td class="n">436</td><td class="n">$0.55/mi</td><td class="n">$239.80</td></tr>
+          <tr><td colSpan="4" class="t-dim">Adjustment: advance <span class="t-typed">(typed)</span></td><td class="n t-typed">−$100.00</td></tr></tbody></table></div>
+      <dl class="t-kv t-body" style="padding-top:0"><dt>Total</dt><dd class="sum t-hero" style="font-size:22px">$380.70</dd></dl>
+      <div class="t-body" style="display:flex;gap:6px;justify-content:flex-end;border-top:1px solid var(--line)"><button class="t-btn" disabled="{{ noBill }}">Discard</button><button class="t-btn pri" disabled="{{ noBill }}" onClick="{{ openStmt }}">Finalize</button></div></section>
+  </div>
+  </sc-if>
+
+  <!-- PAYROLL -->
+  <sc-if value="{{ isPay }}" hint-placeholder-val="{{ false }}">
+  <section class="t-pn" aria-label="Payroll"><div class="t-ph"><i>PY</i>Who is set up to be paid<span class="meta">Statements go to payroll once final</span></div>
+    <div class="t-tw"><table class="t-tbl" aria-label="Payroll"><thead><tr><th scope="col">Driver</th><th scope="col">Worker type</th><th scope="col">Payroll id</th><th scope="col">Status</th><th scope="col">Last statement</th><th scope="col"></th></tr></thead>
+      <tbody><sc-for list="{{ pay }}" as="r" hint-placeholder-count="4"><tr><td>{{ r.name }}</td><td>{{ r.type }}</td><td class="t-dim">{{ r.id }}</td><td class="two"><span class="t-st" data-tone="{{ r.tone }}">{{ r.state }}</span><small>{{ r.detail }}</small></td><td>{{ r.last }}</td><td class="n"><button class="t-btn sm" disabled="{{ noBill }}">{{ r.action }}</button></td></tr></sc-for></tbody></table></div></section>
+  </sc-if>
+
+  <!-- paper -->
+  <sc-if value="{{ sheet }}" hint-placeholder-val="{{ false }}">
+    <div class="t-scrim" onClick="{{ closeSheet }}"></div>
+    <div class="t-dlg" style="width:min(820px,calc(100% - 24px));top:60px;max-height:calc(100% - 90px)" role="dialog" aria-modal="true" aria-label="{{ doc.kicker }}">
+      <div class="t-ph"><i>PDF</i>{{ doc.kicker }} {{ doc.no }}<span class="meta"><button class="t-btn sm">Download PDF</button><button class="t-btn sm" onClick="{{ closeSheet }}">Close</button></span></div>
+      <article class="t-doc" style="margin:12px auto">
+        <div style="display:flex;justify-content:space-between;gap:20px;border-bottom:2px solid #111;padding-bottom:12px">
+          <div><div class="k">{{ doc.kicker }}</div><h1>{{ doc.no }}</h1><p style="margin-top:6px"><b>Demo Fleet LLC</b><br>MC 900123 · DOT 3300123<br>1200 Sample Road, Dallas, TX 75201</p></div>
+          <div style="text-align:right"><div class="k">{{ doc.heroLabel }}</div><div style="font:600 30px/34px 'IBM Plex Mono',monospace">{{ doc.hero }}</div><div class="k" style="margin-top:4px">{{ doc.sub }}</div><span class="stamp {{ doc.stampCls }}" style="margin-top:8px">{{ doc.stamp }}</span></div>
+        </div>
+        <div style="display:flex;gap:30px;margin:12px 0"><div><div class="k">{{ doc.toLabel }}</div>{{ doc.to }}</div><div><div class="k">Terms</div>{{ doc.terms }}</div><div><div class="k">Dates</div>{{ doc.dates }}</div></div>
+        <table><thead><tr><th>{{ doc.c1 }}</th><th>{{ doc.c2 }}</th><th class="n">{{ doc.c3 }}</th></tr></thead><tbody><sc-for list="{{ doc.lines }}" as="l" hint-placeholder-count="3"><tr><td>{{ l.a }}</td><td>{{ l.b }}</td><td class="n">{{ l.c }}</td></tr></sc-for></tbody></table>
+        <p class="k" style="margin-top:14px">{{ doc.foot }}</p>
+      </article>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1268,&quot;height&quot;:620},&quot;kind&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;invoices&quot;,&quot;options&quot;:[&quot;invoices&quot;,&quot;settlements&quot;,&quot;payroll&quot;],&quot;tsType&quot;:&quot;string&quot;},&quot;role&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;ui&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s:string)=&gt;void&quot;}}">
+class Component extends DCLogic {
+  state = { tab: "all", sheet: null, sel: 2 };
+  renderVals() {
+    const D = window.DESK; if (!D) return {};
+    const p = this.props, s = this.state, kind = p.kind ?? "invoices", ui = p.ui ?? "normal";
+    const bill = ["accounting", "admin"].includes(p.role ?? "dispatcher");
+    const I = (no, load, cust, billed, sent, due, key, label, tone, detail, bal, action) => ({ no, load, cust, billed, sent, due, key, label, tone, detail, bal, action });
+    const all = [
+      I("—", "DM-40021", "Sample Freight Co", "$1,600.00", "—", "—", "ready", "Not invoiced yet", "info", "Delivered Oct 30", "—", "Invoice"),
+      I("INV-40022", "DM-40022", "Northline Brokerage", "$520.00", "Oct 30", "Nov 29", "out", "Out and waiting", "warn", "", "$520.00", "Mark paid"),
+      I("INV-40023", "DM-40023", "Redwood Load Partners", "$600.00", "Sep 23", "Oct 23", "overdue", "Overdue", "bad", "12 days overdue", "$600.00", "Chase"),
+      I("INV-40024", "DM-40024", "Blue Mesa Logistics", "$910.00", "Sep 29", "Oct 29", "overdue", "Part paid", "bad", "$400.00 in, $510.00 to come · 6 days overdue", "$510.00", "Mark paid"),
+      I("INV-40025", "DM-40025", "Harbor and Pine Freight", "$1,260.00", "Oct 29", "Nov 28", "paid", "Paid", "ok", "Nov 02", "$0.00", "Open"),
+      I("INV-40026", "DM-40026", "Northline Brokerage", "$520.00", "Sep 19", "Oct 19", "paid", "Paid short", "bad", "$40.00 short of $520.00", "$0.00", "Open"),
+      I("INV-40027", "DM-40027", "Redwood Load Partners", "$590.00", "Sep 12", "Oct 12", "paid", "Closed short", "bad", "$75.00 written off: detention not agreed", "$0.00", "Open")
+    ];
+    const tabs = [["all", "All"], ["ready", "Ready to invoice"], ["out", "Out"], ["overdue", "Overdue"], ["paid", "Paid"]].map(([k, label]) => ({ label, n: all.filter((r) => k === "all" || r.key === k).length, on: s.tab === k ? "true" : "false", go: () => this.setState({ tab: k }) }));
+    const rows = all.filter((r) => s.tab === "all" || r.key === s.tab);
+    const sheetOf = (r) => ({ kicker: "Invoice", no: r.no === "—" ? "INV-40021" : r.no, heroLabel: r.key === "paid" ? "Paid in full" : "Balance due", hero: r.key === "ready" ? r.billed : r.key === "paid" ? r.billed : r.bal, sub: `${r.load} · ${r.cust}`, stamp: r.key === "overdue" ? "Overdue 12 days" : r.key === "paid" ? "Paid" : r.key === "ready" ? "Draft" : "Out", stampCls: r.key === "overdue" ? "bad" : "", toLabel: "Bill to", to: r.cust, terms: "Net 30", dates: `Sent ${r.sent} · Due ${r.due}`, c1: "Line", c2: "Reference", c3: "Amount", lines: [{ a: "Linehaul", b: r.load, c: r.billed }, { a: "Fuel surcharge", b: "", c: "$0.00" }, { a: "Detention", b: "none billed", c: "$0.00" }], foot: "Remit to Sample Bank lockbox, 100 Sample Plaza, Dallas, TX. Sheets stay paper-white in both themes: they are printed or saved as PDF." });
+    const st = [
+      ["ST-0009", "Casey Brooks", "Oct 19 to Nov 01", "$380.70", "draft", "info", "Draft", "Loads worked out each time", "Finalize", "d"],
+      ["ST-0008", "Sam Okafor", "Oct 19 to Nov 01", "$1,142.60", "final", "warn", "Final, with payroll", "Sent to payroll Nov 02 · PR-88014", "Open", "f"],
+      ["ST-0007", "Alex Rivera", "Oct 19 to Nov 01", "$988.20", "paid", "ok", "Paid", "Check · Nov 03", "Open", "f"],
+      ["ST-0006", "Jordan Lee", "Oct 05 to Oct 18", "$612.00", "void", "mute", "Void", "Voided: wrong period. Loads released.", "Open", "f"]
+    ].map(([no, driver, period, total, key, tone, state, detail, action, ty], i) => ({ no, driver, period, total, tone, state, detail, action, off: !bill && ty === "d" ? true : undefined, sel: i === 0 ? "true" : "false", pick: () => {}, act: () => this.setState({ sheet: ty === "d" ? "draft" : "final" }) }));
+    const stmtDoc = { kicker: "Driver statement", no: "ST-0008", heroLabel: "Total pay", hero: "$1,142.60", sub: "Sam Okafor · Oct 19 to Nov 01", stamp: "Finalized", stampCls: "", toLabel: "Pay to", to: "Sam Okafor", terms: "$0.52/mi", dates: "Finalized Nov 02", c1: "Load", c2: "Route", c3: "Amount", lines: [{ a: "DM-40025", b: "Houston → Memphis, 560 mi", c: "$291.20" }, { a: "DM-40051", b: "Chicago → Indianapolis, 183 mi", c: "$95.16" }, { a: "…", b: "3 more loads", c: "$806.24" }, { a: "Advance", b: "typed adjustment", c: "−$50.00" }], foot: "Each load on a final statement is tied to it and cannot be paid twice. Voiding releases them and keeps this statement as it was." };
+    const pay = D.drivers.map((d) => ({ name: d.name, type: d.id === "d3" ? "Contractor" : "Employee", id: d.payroll === "none" ? "—" : "PR-" + (7000 + d.name.length * 31), state: { none: "Not set up", ready: "Ready", sent: "Sent", failed: "Failed" }[d.payroll], tone: { none: "mute", ready: "ok", sent: "info", failed: "bad" }[d.payroll], detail: d.payroll === "failed" ? "The provider refused the set-up. The message is in the audit log." : "", last: d.id === "d2" ? "ST-0008" : d.id === "d1" ? "ST-0007" : "—", action: { none: "Set up", ready: "Send statement", sent: "Open", failed: "Retry" }[d.payroll] }));
+    const docNow = s.sheet === "final" ? stmtDoc : s.sheet === "draft" ? { ...stmtDoc, no: "ST-0009 (draft)", sub: "Casey Brooks · Oct 19 to Nov 01", hero: "$380.70", stamp: "Draft", lines: [{ a: "DM-40027", b: "Atlanta → Charlotte, 438 mi", c: "$240.90" }, { a: "DM-40023", b: "Kansas City → St. Louis, 436 mi", c: "$239.80" }, { a: "Advance", b: "typed adjustment", c: "−$100.00" }], dates: "Not final", to: "Casey Brooks", terms: "$0.55/mi" } : s.sheet && s.sheet.startsWith("inv") ? sheetOf(all.find((r) => r.no === s.sheet.slice(3))) : stmtDoc;
+    return {
+      code: { invoices: "IV", settlements: "ST", payroll: "PY" }[kind], title: { invoices: "Invoices", settlements: "Settlements", payroll: "Payroll" }[kind], sub: { invoices: "What is owed to you, what is late, and what came in short.", settlements: "What each driver is owed for the period, as a statement.", payroll: "Getting a final statement to the payroll company." }[kind],
+      isInv: kind === "invoices", isSettle: kind === "settlements", isPay: kind === "payroll", noBill: bill ? undefined : true, tabs, isLoading: ui === "loading", isEmpty: ui === "empty" || (ui !== "loading" && rows.length === 0),
+      invs: ui === "empty" ? [] : rows.map((r) => ({ ...r, bal: r.bal, sheet: (e) => { e.preventDefault(); this.setState({ sheet: "inv" + r.no }); }, act: () => this.setState({ sheet: "inv" + r.no }) })),
+      toLoads: (e) => { e.preventDefault(); p.go && p.go("loads"); }, stmts: st, openStmt: () => this.setState({ sheet: "draft" }), pay,
+      sheet: !!s.sheet, doc: docNow, closeSheet: () => this.setState({ sheet: null })
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="Fleet">
+  <div class="t-pagehead"><h1><i>{{ code }}</i>{{ title }}</h1><p>{{ sub }}</p>
+    <div class="acts">
+      <span class="t-seg" role="group" aria-label="Fleet size preview"><button aria-pressed="{{ sz.a }}" onClick="{{ sz.setA }}">3 trucks</button><button aria-pressed="{{ sz.b }}" onClick="{{ sz.setB }}">50</button><button aria-pressed="{{ sz.c }}" onClick="{{ sz.setC }}">1,512</button></span>
+      <span class="t-seg" role="group" aria-label="Plan preview"><button aria-pressed="{{ planPro }}" onClick="{{ setPro }}">Pro</button><button aria-pressed="{{ planStarter }}" onClick="{{ setStarter }}">Starter</button></span>
+      <button class="t-btn" type="button" disabled="{{ noWrite }}" onClick="{{ openImport }}">Import CSV</button>
+      <button class="t-btn pri" type="button" disabled="{{ addOff }}" title="{{ addWhy }}" onClick="{{ openAdd }}">{{ addLabel }}</button>
+    </div>
+  </div>
+  <sc-if value="{{ planFull }}" hint-placeholder-val="{{ false }}"><div class="t-banner"><b>Plan full</b>Starter holds 3 trucks, 6 drivers and 6 trailers, and you are using 3 of 3 trucks. <a href="#settings" onClick="{{ talk }}">Talk to a person</a> to add more.</div></sc-if>
+  <sc-if value="{{ detail }}" hint-placeholder-val="{{ false }}">
+    <div class="t-gr" style="grid-template-columns:repeat(auto-fit,minmax(360px,1fr))">
+      <section class="t-pn" aria-label="Summary">
+        <div class="t-ph"><i>{{ code }}</i>{{ detail.title }}<span class="meta"><a href="#fleet" onClick="{{ closeDetail }}">◂ All {{ title }}</a></span></div>
+        <div class="t-body" style="display:grid;gap:10px">
+          <sc-if value="{{ detail.hero }}" hint-placeholder-val="{{ false }}"><div><div class="t-lbl">{{ detail.heroLabel }}</div><div class="t-hero">{{ detail.hero }}<small>{{ detail.heroUnit }}</small></div><div class="t-dim">{{ detail.heroNote }}</div></div></sc-if>
+          <dl class="t-kv"><sc-for list="{{ detail.kv }}" as="k" hint-placeholder-count="8"><dt>{{ k.k }}</dt><dd class="{{ k.cls }}">{{ k.v }}</dd></sc-for></dl>
+        </div>
+      </section>
+      <section class="t-pn" aria-label="More">
+        <div class="t-ph"><i>{{ detail.code2 }}</i>{{ detail.title2 }}</div>
+        <div class="t-tw"><table class="t-tbl"><tbody><sc-for list="{{ detail.rows }}" as="r" hint-placeholder-count="4"><tr><td>{{ r.a }}</td><td class="t-dim">{{ r.b }}</td><td class="n">{{ r.c }}</td></tr></sc-for></tbody></table></div>
+        <div class="t-body" style="display:flex;gap:6px;border-top:1px solid var(--line)"><button class="t-btn" disabled="{{ noWrite }}">Edit</button><button class="t-btn" disabled="{{ noWrite }}">Archive</button></div>
+      </section>
+    </div>
+  </sc-if>
+  <sc-if value="{{ listOn }}" hint-placeholder-val="{{ true }}">
+  <section class="t-pn" aria-label="{{ title }}">
+    <div class="t-ph"><i>{{ code }}</i>{{ title }} <span style="color:var(--dim)">{{ count }}</span><span class="meta"><span>Terminal: all</span><span>Plan: {{ planText }}</span></span></div>
+    <div class="t-tw"><table class="t-tbl" aria-label="{{ title }}">
+      <thead><tr><sc-for list="{{ cols }}" as="c" hint-placeholder-count="8"><th scope="col" class="{{ c.cls }}" aria-sort="{{ c.sort }}"><a href="#fleet" onClick="{{ c.go }}">{{ c.label }} {{ c.arrow }}</a></th></sc-for></tr></thead>
+      <tbody>
+        <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}"><tr><td colSpan="9"><div class="t-skel" style="width:70%"></div></td></tr><tr><td colSpan="9"><div class="t-skel" style="width:50%"></div></td></tr></sc-if>
+        <sc-for list="{{ rows }}" as="r" hint-placeholder-count="4"><tr onClick="{{ r.open }}"><sc-for list="{{ r.cells }}" as="c" hint-placeholder-count="8"><td class="{{ c.cls }}">{{ c.v }}</td></sc-for></tr></sc-for>
+        <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}"><tr><td colSpan="9" class="t-dim" style="height:40px">None yet. Add one, or import a CSV.</td></tr></sc-if>
+      </tbody></table></div>
+    <div class="t-pager"><span>{{ pager }}</span><span class="acts"><button class="t-btn sm" disabled>Previous</button><button class="t-btn sm" disabled="{{ noNext }}">Next</button></span></div>
+  </section>
+  </sc-if>
+
+  <sc-if value="{{ dlg }}" hint-placeholder-val="{{ false }}">
+    <div class="t-scrim" onClick="{{ closeDlg }}"></div>
+    <div class="t-dlg" role="dialog" aria-modal="true" aria-label="{{ dlgTitle }}">
+      <div class="t-ph"><i>{{ code }}</i>{{ dlgTitle }}<span class="meta">Kept until you save</span></div>
+      <sc-if value="{{ dlgAdd }}" hint-placeholder-val="{{ true }}"><div class="t-body" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <sc-for list="{{ addFields }}" as="f" hint-placeholder-count="6"><label class="t-fld"><span>{{ f.k }}</span><span class="t-in"><input placeholder="{{ f.ph }}"></span><small>{{ f.hint }}</small></label></sc-for>
+        <div style="grid-column:1/3;display:flex;justify-content:flex-end;gap:6px"><button class="t-btn" onClick="{{ closeDlg }}">Cancel</button><button class="t-btn pri" onClick="{{ closeDlg }}">Save</button></div></div></sc-if>
+      <sc-if value="{{ dlgImport }}" hint-placeholder-val="{{ false }}"><div class="t-body" style="display:grid;gap:8px">
+        <p class="t-note">Columns are matched by name. Rows with a missing figure are listed, not dropped, and nothing is saved until every row is yours to accept.</p>
+        <div style="border:1px dashed var(--line-hi);padding:14px;text-align:center" class="t-dim">Drop a CSV here, or <u style="color:var(--typed)">choose a file</u></div>
+        <table class="t-tbl" aria-label="Preview"><thead><tr><th>Row</th><th>Name</th><th>mpg</th><th>Result</th></tr></thead><tbody><tr><td>2</td><td>Unit 104</td><td>6.7</td><td><span class="t-st" data-tone="ok">Ready</span></td></tr><tr><td>3</td><td>Unit 105</td><td>6.9</td><td><span class="t-st" data-tone="ok">Ready</span></td></tr><tr><td>4</td><td>Unit 106</td><td></td><td><span class="t-st" data-tone="warn">Missing mpg</span></td></tr></tbody></table>
+        <div style="display:flex;justify-content:flex-end;gap:6px"><button class="t-btn" onClick="{{ closeDlg }}">Cancel</button><button class="t-btn pri" onClick="{{ closeDlg }}">Add 2 ready rows</button></div></div></sc-if>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1268,&quot;height&quot;:720},&quot;kind&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;trucks&quot;,&quot;options&quot;:[&quot;trucks&quot;,&quot;drivers&quot;,&quot;trailers&quot;],&quot;tsType&quot;:&quot;string&quot;},&quot;role&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;ui&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s:string)=&gt;void&quot;}}">
+class Component extends DCLogic {
+  state = { size: "a", sort: { k: 0, dir: 1 }, detail: null, dlg: null, plan: "pro" };
+  renderVals() {
+    const D = window.DESK; if (!D) return {};
+    const p = this.props, s = this.state, kind = p.kind ?? "trucks", role = p.role ?? "dispatcher", ui = p.ui ?? "normal";
+    const canWrite = role === "dispatcher" || role === "admin";
+    const META = { trucks: ["TK", "Trucks", "Each truck's own cost, and so its floor."], drivers: ["DR", "Drivers", "Who can be sent a load, and what they are usually paid."], trailers: ["TR", "Trailers", "The registry: what is hooked to what, and when its papers lapse."] }[kind];
+    const T = ["Dallas", "Houston", "Oklahoma City", "Memphis", "Atlanta"];
+    const n = { a: 0, b: 50, c: 1512 }[s.size];
+    const cols = { trucks: [["Truck"], ["Terminal"], ["Type"], ["mpg", "n"], ["Floor", "n"], ["Fuel $/gal", "n"], ["Hours left", "n"], ["Driver"], ["State"]], drivers: [["Driver"], ["Truck"], ["Terminal"], ["Usual pay", "n"], ["CDL expires"], ["Medical card"], ["Payroll"]], trailers: [["Trailer"], ["Type"], ["Hooked to"], ["State"], ["Terminal"], ["Location"], ["Registration"], ["Inspection"]] }[kind];
+    const base = { trucks: D.trucks.map((t) => [t.name, t.terminal, t.type === "box_truck" ? "Box truck" : "Tractor", t.mpg.toFixed(1), D.rpm(t.floor), t.fuel.toFixed(2), t.hos == null ? "No ELD" : t.hos + " h", D.drivers.filter((d) => d.truck === t.name).map((d) => d.name).join(", "), "Ready"]),
+      drivers: D.drivers.map((d) => [d.name, d.truck, d.terminal, d.pay === "cpm" ? "$" + d.rate.toFixed(2) + "/mi" : "$" + d.rate + "/hr", d.cdlExp, d.med + (d.medSoon ? "  ▲ 20 days" : ""), { none: "Not set up", ready: "Ready", sent: "Sent", failed: "Failed" }[d.payroll]]),
+      trailers: D.trailers.map((t) => [t.no, t.type, t.hook, { available: "Available", in_shop: "In the shop", out_of_service: "Out of service" }[t.status], t.terminal, t.loc, t.reg + (t.lapsed ? "  ▼" : ""), t.insp + (t.soon ? "  ▲ 12 days" : "")]) }[kind];
+    let all = base;
+    if (n) { all = []; for (let i = 0; i < n; i++) { const b = base[i % base.length].slice(); const num = 100 + i; if (kind === "trucks") { b[0] = "Unit " + num; b[1] = T[i % 5]; b[3] = (6.2 + (i % 12) * 0.1).toFixed(1); b[4] = D.rpm(1.78 + (i % 25) * 0.01); b[6] = i % 4 ? 5 + (i % 20) + " h" : "No ELD"; b[7] = "Driver " + (i + 1); } else if (kind === "drivers") { b[0] = "Driver " + (i + 1); b[1] = "Unit " + num; b[2] = T[i % 5]; } else { b[0] = "T-" + num; b[4] = T[i % 5]; } all.push(b); } }
+    const key = (v) => { const x = parseFloat(String(v).replace(/[^0-9.\-]/g, "")); return isNaN(x) || /[A-Za-z]{3}/.test(String(v)) ? String(v).toLowerCase() : x; };
+    const sorted = [...all].sort((a, b) => { const x = key(a[s.sort.k]), y = key(b[s.sort.k]); const c = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y)); return c * s.sort.dir; });
+    const shown = ui === "empty" ? [] : sorted.slice(0, 50);
+    const fact = (k, v, cls) => ({ k, v, cls: cls || "" });
+    const mkDetail = (r) => {
+      if (kind === "trucks") { const t = D.trucks.find((x) => x.name === r[0]) || D.trucks[1]; return { title: r[0], hero: D.rpm(t.floor), heroUnit: "/mi", heroLabel: "Floor", heroNote: "From this truck's audited cost profile, its fuel price and its driver's pay. It is the line every verdict on this truck is read against.", kv: [fact("Terminal", t.terminal), fact("mpg", t.mpg.toFixed(1), "t-typed"), fact("Fuel price", "$" + t.fuel.toFixed(2) + "/gal", "t-typed"), fact("Hours left (ELD)", t.hos == null ? "No ELD connected" : t.hos + " h"), fact("Equipment", t.equip), fact("Home base", t.base), fact("Trailer hooked", t.name === "Unit 101" ? "T-101 dry van" : t.name === "Unit 102" ? "T-102 reefer" : "None")], code2: "CP", title2: "Cost profile inputs", rows: [{ a: "Insurance", b: "monthly", c: "$1,380" }, { a: "Authority", b: "monthly", c: "$120" }, { a: "Phone and subscriptions", b: "monthly", c: "$90" }, { a: "Loan or replacement", b: "monthly", c: "$700" }, { a: "Maintenance reserve", b: "per mile", c: "$0.15" }, { a: "Tire reserve", b: "per mile", c: "$0.04" }, { a: "Estimated miles", b: "monthly", c: "7,000" }] }; }
+      if (kind === "drivers") { const d = D.drivers.find((x) => x.name === r[0]) || D.drivers[1]; return { title: d.name, hero: d.pay === "cpm" ? "$" + d.rate.toFixed(2) : "$" + d.rate, heroUnit: d.pay === "cpm" ? "/mi" : "/hr", heroLabel: "Usual pay", heroNote: "An assignment starts from it. The assignment's own pay wins.", kv: [fact("Truck", d.truck), fact("Terminal", d.terminal), fact("CDL class", d.cdl), fact("CDL expires", d.cdlExp), fact("Medical card", d.med, d.medSoon ? "t-warn" : ""), fact("Payroll", { none: "Not set up", ready: "Ready", sent: "Sent", failed: "Failed: no tax id on file" }[d.payroll], d.payroll === "failed" ? "t-neg" : ""), fact("Phone", d.phone)], code2: "SC", title2: "Last 90 days", rows: [{ a: "Loads delivered", b: "", c: "9" }, { a: "On time at pickup", b: "", c: "8 of 9" }, { a: "On time at delivery", b: "", c: "9 of 9" }, { a: "Average all-in", b: "per mile", c: "$2.21" }] }; }
+      const t = D.trailers.find((x) => x.no === r[0]) || D.trailers[0]; return { title: t.no, hero: "", kv: [fact("Type", t.type), fact("Hooked to", t.hook), fact("State", t.status.replace("_", " ")), fact("Terminal", t.terminal), fact("Location", t.loc), fact("Registration", t.reg, t.lapsed ? "t-neg" : ""), fact("Inspection", t.insp, t.soon ? "t-warn" : "")], code2: "LD", title2: "On loads", rows: [{ a: "DM-40044", b: "Houston → Memphis", c: "Sent" }] };
+    };
+    const planFull = s.plan === "starter" && kind === "trucks";
+    return {
+      planPro: s.plan === "pro", planStarter: s.plan === "starter", setPro: () => this.setState({ plan: "pro" }), setStarter: () => this.setState({ plan: "starter" }),
+      code: META[0], title: META[1], sub: META[2], count: all.length.toLocaleString("en-US"), planText: s.plan === "pro" ? "Pro" : "Starter",
+      sz: { a: s.size === "a", b: s.size === "b", c: s.size === "c", setA: () => this.setState({ size: "a" }), setB: () => this.setState({ size: "b" }), setC: () => this.setState({ size: "c" }) },
+      noWrite: canWrite ? undefined : true, addOff: !canWrite || planFull ? true : undefined, addWhy: planFull ? "Your plan is full. Talk to a person." : "", addLabel: "Add " + META[1].toLowerCase().replace(/s$/, ""), planFull,
+      openAdd: () => this.setState({ dlg: "add" }), openImport: () => this.setState({ dlg: "import" }), closeDlg: () => this.setState({ dlg: null }), dlg: !!s.dlg, dlgAdd: s.dlg === "add", dlgImport: s.dlg === "import", dlgTitle: s.dlg === "import" ? "Import " + META[1].toLowerCase() + " from a CSV" : "Add " + META[1].toLowerCase().replace(/s$/, ""),
+      addFields: kind === "trucks" ? [{ k: "Name", ph: "Unit 104" }, { k: "Terminal", ph: "Dallas", hint: "Free text; used terminals are offered" }, { k: "mpg", ph: "6.8" }, { k: "Fuel price $/gal", ph: "3.90" }, { k: "Home base", ph: "City, ST" }, { k: "Monthly insurance", ph: "1,380" }] : kind === "drivers" ? [{ k: "Name", ph: "Full name" }, { k: "Phone", ph: "555-0100" }, { k: "Truck", ph: "Unit 101" }, { k: "Usual pay", ph: "0.52 per mile" }, { k: "CDL expires", ph: "Mon YYYY" }, { k: "Medical card expires", ph: "Mon YYYY" }] : [{ k: "Number", ph: "T-107" }, { k: "Type", ph: "Dry van" }, { k: "Plate", ph: "TLA1107" }, { k: "Terminal", ph: "Houston" }, { k: "Registration expires", ph: "Mon YYYY" }, { k: "Inspection expires", ph: "Mon YYYY" }],
+      talk: (e) => { e.preventDefault(); p.go && p.go("settings"); },
+      cols: cols.map(([label, cls], i) => ({ label, cls: cls || "", arrow: s.sort.k === i ? (s.sort.dir > 0 ? "▲" : "▼") : "", sort: s.sort.k === i ? (s.sort.dir > 0 ? "ascending" : "descending") : "none", go: (e) => { e.preventDefault(); this.setState({ sort: { k: i, dir: s.sort.k === i ? -s.sort.dir : 1 } }); } })),
+      rows: shown.map((r) => ({ open: () => this.setState({ detail: mkDetail(r) }), cells: r.map((v, i) => ({ v, cls: (cols[i][1] || "") + (/Failed|Missing|▼/.test(v) ? " t-neg" : /▲|In the shop/.test(v) ? " t-warn" : i === 0 ? "" : "") })) })),
+      isLoading: ui === "loading", isEmpty: ui !== "loading" && shown.length === 0, detail: s.detail, listOn: !s.detail, closeDetail: (e) => { e.preventDefault(); this.setState({ detail: null }); },
+      pager: `${shown.length ? 1 : 0}–${shown.length} of ${all.length.toLocaleString("en-US")} · 50 a page${n ? "" : ""}`, noNext: all.length > 50 ? undefined : true
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="Alerts">
+  <div class="t-pagehead"><h1><i>AL</i>Alerts</h1><p>Worked out from the loads on every request. Nothing is stored.</p></div>
+  <div class="t-tabs" role="tablist"><button role="tab" aria-selected="{{ onAlerts }}" onClick="{{ showAlerts }}">Alerts <em>{{ n }}</em></button><button role="tab" aria-selected="{{ onRules }}" onClick="{{ showRules }}">Rules <em>16</em></button></div>
+  <sc-if value="{{ onAlerts }}" hint-placeholder-val="{{ true }}">
+    <sc-for list="{{ groups }}" as="g" hint-placeholder-count="3">
+      <section class="t-pn" aria-label="{{ g.title }}">
+        <div class="t-ph"><i>{{ g.n }}</i>{{ g.title }}<span class="meta">{{ g.say }}</span></div>
+        <sc-if value="{{ g.empty }}" hint-placeholder-val="{{ false }}"><p class="t-body t-dim">Nothing here.</p></sc-if>
+        <div class="t-tw"><table class="t-tbl" aria-label="{{ g.title }}"><tbody>
+          <sc-for list="{{ g.rows }}" as="a" hint-placeholder-count="3"><tr><td style="width:84px"><span class="t-st" data-tone="{{ g.tone }}">{{ g.word }}</span></td><td style="width:84px"><a href="#loads" onClick="{{ a.open }}">{{ a.load }}</a></td><td style="max-width:none;white-space:normal">{{ a.msg }}</td><td class="t-dim" style="width:190px">{{ a.rule }}</td><td class="n" style="width:110px"><button class="t-btn sm" type="button" disabled="{{ viewer }}">{{ a.act }}</button></td></tr></sc-for>
+        </tbody></table></div>
+      </section>
+    </sc-for>
+  </sc-if>
+  <sc-if value="{{ onRules }}" hint-placeholder-val="{{ false }}">
+    <section class="t-pn" aria-label="Rules">
+      <div class="t-ph"><i>RL</i>What raises an alert<span class="meta"><a href="#settings" onClick="{{ toSettings }}">Change the hours and days in Settings › Thresholds</a></span></div>
+      <div class="t-tw"><table class="t-tbl" aria-label="Alert rules"><thead><tr><th scope="col">Level</th><th scope="col">Rule</th><th scope="col">Applies to</th><th scope="col">Raised when</th></tr></thead>
+        <tbody><sc-for list="{{ rules }}" as="r" hint-placeholder-count="8"><tr><td style="vertical-align:top"><span class="t-st" data-tone="{{ r.tone }}">{{ r.level }}</span></td><td style="white-space:normal;max-width:260px">{{ r.title }}<div class="t-dim" style="font-size:11px">{{ r.code }}</div></td><td style="white-space:normal;max-width:180px" class="t-dim">{{ r.applies }}</td><td style="white-space:normal;max-width:420px">{{ r.when }}</td></tr></sc-for></tbody></table></div>
+    </section>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1268,&quot;height&quot;:720},&quot;role&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;ui&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s:string)=&gt;void&quot;}}">
+class Component extends DCLogic {
+  state = { tab: "alerts" };
+  renderVals() {
+    const D = window.DESK; if (!D) return {};
+    const p = this.props, s = this.state;
+    const act = (a) => (a.rule === "PICKUP_NO_DRIVER" || a.rule === "BELOW_COST_UNASSIGNED" ? "Assign" : a.rule === "INVOICE_OVERDUE" ? "Chase" : a.rule === "SENT_NO_ANSWER" ? "Message" : a.rule === "READY_TO_INVOICE" ? "Invoice" : "Open");
+    const grp = (lv, title, word, tone, say, n) => { const rows = p.ui === "empty" ? [] : D.alerts.filter((a) => a.level === lv).map((a) => ({ load: a.load || "Driver", msg: a.msg, rule: a.rule, act: act(a), open: (e) => { e.preventDefault(); p.go && p.go("loads"); } })); return { title: `${title} · ${rows.length}`, word, tone, say, rows, empty: rows.length === 0, n }; };
+    const T = (ds) => ({ pickupHours: 24, sentNoAnswerHours: 4, clearanceDays: 30 });
+    const R = (code, level, title, applies, when) => ({ code, level: { block: "Block", warn: "Look soon", info: "FYI" }[level], tone: { block: "bad", warn: "warn", info: "info" }[level], title, applies, when });
+    return {
+      n: D.alerts.length, onAlerts: s.tab === "alerts", onRules: s.tab === "rules", showAlerts: () => this.setState({ tab: "alerts" }), showRules: () => this.setState({ tab: "rules" }), viewer: (p.role ?? "dispatcher") === "viewer" ? true : undefined,
+      groups: [grp("block", "Block", "Block", "bad", "Fix before the load goes out, or it will go wrong", "1"), grp("warn", "Look soon", "Look soon", "warn", "Look at this soon", "2"), grp("info", "For your information", "FYI", "info", "", "3")],
+      toSettings: (e) => { e.preventDefault(); p.go && p.go("settings"); },
+      rules: [
+        R("DRIVER_CLEARANCE", "block", "Driver's CDL or medical card has lapsed", "Open loads with a driver", "The assigned driver's CDL or medical card expiry date is in the past."),
+        R("TRAILER_COMPLIANCE", "block", "Trailer cannot go out, or its papers are about to lapse", "Open loads with a trailer", "The trailer is in the shop or out of service, or its registration or inspection date is past (a block), or within 30 days (a warning)."),
+        R("DOUBLE_BOOKED", "block", "Driver is booked on overlapping loads", "Open loads with a driver", "Two open loads for one driver run from the first stop's earliest time to the last stop's latest time, and those windows overlap."),
+        R("PICKUP_NO_DRIVER", "block", "Pickup is close and no driver has been sent", "Loads still waiting for a driver", "The first pickup is within 24 hours (or already past) and no driver has been sent the load."),
+        R("TRUCK_DOUBLE_BOOKED", "block", "Truck is on overlapping loads", "Open loads with a truck", "Two open loads are on one truck and their windows overlap, whoever drives."),
+        R("NO_TRUCK", "warn", "Load has no truck", "Open loads", "A load not yet delivered has no truck set, so it has no cost floor and no verdict."),
+        R("LATE_ON_ROAD", "warn", "On the road and past its delivery window", "Loads on the road", "The final stop's delivery window has closed without the load being delivered."),
+        R("LATE_TO_PICKUP", "warn", "Pickup time has passed and the driver has not picked up", "Loads sent to or accepted by a driver, not yet on the road", "The first stop's window has closed and the pickup has not been entered."),
+        R("SENT_NO_ANSWER", "warn", "Sent to a driver and no answer yet", "Loads sent to a driver", "The load was sent more than 4 hours ago and the driver has not accepted or declined."),
+        R("CLEARANCE_SOON", "warn", "Driver's CDL or medical card lapses soon", "Open loads with a driver", "The assigned driver's CDL or medical card expires within 30 days."),
+        R("BELOW_COST_UNASSIGNED", "warn", "Load pays below the truck's cost and has no driver sent", "Loads waiting for a driver", "The verdict card says Reject and the load has not been sent to a driver."),
+        R("INVOICE_OVERDUE", "warn", "Invoice is past its payment terms", "Invoiced loads", "The invoice date plus the load's payment terms is in the past and the invoice is unpaid."),
+        R("MISSING_REFERENCE", "info", "A stop has no reference number", "Open loads with a driver", "A stop has no pickup or delivery number, which the dock will ask the driver for."),
+        R("READY_TO_INVOICE", "info", "Delivered and ready to invoice", "Delivered loads", "Wording as in lib/alerts.ts."),
+        R("MISSING_POD", "info", "Proof of delivery missing", "Delivered loads", "Wording as in lib/alerts.ts."),
+        R("DETENTION_UNBILLED", "info", "Detention earned and not billed", "Delivered loads", "Wording as in lib/alerts.ts.")
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

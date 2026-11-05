@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div data-theme="{{ theme }}" data-density="{{ density }}" style="background:var(--bg);display:flex;justify-content:center;height:100vh;overflow:hidden">
+  <div class="t-app" data-collapsed="{{ collapsed }}" style="width:{{ frameW }}">
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="t-cmd" aria-label="Command line">
+      <span class="t-brand">TRUELANE <i>▸ DESK</i></span>
+      <form class="t-line" onSubmit="{{ runCommand }}" role="search">
+        <b aria-hidden="true">&gt;</b>
+        <input aria-label="Search loads, customers, cities, drivers, or type a module code" placeholder="Load, PO, customer, city, driver, or a code (QT LD DQ)" value="{{ cmd }}" onChange="{{ setCmd }}">
+        <button class="t-go" type="submit">GO</button>
+      </form>
+      <label class="t-dim" style="display:flex;gap:6px;align-items:center;margin-left:auto">TERMINAL
+        <span class="t-in" style="width:120px;height:20px"><select aria-label="Terminal scope"><option>All terminals</option><option>Dallas</option><option>Houston</option><option>Oklahoma City</option></select></span>
+      </label>
+      <a href="#settings" onClick="{{ talk }}" class="t-mid">Talk to a person</a><span class="t-mid who">{{ who }}</span><a href="#public" onClick="{{ signOut }}" class="t-mid">Sign out</a>
+    </header>
+    <div class="t-tick" role="group" aria-label="Fleet totals">
+      <div><span>Open loads</span><b>{{ tot.open }}</b></div>
+      <div><span>Need a driver</span><b class="t-warn">{{ tot.needs }}</b></div>
+      <div><span>Gross, finished</span><b>{{ tot.gross }}</b></div>
+      <div><span>Avg per mile</span><b>{{ tot.rpm }}</b></div>
+      <div><span>Empty miles</span><b>{{ tot.empty }}</b></div>
+    </div>
+    <nav class="t-rail" aria-label="Sections">
+      <sc-for list="{{ groups }}" as="g" hint-placeholder-count="5">
+        <h2>{{ g.label }}</h2>
+        <sc-for list="{{ g.items }}" as="it" hint-placeholder-count="4">
+          <a href="{{ it.href }}" aria-current="{{ it.cur }}" onClick="{{ it.onClick }}"><i>{{ it.code }}</i><span class="lbl">{{ it.label }}</span><sc-if value="{{ it.count }}" hint-placeholder-val="{{ false }}"><em data-tone="{{ it.tone }}">{{ it.count }}</em></sc-if></a>
+        </sc-for>
+      </sc-for>
+      <button class="t-collapse" type="button" aria-expanded="{{ expanded }}" aria-keyshortcuts="[" onClick="{{ toggle }}"><i>[</i><span class="lbl">Collapse sidebar</span></button>
+    </nav>
+    <main class="t-main" id="main" tabindex="-1">
+      <sc-if value="{{ isViewer }}" hint-placeholder-val="{{ false }}">
+        <div class="t-banner" role="note"><b>Read only</b>You can read everything here but not change it. A dispatcher or the accounting office can.</div>
+      </sc-if>
+      <sc-if value="{{ is.quote }}" hint-placeholder-val="{{ true }}"><dc-import name="Quote" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.loads }}" hint-placeholder-val="{{ false }}"><dc-import name="Loads" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.loadpage }}" hint-placeholder-val="{{ false }}"><dc-import name="LoadDetail" variant="page" load-id="{{ loadId }}" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.dispatch }}" hint-placeholder-val="{{ false }}"><dc-import name="Dispatch" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.messages }}" hint-placeholder-val="{{ false }}"><dc-import name="Messages" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.planner }}" hint-placeholder-val="{{ false }}"><dc-import name="Planner" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.alerts }}" hint-placeholder-val="{{ false }}"><dc-import name="Alerts" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.ratecons }}" hint-placeholder-val="{{ false }}"><dc-import name="RateCons" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.drivers }}" hint-placeholder-val="{{ false }}"><dc-import name="Fleet" kind="drivers" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.trucks }}" hint-placeholder-val="{{ false }}"><dc-import name="Fleet" kind="trucks" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.trailers }}" hint-placeholder-val="{{ false }}"><dc-import name="Fleet" kind="trailers" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.customers }}" hint-placeholder-val="{{ false }}"><dc-import name="Market" kind="customers" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.lanes }}" hint-placeholder-val="{{ false }}"><dc-import name="Market" kind="lanes" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.invoices }}" hint-placeholder-val="{{ false }}"><dc-import name="Money" kind="invoices" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.settlements }}" hint-placeholder-val="{{ false }}"><dc-import name="Money" kind="settlements" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.payroll }}" hint-placeholder-val="{{ false }}"><dc-import name="Money" kind="payroll" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.kpi }}" hint-placeholder-val="{{ false }}"><dc-import name="Kpi" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.audit }}" hint-placeholder-val="{{ false }}"><dc-import name="Audit" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.settings }}" hint-placeholder-val="{{ false }}"><dc-import name="Settings" role="{{ role }}" ui="{{ ui }}" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.public }}" hint-placeholder-val="{{ false }}"><dc-import name="Public" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.states }}" hint-placeholder-val="{{ false }}"><dc-import name="States" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+      <sc-if value="{{ is.system }}" hint-placeholder-val="{{ false }}"><dc-import name="System" go="{{ go }}" hint-size="100%,700px"></dc-import></sc-if>
+    </main>
+    <footer class="t-status">
+      <span>SAMPLE DATA ONLY. Every name, customer and number here is invented.</span>
+      <span class="gap"><b>{{ workspace }}</b><span class="opt"> · Pro · 3 of 49 trucks</span></span>
+      <span><b>{{ roleLabel }}</b></span>
+      <span>Dallas <b>Wed Nov 04 10:42 CT</b></span>
+    </footer>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;night&quot;,&quot;options&quot;:[&quot;night&quot;,&quot;day&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Desk&quot;},&quot;density&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;dense&quot;,&quot;options&quot;:[&quot;dense&quot;,&quot;comfortable&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Desk&quot;},&quot;frame&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;fill&quot;,&quot;options&quot;:[&quot;fill&quot;,&quot;1440&quot;,&quot;1024&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Desk&quot;},&quot;role&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;dispatcher&quot;,&quot;options&quot;:[&quot;dispatcher&quot;,&quot;accounting&quot;,&quot;admin&quot;,&quot;viewer&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Desk&quot;},&quot;state&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;normal&quot;,&quot;options&quot;:[&quot;normal&quot;,&quot;loading&quot;,&quot;empty&quot;,&quot;error&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Desk&quot;}}">
+class Component extends DCLogic {
+  state = { screen: "quote", cmd: "", collapsed: false };
+  componentDidMount() {
+    this._ap = (e) => this.setState({ ap: { ...(this.state.ap || {}), ...e.detail } }); window.addEventListener('desk-appearance', this._ap);
+    const read = () => { const h = (location.hash || "").replace("#", ""); if (h && h !== this.state.screen) this.setState({ screen: h }); };
+    read();
+    this._h = read; window.addEventListener("hashchange", read);
+    this._b = (e) => { if (e.key === "[" && !e.ctrlKey && !e.metaKey && !e.altKey && !/^(INPUT|TEXTAREA|SELECT)$/.test((e.target || {}).tagName || "")) this.toggle(); }; window.addEventListener("keydown", this._b);
+  }
+  componentWillUnmount() { window.removeEventListener("keydown", this._b); window.removeEventListener("hashchange", this._h); }
+  toggle = () => this.setState((st) => ({ collapsed: !st.collapsed }));
+  talk = (e) => { e.preventDefault(); this.go("public"); };
+  signOut = (e) => { e.preventDefault(); this.go("public"); };
+  go = (screen) => { this.setState({ screen }); try { history.replaceState(null, "", "#" + screen); } catch (e) {} };
+  setCmd = (e) => this.setState({ cmd: e.target.value });
+  runCommand = (e) => {
+    e.preventDefault();
+    const c = (this.state.cmd || "").trim().toUpperCase();
+    const hit = NAV.flatMap((g) => g.items).find((i) => i.code === c);
+    this.go(hit ? hit.key : "loads"); this.setState({ cmd: "" });
+  };
+  renderVals() {
+    const D = window.DESK || { counts: {}, totals: {}, shell: { account: {} } };
+    const p = this.props, s = this.state.screen;
+    const key = s.startsWith("loadpage") ? "loadpage" : s;
+    const c = D.counts || {};
+    const cnt = { dispatch: c.needsDriver ? [c.needsDriver, "warn"] : null, messages: c.unreadMessages ? [c.unreadMessages, "warn"] : null, alerts: c.alertsBlock ? [c.alerts, "bad"] : null, invoices: c.overdue ? [c.overdue, "bad"] : null };
+    const groups = NAV.map((g) => ({ label: g.label, items: g.items.map((i) => ({
+      code: i.code, label: i.label, href: "#" + i.key, cur: key === i.key || (i.key === "loads" && key === "loadpage") ? "page" : undefined,
+      count: cnt[i.key] ? cnt[i.key][0] : "", tone: cnt[i.key] ? cnt[i.key][1] : "",
+      onClick: (e) => { e.preventDefault(); this.go(i.key); } })) }));
+    const is = {}; for (const g of NAV) for (const i of g.items) is[i.key] = key === i.key; is.loadpage = key === "loadpage"; const loadId = s.split(":")[1] || "L4";
+    const t = D.totals || {};
+    const role = p.role ?? "dispatcher";
+    const frame = p.frame ?? "fill";
+    return {
+      theme: (this.state.ap && this.state.ap.theme) || p.theme || "night", density: (this.state.ap && this.state.ap.density) || p.density || "dense", role, ui: p.state ?? "normal",
+      frameW: frame === "fill" ? "100%" : frame + "px",
+      groups, is, loadId, go: this.go, collapsed: this.state.collapsed ? "true" : "false", expanded: this.state.collapsed ? "false" : "true", toggle: this.toggle, talk: this.talk, signOut: this.signOut, cmd: this.state.cmd, setCmd: this.setCmd, runCommand: this.runCommand,
+      isViewer: role === "viewer",
+      tot: { open: t.open, needs: t.needsDriver, gross: D.usd ? D.usd(t.gross) : "", rpm: t.avgRpm ? "$" + t.avgRpm.toFixed(2) : "", empty: t.emptyShare ? (t.emptyShare * 100).toFixed(1) + "%" : "" },
+      who: (D.shell.account.name || "") + " · " + role,
+      workspace: D.shell.workspace, roleLabel: role.toUpperCase()
+    };
+  }
+}
+const NAV = [
+  { label: "Dispatch", items: [{ key: "quote", code: "QT", label: "Quote a load" }, { key: "loads", code: "LD", label: "Loads" }, { key: "dispatch", code: "DQ", label: "Dispatch queue" }, { key: "messages", code: "MS", label: "Messages" }, { key: "planner", code: "PL", label: "Planner" }, { key: "alerts", code: "AL", label: "Alerts" }, { key: "ratecons", code: "RC", label: "Rate confirmations" }] },
+  { label: "Fleet", items: [{ key: "drivers", code: "DR", label: "Drivers" }, { key: "trucks", code: "TK", label: "Trucks" }, { key: "trailers", code: "TR", label: "Trailers" }] },
+  { label: "Market", items: [{ key: "customers", code: "CU", label: "Customers" }, { key: "lanes", code: "LN", label: "Lanes" }] },
+  { label: "Money", items: [{ key: "invoices", code: "IV", label: "Invoices" }, { key: "settlements", code: "ST", label: "Settlements" }, { key: "payroll", code: "PY", label: "Payroll" }, { key: "kpi", code: "KP", label: "KPI dashboard" }] },
+  { label: "System", items: [{ key: "audit", code: "AU", label: "Audit log" }, { key: "settings", code: "SE", label: "Settings" }] },
+  { label: "Design review", items: [{ key: "states", code: "XS", label: "States" }, { key: "public", code: "PB", label: "Public pages" }, { key: "system", code: "SY", label: "System" }] }
+];
+</script>
+</body>
+</html>

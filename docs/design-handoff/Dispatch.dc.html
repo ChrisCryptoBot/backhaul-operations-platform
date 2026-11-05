@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="Dispatch queue">
+  <div class="t-pagehead">
+    <h1><i>DQ</i>Dispatch queue</h1>
+    <p>What needs a driver, what is waiting on an answer, and what is moving. Soonest pickup first.</p>
+    <div class="acts">
+      <span class="t-seg" role="group" aria-label="Fleet size"><button aria-pressed="{{ small }}" onClick="{{ setSmall }}">3 trucks</button><button aria-pressed="{{ big }}" onClick="{{ setBig }}">1,500 tractors</button></span>
+      <button class="t-btn" type="button" onClick="{{ toQuote }}">Price an offer</button>
+    </div>
+  </div>
+  <section class="t-pn" aria-label="Needs attention">
+    <div class="t-ph"><i>!</i>Needs attention · {{ urgentN }}<span class="meta"><a href="#alerts" onClick="{{ toAlerts }}">See all {{ urgentN }} alerts</a></span></div>
+    <ul>
+      <sc-for list="{{ urgent }}" as="a" hint-placeholder-count="5"><li style="display:flex;gap:10px;align-items:center;height:var(--rh);padding:0 var(--pad);border-bottom:1px solid var(--line)"><span class="t-st" data-tone="{{ a.tone }}" style="width:76px">{{ a.level }}</span><a href="#loads" onClick="{{ a.open }}" style="width:70px">{{ a.load }}</a><span class="t-note" style="color:var(--ink);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ a.msg }}</span></li></sc-for>
+    </ul>
+  </section>
+  <div class="t-gr" style="grid-template-columns:repeat(3,minmax(0,1fr));flex:1;align-items:start">
+    <sc-for list="{{ cols }}" as="c" hint-placeholder-count="3">
+      <section class="t-pn" aria-label="{{ c.title }}">
+        <div class="t-ph"><i>{{ c.n }}</i>{{ c.title }}</div>
+        <sc-if value="{{ c.empty }}" hint-placeholder-val="{{ false }}"><p class="t-body t-dim">{{ c.emptyText }}</p></sc-if>
+        <ul>
+          <sc-for list="{{ c.rows }}" as="r" hint-placeholder-count="4">
+            <li style="padding:5px var(--pad);border-bottom:1px solid var(--line);display:grid;gap:2px">
+              <div style="display:flex;gap:8px;align-items:baseline"><a href="#loads" onClick="{{ r.open }}">{{ r.no }}</a><b style="font-weight:500">{{ r.pay }}</b><span class="t-dim" style="margin-left:auto">{{ r.pu }}</span></div>
+              <div class="t-mid">{{ r.lane }} · {{ r.miles }}</div>
+              <div style="display:flex;gap:8px;align-items:center;min-height:22px">
+                <span class="t-st" data-tone="{{ r.sigTone }}">{{ r.sig }}</span>
+                <span class="t-dim">{{ r.driver }}</span>
+                <sc-if value="{{ r.assign }}" hint-placeholder-val="{{ false }}"><button class="t-btn sm" type="button" style="margin-left:auto" disabled="{{ noWrite }}" onClick="{{ r.go }}">{{ r.assign }}</button></sc-if>
+              </div>
+            </li>
+          </sc-for>
+        </ul>
+        <sc-if value="{{ c.more }}" hint-placeholder-val="{{ false }}"><p class="t-body t-dim">The soonest {{ c.shown }} of {{ c.total }}. <a href="#dispatch" onClick="{{ stay }}">Show {{ c.step }} more</a></p></sc-if>
+      </section>
+    </sc-for>
+  </div>
+
+  <sc-if value="{{ asking }}" hint-placeholder-val="{{ false }}">
+    <div class="t-scrim" onClick="{{ close }}"></div>
+    <div class="t-dlg" role="dialog" aria-modal="true" aria-label="Assign a driver">
+      <div class="t-ph"><i>AS</i>Assign a driver · {{ askLoad }}</div>
+      <div class="t-body" style="display:grid;gap:8px">
+        <p class="t-note">Who can take it, soonest free first. A driver booked on an overlapping load is shown, not hidden.</p>
+        <table class="t-tbl" aria-label="Drivers"><thead><tr><th scope="col"></th><th scope="col">Driver</th><th scope="col">Truck</th><th scope="col">Usual pay</th><th scope="col">Note</th></tr></thead>
+          <tbody><sc-for list="{{ askDrivers }}" as="d" hint-placeholder-count="4"><tr aria-selected="{{ d.sel }}" onClick="{{ d.pick }}"><td><input type="radio" name="drv" checked="{{ d.on }}" onChange="{{ d.pick }}" aria-label="{{ d.name }}"></td><td>{{ d.name }}</td><td>{{ d.truck }}</td><td>{{ d.pay }}</td><td><span class="t-st" data-tone="{{ d.tone }}">{{ d.note }}</span></td></tr></sc-for></tbody></table>
+        <label class="t-fld"><span>Pay</span><span class="t-in"><input defaultValue="$0.52/mi"></span><small>The driver's usual pay. This assignment's own pay wins.</small></label>
+        <label class="t-chk"><input type="checkbox" checked> Send it to the driver now</label>
+        <div style="display:flex;gap:6px;justify-content:flex-end"><button class="t-btn" onClick="{{ close }}">Back</button><button class="t-btn pri" onClick="{{ close }}">Assign and send</button></div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1268,&quot;height&quot;:820},&quot;role&quot;:{&quot;editor&quot;:null,&quot;default&quot;:&quot;dispatcher&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;ui&quot;:{&quot;editor&quot;:null,&quot;default&quot;:&quot;normal&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s:string)=&gt;void&quot;}}">
+class Component extends DCLogic {
+  state = { scale: "small", ask: null, pick: "d2" };
+  renderVals() {
+    const D = window.DESK; if (!D) return {};
+    const s = this.state, p = this.props, role = p.role ?? "dispatcher", ui = p.ui ?? "normal";
+    const big = s.scale === "big", canWrite = role === "dispatcher" || role === "admin";
+    const empty = ui === "empty";
+    const topAlert = (no) => D.alerts.find((a) => a.load === no && a.level !== "info");
+    const mk = (r, assignLabel, k) => {
+      const al = topAlert(r.no);
+      const sig = al ? al.msg.length > 44 ? al.msg.slice(0, 42) + "…" : al.msg : r.v.state !== "take" ? r.v.word : "";
+      const sigTone = al ? (al.level === "block" ? "bad" : "warn") : r.v.state === "reject" ? "bad" : "warn";
+      return { no: k ? r.no.slice(0, 5) + String(+r.no.slice(5) + k * 100) : r.no, pay: D.usd(r.gross), pu: r.pu.slice(4), lane: `${r.from} → ${r.to}`, miles: D.mi(r.miles), sig, sigTone, driver: r.driver || "", assign: canWrite ? assignLabel : "", go: () => this.setState({ ask: r.no }), open: (e) => { e.preventDefault(); p.go && p.go("loads"); } };
+    };
+    const O = D.open;
+    const needs = O.filter((r) => r.status === "draft" && r.asg !== "dispatched").sort((a, b) => a.pu.localeCompare(b.pu));
+    const sent = O.filter((r) => r.asg === "dispatched");
+    const road = O.filter((r) => ["accepted", "in_progress"].includes(r.status) && r.asg !== "dispatched");
+    const grow = (list, label, total) => { const n = big ? 10 : list.length; const out = []; for (let i = 0; i < n; i++) out.push(mk(list[i % list.length], label(list[i % list.length]), Math.floor(i / list.length))); return out; };
+    const col = (n, title, list, label, total, emptyText) => ({ n, title: `${title} · ${empty ? 0 : (big ? total : list.length)}`, rows: empty ? [] : grow(list, label), empty: empty, emptyText, more: big && !empty, shown: 30, total, step: 30 });
+    const urgent = D.alerts.filter((a) => a.level !== "info").slice(0, 5).map((a) => ({ level: a.level === "block" ? "Block" : "Look soon", tone: a.level === "block" ? "bad" : "warn", load: a.load || "Driver", msg: a.msg, open: (e) => { e.preventDefault(); p.go && p.go("loads"); } }));
+    const askRow = s.ask ? O.find((r) => r.no === s.ask) : null;
+    const dr = [["d4", "Casey Brooks", "Unit 101", "$0.55/mi", "Medical card lapses Nov 24", "warn"], ["d1", "Alex Rivera", "Unit 101", "$0.50/mi", "Free", "ok"], ["d2", "Sam Okafor", "Unit 102", "$0.52/mi", "Free after Nov 05 08:00", "ok"], ["d3", "Jordan Lee", "Unit 103", "$18/hr", "Booked Nov 03 20:00 to Nov 05, overlaps", "bad"]];
+    return {
+      small: !big, big, setSmall: () => this.setState({ scale: "small" }), setBig: () => this.setState({ scale: "big" }), toQuote: () => p.go && p.go("quote"), toAlerts: (e) => { e.preventDefault(); p.go && p.go("alerts"); }, stay: (e) => e.preventDefault(),
+      urgentN: big ? 38 : D.alerts.filter((a) => a.level !== "info").length, urgent,
+      cols: [col("1", "Needs a driver", needs, (r) => (r.driver ? "Change driver" : "Assign"), 212, "Nothing waiting. Every load has a driver."), col("2", "Sent, waiting", sent, () => "", 64, "Nothing out for an answer. Loads you send appear here until the driver answers."), col("3", "Accepted and moving", road, () => "", 480, "Nothing on the road. Accepted loads show here until they are delivered.")],
+      noWrite: canWrite ? undefined : true, asking: !!askRow, askLoad: askRow ? askRow.no : "", close: () => this.setState({ ask: null }),
+      askDrivers: dr.map(([id, name, truck, pay, note, tone]) => ({ name, truck, pay, note, tone, on: s.pick === id, sel: s.pick === id ? "true" : "false", pick: () => this.setState({ pick: id }) }))
+    };
+  }
+}
+</script>
+</body>
+</html>

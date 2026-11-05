@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="Public pages" style="background:var(--bg)">
+  <div class="t-tabs" role="tablist" aria-label="Public pages"><sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4"><button role="tab" aria-selected="{{ t.on }}" onClick="{{ t.go }}">{{ t.label }}</button></sc-for></div>
+  <div style="display:flex;justify-content:center;padding:36px var(--pad);background:var(--bg);flex:1">
+    <div style="width:min(520px,100%);display:grid;gap:12px;align-content:start">
+      <div class="t-brand" style="font-size:16px">TRUELANE <i>▸ DESK</i></div>
+      <div class="t-dim">The dispatch desk. Sample data only.</div>
+
+      <sc-if value="{{ s.in }}" hint-placeholder-val="{{ true }}">
+      <section class="t-pn" style="border:1px solid var(--line-hi)"><div class="t-ph"><i>SI</i>Sign in</div>
+        <form class="t-body" style="display:grid;gap:8px" onSubmit="{{ fail }}">
+          <sc-if value="{{ failed }}" hint-placeholder-val="{{ false }}"><p class="t-note t-neg" role="alert">That email and password do not match. Check them, or ask an admin to reset yours.</p></sc-if>
+          <label class="t-fld"><span>Email</span><span class="t-in"><input type="email" placeholder="you@company.test"></span></label>
+          <label class="t-fld"><span>Password</span><span class="t-in"><input type="password"></span></label>
+          <div style="display:flex;gap:8px;align-items:center"><button class="t-btn pri" type="submit">Sign in</button><a href="#public" onClick="{{ toUp }}">Request an account</a></div>
+        </form></section>
+      <p class="t-note">The sign-in form itself is the provider's. This frame, the words and the error line are the desk's.</p>
+      </sc-if>
+
+      <sc-if value="{{ s.up }}" hint-placeholder-val="{{ false }}">
+      <section class="t-pn" style="border:1px solid var(--line-hi)"><div class="t-ph"><i>RQ</i>Request an account</div>
+        <div class="t-body" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <label class="t-fld"><span>Your name</span><span class="t-in"><input></span></label><label class="t-fld"><span>Company</span><span class="t-in"><input></span></label>
+          <label class="t-fld"><span>Your role</span><span class="t-in"><input placeholder="Owner, dispatcher…"></span></label><label class="t-fld"><span>Email</span><span class="t-in"><input type="email"></span></label>
+          <label class="t-fld"><span>Phone</span><span class="t-in"><input></span></label><label class="t-fld"><span>MC</span><span class="t-in"><input></span></label>
+          <label class="t-fld"><span>Trucks</span><span class="t-in"><input inputMode="numeric" value="{{ trucks }}" onChange="{{ setTrucks }}"></span></label><label class="t-fld"><span>Best time to call</span><span class="t-in"><input></span></label>
+          <p class="t-note" style="grid-column:1/3" role="status"><b>{{ kindNote.t }}</b> {{ kindNote.b }}</p>
+          <label class="t-fld" style="grid-column:1/3"><span>Anything we should know</span><textarea class="t-ta"></textarea></label>
+          <div style="grid-column:1/3"><button class="t-btn pri">Send the request</button></div>
+        </div></section>
+      </sc-if>
+
+      <sc-if value="{{ s.ent }}" hint-placeholder-val="{{ false }}">
+      <section class="t-pn" style="border:1px solid var(--line-hi)"><div class="t-ph"><i>EN</i>50 trucks or more<span class="meta">Set up with a person</span></div>
+        <div class="t-body" style="display:grid;gap:10px"><p class="t-note">Large fleets are set up by a person, so the cost profiles, terminals and people are right from the first day. Tell us about the fleet and we will call.</p>
+          <table class="t-tbl" aria-label="Plans"><thead><tr><th>Plan</th><th>Trucks</th><th class="n">Month</th><th class="n">Each truck</th></tr></thead><tbody><sc-for list="{{ plans }}" as="p" hint-placeholder-count="4"><tr><td>{{ p.a }}</td><td>{{ p.b }}</td><td class="n">{{ p.c }}</td><td class="n">{{ p.d }}</td></tr></sc-for></tbody></table>
+          <p class="t-note">Nothing charges anyone yet: these are what a fleet of a given size comes to.</p>
+          <div style="border:1px solid var(--line-hi);padding:8px"><div class="t-lbl">Talk to a person</div><div>555-0100 · fleets@example.test</div><div class="t-dim">Weekdays, Dallas time</div></div>
+          <div><a class="t-btn pri" href="#public" onClick="{{ toUp }}">Request an account</a></div></div></section>
+      </sc-if>
+
+      <sc-if value="{{ s.none }}" hint-placeholder-val="{{ false }}">
+      <section class="t-pn" style="border:1px solid var(--line-hi)"><div class="t-ph"><i>NW</i>No desk for this email</div>
+        <div class="t-body" style="display:grid;gap:8px"><p class="t-note">You are signed in as <b>pat@example.test</b>, but no desk has that email yet. An admin on your desk can add you, or you can request an account.</p><div style="display:flex;gap:8px"><a class="t-btn pri" href="#public" onClick="{{ toUp }}">Request an account</a><button class="t-btn">Sign out</button></div></div></section>
+      </sc-if>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1268,&quot;height&quot;:720},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s:string)=&gt;void&quot;}}">
+class Component extends DCLogic {
+  state = { tab: "in", failed: false, trucks: "12" };
+  renderVals() {
+    const s = this.state, n = Number(s.trucks);
+    const T = [["in", "Sign in"], ["up", "Request an account"], ["ent", "Enterprise"], ["none", "No desk yet"]];
+    const so = {}; for (const [k] of T) so[k] = s.tab === k;
+    const ent = n >= 50;
+    return {
+      tabs: T.map(([k, label]) => ({ label, on: s.tab === k ? "true" : "false", go: () => this.setState({ tab: k }) })), s: so, failed: s.failed, fail: (e) => { e.preventDefault(); this.setState({ failed: true }); },
+      toUp: (e) => { e.preventDefault(); this.setState({ tab: "up" }); }, trucks: s.trucks, setTrucks: (e) => this.setState({ trucks: e.target.value }),
+      kindNote: ent ? { t: "50 or more trucks.", b: "A person sets this up with you. We will call at the time you give." } : { t: "Under 50 trucks.", b: "You can start on your own once the request is approved. Plan: " + (n <= 3 ? "Starter" : n <= 10 ? "Growth" : "Pro") + "." },
+      plans: [{ a: "Starter", b: "1 to 3", c: "$49", d: "$0" }, { a: "Growth", b: "4 to 10", c: "$99", d: "+$15" }, { a: "Pro", b: "11 to 49", c: "$199", d: "+$12" }, { a: "Enterprise", b: "50 and up", c: "$499", d: "$0" }]
+    };
+  }
+}
+</script>
+</body>
+</html>

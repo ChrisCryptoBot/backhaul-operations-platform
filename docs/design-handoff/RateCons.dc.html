@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="Rate confirmations">
+  <div class="t-pagehead"><h1><i>RC</i>Rate confirmations</h1><p>A model reads the document into a draft. A person checks every figure before it becomes a load.</p>
+    <div class="acts"><button class="t-btn pri" type="button" disabled="{{ viewer }}">Upload a PDF</button></div></div>
+  <div style="display:grid;grid-template-columns:300px minmax(0,1fr);gap:1px;background:var(--line);flex:1">
+    <section class="t-pn" aria-label="Intake">
+      <div class="t-ph"><i>IN</i>Intake<span class="meta">{{ list.length }} read</span></div>
+      <div class="t-body" style="border-bottom:1px solid var(--line)"><div style="border:1px dashed var(--line-hi);padding:14px;text-align:center" class="t-dim">Drop a rate confirmation PDF here</div></div>
+      <ul><sc-for list="{{ items }}" as="r" hint-placeholder-count="4"><li><button type="button" onClick="{{ r.pick }}" style="display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:{{ r.bg }};color:{{ r.fg }};padding:6px var(--pad);cursor:pointer"><div style="display:flex"><b style="font-weight:600">{{ r.name }}</b><span style="margin-left:auto">{{ r.state }}</span></div><div style="opacity:.8">{{ r.sub }}</div></button></li></sc-for></ul>
+    </section>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:1px;background:var(--line)">
+      <section class="t-pn" aria-label="The document">
+        <div class="t-ph"><i>DOC</i>{{ cur.file }}<span class="meta">page 1 of 1</span></div>
+        <div class="t-body"><div class="t-doc" style="margin:0;padding:18px;width:100%;font-size:11px;line-height:15px">
+          <div class="k">Rate confirmation</div><h1 style="font-size:16px;line-height:20px">{{ cur.doc.no }}</h1>
+          <p>{{ cur.doc.carrier }}</p>
+          <table style="margin-top:8px"><thead><tr><th>Stop</th><th>Where</th><th>Window</th></tr></thead><tbody><sc-for list="{{ cur.doc.stops }}" as="s" hint-placeholder-count="2"><tr><td>{{ s.t }}</td><td>{{ s.w }}</td><td>{{ s.d }}</td></tr></sc-for></tbody></table>
+          <p style="margin-top:8px"><b>{{ cur.doc.pay }}</b></p><p>{{ cur.doc.misc }}</p>
+        </div></div>
+      </section>
+      <section class="t-pn" aria-label="The draft">
+        <div class="t-ph"><i>DR</i>Draft load<span class="meta">{{ cur.stateWord }}</span></div>
+        <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}"><div class="t-body" style="display:grid;gap:10px"><p class="t-note">Reading the document…</p><div class="t-skel" style="width:70%"></div><div class="t-skel" style="width:90%"></div><div class="t-skel" style="width:50%"></div></div></sc-if>
+        <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}"><div class="t-body" style="display:grid;gap:8px"><p class="t-note"><b>Could not read this file.</b> The text is scanned as a picture and has no pay figure to read. Type the load in by hand, or upload a clearer copy.</p><span><button class="t-btn">New load by hand</button></span></div></sc-if>
+        <sc-if value="{{ isOk }}" hint-placeholder-val="{{ true }}">
+        <div class="t-body" style="display:grid;gap:8px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <sc-for list="{{ cur.fields }}" as="f" hint-placeholder-count="6"><label class="t-fld"><span>{{ f.k }}</span><span class="t-in"><input defaultValue="{{ f.v }}"></span><small>{{ f.src }}</small></label></sc-for>
+          </div>
+          <div style="border-top:1px solid var(--line);padding-top:6px"><div class="t-lbl" style="margin-bottom:4px">Checks</div>
+            <ul style="display:grid;gap:3px"><sc-for list="{{ cur.checks }}" as="c" hint-placeholder-count="3"><li style="display:flex;gap:8px"><span class="t-st" data-tone="{{ c.tone }}">{{ c.w }}</span><span class="t-note" style="color:var(--ink)">{{ c.t }}</span></li></sc-for></ul></div>
+          <div style="display:flex;gap:6px;justify-content:flex-end;border-top:1px solid var(--line-hi);padding-top:8px"><button class="t-btn" type="button">Discard</button><button class="t-btn" type="button" onClick="{{ toQuote }}">Price it in Quote</button><button class="t-btn pri" type="button" disabled="{{ viewer }}">Save as a load</button></div>
+        </div></sc-if>
+      </section>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1268,&quot;height&quot;:720},&quot;role&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;ui&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s:string)=&gt;void&quot;}}">
+class Component extends DCLogic {
+  state = { sel: 0 };
+  renderVals() {
+    const p = this.props, s = this.state, ui = p.ui ?? "normal";
+    const data = [
+      { name: "RC-AFB-482913", sub: "Dallas → Houston · cargo van", state: "Check it", file: "RC-AFB-482913_dallas-to-houston_cargo-van.pdf", stateWord: "Needs your check",
+        doc: { no: "RC-AFB-482913", carrier: "Acme Freight Brokers to Demo fleet", stops: [{ t: "Pickup", w: "Dallas, TX · Acme dock 2", d: "Nov 05 08:00–10:00" }, { t: "Delivery", w: "Houston, TX · Receiving", d: "Nov 05 15:00–18:00" }], pay: "Line haul $800.00. All-in. Net 30.", misc: "Weight 2,400 lb. Cargo van. Reference PO-77120." },
+        fields: [{ k: "Customer", v: "Acme Freight Brokers", src: "Printed on the rate confirmation" }, { k: "Rate", v: "800.00", src: "Printed on the rate confirmation" }, { k: "Pickup", v: "Dallas, TX", src: "Printed" }, { k: "Delivery", v: "Houston, TX", src: "Printed" }, { k: "Loaded miles", v: "239", src: "Measured on the road, not printed" }, { k: "Weight", v: "2,400 lb", src: "Printed" }],
+        checks: [{ w: "Check", tone: "warn", t: "Customer MC is not printed. Add it so the authority can be looked up." }, { w: "OK", tone: "ok", t: "Pay terms Net 30 match the Customer record." }] },
+      { name: "RC-RDL-77315", sub: "Fort Worth → Waco → Austin · box truck", state: "Check it", file: "RC-RDL-77315_fort-worth-waco-austin_box-truck.pdf", stateWord: "Needs your check",
+        doc: { no: "RC-RDL-77315", carrier: "Redline Dispatch to Demo fleet", stops: [{ t: "Pickup", w: "Fort Worth, TX", d: "Nov 06 07:00–09:00" }, { t: "Stop 2", w: "Waco, TX", d: "Nov 06 11:30–13:00" }, { t: "Delivery", w: "Austin, TX", d: "Nov 06 15:00–17:00" }], pay: "Line haul $640.00. Liftgate required.", misc: "Weight 6,800 lb. 3 stops." },
+        fields: [{ k: "Customer", v: "Redline Dispatch", src: "Printed on the rate confirmation" }, { k: "Rate", v: "640.00", src: "Printed" }, { k: "Stops", v: "3", src: "Printed" }, { k: "Loaded miles", v: "188", src: "Measured on the road" }, { k: "Truck needs", v: "Liftgate", src: "Printed" }, { k: "Weight", v: "6,800 lb", src: "Printed" }],
+        checks: [{ w: "Check", tone: "bad", t: "Printed miles (152) differ from measured (188) by 24%." }, { w: "Check", tone: "warn", t: "Only Unit 103 has a liftgate." }] },
+      { name: "RC-NLB-90412", sub: "Chicago → Indianapolis", state: "Saved", file: "RC-NLB-90412.pdf", stateWord: "Saved as DM-40042", doc: { no: "RC-NLB-90412", carrier: "Northline Brokerage to Demo fleet", stops: [{ t: "Pickup", w: "Chicago, IL", d: "Nov 05 06:30" }, { t: "Delivery", w: "Indianapolis, IN", d: "Nov 05 14:00" }], pay: "Line haul $640.00.", misc: "" }, fields: [{ k: "Customer", v: "Northline Brokerage", src: "Printed" }, { k: "Rate", v: "640.00", src: "Printed" }], checks: [{ w: "OK", tone: "ok", t: "Saved as DM-40042 on Nov 02." }] },
+      { name: "scan_0044.pdf", sub: "Could not be read", state: "No text", file: "scan_0044.pdf", stateWord: "Could not be read", doc: { no: "scan_0044", carrier: "A picture of a page", stops: [], pay: "", misc: "" }, fields: [], checks: [], bad: true }
+    ];
+    const cur = data[s.sel];
+    return {
+      viewer: (p.role ?? "dispatcher") === "viewer" ? true : undefined, list: data,
+      items: data.map((r, i) => ({ name: r.name, sub: r.sub, state: r.state, bg: i === s.sel ? "var(--label)" : "transparent", fg: i === s.sel ? "var(--on-label)" : "var(--ink)", pick: () => this.setState({ sel: i }) })),
+      cur, isLoading: ui === "loading", isError: ui === "error" || (cur.bad && ui !== "loading"), isOk: !cur.bad && ui !== "loading" && ui !== "error",
+      toQuote: () => p.go && p.go("quote")
+    };
+  }
+}
+</script>
+</body>
+</html>

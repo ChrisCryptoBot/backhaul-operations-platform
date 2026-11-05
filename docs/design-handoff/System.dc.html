@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="System">
+  <div class="t-pagehead"><h1><i>SY</i>System</h1><p>The shared parts, in one file: terminal.css. Design review only.</p></div>
+
+  <section class="t-pn"><div class="t-ph"><i>01</i>Ink has jobs<span class="meta">the one idea the rest hangs on</span></div>
+    <div class="t-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px">
+      <sc-for list="{{ jobs }}" as="j" hint-placeholder-count="5"><div style="border-top:3px solid {{ j.c }};padding-top:6px"><div style="font:600 16px/20px var(--mono);color:{{ j.c }}">{{ j.ex }}</div><div class="t-lbl" style="margin:4px 0 2px">{{ j.name }}</div><p class="t-note">{{ j.what }}</p></div></sc-for>
+    </div></section>
+
+  <div class="t-gr" style="grid-template-columns:repeat(auto-fit,minmax(420px,1fr))">
+    <section class="t-pn" data-theme="night" style="background:var(--panel);color:var(--ink)"><div class="t-ph"><i>02</i>Night tokens<span class="meta">default</span></div>
+      <div class="t-body" style="display:grid;grid-template-columns:1fr 1fr;gap:4px"><sc-for list="{{ tokens }}" as="t" hint-placeholder-count="14"><div style="display:flex;gap:8px;align-items:center"><span style="width:22px;height:22px;background:{{ t.v }};border:1px solid var(--line-hi);flex:none"></span><span style="min-width:0"><b style="font-weight:500">{{ t.k }}</b><div class="t-dim" style="font-size:11px">{{ t.job }}</div></span></div></sc-for></div></section>
+    <section class="t-pn" data-theme="day" style="background:var(--panel);color:var(--ink)"><div class="t-ph"><i>03</i>Day tokens<span class="meta">same names, light ground</span></div>
+      <div class="t-body" style="display:grid;grid-template-columns:1fr 1fr;gap:4px"><sc-for list="{{ tokens }}" as="t" hint-placeholder-count="14"><div style="display:flex;gap:8px;align-items:center"><span style="width:22px;height:22px;background:{{ t.v }};border:1px solid var(--line-hi);flex:none"></span><span style="min-width:0"><b style="font-weight:500">{{ t.k }}</b><div class="t-dim" style="font-size:11px">{{ t.job }}</div></span></div></sc-for></div></section>
+  </div>
+
+  <section class="t-pn"><div class="t-ph"><i>04</i>Type, space, line<span class="meta">IBM Plex Mono for figures and labels · IBM Plex Sans for sentences</span></div>
+    <div class="t-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px">
+      <div style="display:grid;gap:4px"><div class="t-hero" style="font-size:46px;line-height:48px">$2.20<small>/mi</small></div><div style="font:500 34px/36px var(--mono)">34 hero</div><div style="font:600 20px/22px var(--mono)">20 WORD</div><div style="font:600 14px/18px var(--mono)">14 PAGE TITLE</div><div>12 / 16 base: DM-40044 · $1,480.00</div><div class="t-lbl">11 label, caps, letter-spaced</div><p class="vc-sent">13 / 19 Plex Sans: a sentence that says why.</p></div>
+      <div style="display:grid;gap:4px"><div class="t-lbl">Space: 4 · 8 · 12 · 16 · 24</div><div style="display:flex;gap:4px;align-items:flex-end"><sc-for list="{{ space }}" as="s" hint-placeholder-count="5"><span style="width:{{ s }}px;height:{{ s }}px;background:var(--label)"></span></sc-for></div><div class="t-lbl" style="margin-top:6px">Radius</div><div>0, everywhere. A circle is a verdict shape, never a container.</div><div class="t-lbl" style="margin-top:6px">Lines</div><div>1px at rest · 1px stronger on a header · focus is a 2px gold inset ring</div><div class="t-lbl" style="margin-top:6px">Rows</div><div>24px dense · 30px comfortable (a cookie, as now)</div></div>
+      <div style="display:grid;gap:4px"><div class="t-lbl">Banned</div><div class="t-dim">blur, drop shadow, glow, gradient as decoration, pills, capsules, rounded cards, sliding bubbles, side stripes, centred empty-state art, emoji</div><div class="t-lbl" style="margin-top:6px">Allowed hatch</div><div style="height:14px;background:repeating-linear-gradient(135deg,var(--neg) 0 1px,transparent 1px 5px);border:1px solid var(--line-hi)"></div><div class="t-dim">The one pattern: left of the floor. It means loses money.</div></div>
+    </div></section>
+
+  <section class="t-pn"><div class="t-ph"><i>05</i>Primitives</div>
+    <div class="t-body" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;align-items:start">
+      <div style="display:grid;gap:8px"><div class="t-lbl">Buttons</div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="t-btn">Default</button><button class="t-btn pri">Primary</button><button class="t-btn sm">Small</button><button class="t-btn" disabled>Disabled</button><button class="t-btn">Book it <kbd>Ctrl ↵</kbd></button></div>
+        <div class="t-lbl">Segmented · tabs</div><div class="t-seg"><button aria-pressed="true">Night</button><button aria-pressed="false">Day</button></div><div class="t-tabs"><button aria-selected="true">Open <em>14</em></button><button aria-selected="false">History <em>11</em></button></div></div>
+      <div style="display:grid;gap:8px"><div class="t-lbl">Fields: typed ink is blue</div><label class="t-fld"><span>Offer</span><span class="t-in"><u>$</u><input defaultValue="1,260"></span><small>$2.25/mi loaded</small></label><label class="t-fld"><span>Loaded miles</span><span class="t-in" data-bad="true"><input defaultValue="0"><u>mi</u></span><small role="alert">Type the loaded miles.</small></label></div>
+      <div style="display:grid;gap:6px"><div class="t-lbl">Status: a square and a word</div><span class="t-st" data-tone="ok">Accepted</span><span class="t-st" data-tone="info">On the road</span><span class="t-st" data-tone="warn">Needs a driver</span><span class="t-st" data-tone="bad">Overdue</span><span class="t-st" data-tone="mute">Cancelled</span><p class="t-note">Healthy and unremarkable draws nothing.</p></div>
+    </div>
+    <div class="t-tw" style="border-top:1px solid var(--line)"><table class="t-tbl"><thead><tr><th>Row states</th><th class="n">All-in</th><th class="n">Floor</th></tr></thead><tbody><tr><td>At rest</td><td class="n">$2.20</td><td class="n">$1.91</td></tr><tr><td>Pointer over</td><td class="n">$2.20</td><td class="n">$1.91</td></tr><tr aria-selected="true"><td>Open in the drawer, or picked</td><td class="n">$2.20</td><td class="n">$1.91</td></tr></tbody></table></div></section>
+
+  <section class="t-pn"><div class="t-ph"><i>06</i>The verdict card, four states<span class="meta">VerdictCard.dc.html · the same skeleton, top to bottom</span></div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:1px;background:var(--line)">
+      <dc-import name="VerdictCard" gross="1260" miles="572" floor="1.91" market-total="1232" benchmark="lane" for-label="Accept" home-text="a load covers the way home" hint-size="100%,520px"></dc-import>
+      <dc-import name="VerdictCard" gross="1480" miles="765" floor="1.91" market-total="1232" benchmark="lane" for-label="Caution" home-text="way home counted empty" hint-size="100%,520px"></dc-import>
+      <dc-import name="VerdictCard" gross="650" miles="545.2" floor="1.86" market-total="604" benchmark="lane" for-label="Reject" home-text="way home counted empty" hint-size="100%,520px"></dc-import>
+      <dc-import name="VerdictCard" gross="1260" miles="572" floor="1.91" has-fuel="no" for-label="Can't judge yet" home-text="" hint-size="100%,420px"></dc-import>
+    </div>
+    <div class="t-body" style="border-top:1px solid var(--line)"><div class="t-lbl" style="margin-bottom:6px">The test: set it to grayscale. The four still read apart.</div>
+      <div style="display:flex;gap:30px;filter:grayscale(1);align-items:center;flex-wrap:wrap"><sc-for list="{{ marks }}" as="m" hint-placeholder-count="4"><span style="display:inline-flex;gap:8px;align-items:center"><span class="vm" data-s="{{ m.s }}" style="--s:30px"><span>{{ m.g }}</span></span><span class="vc-word" style="font-size:16px">{{ m.w }}</span></span></sc-for></div>
+      <p class="t-note" style="margin-top:6px">Five carriers, as now: the word, the shape, the position on the ruler, the buttons, then hue. The ruler keeps the floor at 40% on every card. The mark is a flat tone fill with a black sign, so it needs no light edge.</p></div></section>
+
+  <section class="t-pn"><div class="t-ph"><i>07</i>Old rules: kept or dropped<span class="meta">meaning binds, appearance is history</span></div>
+    <div class="t-tw"><table class="t-tbl" aria-label="Rules"><thead><tr><th>Rule in DESIGN_BRIEF.md</th><th>Now</th><th>Why</th></tr></thead><tbody><sc-for list="{{ rules }}" as="r" hint-placeholder-count="10"><tr><td style="white-space:normal;max-width:360px">{{ r.a }}</td><td><span class="t-st" data-tone="{{ r.tone }}">{{ r.b }}</span></td><td style="white-space:normal;max-width:520px" class="t-dim">{{ r.c }}</td></tr></sc-for></tbody></table></div></section>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1268,&quot;height&quot;:1400},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s:string)=&gt;void&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const K = (k, v, job) => ({ k, v: `var(${k})`, job });
+    return {
+      jobs: [
+        { c: "var(--label)", ex: "FLOOR", name: "Gold: what a thing is", what: "Labels, headers, the current row. Static words. The brand's gold, given a job instead of decoration." },
+        { c: "var(--ink)", ex: "$2.203/mi", name: "White: measured or on record", what: "A figure the desk measured, computed from audited math, or read from your own records." },
+        { c: "var(--typed)", ex: "$1,260.00", name: "Blue: a person typed it", what: "The offer, a typed market rate, a typed mile. Taken on trust, and shown as such. Typed wins." },
+        { c: "var(--pos)", ex: "+$0.29", name: "Green, amber, red: the verdict", what: "Only on a verdict, a delta or a money state. Never on a figure, a label or a button." },
+        { c: "var(--dim)", ex: "not known", name: "Grey: absent or quiet", what: "Nothing to say, or not known. The card does not draw what it does not know." }
+      ],
+      tokens: [K("--bg", 0, "page"), K("--panel", 0, "every panel"), K("--head", 0, "panel and table header"), K("--sunk", 0, "inputs, inset"), K("--line", 0, "rules between rows"), K("--line-hi", 0, "header rule, control edge"), K("--ink", 0, "values"), K("--mid", 0, "secondary text"), K("--dim", 0, "quiet text"), K("--label", 0, "labels, current row"), K("--typed", 0, "typed by a person"), K("--pos-fill", 0, "Accept"), K("--warn-fill", 0, "Caution"), K("--neg-fill", 0, "Reject, overdue")],
+      space: [4, 8, 12, 16, 24], marks: [{ s: "take", g: "✓", w: "Accept" }, { s: "think", g: "!", w: "Caution" }, { s: "reject", g: "✕", w: "Reject" }, { s: "unjudged", g: "", w: "Can't judge yet" }],
+      rules: [
+        ["1 Status is a dot and a word", "Kept", "ok", "A square and a word. The square, not a dot: nothing on the desk is round except the verdict's own go sign."],
+        ["2 One hero per screen, gold figure", "Changed", "warn", "One hero per screen stays. The hero is white, not gold: gold now means a label. Hue is never on a figure."],
+        ["3 Rule, don't box", "Changed", "warn", "Panels tile on 1px rules, each with a header bar and a code. Dense data wants a visible grid, so boxes are the unit."],
+        ["4 One action per row", "Kept", "ok", "Unchanged."],
+        ["5 Say it once; fold the working", "Kept", "ok", "The card's working is open, not folded, because the working is what is being checked."],
+        ["7 Typed wins", "Kept, now visible", "ok", "Typed values are blue everywhere, so you see what was taken on trust."],
+        ["8 Customer, not broker", "Kept", "ok", "No change to wording."],
+        ["9 Filters apply as you change them", "Kept", "ok", "No Apply button."],
+        ["10 Documents are paper", "Kept", "ok", "Sheets are paper-white in both themes."],
+        ["11 Empty states are one line", "Kept", "ok", "Unchanged."],
+        ["13 Fields are kept", "Kept", "ok", "Every form says so in its header and uses useDraft."],
+        ["3a Glass, bubble, sliding capsule, ambient glow", "Dropped", "bad", "Appearance, not meaning. Nothing needs frosting when nothing floats above content for decoration."],
+        ["Radii 4 to 20, pills", "Dropped", "bad", "Radius 0."],
+        ["Barlow and Barlow Condensed", "Dropped", "bad", "Plex Mono for figures and labels, Plex Sans for sentences."],
+        ["Both themes", "Kept", "ok", "Night is the terminal. Day is the same system on a light ground."]
+      ].map(([a, b, tone, c]) => ({ a, b, tone, c }))
+    };
+  }
+}
+</script>
+</body>
+</html>

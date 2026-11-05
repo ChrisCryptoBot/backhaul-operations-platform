@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="Quote a load">
+  <div class="t-pagehead">
+    <h1><i>QT</i>Quote a load</h1>
+    <p>Price an offer against every truck and driver, then book it, save it or pass.</p>
+    <div class="acts">
+      <button class="t-btn" type="button" onClick="{{ openPaste }}">Paste a snippet <kbd>Shift P</kbd></button>
+      <button class="t-btn" type="button" onClick="{{ openKeys }}">Shortcuts <kbd>?</kbd></button>
+      <button class="t-btn" type="button" onClick="{{ clearAll }}">Start over</button>
+    </div>
+  </div>
+  <div class="t-tabs" role="tablist" aria-label="Quote view">
+    <button role="tab" aria-selected="{{ tabTerminal }}" onClick="{{ showTerminal }}">Terminal</button>
+    <button role="tab" aria-selected="{{ tabSaved }}" onClick="{{ showSaved }}">Saved quotes <em>{{ savedCount }}</em></button>
+  </div>
+
+  <sc-if value="{{ tabSaved }}" hint-placeholder-val="{{ false }}">
+    <section class="t-pn" aria-label="Saved quotes">
+      <div class="t-ph"><i>SQ</i>Saved quotes<span class="meta"><span class="t-seg" role="group" aria-label="Show"><button aria-pressed="true">Open</button><button aria-pressed="false">Passed</button><button aria-pressed="false">All</button></span></span></div>
+      <div class="t-tw"><table class="t-tbl" aria-label="Saved quotes">
+        <thead><tr><th scope="col">Quote</th><th scope="col">Customer</th><th scope="col">Lane</th><th scope="col" class="n">Offer</th><th scope="col">Verdict</th><th scope="col">State</th><th scope="col">Saved</th></tr></thead>
+        <tbody>
+          <sc-for list="{{ saved }}" as="q" hint-placeholder-count="3"><tr>
+            <td><a href="#quote">{{ q.no }}</a></td><td>{{ q.cust }}</td><td>{{ q.lane }}</td><td class="n">{{ q.offer }}</td>
+            <td><span style="display:inline-flex;gap:6px;align-items:center"><span class="vm" data-s="{{ q.s }}" style="--s:14px"><span>{{ q.g }}</span></span>{{ q.word }}</span></td>
+            <td><span class="t-st" data-tone="{{ q.tone }}">{{ q.state }}</span></td><td class="t-dim">{{ q.ago }}</td></tr></sc-for>
+        </tbody></table></div>
+      <p class="t-note t-body">A passed quote opens read-only, with the reason it was passed on.</p>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{ tabTerminal }}" hint-placeholder-val="{{ true }}">
+  <div style="display:grid;grid-template-columns:330px minmax(0,1fr);gap:1px;background:var(--line);flex:1;align-items:start">
+    <!-- ENTRY -->
+    <div style="display:flex;flex-direction:column;gap:1px;background:var(--line)">
+      <section class="t-pn" aria-label="Route">
+        <div class="t-ph"><i>01</i>Route<span class="meta"><a href="#quote" onClick="{{ swapRoute }}">Swap</a></span></div>
+        <div class="t-body" style="display:grid;gap:8px">
+          <label class="t-fld"><span>Customer</span><span class="t-in"><select aria-label="Customer"><option>Harbor and Pine Freight</option><option>Sample Freight Co</option><option>Northline Brokerage</option></select></span><small>MC 100622 · Net 30 · filled from the Customer record. Type over any of it.</small></label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <label class="t-fld" style="grid-column:1/3"><span>Pickup</span><span class="t-in"><input defaultValue="{{ pickupAddr }}" aria-label="Pickup address"></span></label>
+            <label class="t-fld"><span>Pickup opens</span><span class="t-in"><input defaultValue="Nov 05 09:00"></span></label>
+            <label class="t-fld"><span>Pickup closes</span><span class="t-in"><input defaultValue="Nov 05 11:00"></span></label>
+            <label class="t-fld" style="grid-column:1/3"><span>Delivery</span><span class="t-in"><input defaultValue="{{ deliveryAddr }}" aria-label="Delivery address"></span></label>
+            <label class="t-fld"><span>Delivery opens</span><span class="t-in"><input defaultValue="Nov 06 08:00"></span></label>
+            <label class="t-fld"><span>Delivery closes</span><span class="t-in"><input defaultValue="Nov 06 12:00"></span></label>
+          </div>
+          <a href="#quote" style="width:max-content" onClick="{{ noop }}">+ Add a stop</a>
+        </div>
+      </section>
+      <section class="t-pn" aria-label="Deal">
+        <div class="t-ph"><i>02</i>Deal</div>
+        <div class="t-body" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+          <label class="t-fld"><span>Offer</span><span class="t-in" data-bad="{{ offerBad }}"><u>$</u><input inputMode="decimal" value="{{ offer }}" onChange="{{ setOffer }}" aria-label="Offer in dollars"></span><small>{{ offerNote }}</small></label>
+          <label class="t-fld"><span>Fuel surcharge</span><span class="t-in"><u>$</u><input inputMode="decimal" value="{{ surcharge }}" onChange="{{ setSurcharge }}" placeholder="0"></span><small>Included in All-In.</small></label>
+          <label class="t-fld"><span>Loaded miles</span><span class="t-in"><input inputMode="decimal" value="{{ loaded }}" onChange="{{ setLoaded }}" aria-label="Loaded miles"><u>mi</u></span><small>{{ milesNote }}</small></label>
+          <label class="t-fld"><span>Market rate</span><span class="t-in"><u>$</u><input inputMode="decimal" value="{{ market }}" onChange="{{ setMarket }}" placeholder="blank" aria-label="Market rate for the load"></span><small>{{ marketNote }}</small></label>
+        </div>
+      </section>
+      <section class="t-pn" aria-label="After the delivery">
+        <div class="t-ph"><i>03</i>After the delivery</div>
+        <div class="t-body" style="display:grid;gap:8px">
+          <div class="t-seg" role="group" aria-label="After the delivery" style="width:100%"><button style="flex:1" aria-pressed="{{ backHome }}" onClick="{{ setHome }}">Truck's base</button><button style="flex:1" aria-pressed="{{ backLoad }}" onClick="{{ setLoad }}">A load back</button><button style="flex:1" aria-pressed="false" onClick="{{ noop }}">Elsewhere</button></div>
+          <p class="t-note">Backhaul: <b>1 open pickup</b> near Memphis. <a href="#loads" onClick="{{ toLoads }}">DM-40048</a> Memphis → Dallas, 0 mi from the delivery.</p>
+        </div>
+      </section>
+      <section class="t-pn">
+        <details class="t-det"><summary>Load specs and equipment</summary>
+          <div class="t-body" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <label class="t-fld"><span>Weight</span><span class="t-in"><input placeholder="44,000"><u>lb</u></span></label>
+            <label class="t-fld"><span>Trailer</span><span class="t-in"><select><option>Dry van</option><option>Reefer</option><option>Flatbed</option><option>Not stated</option></select></span></label>
+            <label class="t-chk" style="grid-column:1/3"><input type="checkbox"> Liftgate needed</label>
+          </div></details>
+        <details class="t-det"><summary>Other costs and tolerances</summary>
+          <div class="t-body" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <label class="t-fld"><span>Dock wait</span><span class="t-in"><input placeholder="0"><u>min</u></span></label>
+            <label class="t-fld"><span>Permit or escort</span><span class="t-in"><u>$</u><input placeholder="0"></span></label>
+            <label class="t-fld"><span>Fuel price</span><span class="t-in"><u>$</u><input placeholder="3.90"><u>/gal</u></span><small>Blank uses the truck's own.</small></label>
+            <label class="t-fld"><span>Insurance rider</span><span class="t-in"><u>$</u><input placeholder="0"></span></label>
+          </div></details>
+        <details class="t-det"><summary>Paperwork</summary>
+          <div class="t-body" style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <label class="t-fld"><span>Customer MC</span><span class="t-in"><input defaultValue="MC 100622"></span></label>
+            <label class="t-fld"><span>Load number</span><span class="t-in"><input placeholder="from the customer"></span></label>
+            <label class="t-fld"><span>PO</span><span class="t-in"><input></span></label>
+            <label class="t-fld"><span>Pay terms</span><span class="t-in"><input defaultValue="30"><u>days</u></span></label>
+          </div></details>
+      </section>
+    </div>
+
+    <!-- FIT + VERDICT -->
+    <div style="display:flex;flex-direction:column;gap:1px;background:var(--line);min-width:0">
+      <section class="t-pn" aria-label="Which truck and driver">
+        <div class="t-ph"><i>FT</i>Which truck and driver
+          <span class="meta"><span>{{ fitMeta }}</span>
+          <span class="t-seg" role="group" aria-label="Sort"><button aria-pressed="{{ sortDeadhead }}" onClick="{{ sortByDeadhead }}">Closest</button><button aria-pressed="{{ sortMargin }}" onClick="{{ sortByMargin }}">Best margin</button></span></span></div>
+        <div class="t-tw"><table class="t-tbl" aria-label="Which truck and driver">
+          <thead><tr><th scope="col" style="width:28px"><span class="t-dim">#</span></th><th scope="col">Truck · driver</th><th scope="col" class="n">Empty to pickup</th><th scope="col">Verdict</th><th scope="col" class="n">All-in</th><th scope="col" class="n">Floor</th><th scope="col" class="n">Left over</th></tr></thead>
+          <tbody>
+            <sc-for list="{{ rows }}" as="r" hint-placeholder-count="4"><tr class="{{ r.cls }}" aria-selected="{{ r.sel }}" onClick="{{ r.pick }}">
+              <td>{{ r.idx }}</td>
+              <td><b style="font-weight:600">{{ r.truck }}</b> <span class="t-dim">· {{ r.driver }}</span><div class="t-dim" style="font-size:11px">{{ r.sub }}</div></td>
+              <td class="n"><span class="t-typed">{{ r.dh }}</span><div class="t-dim" style="font-size:11px">{{ r.home }}</div></td>
+              <td><span style="display:inline-flex;gap:6px;align-items:center"><span class="vm" data-s="{{ r.s }}" style="--s:14px"><span>{{ r.g }}</span></span>{{ r.word }}</span></td>
+              <td class="n">{{ r.allIn }}</td><td class="n t-dim">{{ r.floor }}</td><td class="n">{{ r.left }}</td></tr></sc-for>
+          </tbody></table></div>
+        <div class="t-body t-note" style="border-top:1px solid var(--line)">{{ trailerNote }}</div>
+      </section>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:1px;background:var(--line)">
+        <!-- the ticket -->
+        <section class="t-pn" id="qt-verdict" aria-label="The verdict" aria-live="polite">
+          <div class="t-ph"><i>VC</i>Verdict<span class="meta">{{ pricedFor }}</span></div>
+          <sc-if value="{{ isLoading }}" hint-placeholder-val="{{ false }}"><div class="t-body" style="display:grid;gap:10px"><div class="t-skel" style="width:40%"></div><div class="t-skel" style="width:90%"></div><div class="t-skel" style="width:70%"></div><div class="t-skel" style="width:100%;height:40px"></div></div></sc-if>
+          <sc-if value="{{ isError }}" hint-placeholder-val="{{ false }}"><div class="t-body" style="display:grid;gap:8px"><p class="t-note"><b>Not priced.</b> The pricing service did not answer. Your fields are kept.</p><span><button class="t-btn" type="button">Try again</button></span></div></sc-if>
+          <sc-if value="{{ isNoRow }}" hint-placeholder-val="{{ false }}"><div class="t-body"><p class="t-note">Type the offer and loaded miles to price it.</p></div></sc-if>
+          <sc-if value="{{ hasRow }}" hint-placeholder-val="{{ true }}">
+          <div class="t-body" style="display:grid;gap:10px">
+            <sc-if value="{{ booked }}" hint-placeholder-val="{{ false }}"><div class="t-banner" style="margin:calc(var(--pad)*-1) calc(var(--pad)*-1) 0"><b>Booked</b>{{ bookedText }} <a href="#loads" onClick="{{ toLoads }}">Open it on the board</a></div></sc-if>
+            <div style="display:flex;align-items:center;gap:12px;justify-content:space-between">
+              <div style="display:flex;align-items:center;gap:10px"><span class="vm" data-s="{{ v.state }}" style="--s:36px"><span>{{ v.glyph }}</span></span><span class="vc-word" tabindex="0" onMouseEnter="{{ explainState }}" onFocus="{{ explainState }}">{{ v.word }}</span></div>
+              <div style="text-align:right"><div class="t-hero">{{ v.allIn }}<small>/mi all-in</small></div><div class="t-dim">on {{ v.miles }} · {{ v.homeText }}</div></div>
+            </div>
+            <p class="vc-sent">{{ v.sentence }}</p>
+            <sc-if value="{{ v.hasRuler }}" hint-placeholder-val="{{ true }}">
+            <div>
+              <div class="vc-rule" role="img" aria-label="{{ v.rulerSaid }}">
+                <div class="trk"></div>
+                <div class="loss" style="width:{{ rl.lossW }}"></div>
+                <sc-for list="{{ rl.ticks }}" as="t" hint-placeholder-count="6"><div class="tk" style="left:{{ t }}"></div></sc-for>
+                <div class="run" style="left:{{ rl.runL }};width:{{ rl.runW }};background:{{ rl.tone }}"></div>
+                <div class="flr" style="left:{{ rl.floorAt }}"></div><div class="tg" style="left:{{ rl.floorAt }}">FLOOR</div>
+                <sc-if value="{{ rl.hasMarket }}" hint-placeholder-val="{{ true }}"><div class="mkt" style="left:{{ rl.marketAt }}"></div><div class="tg" style="left:{{ rl.marketAt }}">{{ rl.marketTag }}</div></sc-if>
+                <div class="off" style="left:{{ rl.offerAt }}"><span class="vm" data-s="{{ v.state }}" style="--s:20px"><span>{{ v.glyph }}</span></span></div>
+              </div>
+              <div style="display:flex;justify-content:space-between;color:var(--dim);font-size:11px;margin-top:2px"><span>▨ loses money</span><span>floor {{ rl.floorTxt }} · {{ rl.marketTxt }} · this load {{ rl.offerTxt }}</span><span>pays ▸</span></div>
+            </div>
+            </sc-if>
+            <sc-if value="{{ v.isUnjudged }}" hint-placeholder-val="{{ false }}"><p class="t-note t-dim">No ruler: the card does not draw what it does not know.</p></sc-if>
+            <dl class="t-kv" aria-label="The working">
+              <sc-for list="{{ ladder }}" as="l" hint-placeholder-count="7"><dt tabindex="0" onMouseEnter="{{ l.say }}" onFocus="{{ l.say }}">{{ l.k }}</dt><dd class="{{ l.cls }}" onMouseEnter="{{ l.say }}">{{ l.v }}</dd></sc-for>
+            </dl>
+            <div class="vc-rest" aria-label="What this rests on"><sc-for list="{{ ground }}" as="g" hint-placeholder-count="4"><span class="{{ g.cls }}"><i>{{ g.mark }}</i>{{ g.label }}</span></sc-for></div>
+            <div class="t-note" style="border-top:1px solid var(--line);padding-top:6px;min-height:40px"><b>{{ explain.t }}</b> {{ explain.b }}</div>
+            <div style="border-top:1px solid var(--line);padding-top:8px">
+              <div class="t-lbl" style="margin-bottom:4px">Counter-offer targets</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px">
+                <sc-for list="{{ targets }}" as="t" hint-placeholder-count="3"><button class="t-btn sm" type="button" onClick="{{ t.apply }}" title="{{ t.title }}">{{ t.label }} <b style="font-weight:600">{{ t.amt }}</b><span class="t-dim">{{ t.diff }}</span></button></sc-for>
+              </div>
+              <div style="display:flex;gap:4px;margin-top:6px;align-items:center"><span class="t-dim">Bump</span>
+                <sc-for list="{{ steps }}" as="s" hint-placeholder-count="5"><button class="t-btn sm" type="button" onClick="{{ s.go }}">{{ s.label }}</button></sc-for></div>
+            </div>
+            <sc-if value="{{ canAct }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;gap:6px;flex-wrap:wrap;border-top:1px solid var(--line-hi);padding-top:8px">
+              <sc-if value="{{ v.isReject }}" hint-placeholder-val="{{ false }}"><button class="t-btn pri" type="button" onClick="{{ openPass }}">Reject it</button></sc-if>
+              <sc-if value="{{ v.notReject }}" hint-placeholder-val="{{ true }}"><button class="t-btn pri" type="button" disabled="{{ v.blocked }}" onClick="{{ onBook }}">{{ v.bookLabel }} <kbd>Ctrl ↵</kbd></button></sc-if>
+              <button class="t-btn" type="button">Save as quote <kbd>Ctrl S</kbd></button>
+              <sc-if value="{{ v.isReject }}" hint-placeholder-val="{{ false }}"><button class="t-btn" type="button" disabled="{{ v.blocked }}" onClick="{{ onBook }}">Book anyway</button></sc-if>
+              <sc-if value="{{ v.notReject }}" hint-placeholder-val="{{ true }}"><button class="t-btn" type="button" onClick="{{ openPass }}">Pass on it <kbd>Alt P</kbd></button></sc-if>
+            </div>
+            </sc-if>
+          </div>
+          </sc-if>
+        </section>
+
+        <!-- context -->
+        <div style="display:flex;flex-direction:column;gap:1px;background:var(--line)">
+          <section class="t-pn" aria-label="This lane">
+            <div class="t-ph"><i>LN</i>Houston → Memphis<span class="meta">4 finished loads, avg $2.20 loaded</span></div>
+            <div class="t-tw"><table class="t-tbl" aria-label="Lane history"><thead><tr><th scope="col">Load</th><th scope="col">On</th><th scope="col" class="n">Gross</th><th scope="col" class="n">Per mile</th></tr></thead>
+              <tbody><tr><td><a href="#loads" onClick="{{ toLoads }}">DM-40025</a></td><td>Oct 28</td><td class="n">$1,260</td><td class="n">$2.25</td></tr><tr><td>DM-40018</td><td>Oct 14</td><td class="n">$1,190</td><td class="n">$2.13</td></tr><tr><td>DM-40011</td><td>Sep 30</td><td class="n">$1,240</td><td class="n">$2.21</td></tr></tbody></table></div>
+          </section>
+          <section class="t-pn" aria-label="Customer record">
+            <div class="t-ph"><i>CU</i>Harbor and Pine Freight</div>
+            <dl class="t-kv t-body" style="padding-top:0"><dt>Loads</dt><dd>7 (5 finished)</dd><dt>Average per mile</dt><dd>$2.28</dd><dt>Days to pay</dt><dd>29.1</dd><dt>Still out</dt><dd>$0</dd></dl>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- dialogs -->
+  <sc-if value="{{ dlgBook }}" hint-placeholder-val="{{ false }}">
+    <div class="t-scrim" onClick="{{ closeDlg }}"></div>
+    <div class="t-dlg" role="dialog" aria-modal="true" aria-label="Before booking">
+      <div class="t-ph"><i>BK</i>Before booking<span class="meta"><button class="t-btn sm" onClick="{{ closeDlg }}">Esc</button></span></div>
+      <div class="t-body" style="display:grid;gap:8px">
+        <p class="vc-sent"><b>{{ gateTitle }}</b></p>
+        <p class="t-note">The reason is kept with the decision and in the audit log.</p>
+        <div role="radiogroup" aria-label="Reason" style="display:grid;gap:4px">
+          <sc-for list="{{ reasons }}" as="r" hint-placeholder-count="4"><label class="t-chk"><input type="radio" name="reason" checked="{{ r.on }}" onChange="{{ r.set }}">{{ r.label }}</label></sc-for>
+        </div>
+        <label class="t-fld"><span>Notes (optional)</span><textarea class="t-ta" placeholder="A few words"></textarea></label>
+        <div style="display:flex;gap:6px;justify-content:flex-end"><button class="t-btn" onClick="{{ closeDlg }}">Back</button><button class="t-btn pri" disabled="{{ noReason }}" onClick="{{ confirmBook }}">Book it anyway</button></div>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{ dlgPass }}" hint-placeholder-val="{{ false }}">
+    <div class="t-scrim" onClick="{{ closeDlg }}"></div>
+    <div class="t-dlg" role="dialog" aria-modal="true" aria-label="Pass on it">
+      <div class="t-ph"><i>PS</i>Why pass on this one?</div>
+      <div class="t-body" style="display:grid;gap:8px">
+        <p class="t-note">The quote is kept with the reason, so the lane and the customer are remembered.</p>
+        <div style="display:grid;gap:4px"><label class="t-chk"><input type="radio" name="pr"> Pays under the floor</label><label class="t-chk"><input type="radio" name="pr"> Too far under the market</label><label class="t-chk"><input type="radio" name="pr"> No truck can cover it</label><label class="t-chk"><input type="radio" name="pr"> Other</label></div>
+        <label class="t-fld"><span>Notes (optional)</span><textarea class="t-ta" placeholder="A few words"></textarea></label>
+        <div style="display:flex;gap:6px;justify-content:flex-end"><button class="t-btn" onClick="{{ closeDlg }}">Back</button><button class="t-btn pri" onClick="{{ closeDlg }}">{{ passWord }}</button></div>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{ dlgPaste }}" hint-placeholder-val="{{ false }}">
+    <div class="t-scrim" onClick="{{ closeDlg }}"></div>
+    <div class="t-dlg" role="dialog" aria-modal="true" aria-label="Paste a load snippet">
+      <div class="t-ph"><i>PS</i>Paste a load snippet</div>
+      <div class="t-body" style="display:grid;gap:8px">
+        <p class="t-note">Paste text from an email, a load board or a customer message. It fills the origin, destination, offer, weight, trailer and MC; you check them.</p>
+        <textarea class="t-ta" style="min-height:88px" placeholder="e.g. Dallas, TX to Atlanta, GA. 42k lbs dry van paying $1,850 all-in. MC# 123456 PO: PO-9988"></textarea>
+        <div style="border-top:1px solid var(--line);padding-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="t-dim">Or read a rate confirmation:</span><button class="t-btn sm">Upload PDF</button><button class="t-btn sm">Sample: Acme ($800)</button><button class="t-btn sm">Sample: Redline ($640, 3 stops)</button></div>
+        <div style="display:flex;gap:6px;justify-content:flex-end"><button class="t-btn" onClick="{{ closeDlg }}">Cancel</button><button class="t-btn pri" onClick="{{ closeDlg }}">Apply to form</button></div>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{ dlgKeys }}" hint-placeholder-val="{{ false }}">
+    <div class="t-scrim" onClick="{{ closeDlg }}"></div>
+    <div class="t-dlg" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+      <div class="t-ph"><i>?</i>Keyboard shortcuts</div>
+      <table class="t-tbl"><tbody>
+        <tr><td><kbd>Ctrl Enter</kbd></td><td>Book the load on the selected truck</td></tr><tr><td><kbd>Ctrl S</kbd></td><td>Save the quote</td></tr><tr><td><kbd>Alt P</kbd></td><td>Pass or reject this quote</td></tr><tr><td><kbd>Shift P</kbd></td><td>Open the paste reader</td></tr><tr><td><kbd>1 – 9</kbd></td><td>Select truck row 1 to 9</td></tr><tr><td><kbd>Enter</kbd></td><td>Next field in Pickup, Delivery, Offer and Loaded miles, then Book</td></tr><tr><td><kbd>?</kbd></td><td>Show this list</td></tr></tbody></table>
+      <div class="t-body" style="display:flex;justify-content:flex-end"><button class="t-btn pri" onClick="{{ closeDlg }}">Close</button></div>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1268,&quot;height&quot;:820},&quot;role&quot;:{&quot;editor&quot;:null,&quot;default&quot;:&quot;dispatcher&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;ui&quot;:{&quot;editor&quot;:null,&quot;default&quot;:&quot;normal&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s: string) =&gt; void&quot;}}">
+class Component extends DCLogic {
+  state = { tab: "terminal", offer: "1260", surcharge: "", loaded: "560", market: "", milesTyped: false, back: "load", sel: "v102:d2", sort: "deadhead", dlg: null, reason: "", booked: null, explain: null, pickup: "Houston, TX", delivery: "Memphis, TX".replace("TX", "TN") };
+  set = (k) => (e) => this.setState({ [k]: e.target.value });
+  componentDidMount() {
+    this._k = (e) => {
+      const t = e.target; if (t && /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) && !(e.ctrlKey || e.metaKey)) return;
+      if (e.key === "?") this.setState({ dlg: "keys" });
+      if (e.key === "P" && e.shiftKey) this.setState({ dlg: "paste" });
+      if (e.key === "Escape") this.setState({ dlg: null });
+    };
+    window.addEventListener("keydown", this._k);
+  }
+  componentWillUnmount() { window.removeEventListener("keydown", this._k); }
+  compute() {
+    const D = window.DESK, s = this.state;
+    const offer = Number(s.offer) || 0, sur = Number(s.surcharge) || 0, loaded = Number(s.loaded) || 0, gross = offer + sur;
+    const typedMarket = Number(s.market) || null;
+    const laneTotal = 2.2 * loaded;
+    const marketTotal = loaded > 0 ? (typedMarket ?? laneTotal) : null;
+    const benchmark = typedMarket ? "market" : "lane";
+    const combos = [
+      { k: "v101:d1", truck: "Unit 101", driver: "Alex Rivera", pay: "pay $0.50/mi", floor: 1.86, dh: 239, home: 452, hos: 6, base: "Dallas" },
+      { k: "v101:d4", truck: "Unit 101", driver: "Casey Brooks", pay: "pay $0.55/mi", floor: 1.91, dh: 239, home: 452, hos: 6, base: "Dallas" },
+      { k: "v102:d2", truck: "Unit 102", driver: "Sam Okafor", pay: "pay $0.52/mi", floor: 1.91, dh: 12, home: 560, hos: 24, base: "Houston" },
+      { k: "v103:d3", truck: "Unit 103", driver: "Jordan Lee", pay: "pay $18/hr", floor: 1.64, dh: 440, home: 470, hos: null, base: "Oklahoma City", blocked: "Needs a 53 ft trailer; this is a 26 ft box truck." }
+    ];
+    const list = combos.map((c) => {
+      const miles = c.dh + loaded + (s.back === "load" ? 0 : c.home);
+      const f = D.facts({ gross, miles, floor: c.floor, marketTotal, benchmark });
+      const v = D.readVerdict(f);
+      const hours = miles / 50, short = c.hos != null && hours > c.hos ? Math.round(hours - c.hos) : 0;
+      return { ...c, miles, f, v, hours, short };
+    });
+    list.sort((a, b) => (s.sort === "deadhead" ? a.dh - b.dh : (b.f.leftOver ?? -1e9) - (a.f.leftOver ?? -1e9)));
+    return { D, s, offer, sur, loaded, gross, typedMarket, laneTotal, benchmark, list, row: list.find((r) => r.k === s.sel) || list[0], valid: offer > 0 && loaded > 0 };
+  }
+  renderVals() {
+    const D = window.DESK; if (!D) return {};
+    const c = this.compute(), s = this.state, p = this.props, row = c.row;
+    const G = { take: "✓", think: "!", reject: "✕", unjudged: "" };
+    const sgn = (n, d = 2) => (n >= 0 ? "+" : "−") + "$" + Math.abs(n).toFixed(d);
+    const rowsOut = c.list.map((r, i) => ({
+      k: r.k, idx: i + 1, truck: r.truck, driver: r.driver, cls: r.blocked ? "blocked" : "", sel: r.k === row.k ? "true" : "false",
+      sub: r.blocked ? r.blocked : r.hos != null ? `${r.hos} h left${r.short ? ` · trip needs ${Math.round(r.hours)} h, ${r.short} h short` : ""} · ${r.pay}` : `No ELD · ${r.pay}`,
+      dh: r.dh + " mi", home: s.back === "load" ? "a load covers home" : "+" + r.home + " home",
+      s: r.v.state, g: G[r.v.state], word: r.v.word, allIn: r.f.allInPerMile == null ? "—" : D.rpm(r.f.allInPerMile), floor: D.rpm(r.floor),
+      left: r.f.leftOver == null ? "—" : sgn(r.f.leftOver, 0), pick: () => this.setState({ sel: r.k })
+    }));
+    const f = row.f, v = row.v, valid = c.valid;
+    const gate = D.bookingGate ? null : f.gate;
+    const needsReason = f.gate === "reason" || v.state === "reject";
+    const rl = v.ruler ? (() => {
+      const r = v.ruler, floorAt = r.floor.at, offerAt = Math.max(1, Math.min(99, r.offer.at));
+      const ticks = []; for (let k = -6; k <= 6; k++) { const at = floorAt + k * 0.25 * r.scale; if (at > 1 && at < 99) ticks.push(at.toFixed(1) + "%"); }
+      const tone = v.state === "take" ? "var(--pos-fill)" : v.state === "think" ? "var(--warn-fill)" : "var(--neg-fill)";
+      return { floorAt: floorAt + "%", offerAt: offerAt + "%", lossW: floorAt + "%", runL: Math.min(floorAt, offerAt) + "%", runW: Math.abs(offerAt - floorAt) + "%", tone, ticks,
+        hasMarket: !!r.market, marketAt: r.market ? Math.max(1, Math.min(99, r.market.at)) + "%" : "0%", marketTag: r.marketName === "Your lane" ? "LANE" : "MARKET",
+        floorTxt: D.rate(r.floor.value), offerTxt: D.rate(r.offer.value), marketTxt: r.market ? r.marketName.toLowerCase() + " " + D.rate(r.market.value) : "market not checked" };
+    })() : { ticks: [] };
+    const laneName = c.benchmark === "lane" ? "your lane" : "the market";
+    const ground = D.groundOf({ miles: s.milesTyped ? "typed" : "measured", fuel: "own", market: c.benchmark === "lane" ? { laneLoads: 4, laneDays: 90 } : "typed", driver: true }).map((g) => ({ label: g.label, cls: g.firm ? "firm" : "trust", mark: g.firm ? "■" : "□" }));
+    const say = (t, b) => () => this.setState({ explain: { t, b } });
+    const EX = {
+      floor: ["Floor.", "What a mile costs to run this truck, from its cost profile: fuel, fixed bills, upkeep and the driver. It stands in the same place on every card: right of it you make money, left of it you lose it."],
+      allin: ["All-In.", "Total pay with the fuel surcharge, over every mile driven: the empty miles to the pickup, the loaded miles, and the empty way home unless a load covers it."],
+      margin: ["Margin.", "All-In minus Floor, on every mile. Positive clears the cost; negative is a shortfall."],
+      left: ["Left over.", "Margin times every mile: the dollars the whole trip clears after the truck is paid for. Negative when the load loses money."],
+      market: ["Against " + laneName + ".", c.benchmark === "lane" ? "With no market rate typed, your own finished loads on this lane stand in, when there are enough of them. It can make a good load Caution, and one over 20% under it a Reject. It never turns a verdict green." : "The market rate somebody typed. It can make a good load Caution, and one over 20% under it a Reject. It never turns a verdict green."],
+      pay: ["Pay with surcharge.", "What the load pays in all, from the offer and the fuel surcharge as typed."]
+    };
+    const ladder = [
+      { k: "Pay with surcharge", v: D.usd(c.gross, 2), cls: "t-typed", say: say(...EX.pay) },
+      { k: "Every mile driven", v: `${row.dh} + ${c.loaded} + ${s.back === "load" ? 0 : row.home} = ${Math.round(row.miles)} mi`, cls: "", say: say(...EX.allin) },
+      { k: "All-In", v: f.allInPerMile == null ? "—" : D.rate(f.allInPerMile), cls: "", say: say(...EX.allin) },
+      { k: "Floor", v: D.rate(row.floor), cls: "", say: say(...EX.floor) },
+      { k: "Margin", v: f.marginPerMile == null ? "—" : sgn(f.marginPerMile) + "/mi", cls: f.marginPerMile < 0 ? "t-neg" : "", say: say(...EX.margin) },
+      { k: "Left over", v: f.leftOver == null ? "—" : sgn(f.leftOver, 0), cls: f.leftOver < 0 ? "t-neg sum" : "sum", say: say(...EX.left) }
+    ];
+    if (f.marketPct != null) ladder.push({ k: "Against " + laneName, v: `${f.marketPct >= 0 ? "+" : "−"}${Math.abs(f.marketPct * 100).toFixed(1)}% (${sgn(f.marketDollars, 0)})`, cls: "", say: say(...EX.market) });
+    ladder.push({ k: "Fuel", v: D.rate(3.9 / (row.truck === "Unit 102" ? 6.5 : 6.8)), cls: "", say: say("Fuel.", "The truck's own fuel price over its mpg, per mile.") });
+    // counter-offer targets, same sums as CounterOfferAssistant; labels say what they compute
+    const cur = c.offer, miles = row.miles || 1, profit = f.marginPerMile ?? 0;
+    const be = profit < 0 ? Math.round((cur + Math.ceil(Math.abs(profit) * miles)) / 10) * 10 : Math.round((row.floor * miles) / 10) * 10;
+    const base = Math.max(be, cur);
+    const t25 = Math.round((base + miles * 0.25) / 10) * 10, t50 = Math.round((base + miles * 0.5) / 10) * 10;
+    const mk = (label, amt, title) => ({ label, amt: D.usd(amt), diff: amt > cur ? " +" + D.usd(amt - cur) : "", title, apply: () => this.setState({ offer: String(amt) }) });
+    const bump = (d) => ({ label: (d > 0 ? "+$" : "−$") + Math.abs(d), go: () => this.setState({ offer: String(Math.max(0, cur + d)) }) });
+    const reasons = ["Backhaul coming", "Keeps the customer", "Empty truck otherwise", "Other"].map((r) => ({ label: r, on: s.reason === r, set: () => this.setState({ reason: r }) }));
+    const bookLabel = needsReason ? "Book with a reason" : "Book it";
+    const role = p.role ?? "dispatcher", ui = p.ui ?? "normal";
+    const gateTitle = v.state === "reject" ? (f.band === "below_floor" ? "This load pays less than it costs to run." : "This load pays more than 20% under what it was read against.") : f.band === "negotiate" ? "This load pays under the market." : "This load needs a second look.";
+    const off = (c.offer || 0), loadedN = c.loaded || 0;
+    return {
+      tabTerminal: s.tab === "terminal", tabSaved: s.tab === "saved", savedCount: 4,
+      showTerminal: () => this.setState({ tab: "terminal" }), showSaved: () => this.setState({ tab: "saved" }),
+      saved: [
+        { no: "Q-1042", cust: "Harbor and Pine Freight", lane: "Houston, TX → Memphis, TN", offer: "$1,260", s: "take", g: "✓", word: "Accept", tone: "info", state: "Open", ago: "3 min ago" },
+        { no: "Q-1041", cust: "Redwood Load Partners", lane: "Atlanta, GA → Charlotte, NC", offer: "$640", s: "reject", g: "✕", word: "Reject", tone: "mute", state: "Passed: pays under the floor", ago: "2 h ago" },
+        { no: "Q-1039", cust: "Northline Brokerage", lane: "Chicago, IL → Indianapolis, IN", offer: "$640", s: "think", g: "!", word: "Caution", tone: "ok", state: "Booked as DM-40042", ago: "1 d ago" },
+        { no: "Q-1036", cust: "Blue Mesa Logistics", lane: "Dallas, TX → Atlanta, GA", offer: "$1,610", s: "take", g: "✓", word: "Accept", tone: "ok", state: "Booked as DM-40043", ago: "2 d ago" }
+      ],
+      pickupAddr: s.pickup, deliveryAddr: s.delivery, offer: s.offer, surcharge: s.surcharge, loaded: s.loaded, market: s.market,
+      setOffer: this.set("offer"), setSurcharge: this.set("surcharge"), setLoaded: (e) => this.setState({ loaded: e.target.value, milesTyped: true }), setMarket: this.set("market"),
+      offerBad: valid || s.offer === "" ? undefined : "true",
+      offerNote: loadedN > 0 && off > 0 ? "$" + (off / loadedN).toFixed(2) + "/mi loaded" : "", 
+      milesNote: s.milesTyped ? "Typed: yours wins. Measured was 560." : "Measured on the road. Type over it.",
+      marketNote: c.typedMarket ? "Typed for this check." : "Blank: your lane stands in (4 loads, 90 days).",
+      backHome: s.back === "home", backLoad: s.back === "load", setHome: () => this.setState({ back: "home" }), setLoad: () => this.setState({ back: "load" }),
+      swapRoute: (e) => { e.preventDefault(); this.setState({ pickup: s.delivery, delivery: s.pickup }); }, noop: (e) => e && e.preventDefault && e.preventDefault(),
+      toLoads: (e) => { e.preventDefault(); this.props.go && this.props.go("loads"); },
+      rows: rowsOut, fitMeta: ui === "loading" ? "Pricing…" : `${rowsOut.length} ranked by ${s.sort === "deadhead" ? "empty miles" : "margin"}`,
+      sortDeadhead: s.sort === "deadhead", sortMargin: s.sort === "margin", sortByDeadhead: () => this.setState({ sort: "deadhead" }), sortByMargin: () => this.setState({ sort: "margin" }),
+      trailerNote: "2 trailers are free of kind (dry van).",
+      isLoading: ui === "loading", isError: ui === "error", isNoRow: ui === "normal" && !valid || ui === "empty", hasRow: ui === "normal" && valid,
+      pricedFor: `Priced for ${row.truck} · ${row.driver}`, booked: !!s.booked, bookedText: s.booked || "",
+      v: { state: v.state, word: v.word, glyph: G[v.state], sentence: v.sentence, allIn: f.allInPerMile == null ? "—" : D.rpm(f.allInPerMile), miles: Math.round(row.miles) + " mi", homeText: s.back === "load" ? "a load covers the way home" : Math.round(row.home) + " mi empty home",
+        hasRuler: !!v.ruler, isUnjudged: v.state === "unjudged", rulerSaid: `This load pays ${D.rate(f.allInPerMile || 0)} against a floor of ${D.rate(row.floor)}.`, isReject: v.state === "reject", notReject: v.state !== "reject", blocked: row.blocked ? true : undefined, bookLabel },
+      rl, ladder, ground, explain: s.explain || { t: "Hover or tab to any figure.", b: "It says what it is and how it is worked out." },
+      explainState: say(v.word + ".", { take: "It pays more than it costs to run this truck, and it is not well under the market. Your cost decides this.", think: "It clears your cost, but something deserves a second look: a margin under 5 cents a mile, pay more than 10% under the market, or a lot of hours for little money.", reject: "It pays less than it costs to run, or more than 20% under the market. A reason can still book it.", unjudged: "There is nothing honest to measure yet: the truck needs an mpg and a fuel price." }[v.state]),
+      targets: [mk("Break-even", be, "The offer that clears the floor on every mile"), mk("+$0.25/mi margin", t25, "Break-even plus a quarter a mile on every mile"), mk("+$0.50/mi margin", t50, "Break-even plus fifty cents a mile on every mile")],
+      steps: [bump(50), bump(100), bump(250), bump(500), bump(-50)],
+      canAct: role === "dispatcher" || role === "admin",
+      onBook: () => (needsReason ? this.setState({ dlg: "book" }) : this.setState({ booked: `DM-40055 on ${row.truck} · ${row.driver}. The decision is in the audit log.` })),
+      openPass: () => this.setState({ dlg: "pass" }), openPaste: () => this.setState({ dlg: "paste" }), openKeys: () => this.setState({ dlg: "keys" }), closeDlg: () => this.setState({ dlg: null }),
+      clearAll: () => this.setState({ offer: "", surcharge: "", loaded: "", market: "", milesTyped: false, booked: null, reason: "" }),
+      dlgBook: s.dlg === "book", dlgPass: s.dlg === "pass", dlgPaste: s.dlg === "paste", dlgKeys: s.dlg === "keys",
+      gateTitle, reasons, noReason: s.reason === "" ? true : undefined, passWord: v.state === "reject" ? "Reject it" : "Pass on it",
+      confirmBook: () => this.setState({ dlg: null, booked: `DM-40055 on ${row.truck} · ${row.driver}, with the reason “${s.reason}” kept in the audit log.` })
+    };
+  }
+}
+</script>
+</body>
+</html>

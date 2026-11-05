@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="States">
+  <div class="t-pagehead"><h1><i>XS</i>States</h1><p>Every empty, waiting, wrong and blocked state, in one sentence each. Design review only: not a page in the product.</p></div>
+  <div class="t-gr" style="grid-template-columns:repeat(auto-fit,minmax(360px,1fr))">
+    <section class="t-pn"><div class="t-ph"><i>01</i>Empty<span class="meta">one line, no icon</span></div><p class="t-body">No open loads match. Another status, or clear the search.</p></section>
+    <section class="t-pn"><div class="t-ph"><i>02</i>Loading<span class="meta">loading.tsx</span></div><div class="t-body" style="display:grid;gap:8px"><div class="t-skel" style="width:30%"></div><div class="t-skel" style="width:90%"></div><div class="t-skel" style="width:75%"></div><div class="t-skel" style="width:82%"></div></div></section>
+    <section class="t-pn"><div class="t-ph"><i>03</i>Error<span class="meta">error.tsx</span></div><div class="t-body" style="display:grid;gap:8px"><p class="t-note"><b>This screen could not load.</b> Nothing was changed. Try again; if it keeps happening, tell us the reference.</p><div class="t-dim">Reference 8F2A-31C0</div><div style="display:flex;gap:6px"><button class="t-btn pri">Try again</button><button class="t-btn">Back to Loads</button></div></div></section>
+    <section class="t-pn"><div class="t-ph"><i>04</i>Not found<span class="meta">not-found.tsx</span></div><div class="t-body" style="display:grid;gap:8px"><p class="t-note"><b>No load with that number.</b> It may have been deleted, or the link is old.</p><span><button class="t-btn">Back to Loads</button></span></div></section>
+    <section class="t-pn"><div class="t-ph"><i>05</i>Booked or discarded since you opened it</div><div class="t-body" style="display:grid;gap:8px"><p class="t-note"><b>This quote was booked</b> as DM-40044 on Unit 102 by Maya Ortiz at 10:31, after you opened it. Your fields are kept.</p><div style="display:flex;gap:6px"><button class="t-btn pri">Open DM-40044</button><button class="t-btn">Start a new quote</button></div></div></section>
+    <section class="t-pn"><div class="t-ph"><i>06</i>Plan full<span class="meta">plan-limit.tsx</span></div><div class="t-banner"><b>Plan full</b>Starter holds 3 trucks. You are using 3 of 3.</div><div class="t-body" style="display:flex;gap:6px"><button class="t-btn" disabled title="Your plan is full. Talk to a person.">Add truck</button><button class="t-btn pri">Talk to a person</button></div></section>
+    <section class="t-pn"><div class="t-ph"><i>07</i>Read only: viewer</div><div class="t-banner"><b>Read only</b>You can read everything here but not change it. A dispatcher or the accounting office can.</div><p class="t-body t-dim">No action buttons are drawn for a viewer. Where a button would be disabled for another reason, the reason sits beside it.</p></section>
+    <section class="t-pn"><div class="t-ph"><i>08</i>A passed quote, opened<span class="meta">read-only</span></div><div class="t-banner"><b>Passed</b>Q-1041 was passed on Nov 04 08:05: pays under the floor. It is read, not edited.</div><div class="t-body" style="display:flex;gap:10px;align-items:center"><span class="vm" data-s="reject" style="--s:22px"><span>✕</span></span><span class="vc-word" style="font-size:16px">Reject</span><span class="t-dim">$640 · Atlanta → Charlotte</span></div></section>
+    <section class="t-pn"><div class="t-ph"><i>09</i>Could not reach the desk</div><div class="t-body" style="display:grid;gap:8px"><p class="t-note"><b>Not priced.</b> The pricing service did not answer. Your fields are kept.</p><span><button class="t-btn">Try again</button></span></div></section>
+    <section class="t-pn" style="position:relative"><div class="t-ph"><i>10</i>Toast with Undo<span class="meta">20 s, pausable</span></div><div class="t-body"><div class="t-toast" style="position:static;width:max-content"><span>DM-40039 deleted with a reason.</span><button class="t-btn sm">Undo</button><span class="t-dim">17 s</span></div></div></section>
+    <section class="t-pn"><div class="t-ph"><i>11</i>Confirm<span class="meta">kit/confirm-form.tsx</span></div><div class="t-body" style="display:grid;gap:8px"><p class="vc-sent"><b>Void ST-0008?</b></p><p class="t-note">Its loads are released and the statement is kept as it was, marked void.</p><label class="t-fld"><span>Reason (required)</span><textarea class="t-ta"></textarea></label><div style="display:flex;gap:6px;justify-content:flex-end"><button class="t-btn">Back</button><button class="t-btn pri" disabled>Void</button></div></div></section>
+    <section class="t-pn"><div class="t-ph"><i>12</i>Date picker<span class="meta">Dallas days</span></div><div class="t-body" style="display:grid;gap:6px;width:max-content">
+      <label class="t-in" style="width:200px"><input defaultValue="Nov 05, 2026" aria-label="Date"></label>
+      <div style="border:1px solid var(--line-hi);padding:6px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><button class="t-btn sm">◂</button><b>November 2026</b><button class="t-btn sm">▸</button></div>
+        <div style="display:grid;grid-template-columns:repeat(7,28px);gap:1px;text-align:center"><sc-for list="{{ dows }}" as="d" hint-placeholder-count="7"><span class="t-lbl">{{ d }}</span></sc-for><sc-for list="{{ days }}" as="d" hint-placeholder-count="35"><button type="button" style="height:24px;border:0;cursor:pointer;background:{{ d.bg }};color:{{ d.fg }}">{{ d.n }}</button></sc-for></div></div></div></section>
+    <section class="t-pn"><div class="t-ph"><i>13</i>Address suggestions<span class="meta">temporary, not stored</span></div><div class="t-body" style="width:300px"><label class="t-in"><input defaultValue="Hous"></label>
+      <ul style="border:1px solid var(--line-hi);border-top:0"><li style="padding:4px 8px;background:var(--label);color:var(--on-label)">Houston, TX</li><li style="padding:4px 8px">Houston Heights, Houston, TX</li><li style="padding:4px 8px">Houston, MS</li></ul></div></section>
+    <section class="t-pn"><div class="t-ph"><i>14</i>Search and command line</div><div class="t-body" style="display:grid;gap:6px;width:min(420px,100%)"><div class="t-line" style="max-width:none"><b>&gt;</b><input defaultValue="redw" aria-label="Search"><button class="t-go">GO</button></div>
+      <div class="t-lbl">Customers</div><div style="padding:0 8px;background:var(--label);color:var(--on-label)">Redwood Load Partners · MC 100789</div><div class="t-lbl">Loads</div><div style="padding:0 8px">DM-40050 · Kansas City → St. Louis</div><div style="padding:0 8px">DM-40045 · Atlanta → Charlotte</div><div class="t-lbl">Codes</div><div style="padding:0 8px" class="t-dim">Type LD to open Loads. Proposal: not built today.</div></div></section>
+    <section class="t-pn"><div class="t-ph"><i>15</i>Money in every state</div><ul class="t-body" style="display:grid;gap:3px"><sc-for list="{{ money }}" as="m" hint-placeholder-count="10"><li style="display:flex;gap:10px"><span class="t-st" data-tone="{{ m.tone }}" style="width:140px">{{ m.label }}</span><span class="t-dim">{{ m.detail }}</span></li></sc-for></ul></section>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1268,&quot;height&quot;:900},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s:string)=&gt;void&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const days = []; const off = 0; // Nov 1 2026 is a Sunday
+    for (let d = 1; d <= 30; d++) days.push({ n: d, bg: d === 5 ? "var(--label)" : d === 4 ? "var(--head)" : "transparent", fg: d === 5 ? "var(--on-label)" : "var(--ink)" });
+    return { dows: ["S", "M", "T", "W", "T", "F", "S"], days,
+      money: [["Draft", "info", "Quote saved, not booked"], ["Sent", "info", "Sent to the driver, waiting"], ["Accepted", "ok", "Driver said yes"], ["In progress", "info", "On the road"], ["Delivered, not invoiced", "info", "Ready to invoice"], ["Out and waiting", "warn", "Invoiced, inside terms"], ["Overdue", "bad", "12 days overdue"], ["Part paid", "warn", "$400.00 in, $510.00 to come"], ["Paid", "ok", ""], ["Paid short", "bad", "$40.00 short of $520.00"], ["Closed short", "bad", "$75.00 written off, with its reason"]].map(([label, tone, detail]) => ({ label, tone, detail })) };
+  }
+}
+</script>
+</body>
+</html>

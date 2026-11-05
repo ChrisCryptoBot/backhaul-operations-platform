@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="Market">
+  <div class="t-pagehead"><h1><i>{{ code }}</i>{{ title }}</h1><p>{{ sub }}</p>
+    <div class="acts"><sc-if value="{{ isCust }}" hint-placeholder-val="{{ true }}"><button class="t-btn" disabled="{{ noWrite }}">Import CSV</button><button class="t-btn pri" disabled="{{ noWrite }}" onClick="{{ newCust }}">Add customer</button></sc-if></div></div>
+  <sc-if value="{{ isCust }}" hint-placeholder-val="{{ true }}">
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:1px;background:var(--line);flex:1;align-items:start">
+    <section class="t-pn" aria-label="Customers">
+      <div class="t-ph"><i>CU</i>Customers<span class="meta">Customer, not broker: the kind is a field</span></div>
+      <div class="t-tw"><table class="t-tbl" aria-label="Customers">
+        <thead><tr><th scope="col">Customer</th><th scope="col">Kind</th><th scope="col">MC</th><th scope="col">Authority</th><th scope="col" class="n">Terms</th><th scope="col" class="n">Loads</th><th scope="col" class="n">Avg $/mi</th><th scope="col" class="n">Days to pay</th><th scope="col" class="n">Still out</th></tr></thead>
+        <tbody><sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}"><tr><td colSpan="9" class="t-dim" style="height:40px">No customers yet. A customer is added when a load names one, or here.</td></tr></sc-if>
+          <sc-for list="{{ custs }}" as="c" hint-placeholder-count="5"><tr aria-selected="{{ c.sel }}" onClick="{{ c.pick }}"><td>{{ c.name }}</td><td class="t-dim">{{ c.kind }}</td><td>{{ c.mc }}</td><td><span class="t-st" data-tone="{{ c.tone }}">{{ c.auth }}</span></td><td class="n">Net {{ c.terms }}</td><td class="n">{{ c.loads }}</td><td class="n">{{ c.rpm }}</td><td class="n">{{ c.days }}</td><td class="n">{{ c.out }}</td></tr></sc-for></tbody></table></div>
+    </section>
+    <div style="display:flex;flex-direction:column;gap:1px;background:var(--line)">
+      <section class="t-pn" aria-label="Scorecard"><div class="t-ph"><i>SC</i>{{ cur.name }}<span class="meta">scorecard</span></div>
+        <dl class="t-kv t-body" style="padding-top:0"><dt>Loads</dt><dd>{{ cur.loads }} ({{ cur.fin }} finished)</dd><dt>Average per mile</dt><dd>{{ cur.rpm }}</dd><dt>Days to pay</dt><dd>{{ cur.days }}</dd><dt>Paid short</dt><dd>{{ cur.short }}</dd><dt>Still out</dt><dd class="sum">{{ cur.out }}</dd></dl></section>
+      <section class="t-pn" aria-label="Customer record"><div class="t-ph"><i>CR</i>Record<span class="meta">Kept until you save</span></div>
+        <div class="t-body" style="display:grid;gap:8px">
+          <div class="t-seg" role="group" aria-label="Kind"><button aria-pressed="true" style="flex:1">Broker</button><button aria-pressed="false" style="flex:1">Shipper</button><button aria-pressed="false" style="flex:1">Other</button></div>
+          <label class="t-fld"><span>MC (brokers and carriers)</span><span class="t-in"><input defaultValue="{{ cur.mcRaw }}"><button class="t-btn sm" type="button" onClick="{{ lookup }}">Look up</button></span>
+            <small role="status">{{ authNote }}</small></label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><label class="t-fld"><span>Billing contact</span><span class="t-in"><input placeholder="Name"></span></label><label class="t-fld"><span>Pay terms</span><span class="t-in"><input defaultValue="{{ cur.termsRaw }}"><u>days</u></span></label>
+          <label class="t-fld" style="grid-column:1/3"><span>Notes</span><textarea class="t-ta"></textarea></label></div>
+          <div style="display:flex;justify-content:flex-end;gap:6px"><button class="t-btn" disabled="{{ noWrite }}">Discard</button><button class="t-btn pri" disabled="{{ noWrite }}">Save</button></div>
+        </div></section>
+    </div>
+  </div>
+  </sc-if>
+  <sc-if value="{{ isLanes }}" hint-placeholder-val="{{ false }}">
+  <section class="t-pn" aria-label="Lanes">
+    <div class="t-ph"><i>LN</i>Lanes<span class="meta">A lane stands in for a missing market rate at 3 loads in 90 days (Settings › Thresholds)</span></div>
+    <div class="t-tw"><table class="t-tbl" aria-label="Lanes"><thead><tr><th scope="col">Lane</th><th scope="col" class="n">Finished loads, 90 days</th><th scope="col" class="n">Average per loaded mile</th><th scope="col">Last run</th><th scope="col">Stands in for the market</th></tr></thead>
+      <tbody><sc-for list="{{ lanes }}" as="l" hint-placeholder-count="6"><tr><td>{{ l.lane }}</td><td class="n">{{ l.n }}</td><td class="n">{{ l.avg }}</td><td>{{ l.last }}</td><td><span class="t-st" data-tone="{{ l.tone }}">{{ l.stands }}</span></td></tr></sc-for></tbody></table></div>
+  </section>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1268,&quot;height&quot;:620},&quot;kind&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;customers&quot;,&quot;options&quot;:[&quot;customers&quot;,&quot;lanes&quot;],&quot;tsType&quot;:&quot;string&quot;},&quot;role&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;ui&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s:string)=&gt;void&quot;}}">
+class Component extends DCLogic {
+  state = { sel: 0, auth: "idle" };
+  renderVals() {
+    const D = window.DESK; if (!D) return {};
+    const p = this.props, s = this.state, kind = p.kind ?? "customers", canWrite = ["dispatcher", "admin"].includes(p.role ?? "dispatcher");
+    const cu = D.customers, cur = cu[s.sel];
+    const notes = { idle: "Type over anything. A look-up only fills an empty field, or asks first.", busy: "Looking up the authority…", found: "Active · Redwood Load Partners LLC. Use this name and MC?", notfound: "No authority found for that MC. Check the number.", down: "Could not reach the authority service. Your fields are kept." };
+    return {
+      code: kind === "customers" ? "CU" : "LN", title: kind === "customers" ? "Customers" : "Lanes", sub: kind === "customers" ? "Who loads are for, how fast they pay, and what they have paid short." : "The city pairs you run, and what they have paid.",
+      isCust: kind === "customers", isLanes: kind === "lanes", noWrite: canWrite ? undefined : true, newCust: () => this.setState({ sel: 0 }), isEmpty: p.ui === "empty",
+      custs: p.ui === "empty" ? [] : cu.map((c, i) => ({ name: c.name, kind: c.kind, mc: c.mc, auth: c.auth, tone: c.auth === "Active" ? "ok" : "mute", terms: c.terms, loads: c.loads, rpm: D.rpm(c.rpm), days: c.days.toFixed(1), out: c.out ? D.usd(c.out) : "—", sel: i === s.sel ? "true" : "false", pick: () => this.setState({ sel: i }) })),
+      cur: { name: cur.name, loads: cur.loads, fin: cur.finished, rpm: D.rpm(cur.rpm) + "/mi", days: cur.days.toFixed(1) + " days", short: cur.short ? cur.short + " paid short" : "none", out: cur.out ? D.usd(cur.out, 2) : "$0.00", mcRaw: cur.mc.replace("MC ", ""), termsRaw: String(cur.terms) },
+      authNote: notes[s.auth], lookup: () => { this.setState({ auth: "busy" }); setTimeout(() => this.setState({ auth: ["found", "notfound", "down"][s.sel % 3] }), 600); },
+      lanes: D.lanes.map((l) => ({ lane: `${l.from} → ${l.to}`, n: l.n, avg: D.rpm(l.avg), last: l.last, stands: l.stands ? "Yes, " + l.n + " loads" : "Not yet, needs 3", tone: l.stands ? "ok" : "mute" }))
+    };
+  }
+}
+</script>
+</body>
+</html>

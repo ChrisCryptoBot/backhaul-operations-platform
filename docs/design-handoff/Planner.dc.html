@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="terminal.css">
+<script src="desk-data.js"></script>
+</helmet>
+<div class="t-page" data-screen-label="Planner">
+  <div class="t-pagehead"><h1><i>PL</i>Planner</h1><p>Each truck's week, from the first stop's opening to the last stop's close.</p>
+    <div class="acts"><button class="t-btn sm">◂ Prev</button><button class="t-btn sm">Today</button><button class="t-btn sm">Next ▸</button></div></div>
+  <section class="t-pn" aria-label="Planner">
+    <div class="t-ph"><i>WK</i>Nov 03 to Nov 09<span class="meta"><span>▨ no driver sent</span><span>▮ overlaps another load on the same truck</span></span></div>
+    <div style="display:grid;grid-template-columns:150px minmax(0,1fr)">
+      <div style="height:22px;border-bottom:1px solid var(--line-hi);background:var(--head)"></div>
+      <div style="display:grid;grid-template-columns:repeat(7,1fr);height:22px;border-bottom:1px solid var(--line-hi);background:var(--head)">
+        <sc-for list="{{ days }}" as="d" hint-placeholder-count="7"><div class="t-lbl" style="padding:3px var(--pad);border-left:1px solid var(--line)">{{ d }}</div></sc-for>
+      </div>
+      <sc-for list="{{ lanes }}" as="r" hint-placeholder-count="4">
+        <div style="padding:6px var(--pad);border-bottom:1px solid var(--line);height:{{ r.h }}"><b style="font-weight:600">{{ r.name }}</b><div class="t-dim">{{ r.sub }}</div></div>
+        <div style="position:relative;border-bottom:1px solid var(--line);height:{{ r.h }};background-image:linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:14.2857% 100%">
+          <sc-for list="{{ r.bars }}" as="b" hint-placeholder-count="3">
+            <a href="#loads" onClick="{{ toLoads }}" title="{{ b.title }}" style="position:absolute;left:{{ b.left }};width:{{ b.w }};top:{{ b.top }};height:22px;display:flex;align-items:center;gap:4px;padding:0 4px;overflow:hidden;white-space:nowrap;text-decoration:none;border:1px solid {{ b.edge }};background:{{ b.bg }};color:{{ b.fg }}">{{ b.mark }}{{ b.no }}</a>
+          </sc-for>
+          <sc-if value="{{ r.today }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;left:{{ nowAt }};top:0;bottom:0;width:2px;background:var(--label-hi)" title="Now: Nov 04 10:42"></div></sc-if>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+  <section class="t-pn"><div class="t-body t-note">Overlaps on <b>Unit 101</b> (DM-40052 and DM-40045 on Nov 05) and on <b>Jordan Lee</b> (DM-40049 and DM-40046) are also on the <a href="#alerts" onClick="{{ toAlerts }}">Alerts</a> list. The planner only draws what the loads already say.</div></section>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1268,&quot;height&quot;:520},&quot;ui&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;string&quot;},&quot;go&quot;:{&quot;editor&quot;:null,&quot;tsType&quot;:&quot;(s:string)=&gt;void&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const p = this.props, H = 168, at = (h) => (h / H) * 100 + "%";
+    // hours from Nov 03 00:00 (Dallas)
+    const L = (no, a, b, kind) => ({ no, a, b, kind });
+    const rows = [
+      { name: "Unit 101", sub: "Alex Rivera · Casey Brooks", bars: [L("DM-40050", 9.5, 34, "road"), L("DM-40052", 53, 86, "road"), L("DM-40045", 79, 89, "sent"), L("DM-40047", 127, 135, "acc"), L("DM-40041", 128, 154, "nodrv"), L("DM-40043", 151, 177, "nodrv")] },
+      { name: "Unit 102", sub: "Sam Okafor", bars: [L("DM-40051", 26, 56, "road"), L("DM-40044", 81, 108, "sent"), L("DM-40048", 109, 130, "acc"), L("DM-40054", 175, 190, "nodrv")] },
+      { name: "Unit 103", sub: "Jordan Lee · box truck", bars: [L("DM-40049", 44, 84.7, "road"), L("DM-40046", 82, 88, "sent")] },
+      { name: "No truck yet", sub: "Not placed", bars: [L("DM-40042", 78.5, 86, "nodrv"), L("DM-40053", 152, 160, "nodrv")] }
+    ];
+    const bar = (b, lane) => {
+      const over = rows[lane].bars.some((o) => o !== b && o.a < b.b && b.a < o.b && lane < 3 && !(b.kind === "nodrv" && o.kind === "nodrv"));
+      const nodrv = b.kind === "nodrv";
+      const stack = rows[lane].bars.filter((o) => o.a < b.a && o.b > b.a).length;
+      return { no: b.no, left: at(Math.max(0, b.a)), w: at(Math.min(H, b.b) - Math.max(0, b.a)), top: 4 + stack * 26 + "px", title: `${b.no}${over ? " overlaps another load on this truck" : ""}`, mark: over ? "▮ " : nodrv ? "▨ " : "",
+        edge: over ? "var(--neg)" : "var(--line-hi)", bg: b.kind === "road" ? "var(--typed)" : b.kind === "acc" ? "var(--pos-fill)" : b.kind === "sent" ? "var(--head)" : "var(--sunk)", fg: b.kind === "road" || b.kind === "acc" ? "var(--on-fill)" : "var(--ink)" };
+    };
+    return {
+      days: ["Tue 03", "Wed 04", "Thu 05", "Fri 06", "Sat 07", "Sun 08", "Mon 09"], nowAt: at(34.7),
+      lanes: p.ui === "empty" ? [] : rows.map((r, i) => ({ name: r.name, sub: r.sub, h: i === 0 ? "112px" : i === 3 ? "60px" : "64px", today: true, bars: r.bars.map((b) => bar(b, i)) })),
+      toLoads: (e) => { e.preventDefault(); p.go && p.go("loads"); }, toAlerts: (e) => { e.preventDefault(); p.go && p.go("alerts"); }
+    };
+  }
+}
+</script>
+</body>
+</html>
