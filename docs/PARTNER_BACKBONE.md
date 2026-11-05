@@ -45,6 +45,18 @@ What the factoring simulator gives: an invoice sent from the desk is answered wi
 
 Every simulator is keyed the same way: a company key that starts with `sandbox_`. Each webhook-driven shelf (factoring, payroll, tracking) has a builder in its adapter file that makes the company's event in the company's shape and signs it, which is what **Send test event** in Settings uses (it hands the event to the desk's own receiver, in-process).
 
+### Where the partner data shows (screens)
+
+| Data | Where | Who |
+|---|---|---|
+| Quarter's miles by state, CSV | **IFTA** (Money): four quarters, a table by state with each state's share, stat strip, `Export CSV` (`/export/ifta?quarter=`), `Work out this quarter` | admin, billing (work it out needs the billing capability) |
+| Fuel card purchases | **Fuel** (Money): last 30 or 90 days, each purchase with gallons, $/gal, discount/gal, charged, the load it is tied to and the driver statement that load is on (a voided statement is not named); totals; `Export CSV` (`/export/fuel`); `Read card purchases` | admin, dispatcher, billing |
+| Tracking link | **Load page, Partners tab, Tracking**: share with the carrier's tick for this load, the link to send, copy, stop. Kept on the load (`tracking_share_url`). The simulator's link is on `track.sandbox.invalid` | dispatch to share; everyone sees it |
+| Carrier check | **Drivers**, carrier cell: authority, safety score (red under 60, amber under 75), insurance (amber inside 30 days, red once lapsed); the check's first reasons are the hover text. Kept on the driver (`vet_safety_score`, `vet_authority_active`, `vet_flags`) | everyone reads; dispatch runs a check |
+| Payroll paid | **Settlements**, the statement page and **Payroll**: *With payroll* (amber, sent and not cleared) and *Paid by payroll* (the company's cleared-run event marks it, `paid_method` payroll) | everyone reads |
+
+Fuel purchases are kept in `fuel_transactions` (one row per purchase by the company's id, so reading the same days twice never doubles one). Nothing is taken off a driver statement because of a purchase: the "settlement link" is only the statement the purchase's load is on. Migration `20261125000000_partner_data`.
+
 ## Tables (migration `20261122000000_partner_backbone`)
 
 Migration `20261124000000_ifta_store` adds `ifta_lines` (the IFTA mileage store). Migration `20261123000000_eld_telemetry` adds the truck's last position and the driver's ELD id and clocks (all optional, written only by the ELD sync).
@@ -66,7 +78,7 @@ Losing `DESK_CREDENTIAL_KEY` with no previous key loses the stored keys (they ar
 - Real per-company signature header and event shape (the neutral envelope `{id, type, reference}` is read today).
 - Plan gating of partner features; a screen to link a tractor to its ELD id; a fuel-card transaction store.
 - A poll for factoring, payroll or tracking (a missed webhook is not reconciled by asking the company): it needs each company's real API shape; until one is chosen those kinds are told by webhook or asked for by a person, as the policy table says.
-- Screens for what the new adapters produce: a fuel transaction list and settlement deduction, the tracking share link on the load page, a vetting score column, a payroll paid badge, and the IFTA quarter screen and CSV (the data and the store exist; no page shows them yet).
+- A fuel deduction on a driver statement (the purchase is only tied to the statement, not taken off it), a customer-level carrier check (only drivers who run under their own authority have one), and a place to see the IFTA return netted against fuel bought.
 - **Insurance is not a capability** in the vendored contract (`src/truelane/partners/contract.ts`, from the phone repo), so it has no connection row, keys, webhook or rhythm here. Adding it means changing the contract in the phone repo and re-vendoring.
 - Verticals with no store or screen: IFTA (state miles, quarter screen, CSV), tracking (opt-in per load, share link), insurance (capability, certificate records, expiry alerts), COI-expiry and ELD-stale alert rules.
 - Counsel review before a money-moving or location-sharing capability is switched on for anyone.

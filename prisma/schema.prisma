@@ -50,19 +50,20 @@ model Workspace {
   paymentNote String? @map("payment_note")
 
   /// The plan the workspace is on (starter | growth | pro | enterprise). A missing plan is read as Starter (src/lib/plans.ts effectivePlan), never as "no limit".
-  plan               String?  @default("starter")
+  plan               String?             @default("starter")
   /// The carrier's own clock (an IANA zone such as America/New_York): where billing days, aging, weekly driver limits, statement weeks and "this month" are counted. Stops keep their own
   /// local time (an appointment at a facility is read in the facility's zone); see src/lib/tz.ts. New workspaces start on Central, as the desk always has.
-  timezone           String   @default("America/Chicago") @map("timezone")
+  timezone           String              @default("America/Chicago") @map("timezone")
   /// The driver link (docs/DRIVER_LINK_DESIGN.md): the Clerk Organization this workspace is mapped to on the bridge (null = not bridged: the dispatcher records the driver's answers), and the
   /// last `sync_seq` of the bridge table read, so each pull continues where the last one ended.
-  bridgeOrgId        String?  @map("bridge_org_id")
-  bridgeCursor       BigInt   @default(0) @map("bridge_cursor")
+  bridgeOrgId        String?             @map("bridge_org_id")
+  bridgeCursor       BigInt              @default(0) @map("bridge_cursor")
   partnerConnections PartnerConnection[]
   bridgeOutbox       BridgeOutbox[]
   partnerCredentials PartnerCredential[]
   partnerEvents      PartnerEvent[]
   iftaLines          IftaLine[]
+  fuelTransactions   FuelTransaction[]
   members            Member[]
   threads            Thread[]
   vehicles           Vehicle[]
@@ -138,11 +139,12 @@ model Vehicle {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  costProfile CostProfile?
-  loads       Load[]
-  drivers     Driver[]
-  trailers    Trailer[]
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  costProfile      CostProfile?
+  loads            Load[]
+  drivers          Driver[]
+  trailers         Trailer[]
+  fuelTransactions FuelTransaction[]
 
   @@index([workspaceId, archivedAt, name])
   @@index([workspaceId, terminal])
@@ -304,18 +306,23 @@ model Load {
   factoringStatus               String    @default("none") @map("factoring_status")
   factoringReferenceId          String?   @map("factoring_reference_id")
   factoringUpdatedAt            DateTime? @map("factoring_updated_at")
+  /// Location sharing with a tracking network, for this load only (the carrier's yes each time): the link a customer follows, who it is with, and when it began. Cleared when sharing stops.
+  trackingShareUrl              String?   @map("tracking_share_url")
+  trackingProvider              String?   @map("tracking_provider")
+  trackingSharedAt              DateTime? @map("tracking_shared_at")
 
-  workspace  Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  vehicle    Vehicle?        @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
-  trailer    Trailer?        @relation(fields: [trailerId], references: [id], onDelete: SetNull)
-  stops      Stop[]
-  documents  LoadDocument[]
-  payments   LoadPayment[]
-  segments   TripSegment[]
-  decisions  LoadDecision[]
-  assignment Assignment?
-  messages   Message[]
-  settlement SettlementLoad?
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  vehicle          Vehicle?          @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  trailer          Trailer?          @relation(fields: [trailerId], references: [id], onDelete: SetNull)
+  stops            Stop[]
+  documents        LoadDocument[]
+  fuelTransactions FuelTransaction[]
+  payments         LoadPayment[]
+  segments         TripSegment[]
+  decisions        LoadDecision[]
+  assignment       Assignment?
+  messages         Message[]
+  settlement       SettlementLoad?
 
   // The lists a big fleet reads: by state, by day, by money, by customer, by number, and a truck's own loads. Trigram (search) indexes are in the
   // 20261106100000 migration only; Prisma cannot express them.
@@ -403,41 +410,45 @@ model LoadDecision {
 
 /// A driver the dispatcher can assign. TrueLane keeps its `drivers` table on the phone only.
 model Driver {
-  id                String    @id @default(cuid())
-  workspaceId       String    @map("workspace_id")
-  name              String
-  phone             String?
-  email             String?
-  cdlClass          String?   @map("cdl_class")
-  cdlExpiry         DateTime? @map("cdl_expiry")
-  medicalCardExpiry DateTime? @map("medical_card_expiry")
-  assignedVehicleId String?   @map("assigned_vehicle_id")
+  id                 String    @id @default(cuid())
+  workspaceId        String    @map("workspace_id")
+  name               String
+  phone              String?
+  email              String?
+  cdlClass           String?   @map("cdl_class")
+  cdlExpiry          DateTime? @map("cdl_expiry")
+  medicalCardExpiry  DateTime? @map("medical_card_expiry")
+  assignedVehicleId  String?   @map("assigned_vehicle_id")
   /// What this driver is usually paid: cpm | hourly | flat, and the rate. An assignment starts from it; the assignment's own pay wins.
-  defaultPayKind    String?   @map("default_pay_kind")
-  defaultPayRate    Decimal?  @map("default_pay_rate") @db.Decimal(12, 4)
+  defaultPayKind     String?   @map("default_pay_kind")
+  defaultPayRate     Decimal?  @map("default_pay_rate") @db.Decimal(12, 4)
   /// Which terminal (yard, branch, region) this driver works out of; the same free-text values as a truck's. Blank = unassigned.
-  terminal          String?
+  terminal           String?
   /// Payroll: the id the payroll company knows them by, whether they are an employee or a contractor, and whether they have been set up there (none | ready | sent | failed).
-  payrollEmployeeId String?   @map("payroll_employee_id")
-  payrollStatus     String    @default("none") @map("payroll_status")
-  payrollWorkerType String?   @map("payroll_worker_type")
+  payrollEmployeeId  String?   @map("payroll_employee_id")
+  payrollStatus      String    @default("none") @map("payroll_status")
+  payrollWorkerType  String?   @map("payroll_worker_type")
   /// The driver's own phone account (their Clerk user id on the bridge). Blank = no phone account: the dispatcher records their answers.
-  phoneUserId       String?   @map("phone_user_id")
+  phoneUserId        String?   @map("phone_user_id")
   /// The driver's id in the ELD, and the minutes left on each clock as it last reported them (drive, shift, 70-hour cycle). A caution, never a rule.
-  eldDriverId       String?   @map("eld_driver_id")
-  hosDriveMinutes   Int?      @map("hos_drive_minutes")
-  hosShiftMinutes   Int?      @map("hos_shift_minutes")
-  hosCycleMinutes   Int?      @map("hos_cycle_minutes")
-  hosSyncedAt       DateTime? @map("hos_synced_at")
+  eldDriverId        String?   @map("eld_driver_id")
+  hosDriveMinutes    Int?      @map("hos_drive_minutes")
+  hosShiftMinutes    Int?      @map("hos_shift_minutes")
+  hosCycleMinutes    Int?      @map("hos_cycle_minutes")
+  hosSyncedAt        DateTime? @map("hos_synced_at")
   /// The carrier authority the driver (or their company) runs under, and what the last insurance check found.
-  carrierMcNumber   String?   @map("carrier_mc_number")
-  carrierDotNumber  String?   @map("carrier_dot_number")
-  vetStatus         String    @default("unchecked") @map("vet_status")
-  coiExpiresAt      DateTime? @map("coi_expires_at")
-  vetCheckedAt      DateTime? @map("vet_checked_at")
-  active            Boolean   @default(true)
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  carrierMcNumber    String?   @map("carrier_mc_number")
+  carrierDotNumber   String?   @map("carrier_dot_number")
+  vetStatus          String    @default("unchecked") @map("vet_status")
+  coiExpiresAt       DateTime? @map("coi_expires_at")
+  vetCheckedAt       DateTime? @map("vet_checked_at")
+  /// What the carrier check said besides its three words: the safety score (0 to 100), whether the operating authority is active, and the reasons it gave.
+  vetSafetyScore     Int?      @map("vet_safety_score")
+  vetAuthorityActive Boolean?  @map("vet_authority_active")
+  vetFlags           Json?     @map("vet_flags")
+  active             Boolean   @default(true)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
 
   workspace       Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   assignedVehicle Vehicle?     @relation(fields: [assignedVehicleId], references: [id], onDelete: SetNull)
@@ -445,10 +456,10 @@ model Driver {
   thread          Thread?
   settlements     Settlement[]
 
+  @@unique([workspaceId, phoneUserId])
   @@index([workspaceId, active, name])
   @@index([workspaceId, terminal])
   @@index([assignedVehicleId])
-  @@unique([workspaceId, phoneUserId])
   @@map("drivers")
 }
 
@@ -456,24 +467,24 @@ model Driver {
 /// contract's driver_pay: { kind: flat | cpm | hourly, rate }; `estimate` is display only.
 /// status: draft | dispatched | accepted | declined | in_progress | completed.
 model Assignment {
-  id                String    @id @default(cuid())
-  loadId            String    @unique @map("load_id")
-  driverId          String    @map("driver_id")
-  payKind           String    @map("pay_kind")
-  payRate           Decimal   @map("pay_rate") @db.Decimal(12, 4)
-  payEstimate       Decimal?  @map("pay_estimate") @db.Decimal(12, 2)
-  status            String    @default("draft")
-  assignmentVersion Int       @default(1) @map("assignment_version")
-  driverResponse    Json?     @map("driver_response")
-  dispatchedAt      DateTime? @map("dispatched_at")
-  respondedAt       DateTime? @map("responded_at")
+  id                     String    @id @default(cuid())
+  loadId                 String    @unique @map("load_id")
+  driverId               String    @map("driver_id")
+  payKind                String    @map("pay_kind")
+  payRate                Decimal   @map("pay_rate") @db.Decimal(12, 4)
+  payEstimate            Decimal?  @map("pay_estimate") @db.Decimal(12, 2)
+  status                 String    @default("draft")
+  assignmentVersion      Int       @default(1) @map("assignment_version")
+  driverResponse         Json?     @map("driver_response")
+  dispatchedAt           DateTime? @map("dispatched_at")
+  respondedAt            DateTime? @map("responded_at")
   /// The driver link: the bridge row this assignment is on, the last execution version of it the desk applied, when it last went through, and why a delivery failed (a word, never a body).
-  bridgeDispatchId        String?   @map("bridge_dispatch_id")
-  bridgeExecutionVersion  Int       @default(0) @map("bridge_execution_version")
-  bridgeSyncedAt          DateTime? @map("bridge_synced_at")
-  bridgeError             String?   @map("bridge_error")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  bridgeDispatchId       String?   @map("bridge_dispatch_id")
+  bridgeExecutionVersion Int       @default(0) @map("bridge_execution_version")
+  bridgeSyncedAt         DateTime? @map("bridge_synced_at")
+  bridgeError            String?   @map("bridge_error")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
 
   load   Load   @relation(fields: [loadId], references: [id], onDelete: Cascade)
   driver Driver @relation(fields: [driverId], references: [id], onDelete: Restrict)
@@ -543,8 +554,8 @@ model Settlement {
   payrollSentAt    DateTime?        @map("payroll_sent_at")
   payrollReference String?          @map("payroll_reference")
   /// When the driver was paid, and how, when it was not through payroll (a check, a transfer). A statement paid either way cannot be voided.
-  paidAt     DateTime? @map("paid_at")
-  paidMethod String?   @map("paid_method")
+  paidAt           DateTime?        @map("paid_at")
+  paidMethod       String?          @map("paid_method")
 
   @@unique([workspaceId, number])
   @@index([workspaceId, status])
@@ -655,15 +666,15 @@ model PartnerCredential {
 
 /// Every event a company's webhook has sent, once: the company's own event id is unique per provider, so a repeat is recognised and ignored. No body is kept (it can hold names and addresses): the kind and an outcome.
 model PartnerEvent {
-  id          String    @id @default(cuid())
-  workspaceId String    @map("workspace_id")
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
   provider    String
-  eventId     String    @map("event_id")
+  eventId     String   @map("event_id")
   kind        String
   /// applied | ignored | failed
   outcome     String
   detail      String?
-  receivedAt  DateTime  @default(now()) @map("received_at")
+  receivedAt  DateTime @default(now()) @map("received_at")
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -729,8 +740,8 @@ model Message {
   deliveredAt DateTime? @map("delivered_at")
   readAt      DateTime? @map("read_at")
 
-  thread Thread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  load   Load?  @relation(fields: [loadId], references: [id], onDelete: SetNull)
+  thread      Thread              @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  load        Load?               @relation(fields: [loadId], references: [id], onDelete: SetNull)
   attachments MessageAttachment[]
 
   @@unique([threadId, clientId])
@@ -885,4 +896,32 @@ model IftaLine {
 
   @@unique([workspaceId, quarter, state])
   @@map("ifta_lines")
+}
+
+/// A fuel card purchase, as the card company reported it: kept so fuel can be listed, tied to the load it was bought for and followed to the driver statement that load is on. One row per
+/// purchase (the company's own id), so reading the same days twice never doubles it. `amount` is what the card was charged after the discount.
+model FuelTransaction {
+  id                String   @id @default(cuid())
+  workspaceId       String   @map("workspace_id")
+  provider          String
+  externalId        String   @map("external_id")
+  vehicleId         String?  @map("vehicle_id")
+  loadId            String?  @map("load_id")
+  postedAt          DateTime @map("posted_at")
+  location          String?
+  gallons           Decimal? @db.Decimal(10, 3)
+  pricePerGallon    Decimal? @map("price_per_gallon") @db.Decimal(8, 4)
+  discountPerGallon Decimal? @map("discount_per_gallon") @db.Decimal(8, 4)
+  discount          Decimal? @db.Decimal(12, 2)
+  amount            Decimal  @db.Decimal(12, 2)
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  vehicle   Vehicle?  @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  load      Load?     @relation(fields: [loadId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, provider, externalId])
+  @@index([workspaceId, postedAt])
+  @@index([loadId])
+  @@map("fuel_transactions")
 }

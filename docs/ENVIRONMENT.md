@@ -20,7 +20,7 @@ Legend: **Required** = the desk does not work without it. **Secret** = never pri
 | `CLERK_SECRET_KEY` | with `DESK_AUTH=on` | yes | Read by the Clerk SDK itself, not by desk code. Listed because sign-in does not work without it. |
 | `DESK_ADMIN_EMAILS` | no | no | Comma-separated emails of platform admins (people who see every fleet's sign-up requests). Not a role on any desk. |
 | `DESK_WORKSPACE_COOKIE` | no | no | `on` lets a development cookie pick the workspace. Ignored in production and when sign-in is on. |
-| `DEMO_LOGIN` | no | no | `off` turns the demo sign-in door off (the desk is then open when sign-in is off, as it was). Never read when `DESK_AUTH=on`. |
+| `DEMO_LOGIN` | no | no | `off` turns the demo sign-in door off (the desk is then open when sign-in is off, as it was). Never read when `DESK_AUTH=on`. The demo door has a button for each way of using the desk (admin, dispatcher, billing, viewer): each makes a cookie naming that person, the demo desk holds them to the real role matrix, and each lands where that job starts (`/loads`, `/dispatch`, `/invoices`, `/loads`). Settings shows the company, plan, team and integrations tabs only to the admin. |
 
 ## Outside services the desk calls (each is off until its key is set)
 | Name | Required | Secret | What it does |

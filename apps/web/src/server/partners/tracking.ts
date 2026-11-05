@@ -18,6 +18,8 @@ export async function shareLoadLocation(loadId: string, share: boolean, optIn: b
   const stops = load.stops.map((s) => ({ sequence: s.stopSequence, role: s.stopRole ?? s.stopType, city: s.addressString.split(",")[0]!.trim(), lat: s.lat == null ? null : num(s.lat), lng: s.lng == null ? null : num(s.lng), opensAt: s.timeWindowEarliest ? s.timeWindowEarliest.toISOString() : null }));
   const { provider, result } = await callPartner("tracking", null, { loadId, share, loadNumber: load.loadNumber, stops }, workspaceId);
   if (!result.ok) return { ok: false, error: result.message ?? "Tracking could not be reached.", code: result.code };
+  // The link and who it is with are kept on the load so the load page can show them; stopping clears them.
+  await prisma.load.update({ where: { id: loadId }, data: result.data.sharing ? { trackingShareUrl: result.data.shareUrl ?? null, trackingProvider: provider, trackingSharedAt: now } : { trackingShareUrl: null, trackingProvider: null, trackingSharedAt: null } });
   await recordAudit({ entity: "load", action: "partner_event", loadId, loadNumber: load.loadNumber, summary: result.data.sharing ? `Location shared with ${providerName(provider)}${result.data.shareUrl ? `, link ${result.data.shareUrl}` : ""}` : `Location sharing with ${providerName(provider)} stopped`, at: now, workspaceId });
   return { ok: true, sharing: result.data.sharing, shareUrl: result.data.shareUrl ?? null };
 }

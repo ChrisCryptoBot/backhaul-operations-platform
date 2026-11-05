@@ -9,4 +9,5 @@ export const PAID_METHODS: Array<{ key: string; label: string }> = [
 ];
 
 export const isPaidMethod = (key: string) => PAID_METHODS.some((m) => m.key === key);
-export const paidMethodLabel = (key: string | null | undefined) => PAID_METHODS.find((m) => m.key === key)?.label ?? "";
+// "payroll" is how a driver statement the payroll company cleared is marked; it is not a way to receive an invoice payment, so it is not in the list above.
+export const paidMethodLabel = (key: string | null | undefined) => PAID_METHODS.find((m) => m.key === key)?.label ?? (key === "payroll" ? "Payroll" : "");

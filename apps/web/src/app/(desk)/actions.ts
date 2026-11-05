@@ -40,6 +40,9 @@ import { connectPartner, disconnectPartner, retryConnection, type ConnectResult 
 import { deleteCredential } from "@/server/partners/credentials";
 import { saveKeysAndConnect, type SaveAndConnect } from "@/server/partners/setup";
 import { sendTestEvent, type TestEventResult } from "@/server/partners/test-event";
+import { shareLoadLocation, type ShareResult } from "@/server/partners/tracking";
+import { syncFuelCards, type FuelSync } from "@/server/partners/fuel-store";
+import { calculateIfta, type IftaResult } from "@/server/partners/ifta";
 import { applyFactoringUpdate, factorInvoice, type FactorResult } from "@/server/partners/factoring";
 import { syncEld, type SyncResult } from "@/server/partners/eld";
 import { importFuelForLoad, saveFuelCard, type FuelCardResult, type SaveFuelCard } from "@/server/partners/fuel-card";
@@ -778,6 +781,30 @@ export async function sendTestEventAction(capability: string, provider: string):
   await requireCan("admin");
   const out = await sendTestEvent(String(capability), String(provider));
   if (out.ok) revalidatePath("/", "layout");
+  return out;
+}
+
+/** Share a load's location with the connected tracking company, or stop. Starting needs the carrier's yes for this load in the same call. */
+export async function shareLocationAction(loadId: string, share: boolean, optIn: boolean): Promise<ShareResult> {
+  await requireCan("dispatch");
+  const out = await shareLoadLocation(String(loadId), Boolean(share), Boolean(optIn));
+  if (out.ok) revalidatePath(`/loads/${String(loadId)}`);
+  return out;
+}
+
+/** Read the last days of card purchases for every truck with a card. Dispatch or billing. */
+export async function syncFuelCardsAction(days: number): Promise<FuelSync> {
+  await requireCan("dispatch", "bill");
+  const out = await syncFuelCards(Number.isFinite(days) ? days : 30);
+  if (out.ok) revalidatePath("/fuel");
+  return out;
+}
+
+/** Work out a quarter's fuel-tax miles by state and keep them. The billing office's work. */
+export async function calculateIftaAction(quarter: string): Promise<IftaResult> {
+  await requireCan("bill");
+  const out = await calculateIfta(String(quarter));
+  if (out.ok) revalidatePath("/ifta");
   return out;
 }
 

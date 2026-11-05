@@ -13,6 +13,8 @@ import { paidMethodLabel } from "@/lib/pay-method";
 import { toCentralLocal } from "@/lib/zoned";
 import { currentWorkspaceId } from "./workspace";
 import { workspaceTimezone } from "./zone";
+import { listFuel } from "@/server/partners/fuel-store";
+import { storedIfta } from "@/server/partners/ifta";
 import { factoringLabel } from "@/server/partners/factoring";
 import { listAudit } from "./audit";
 import { listTrailersPage } from "./trailers";
@@ -35,7 +37,7 @@ export const MAX_EXPORT_ROWS = 25_000;
  * The CSV files the desk offers. Each is built from the same functions the screen uses (the Loads filter, the KPI engine),
  * so a file always matches what was on screen when it was asked for. Dates are the Central calendar date.
  */
-export const EXPORT_KINDS = ["loads", "invoices", "settlements", "settlement-lines", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "quote-decisions"] as const;
+export const EXPORT_KINDS = ["loads", "invoices", "settlements", "settlement-lines", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "quote-decisions", "fuel", "ifta"] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
 type Query = Record<string, string | string[] | undefined>;
@@ -283,6 +285,37 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
     return {
       filename: cut ? name(`settlement-lines-first-${cap}`) : name("settlement-lines"),
       csv: toCsv(["Statement", "Status", "Driver", "Period start", "Period end", "Kind", "Load", "Lane", "Delivered", "Basis", "Amount"], lines)
+    };
+  }
+
+  if (kind === "fuel") {
+    // The Fuel screen's own period, every purchase in it, a page at a time.
+    const days = Math.min(Math.max(1, parseInt(first(query.days) ?? "30", 10) || 30), 366);
+    const rows: Awaited<ReturnType<typeof listFuel>>["rows"] = [];
+    for (let page = 1; ; page++) {
+      const got = await listFuel({ days, page }, now);
+      rows.push(...got.rows);
+      if (rows.length >= cap || rows.length >= got.total) break;
+    }
+    return {
+      filename: name(`fuel-${days}d`),
+      csv: toCsv(
+        ["Date", "Truck", "Where", "Card company", "Gallons", "Price a gallon", "Discount a gallon", "Discount", "Charged", "Load", "Driver statement"],
+        rows.slice(0, cap).map((r): CsvCell[] => [ymdIn(r.postedAt, "UTC"), r.truck, r.location, r.providerName, r.gallons, r.pricePerGallon, r.discountPerGallon, r.discount, r.amount, r.loadNumber, r.statementNumber])
+      )
+    };
+  }
+
+  if (kind === "ifta") {
+    const quarter = first(query.quarter) ?? "";
+    if (!/^\d{4}-Q[1-4]$/.test(quarter)) return null;
+    const lines = await storedIfta(quarter);
+    return {
+      filename: name(`ifta-${quarter}`),
+      csv: toCsv(
+        ["Quarter", "State", "Miles", "Gallons used", "Worked out by", "Delivered loads", "Worked out"],
+        lines.map((l): CsvCell[] => [quarter, l.state, l.miles, l.gallons, l.source, l.loads, ymd(l.computedAt)])
+      )
     };
   }
 

@@ -67,14 +67,14 @@ export default async function StatementPage({ params }: { params: { id: string }
     s.status === "void"
       ? ({ text: "Void", tone: "bad" } as const)
       : s.paidAt
-        ? ({ text: `Paid ${shortDate(s.paidAt)}${s.paidMethod ? ` · ${paidMethodLabel(s.paidMethod)}` : ""}`, tone: "good" } as const)
+        ? ({ text: s.paidMethod === "payroll" ? `Paid by payroll ${shortDate(s.paidAt)}` : `Paid ${shortDate(s.paidAt)}${s.paidMethod ? ` · ${paidMethodLabel(s.paidMethod)}` : ""}`, tone: "good" } as const)
         : s.payrollSentAt
           ? ({ text: `Sent to payroll ${shortDate(s.payrollSentAt)}`, tone: "good" } as const)
           : s.finalizedAt
             ? ({ text: `Finalized ${shortDate(s.finalizedAt)}`, tone: "good" } as const)
             : undefined;
   const payoutText = s.paidAt
-    ? `Paid ${dayYear(s.paidAt)}${s.paidMethod ? ` by ${paidMethodLabel(s.paidMethod).toLowerCase()}` : ""}`
+    ? `Paid ${dayYear(s.paidAt)}${s.paidMethod ? ` by ${paidMethodLabel(s.paidMethod).toLowerCase()}` : ""}${s.paidMethod === "payroll" && s.payrollReference ? ` (run ${s.payrollReference})` : ""}`
     : s.payrollSentAt
       ? `Sent to payroll ${dayYear(s.payrollSentAt)}${s.payrollReference ? ` (${s.payrollReference})` : ""}`
       : null;

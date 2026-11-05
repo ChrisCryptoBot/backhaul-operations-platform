@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { recordAudit } from "@/server/tl/audit";
 import { currentWorkspaceId } from "@/server/tl/workspace";
@@ -25,7 +26,10 @@ export async function vetDriverCarrier(driverId: string, now = new Date(), works
   const coi = result.data.coiExpiresAt ? new Date(result.data.coiExpiresAt) : null;
   const coiValid = coi && !Number.isNaN(coi.getTime()) ? coi : null;
   await prisma.$transaction(async (tx) => {
-    await tx.driver.update({ where: { id: driverId }, data: { vetStatus: result.data.status, coiExpiresAt: coiValid, vetCheckedAt: now } });
+    await tx.driver.update({
+      where: { id: driverId },
+      data: { vetStatus: result.data.status, coiExpiresAt: coiValid, vetCheckedAt: now, vetSafetyScore: result.data.safetyScore ?? null, vetAuthorityActive: result.data.authorityActive ?? null, vetFlags: result.data.flags && result.data.flags.length > 0 ? result.data.flags : Prisma.DbNull }
+    });
     await recordAudit(
       { entity: "fleet", action: "carrier_vetted", summary: `${d.name}: carrier checked with ${providerName(provider)}, ${vetLabel(result.data.status).toLowerCase()}${coiValid ? `, insurance good through ${coiValid.toISOString().slice(0, 10)}` : ""}${result.data.safetyScore != null ? `, safety score ${result.data.safetyScore}` : ""}${(result.data.flags ?? []).length > 0 ? `. ${result.data.flags!.slice(0, 3).join(" ")}` : ""}`, before: { Check: vetLabel(d.vetStatus) }, after: { Check: vetLabel(result.data.status), "Insurance good through": coiValid ? coiValid.toISOString().slice(0, 10) : null, "Safety score": result.data.safetyScore != null ? String(result.data.safetyScore) : null }, at: now, workspaceId },
       tx

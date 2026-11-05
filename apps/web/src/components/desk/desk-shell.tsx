@@ -59,6 +59,8 @@ const NAV: Array<{ label: string; items: Item[] }> = [
       { href: "/invoices", label: "Invoices", code: "IV", pill: (c) => (c.overdue > 0 ? { n: c.overdue, tone: "alert" } : c.readyToInvoice > 0 ? { n: c.readyToInvoice } : null) },
       { href: "/settlements", label: "Settlements", code: "ST", roles: ["admin", "accounting"] },
       { href: "/payroll", label: "Payroll", code: "PY", roles: ["admin", "accounting"] },
+      { href: "/fuel", label: "Fuel", code: "FU", roles: ["admin", "dispatcher", "accounting"] },
+      { href: "/ifta", label: "IFTA", code: "IF", roles: ["admin", "accounting"] },
       { href: "/kpi", label: "KPI dashboard", code: "KP" }
     ]
   },

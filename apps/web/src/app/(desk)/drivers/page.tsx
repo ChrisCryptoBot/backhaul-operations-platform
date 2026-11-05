@@ -16,6 +16,7 @@ import { partnerState } from "@/server/partners/call";
 import { vetLabel } from "@/server/partners/vetting";
 import { VetButton } from "@/components/desk/partner-actions";
 import { CanGate } from "@/components/desk/kit/can-gate";
+import { CarrierStatus } from "@/components/desk/carrier-status";
 
 export const metadata = { title: "Drivers · TrueLane" };
 
@@ -88,7 +89,8 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
           d.carrierMc || d.carrierDot ? (
             <>
               <span className={`tl-chip ${d.vetStatus === "clear" ? "ok" : d.vetStatus === "unchecked" ? "muted" : "warn"}`}>{vetLabel(d.vetStatus)}</span>
-              <span className="sub">{[d.carrierMc ? `MC ${d.carrierMc}` : null, d.carrierDot ? `DOT ${d.carrierDot}` : null].filter(Boolean).join(" · ")}{d.coiExpiresAt ? ` · insured to ${shortDate(d.coiExpiresAt)}` : ""}</span>
+              <span className="sub">{[d.carrierMc ? `MC ${d.carrierMc}` : null, d.carrierDot ? `DOT ${d.carrierDot}` : null].filter(Boolean).join(" · ")}</span>
+              <CarrierStatus coiExpiresAt={d.coiExpiresAt} safetyScore={d.vetSafetyScore} authorityActive={d.vetAuthorityActive} flags={d.vetFlags} now={new Date()} />
               <CanGate caps={["dispatch"]}>
                 <VetButton driverId={d.id} reason={vetState.reason} />
               </CanGate>

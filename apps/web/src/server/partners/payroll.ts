@@ -28,6 +28,9 @@ export type PayrollRow = {
   employeeId: string | null;
   sentAt: Date | null;
   reference: string | null;
+  /** When the payroll company's run cleared, and how the statement was paid ("payroll" when its event said so). */
+  paidAt: Date | null;
+  paidMethod: string | null;
   /** What keeps it from being sent now, in words, or null when it is ready. */
   notReady: string | null;
 };
@@ -98,6 +101,8 @@ export async function listPayroll(opts: { page?: number; filter?: "ready" | "sen
       employeeId: s.driver.payrollEmployeeId,
       sentAt: effectiveSentAt,
       reference: unfinished ? null : s.payrollReference,
+      paidAt: s.paidAt,
+      paidMethod: s.paidMethod,
       notReady: readiness(s.driver, effectiveSentAt, { paidAt: s.paidAt, total: num(s.total) })
     };
   });

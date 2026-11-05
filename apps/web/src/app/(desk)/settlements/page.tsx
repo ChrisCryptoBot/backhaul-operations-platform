@@ -8,7 +8,7 @@ import { StartStatement } from "@/components/desk/settlement-forms";
 import { Card, PageHead, Stat } from "@/components/desk/ui";
 import { dayYear, shortDate, usd } from "@/lib/desk-format";
 import { asPage } from "@/lib/paging";
-import { paidMethodLabel } from "@/lib/pay-method";
+import { statementPayBadge } from "@/lib/statement-pay";
 import { can, whoCan } from "@/lib/roles";
 import { periodPresets } from "@/lib/settlement";
 import { checkAccess } from "@/server/tl/access";
@@ -116,7 +116,7 @@ export default async function SettlementsPage({ searchParams }: { searchParams?:
         )
     }
   }));
-  const statementRow = (s: (typeof drafts)[number], when: string): Row => ({
+  const statementRow = (s: (typeof drafts)[number], when: React.ReactNode): Row => ({
     id: s.id,
     href: `/settlements/${s.id}`,
     search: [s.number, s.driverName].join(" "),
@@ -129,12 +129,16 @@ export default async function SettlementsPage({ searchParams }: { searchParams?:
       when
     }
   });
-  const finalWhen = (s: (typeof final)[number]) =>
-    s.paidAt
-      ? `Paid ${dayYear(s.paidAt)}${s.paidMethod ? ` · ${paidMethodLabel(s.paidMethod)}` : ""}`
-      : s.payrollSentAt
-        ? `Sent to payroll ${dayYear(s.payrollSentAt)}`
-        : `Finalized ${dayYear(s.finalizedAt)}`;
+  const finalWhen = (s: (typeof final)[number]) => {
+    const badge = statementPayBadge(s);
+    return badge ? (
+      <>
+        <span className="t-st" data-tone={badge.tone}>{badge.label}</span> <span className="sub">{badge.detail}</span>
+      </>
+    ) : (
+      `Finalized ${dayYear(s.finalizedAt)}`
+    );
+  };
 
   return (
     <>

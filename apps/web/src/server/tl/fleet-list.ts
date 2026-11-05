@@ -153,6 +153,9 @@ export async function listDriversPage(query: DriverPageQuery = {}, workspaceId =
       vetStatus: d.vetStatus,
       coiExpiresAt: d.coiExpiresAt,
       vetCheckedAt: d.vetCheckedAt,
+      vetSafetyScore: d.vetSafetyScore,
+      vetAuthorityActive: d.vetAuthorityActive,
+      vetFlags: Array.isArray(d.vetFlags) ? (d.vetFlags as unknown[]).filter((f): f is string => typeof f === "string") : [],
       openLoadNumbers: mine.map((a) => a.load.loadNumber ?? "a load")
     };
   });

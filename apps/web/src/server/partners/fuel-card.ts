@@ -4,6 +4,7 @@ import { PROVIDERS } from "@/truelane/partners/contract";
 import { recordAudit } from "@/server/tl/audit";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { callPartner, providerName } from "./call";
+import { storePurchases } from "./fuel-store";
 
 /**
  * Fuel cards: a truck is told which card it buys fuel on, and a trip's fuel can be filled in from that card's purchases while the trip was running. The import only READS: it
@@ -27,6 +28,8 @@ export async function importFuelForLoad(loadId: string, now = new Date(), worksp
   const inWindow = result.data.purchases.filter((p) => (!since || p.on >= dayOf(since)!) && (!until || p.on <= dayOf(until)!));
   const amount = inWindow.reduce((s, p) => s.plus(p.amount), new Prisma.Decimal(0)).toDecimalPlaces(2).toNumber();
   const gallons = inWindow.some((p) => p.gallons != null) ? inWindow.reduce((s, p) => s.plus(p.gallons ?? 0), new Prisma.Decimal(0)).toDecimalPlaces(2).toNumber() : null;
+  // What the card said is kept (one row per purchase), tied to this load, so Fuel lists it and the statement it is on.
+  await storePurchases(provider, inWindow, { workspaceId, vehicleId: load.vehicleId, loadFor: () => loadId });
   const saved = inWindow.reduce((s, p) => s.plus(p.discount ?? 0), new Prisma.Decimal(0)).toDecimalPlaces(2).toNumber();
   await recordAudit({ entity: "load", action: "fuel_imported", loadId, loadNumber: load.loadNumber, summary: `${inWindow.length} fuel ${inWindow.length === 1 ? "purchase" : "purchases"} ($${amount.toFixed(2)}${saved > 0 ? `, after $${saved.toFixed(2)} of card discount` : ""}) read from ${providerName(provider)} for ${load.vehicle.name ?? "the truck"}`, before: null, after: { Purchases: String(inWindow.length), Fuel: `$${amount.toFixed(2)}`, ...(saved > 0 ? { Discount: `$${saved.toFixed(2)}` } : {}) }, at: now, workspaceId });
   return { ok: true, provider, amount, gallons, purchases: inWindow.length };

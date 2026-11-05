@@ -61,9 +61,14 @@ export default async function PayrollPage({ searchParams }: { searchParams?: Par
       period: periodText(r.periodStart.toISOString().slice(0, 10), r.periodEnd.toISOString().slice(0, 10)),
       total: usd(r.total, 2),
       worker: r.workerType ? `${WORKER_TYPES.find((w) => w.key === r.workerType)?.label ?? r.workerType}${r.employeeId ? ` · ${r.employeeId}` : ""}` : <span className="dim">Not set</span>,
-      state: r.sentAt ? (
-        <span className="tl-chip ok">
-          Sent {dayYear(r.sentAt)}
+      state: r.paidAt && r.paidMethod === "payroll" ? (
+        <span className="t-st" data-tone="ok" title="The payroll company's run cleared">
+          Paid by payroll {dayYear(r.paidAt)}
+          {r.reference ? ` · ${r.reference}` : ""}
+        </span>
+      ) : r.sentAt ? (
+        <span className="t-st" data-tone="warn" title="Sent to the payroll company; its run has not cleared yet">
+          With payroll, sent {dayYear(r.sentAt)}
           {r.reference ? ` · ${r.reference}` : ""}
         </span>
       ) : r.notReady ? (

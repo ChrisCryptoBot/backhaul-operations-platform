@@ -33,6 +33,8 @@ import { deriveTimeline } from "@/lib/desk-timeline";
 import { CAN_CANCEL, CAN_RESCHEDULE, CAN_TONU, reasonLabel } from "@/lib/disruptions";
 import { toCentralLocal } from "@/lib/zoned";
 import { workspaceTimezone } from "@/server/tl/zone";
+import { TrackingPanel } from "./tracking-panel";
+import { providerName } from "@/server/partners/call";
 import { ACTION_LABEL } from "@/lib/audit-diff";
 import { gapsPhrase, refList, sendReadiness } from "@/lib/send-readiness";
 import { SHELF_CAPABILITIES, shelfFor, shelfHeader, type ShelfCapability } from "@/lib/partner-shelf";
@@ -936,8 +938,29 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     </section>
   );
 
+  // Tracking: the link a customer follows for this load, and the carrier's yes to share it. Stopping is always open; starting needs a connected tracking company and a load that is still open.
+  const trackingRow = connectionRows.find((r) => r.capability === "tracking" && r.connected && r.configured);
+  const trackingReason = !trackingRow ? "No tracking company is connected. An admin connects one under Settings, Integrations." : !["draft", "accepted", "in_progress"].includes(load.status) ? "Only a load that is still open can be tracked." : null;
+  const trackingSec = (
+    <section className="sec">
+      <h3>Tracking</h3>
+      <div className="sec-box">
+        <TrackingPanel
+          loadId={load.id}
+          loadNumber={load.loadNumber ?? "this load"}
+          shared={load.trackingShareUrl ? { url: load.trackingShareUrl, at: load.trackingSharedAt ? dateTime(load.trackingSharedAt) : "" } : null}
+          providerName={load.trackingProvider ? providerName(load.trackingProvider) : trackingRow ? trackingRow.name : null}
+          sandbox={trackingRow?.sandbox ?? false}
+          reason={trackingReason}
+          canStop
+        />
+      </div>
+    </section>
+  );
+
   const partnersWorkbench = (
     <>
+      {gate(trackingSec, "dispatch")}
       <section className="sec">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
           <h3 style={{ margin: 0 }}>Partner integrations</h3>
