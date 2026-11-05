@@ -40,7 +40,10 @@ const TABLE: Record<string, Capability[]> = {
   voidSettlementAction: ["writeoff"],
   // the company, the rules, the connections and the team
   saveThresholdsAction: ["admin"], saveCompanyAction: ["admin"], connectPartnerAction: ["admin"], disconnectPartnerAction: ["admin"], addMemberAction: ["admin"], setMemberRoleAction: ["admin"],
-  setMemberGrantsAction: ["admin"], removeMemberAction: ["admin"]
+  setMemberGrantsAction: ["admin"], removeMemberAction: ["admin"],
+  // who works when and from where (a driver manager or an admin), and the terminal list itself (an admin)
+  saveScheduleAction: ["roster"], applyScheduleAction: ["roster"], clearScheduleAction: ["roster"], saveTimeOffAction: ["roster"], removeTimeOffAction: ["roster"], setDriversHomeAction: ["roster"], setDriverCodeAction: ["roster"],
+  addTerminalAction: ["admin"], renameTerminalAction: ["admin"], archiveTerminalAction: ["admin"]
 };
 
 describe("every action asks for the capability the table says", () => {

@@ -2,25 +2,26 @@ import { describe, expect, it } from "vitest";
 import { CAPABILITIES, GRANTS, ROLES, ROLE_LABEL, can, canAny, cleanGrants, whoCan, type Capability, type Role } from "../src/lib/roles";
 
 /**
- * Who may do what, as one table. The desk has four roles that are not in a line (accounting is not "above" a dispatcher), so each role is a list of named capabilities; an admin can
+ * Who may do what, as one table. The desk has five roles that are not in a line (accounting is not "above" a dispatcher), so each role is a list of named capabilities; an admin can
  * give a dispatcher the billing office's work as a grant, and nobody can be given the capabilities that destroy money or run the desk.
  */
 const TABLE: Record<Capability, Record<Role, boolean>> = {
-  read: { viewer: true, dispatcher: true, accounting: true, admin: true },
-  quote: { viewer: false, dispatcher: true, accounting: false, admin: true },
-  dispatch: { viewer: false, dispatcher: true, accounting: false, admin: true },
-  documents: { viewer: false, dispatcher: true, accounting: true, admin: true },
-  figures: { viewer: false, dispatcher: true, accounting: true, admin: true },
-  billing_details: { viewer: false, dispatcher: false, accounting: true, admin: true },
-  bill: { viewer: false, dispatcher: false, accounting: true, admin: true },
-  payout: { viewer: false, dispatcher: false, accounting: true, admin: true },
-  writeoff: { viewer: false, dispatcher: false, accounting: false, admin: true },
-  admin: { viewer: false, dispatcher: false, accounting: false, admin: true }
+  read: { viewer: true, dispatcher: true, driver_manager: true, accounting: true, admin: true },
+  quote: { viewer: false, dispatcher: true, driver_manager: false, accounting: false, admin: true },
+  dispatch: { viewer: false, dispatcher: true, driver_manager: false, accounting: false, admin: true },
+  roster: { viewer: false, dispatcher: false, driver_manager: true, accounting: false, admin: true },
+  documents: { viewer: false, dispatcher: true, driver_manager: true, accounting: true, admin: true },
+  figures: { viewer: false, dispatcher: true, driver_manager: false, accounting: true, admin: true },
+  billing_details: { viewer: false, dispatcher: false, driver_manager: false, accounting: true, admin: true },
+  bill: { viewer: false, dispatcher: false, driver_manager: false, accounting: true, admin: true },
+  payout: { viewer: false, dispatcher: false, driver_manager: false, accounting: true, admin: true },
+  writeoff: { viewer: false, dispatcher: false, driver_manager: false, accounting: false, admin: true },
+  admin: { viewer: false, dispatcher: false, driver_manager: false, accounting: false, admin: true }
 };
 
 describe("the role matrix", () => {
-  it("names four roles, owner no longer one of them", () => {
-    expect([...ROLES]).toEqual(["viewer", "dispatcher", "accounting", "admin"]);
+  it("names five roles, owner no longer one of them", () => {
+    expect([...ROLES]).toEqual(["viewer", "dispatcher", "driver_manager", "accounting", "admin"]);
     expect(ROLE_LABEL.admin).toBe("Admin");
   });
 
@@ -31,6 +32,13 @@ describe("the role matrix", () => {
   it("gives an admin everything and a viewer only reading", () => {
     for (const c of CAPABILITIES) expect(can("admin", [], c)).toBe(true);
     expect(CAPABILITIES.filter((c) => can("viewer", [], c))).toEqual(["read"]);
+  });
+
+  it("a driver manager sets who works when and where, and can neither dispatch nor bill; nobody else can roster", () => {
+    expect(CAPABILITIES.filter((c) => can("driver_manager", [], c))).toEqual(["read", "roster", "documents"]);
+    expect(ROLES.filter((r) => can(r, [], "roster"))).toEqual(["driver_manager", "admin"]);
+    expect(can("dispatcher", ["bill"], "roster")).toBe(false);
+    expect(whoCan("roster")).toBe("Driver manager or Admin");
   });
 
   it("keeps accounting out of dispatching, and a dispatcher out of billing", () => {

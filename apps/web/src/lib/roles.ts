@@ -1,17 +1,18 @@
 /**
- * The four roles of a person on a desk, and what each may do. A viewer looks at everything and changes nothing. A dispatcher runs the freight: quotes and negotiates, assigns and sends,
+ * The five roles of a person on a desk, and what each may do. A viewer looks at everything and changes nothing. A dispatcher runs the freight: quotes and negotiates, assigns and sends,
  * enters the trip, collects documents. Accounting is the back office: it invoices, records payments, chases, makes driver statements and sends payroll, and changes a load's billing details
- * only. An admin does everything and also changes the company, the rules, the connections and who is on the desk, and is the only one who writes off a shortfall or voids a finished driver
+ * only. A driver manager looks after the people, not the freight: who works when (shifts and time off), driver codes and each driver's home terminal; they look at everything and cannot dispatch or bill. An admin does everything and also changes the company, the rules, the connections and who is on the desk, and is the only one who writes off a shortfall or voids a finished driver
  * statement. Accounting is not "above" a dispatcher, so what a role may do is a list of named capabilities, not a rank. An admin can also give a dispatcher the billing capabilities as a
  * per-person grant ("Can also bill"). Pure.
  */
-export const ROLES = ["viewer", "dispatcher", "accounting", "admin"] as const;
+export const ROLES = ["viewer", "dispatcher", "driver_manager", "accounting", "admin"] as const;
 export type Role = (typeof ROLES)[number];
 
 export const CAPABILITIES = [
   "read", // look at everything, export
   "quote", // negotiate and book in Quote a load
   "dispatch", // run loads: assign, send, cancel, TONU, reschedule, the pickup and the delivery, the fleet, the rate-confirmation intake
+  "roster", // who works when and from where: shifts and time off, driver codes, each driver's home terminal
   "documents", // upload and remove rate confirmations and proof of delivery
   "figures", // a trip's costs, miles, waits and seals
   "billing_details", // the customer, PO, bill-to contact and revenue note on a load
@@ -25,6 +26,7 @@ export type Capability = (typeof CAPABILITIES)[number];
 const MATRIX: Record<Role, readonly Capability[]> = {
   viewer: ["read"],
   dispatcher: ["read", "quote", "dispatch", "documents", "figures"],
+  driver_manager: ["read", "roster", "documents"],
   accounting: ["read", "documents", "figures", "billing_details", "bill", "payout"],
   admin: CAPABILITIES
 };
@@ -34,10 +36,11 @@ export const GRANTS = ["bill"] as const;
 export type Grant = (typeof GRANTS)[number];
 const GRANT_CAPABILITIES: Record<Grant, readonly Capability[]> = { bill: ["billing_details", "bill", "payout"] };
 
-export const ROLE_LABEL: Record<Role, string> = { viewer: "Viewer", dispatcher: "Dispatcher", accounting: "Accounting", admin: "Admin" };
+export const ROLE_LABEL: Record<Role, string> = { viewer: "Viewer", dispatcher: "Dispatcher", driver_manager: "Driver manager", accounting: "Accounting", admin: "Admin" };
 export const ROLE_NOTE: Record<Role, string> = {
   viewer: "Can look at everything, changes nothing.",
   dispatcher: "Quotes, negotiates, dispatches and collects documents. Cannot bill or pay drivers unless an admin allows it.",
+  driver_manager: "Sets who works when (shifts and time off), driver codes and each driver's home terminal. Cannot dispatch or bill.",
   accounting: "Invoices, records payments, chases, makes driver statements and sends payroll. Cannot dispatch.",
   admin: "Does everything, and also changes the company, rules, connections and who is on the desk."
 };

@@ -23,6 +23,8 @@ import { saveCompany } from "@/server/tl/company";
 import { saveCustomer, type SaveCustomerResult } from "@/server/tl/customers";
 import type { CustomerValues } from "@/lib/customer";
 import type { CompanyValues } from "@/lib/company";
+import { applySchedule, clearSchedule, removeTimeOff, saveSchedule, saveTimeOff, type ShiftResult, type TimeOffInput } from "@/server/tl/shifts";
+import { addTerminal, archiveTerminal, renameTerminal, setDriverCode, setDriversHome, type TerminalResult } from "@/server/tl/terminal-list";
 import { saveCostProfile, saveDriver, saveTruck, setDriverActive, setTruckArchived, type ActResult, type SaveResult } from "@/server/tl/fleet";
 import type { DriverValues, ProfileKey, TruckValues } from "@/lib/fleet-forms";
 import type { Thresholds } from "@/lib/thresholds";
@@ -287,6 +289,78 @@ const refreshFleet = () => revalidatePath("/", "layout");
 export async function saveDriverAction(values: Record<string, string>, id: string | null): Promise<SaveResult<keyof DriverValues>> {
   await requireCan("dispatch");
   const out = await saveDriver(values, id);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+// ── Shifts, time off, driver codes and terminals (docs/DRIVER_SHIFTS.md). Shifts and homes are the roster's (a driver manager or an admin); the terminal list itself is an admin's. ──
+
+export async function saveScheduleAction(driverId: string, week: unknown, force = false): Promise<ShiftResult> {
+  await requireCan("roster");
+  const out = await saveSchedule(driverId, week, { force });
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function applyScheduleAction(driverIds: string[], week: unknown, force = false): Promise<ShiftResult> {
+  await requireCan("roster");
+  const out = await applySchedule(driverIds, week, { force });
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function clearScheduleAction(driverId: string): Promise<ShiftResult> {
+  await requireCan("roster");
+  const out = await clearSchedule(driverId);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function saveTimeOffAction(driverId: string, input: TimeOffInput, force = false): Promise<ShiftResult> {
+  await requireCan("roster");
+  const out = await saveTimeOff(driverId, input, { force });
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function removeTimeOffAction(driverId: string, dateKey: string, force = false): Promise<ShiftResult> {
+  await requireCan("roster");
+  const out = await removeTimeOff(driverId, dateKey, { force });
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function setDriversHomeAction(driverIds: string[], terminal: string | null): Promise<TerminalResult> {
+  await requireCan("roster");
+  const out = await setDriversHome(driverIds, terminal);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function setDriverCodeAction(id: string, code: string): Promise<TerminalResult> {
+  await requireCan("roster");
+  const out = await setDriverCode(id, code);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function addTerminalAction(input: { name: string; city?: string | null; note?: string | null }): Promise<TerminalResult> {
+  await requireCan("admin");
+  const out = await addTerminal(input);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function renameTerminalAction(id: string, name: string): Promise<TerminalResult> {
+  await requireCan("admin");
+  const out = await renameTerminal(id, name);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function archiveTerminalAction(id: string): Promise<TerminalResult> {
+  await requireCan("admin");
+  const out = await archiveTerminal(id);
   if (out.ok) refreshFleet();
   return out;
 }
