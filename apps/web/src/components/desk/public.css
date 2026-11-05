@@ -32,7 +32,7 @@
 .pub-hours { margin-top: var(--db-4) !important; font-size: var(--db-text-sm); }
 .pub-form { display: grid; gap: var(--db-4); margin-top: var(--db-4); }
 .pub-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--db-4); }
-.pub-field { display: grid; gap: 6px; min-width: 0; }
+.pub-field { display: grid; gap: 6px; min-width: 0; align-content: start; }
 .pub-field label { font-size: var(--db-text-sm); font-weight: 600; color: var(--db-fg); }
 .pub-field input, .pub-field textarea { width: 100%; min-height: 40px; padding: 0 var(--db-3); background: var(--db-bg-input); color: var(--db-fg); border: 1px solid var(--db-border-strong); border-radius: var(--db-r-md); font: inherit; }
 .pub-field textarea { padding: var(--db-2) var(--db-3); resize: vertical; line-height: 1.45; }
@@ -51,6 +51,7 @@
 .pub-demo-form .pub-btn { margin-top: 4px; cursor: pointer; border: 0; }
 .pub-demo-form .pub-btn:disabled { cursor: progress; opacity: .8; }
 
-.pub-inline { display: flex; gap: 8px; align-items: stretch; }
-.pub-inline input { flex: 1 1 auto; min-width: 0; }
-.pub-inline select { flex: 0 0 auto; max-width: 46%; height: auto; border: 1px solid var(--line-hi); background: var(--sunk); color: var(--typed); padding: 0 8px; font: inherit; font-size: 12px; }
+/* The best time to call and its zone sit one above the other in the field: the cell is narrow, and a row would leave the time too little room to read. */
+.pub-field .pub-inline { display: grid; gap: 8px; width: 100%; min-width: 0; }
+.pub-field .pub-inline select { width: 100%; min-width: 0; min-height: 40px; border: 1px solid var(--db-border-strong); background: var(--db-bg-input); color: var(--typed); padding: 0 var(--db-3); font: inherit; font-size: 12px; }
+.pub-field .pub-inline select:focus-visible { outline: none; border-color: var(--db-accent); box-shadow: 0 0 0 3px var(--db-accent-ring); }
