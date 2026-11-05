@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/db";
 import { buildPlanner, buildWatchlist, planDays, type PlannerLoad } from "@/lib/planner";
 import { currentWorkspaceId } from "./workspace";
+import { stopZoneOf } from "@/server/geo/stop-zone";
+import { activeTz } from "@/lib/tz";
 
 /** The planner's data: seven Central days from `from`, every active driver's loads by day, the loads still waiting for a driver, and what is due now. */
 /** `terminal`: only that terminal's drivers get a row, and loads held by other terminals' drivers are left off; loads nobody holds yet stay for everyone. */
@@ -38,7 +40,8 @@ export async function getPlannerData(from: number, now: number = Date.now(), cou
       city: s.addressString.split(",")[0]!,
       earliest: s.timeWindowEarliest,
       latest: s.timeWindowLatest,
-      arrivedAt: s.arrivedAt
+      arrivedAt: s.arrivedAt,
+      zone: stopZoneOf(s, activeTz())
     }))
   }));
   const days = days0;

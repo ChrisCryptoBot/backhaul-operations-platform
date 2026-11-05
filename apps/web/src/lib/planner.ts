@@ -1,6 +1,7 @@
 import { centralMidnight, centralParts } from "./zoned";
 import { loadWindow, windowsOverlap } from "./schedule";
 import { activeTz } from "./tz";
+import { stopClock } from "./desk-format";
 
 /**
  * The planner: who is on what, day by day, and what is due now. Both read the loads' stop windows and the arrival times the phone
@@ -15,6 +16,8 @@ export type PlannerStop = {
   earliest: Date | null;
   latest: Date | null;
   arrivedAt: Date | null;
+  /** The clock at this stop (an IANA zone), worked out on the server from where the stop is; absent reads as the carrier's own clock. */
+  zone?: string | null;
 };
 
 export type PlannerLoad = {
@@ -74,6 +77,9 @@ export type PlannerItem = {
   notSent: boolean;
   /** Delivered: shown so the week reads whole, but not a commitment any more. */
   done: boolean;
+  /** The clock at the first stop and at the last one, for the times the cell prints. */
+  startZone: string | null;
+  endZone: string | null;
 };
 
 export type PlannerRow = { driverId: string; name: string; cells: PlannerItem[][] };
@@ -126,7 +132,9 @@ export function buildPlanner(loads: PlannerLoad[], drivers: Array<{ id: string; 
     endsHere: r.end <= day.end,
     conflict: conflicting.has(r.l.id),
     notSent: r.l.assignmentStatus === "draft",
-    done: r.l.status === "completed"
+    done: r.l.status === "completed",
+    startZone: zoneOfEnd(r.l, "start"),
+    endZone: zoneOfEnd(r.l, "end")
   });
   const cellsFor = (rs: Raw[]) => days.map((d) => rs.filter((r) => r.start <= d.end && r.end >= d.start).sort((a, b) => a.start - b.start).map((r) => item(r, d)));
 
@@ -140,6 +148,13 @@ export function buildPlanner(loads: PlannerLoad[], drivers: Array<{ id: string; 
   }
   const tray = cellsFor(raws.filter((r) => !driverOf(r) && OPEN.includes(r.l.status)));
   return { rows, tray, untimed };
+}
+
+/** The clock at the stop a load's window starts at (its first stop with a time) or ends at (its last one). */
+function zoneOfEnd(l: PlannerLoad, which: "start" | "end"): string | null {
+  const timed = l.stops.filter((s) => s.earliest ?? s.latest);
+  const s = which === "start" ? timed[0] : timed[timed.length - 1];
+  return s?.zone ?? null;
 }
 
 export type DueState = "past_due" | "today" | "upcoming" | "done";
@@ -159,6 +174,8 @@ export type DueItem = {
   minutesLate: number | null;
   /** Not there yet and the window has closed, by how many minutes. */
   minutesOver: number | null;
+  /** The clock at the stop. */
+  zone: string | null;
   driverName: string | null;
   status: string;
 };
@@ -182,7 +199,7 @@ export function buildWatchlist(loads: PlannerLoad[], now: number, upcomingDays =
     for (const s of l.stops) {
       const due = s.latest ?? s.earliest;
       if (!due) continue;
-      const base = { loadId: l.id, loadNumber: l.loadNumber, stopRole: s.role ?? s.type, facility: s.facility, city: s.city, earliest: s.earliest, due, arrivedAt: s.arrivedAt, driverName: l.driverName, status: l.status };
+      const base = { loadId: l.id, loadNumber: l.loadNumber, stopRole: s.role ?? s.type, facility: s.facility, city: s.city, earliest: s.earliest, due, arrivedAt: s.arrivedAt, driverName: l.driverName, status: l.status, zone: s.zone ?? null };
       if (s.arrivedAt) {
         if (!sameDay(s.arrivedAt.getTime(), now)) continue;
         const over = (s.arrivedAt.getTime() - due.getTime()) / 60_000;
@@ -199,13 +216,16 @@ export function buildWatchlist(loads: PlannerLoad[], now: number, upcomingDays =
   return out.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.due.getTime() - b.due.getTime());
 }
 
-const clock = (ms: number) => new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: activeTz() });
-
-/** What a planner cell says about a load's time on that day: when it starts, when it ends, or that it runs all day. */
-export function timeText(i: Pick<PlannerItem, "start" | "end" | "startsHere" | "endsHere">): string {
-  if (i.startsHere && i.endsHere) return `${clock(i.start)} to ${clock(i.end)}`;
-  if (i.startsHere) return `from ${clock(i.start)}`;
-  if (i.endsHere) return `until ${clock(i.end)}`;
+/**
+ * What a planner cell says about a load's time on that day: when it starts, when it ends, or that it runs all day. The days are the carrier's; a time at a dock on another clock is
+ * read there first with the carrier's beside it, as everywhere else on the desk (`stopClock`).
+ */
+export function timeText(i: Pick<PlannerItem, "start" | "end" | "startsHere" | "endsHere"> & { startZone?: string | null; endZone?: string | null }): string {
+  const from = stopClock(i.start, i.startZone);
+  const until = stopClock(i.end, i.endZone);
+  if (i.startsHere && i.endsHere) return `${from} to ${until}`;
+  if (i.startsHere) return `from ${from}`;
+  if (i.endsHere) return `until ${until}`;
   return "all day";
 }
 

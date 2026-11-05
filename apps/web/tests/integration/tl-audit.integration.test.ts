@@ -5,6 +5,8 @@ import { invoiceLoad, markLoadPaid } from "@/server/tl/invoicing";
 import { listAudit, listLoadAudit } from "@/server/tl/audit";
 import { searchDesk } from "@/server/tl/search";
 import { getAlerts } from "@/server/tl/alerts";
+import { listBoardRows } from "@/server/tl/queries";
+import { getPlannerData } from "@/server/tl/planner";
 
 /**
  * Needs a seeded database (see tl-dispatch.integration.test.ts). Creates its own driver and loads, and removes them
@@ -121,6 +123,26 @@ describe.skipIf(!run)("audit trail, unassign and the double-booking guard", () =
     const feed = await listLoadAudit(l.id);
     expect(feed[0]!.summary).toContain("accepted on their phone");
     expect(feed[0]!.summary).not.toContain("answered for them");
+  });
+
+  test("the board and the planner know the clock at an Eastern dock", async () => {
+    const start = base + 90 * D;
+    const l = await makeLoad("AUD-ZONE", start, start + D, {
+      stops: {
+        create: [
+          { stopSequence: 1, stopType: "pickup", addressString: "Boston, MA", timeWindowEarliest: new Date(start), timeWindowLatest: new Date(start + 2 * H), referenceNumbers: ["PU-Z"] },
+          { stopSequence: 2, stopType: "delivery", addressString: "Dallas, TX", timeWindowEarliest: new Date(start + D - 2 * H), timeWindowLatest: new Date(start + D), referenceNumbers: ["DEL-Z"] }
+        ]
+      }
+    });
+    const made = l;
+    const row = (await listBoardRows(WS)).find((r) => r.id === made.id);
+    expect(row?.pickupZone).toBe("America/New_York");
+    expect(row?.pickupAt?.getTime()).toBe(start);
+    const plan = await getPlannerData(start - D, Date.now(), 7, WS);
+    const item = [...plan.tray.flat()].find((i) => i.loadId === made.id);
+    expect(item?.startZone).toBe("America/New_York");
+    expect(item?.endZone).toBe("America/Chicago");
   });
 
   test("the alerts say when their read of delivered loads was cut short", async () => {

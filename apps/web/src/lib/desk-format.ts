@@ -64,6 +64,18 @@ export function stopTime(d: Date | string | null | undefined, stopZone: string |
   return `${there} (${mine} ${zoneAbbr(tz)})`;
 }
 
+/**
+ * The time of day at a stop, with no date, for a cell that already sits on a day: "6:00 AM ET (5:00 AM CT)" when the dock is not on the carrier's clock, and just "5:00 AM" when it is
+ * (the day column already says which clock). The same rule as `stopTime`, so the board, the planner and the drawer read alike.
+ */
+export function stopClock(d: Date | number | string | null | undefined, stopZone: string | null | undefined, tz: string = activeTz()): string {
+  if (d == null || d === "") return "—";
+  const date = d instanceof Date ? d : new Date(d);
+  const zone = stopZone || tz;
+  const at = (z: string) => date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: z });
+  return zone === tz ? at(tz) : `${at(zone)} ${zoneAbbr(zone)} (${at(tz)} ${zoneAbbr(tz)})`;
+}
+
 export type Verdict = "accept" | "caution" | "reject" | "needs_fuel";
 export const VERDICT: Record<Verdict, { label: string; tone: "ok" | "warn" | "bad" | "muted" }> = {
   accept: { label: "Covers your cost", tone: "ok" },

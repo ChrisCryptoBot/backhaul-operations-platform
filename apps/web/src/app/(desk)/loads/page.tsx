@@ -21,7 +21,7 @@ import { dateTime } from "@/lib/desk-format";
 import { asBoardStatus, BOARD_STATUSES, filterBoard, isBelowCost, onTab, searchBoard } from "@/lib/board-filter";
 import { reasonLabel } from "@/lib/disruptions";
 import { asHistoryFilter, asHistorySort, fellThrough, HISTORY_FILTERS, HISTORY_SORTS, historyDate, monthGroups } from "@/lib/loads-history";
-import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
+import { miles, perMile, shortDate, stopTime, usd } from "@/lib/desk-format";
 import { moneyState } from "@/lib/money-state";
 import { daysPastDue } from "@/lib/overdue";
 
@@ -376,7 +376,8 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
             {r.origin} → {r.destination}
           </>
         ),
-        pickup: shortDate(r.scheduledDate),
+        // The appointment where the dock is, with the carrier's clock beside it when the two differ (the same rule as the load drawer); a load with no appointment time shows its day.
+        pickup: r.pickupAt ? stopTime(r.pickupAt, r.pickupZone) : shortDate(r.scheduledDate),
         truck: r.vehicleName ?? "—",
         miles: miles(r.totalMiles),
         pay: usd(r.grossRevenue),

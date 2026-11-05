@@ -2,19 +2,20 @@ import Link from "next/link";
 import React from "react";
 import type { DayCol, DueItem, PlannerItem, PlannerRow } from "@/lib/planner";
 import { spanText, timeText } from "@/lib/planner";
-import { dateTime } from "@/lib/desk-format";
+import { stopClock, stopTime } from "@/lib/desk-format";
 import { AssignButton } from "./assign-modal";
 import { Icon } from "./kit/icons";
-import { activeTz } from "@/lib/tz";
+import { activeTz, zoneAbbr } from "@/lib/tz";
 
 const STATE_LABEL: Record<DueItem["state"], string> = { past_due: "Past due", today: "Due today", upcoming: "Coming up", done: "Reached today" };
-const clock = (d: Date) => new Date(d).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: activeTz() });
+// Times at a stop are read on the dock's clock with the carrier's beside it when they differ (src/lib/tz.ts); a time at the desk's own door is on the carrier's.
+const clock = (d: Date, zone?: string | null) => stopClock(d, zone);
 
 function dueWords(i: DueItem, now: number): string {
-  if (i.state === "past_due") return `The window closed at ${clock(i.due)}; ${spanText(i.minutesOver ?? 0)} over and nobody has arrived`;
-  if (i.state === "today") return `Due by ${clock(i.due)}, in ${spanText((i.due.getTime() - now) / 60_000)}`;
-  if (i.state === "upcoming") return `Due ${dateTime(i.due)}`;
-  return i.late ? `Arrived ${clock(i.arrivedAt!)}, ${spanText(i.minutesLate ?? 0)} after the window closed` : `Arrived ${clock(i.arrivedAt!)}, on time`;
+  if (i.state === "past_due") return `The window closed at ${clock(i.due, i.zone)}; ${spanText(i.minutesOver ?? 0)} over and nobody has arrived`;
+  if (i.state === "today") return `Due by ${clock(i.due, i.zone)}, in ${spanText((i.due.getTime() - now) / 60_000)}`;
+  if (i.state === "upcoming") return `Due ${stopTime(i.due, i.zone)}`;
+  return i.late ? `Arrived ${clock(i.arrivedAt!, i.zone)}, ${spanText(i.minutesLate ?? 0)} after the window closed` : `Arrived ${clock(i.arrivedAt!, i.zone)}, on time`;
 }
 
 /** The stops that need eyes now, each with its state as a chip: past due, due today, coming up, reached today. */
@@ -61,8 +62,16 @@ function Chip({ i }: { i: PlannerItem }) {
 /** Drivers down the side, days across the top, each load as a block in the cells it runs through. */
 export function PlannerGrid({ days, rows, tray }: { days: DayCol[]; rows: PlannerRow[]; tray: PlannerItem[][] }) {
   const shown = new Set<string>();
+  // Whether any block's first or last stop is on another clock than the carrier's: only then does the grid explain the brackets.
+  const carrier = activeTz();
+  const twoClocks = [...tray.flat(), ...rows.flatMap((r) => r.cells.flat())].some((i) => (i.startZone && i.startZone !== carrier) || (i.endZone && i.endZone !== carrier));
   return (
     <div className="pl-wrap">
+      {twoClocks ? (
+        <p className="tl-note" style={{ margin: "0 0 8px" }}>
+          Days run on {zoneAbbr(carrier)} time. A time at a dock in another zone shows the dock&apos;s clock first, with yours in brackets.
+        </p>
+      ) : null}
       <table className="pl" aria-label="Loads by driver and day">
         <thead>
           <tr>

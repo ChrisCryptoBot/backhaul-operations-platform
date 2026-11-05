@@ -12,7 +12,7 @@
 | Item from the first audit | Now |
 |---|---|
 | Load page shelf said "8 of 8 Connected", "$1M Auto Liability" | **Fixed** (V: the string is gone from `load-view.tsx`); the shelf reads real connection state |
-| Central-only time | **Fixed** locally: workspace `timezone` (ET/CT/MT/MST/PT/AKT/HST), carrier clock vs display clock vs stop-local clock (`lib/tz.ts`, `lib/zoned.ts`, `server/tl/zone.ts`). Remaining: board/Planner show carrier clock, not stop-local (only the load drawer does) |
+| Central-only time | **Fixed** locally: workspace `timezone` (ET/CT/MT/MST/PT/AKT/HST), carrier clock vs display clock vs stop-local clock (`lib/tz.ts`, `lib/zoned.ts`, `server/tl/zone.ts`). Board, Planner and the due list now also show the dock's clock with the carrier's in brackets (built locally, Wave 1; `stopClock`, `BoardRow.pickupZone`). Still on the carrier clock only: the Dispatch queue rows, typed times, KPI periods and statement weeks (cookie, not the workspace zone) |
 | No driver link | **Desk half built, dark**: `server/bridge/{core,transport,outbox,service,retry}.ts`, `Assignment.bridgeDispatchId/bridgeExecutionVersion/bridgeSyncedAt/bridgeError`, `POST /bridge/cron`, `docs/DRIVER_LINK_DESIGN.md`. Switched on per fleet by `workspaces.bridge_org_id` + `drivers.phone_user_id` + three env names. Nothing live until Chris supplies them |
 | Per-workspace partner credentials, webhook, sync, failure surface | **Built** (`server/partners/{credentials*,health,webhook*,sync}.ts`, Settings, Integrations; `docs/PARTNER_BACKBONE.md`). **No live company adapter exists** |
 | `dataMark` cross-tenant scan | **Fixed** (V: `server/tl/answer-cache.ts` now filters every subquery by workspace) |
@@ -106,7 +106,7 @@ The desk has **five load statuses** (`draft`, `accepted`, `in_progress`, `comple
 | Quote, book, assign | Built | customer terms/MC not prefilled; no manager lift of Reject |
 | Send to driver | Built desk-side, **dark** | needs `BRIDGE_SUPABASE_URL/SERVICE_KEY`, `BRIDGE_CRON_SECRET`, fleet `bridge_org_id`, driver `phone_user_id`, phone `bridgeDispatch` flag |
 | Driver accepts/declines | Demo controls until linked | no company-driver app yet |
-| Pickup/delivery/arrival | Dispatcher types | tap/GPS not received; board and Planner show carrier clock not stop clock |
+| Pickup/delivery/arrival | Dispatcher types | tap/GPS not received; board and Planner now show the dock's clock beside the carrier's |
 | POD | Dispatcher uploads | driver upload and `closed_without_pod` not received |
 | Messages | Saved on the desk; `deliveredAt` written only when the bridge delivers (messages over the bridge is a listed follow-up) | no delivery or inbound today |
 | Reschedule/cancel/edit after Send | Cancel and TONU send a `cancel` row, unassign of a sent load too, a reschedule re-sends the load for confirmation (`dispatch`), an edit sends `update` or `dispatch` (V: `disruptions.ts:57,89,143`, `edit.ts:222`, `dispatch.ts:260`) | none on the desk side; proven only once a driver is linked |
@@ -212,7 +212,7 @@ Status marks: **done (local)** built and tested, unpushed; **open**. Production 
 1. Switch the link on end to end for one test fleet (inputs in section 7) and prove it against the phone's parked half. *Open: needs Chris's inputs and an un-park of the phone flag.*
 2. Relabel Demo controls as "Answer for the driver" (kept for linked drivers); audit who answered. *Done (local): the control is labelled for both cases, and the audit line reads "answered for them by the dispatcher" or "on their phone".*
 3. Close the lifecycle breaks: apply driver arrival/POD/`closed_without_pod`; Messages over the bridge with `deliveredAt`; `replaced_by_dispatch_id`. Reschedule push and the stuck-load alerts already existed (corrected). *Open, M; each needs a contract decision (section 7, 6).*
-4. Remove silent wrong answers: alerts cap, board stop-local time, role-aware buttons. *Open, S-M.*
+4. Remove silent wrong answers: alerts cap (*done, local*), board and Planner stop-local time (*done, local*), role-aware buttons (*load page and Dispatch queue done; other screens not surveyed*). *Partly open, S-M.*
 5. Done (local): honest shelf, demo labels, workspace time zone, dataMark, bridge desk half.
 
 **Wave 2 (P1): partner backbone adapters and inbound webhooks**

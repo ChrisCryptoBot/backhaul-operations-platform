@@ -15,6 +15,8 @@ import { voidedInvoiceNumbers } from "./invoicing";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
 import { workspaceTimezone } from "./zone";
+import { stopZoneOf } from "@/server/geo/stop-zone";
+import { activeTz } from "@/lib/tz";
 
 /**
  * Read model for the dispatcher screens, all computed from the TrueLane-shaped tables with TrueLane's own math.
@@ -63,6 +65,9 @@ export function boardRowOf(l: BoardLoad) {
     profitPerHour: priced ? priced.profitPerHour : null,
     /** When the first stop's window closes (else opens): a load still open after it is past its pickup. */
     pickupClosesAt: l.stops[0]?.timeWindowLatest ?? l.stops[0]?.timeWindowEarliest ?? null,
+    /** The first stop's appointment, and the clock at that dock (src/lib/tz.ts: stop local time), so the board can show the dock's time with the carrier's beside it. */
+    pickupAt: l.stops[0]?.timeWindowEarliest ?? l.stops[0]?.timeWindowLatest ?? null,
+    pickupZone: l.stops[0] ? stopZoneOf(l.stops[0], activeTz()) : null,
     verdict: evaluation?.finalDecision ?? null,
     // Over every mile the verdict counts, on what the load earned: a TONU hauled nothing, so it has no rate a mile.
     perMile: evaluation && evaluation.totalMiles > 0 && l.status !== "tonu" && l.status !== "cancelled" ? gross / evaluation.totalMiles : null,
