@@ -295,3 +295,9 @@ textarea.t-ta{width:100%;min-height:56px;border:1px solid var(--line-hi);backgro
 /* Rate confirmation review: what a field is called stays low-contrast, what was read off the document is bright. */
 .rc-grid .tl-field{color:var(--dim)}
 .rc-grid .tl-field :is(input,select,textarea){color:var(--ink)}
+
+/* Legacy pages sit in the main area without their own margin: give them the terminal's, and let a page head run edge to edge. */
+.t-main>:not(.t-pagehead):not(.t-banner){margin-left:10px;margin-right:10px}
+.t-main>.t-pagehead{margin:0 0 10px;border-bottom:1px solid var(--line-hi)}
+.t-main>:last-child{margin-bottom:12px}
+.t-pagehead .acts form{display:inline-flex}

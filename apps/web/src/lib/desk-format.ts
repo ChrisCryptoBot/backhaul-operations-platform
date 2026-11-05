@@ -1,12 +1,22 @@
 /** Display helpers for the dispatcher desk. Pure. */
 import { percentText } from "./pay";
 
-export const usd = (n: number | null | undefined, digits = 0): string =>
-  n == null || !Number.isFinite(n)
-    ? "—"
-    : n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: digits, maximumFractionDigits: digits });
+/** The one minus on the desk is the real one (U+2212), so a column of figures lines up and a loss cannot be mistaken for a dash. */
+const MINUS = "−";
 
-export const perMile = (n: number | null | undefined): string => (n == null || !Number.isFinite(n) ? "—" : `$${n.toFixed(2)}/mi`);
+/** Dollars. A figure that is not known is a dash (never 0, never a guess); a loss carries a real minus. Cents where money is owed, whole dollars where it is summarised. */
+export const usd = (n: number | null | undefined, digits = 0): string => {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const text = Math.abs(n).toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: digits, maximumFractionDigits: digits });
+  // A negative that rounds to nothing is not a loss: no minus on "$0".
+  return n < 0 && /[1-9]/.test(text) ? MINUS + text : text;
+};
+
+export const perMile = (n: number | null | undefined): string => {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const text = Math.abs(n).toFixed(2);
+  return `${n < 0 && /[1-9]/.test(text) ? MINUS : ""}$${text}/mi`;
+};
 
 export const miles = (n: number | null | undefined): string => (n == null || !Number.isFinite(n) ? "—" : `${Math.round(n).toLocaleString("en-US")} mi`);
 
