@@ -126,7 +126,7 @@ export default async function StatementPage({ params }: { params: { id: string }
             <tr>
               <th>Paid to</th>
               <td>
-                <b>{s.driver.name}</b>
+                <b>{s.driver.name}</b>{s.driver.code ? <> <i className="pl-code">{s.driver.code}</i></> : null}
               </td>
               <th>Period</th>
               <td>{s.periodLabel}</td>

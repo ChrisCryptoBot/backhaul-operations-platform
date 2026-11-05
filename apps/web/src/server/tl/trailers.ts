@@ -9,6 +9,7 @@ import { complianceState, statusLabel, trailerBlocker } from "@/lib/trailer-clea
 import { OWNERSHIPS, validateTrailer, type TrailerValues } from "@/lib/trailer-forms";
 import { ymdOf } from "@/lib/fleet-forms";
 import { trailerLabel } from "@/truelane/constants/trailerData";
+import { canonicalTerminals, cleanTerminalName } from "./terminal-list";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { lockWorkspace, roomFor } from "./plan";
@@ -108,6 +109,7 @@ export async function saveTrailer(raw: Record<string, unknown>, id: string | nul
   const check = validateTrailer(raw);
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
+  v.terminal = (await canonicalTerminals(prisma, workspaceId, [v.terminal])).get(cleanTerminalName(v.terminal).toLowerCase()) ?? "";
   const clash = await prisma.trailer.findFirst({ where: { workspaceId, archivedAt: null, number: { equals: v.number, mode: "insensitive" }, ...(id ? { id: { not: id } } : {}) } });
   if (clash) return { ok: false, errors: NUMBER_TAKEN };
   const data = dataOf(v, check.numbers);

@@ -37,6 +37,8 @@ import { headers } from "next/headers";
 import { dateTime } from "@/lib/desk-format";
 import { PLANS, priceText } from "@/lib/plans";
 import { TeamCard } from "@/components/desk/team-card";
+import { TerminalsCard } from "@/components/desk/terminals-card";
+import { terminalRows } from "@/server/tl/terminal-list";
 import { isPlatformAdmin, requirePage } from "@/server/tl/access";
 import { listMembers } from "@/server/tl/members";
 import { can } from "@/lib/roles";
@@ -62,6 +64,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
   const host = headers().get("x-forwarded-host") ?? headers().get("host") ?? "";
   const integrationsOrigin = host ? `${headers().get("x-forwarded-proto") ?? "https"}://${host}` : "";
   const [row, kpi, company, plan, partners, members] = await Promise.all([getStoredThresholds(), getDeskKpi({ period: "4w", compare: false }), getCompany(), planSummary(), partnerStatus(), listMembers()]);
+  const terminals = admin ? await terminalRows() : [];
   const seats = plan.units.find((u) => u.kind === "member")!;
   const stored = Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, row[f.key] ?? null])) as Record<keyof Thresholds, number | null>;
 
@@ -72,6 +75,13 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
           Printed at the top of every invoice and driver statement, with where a customer should send the payment. Only the name is required; a sheet prints just what is filled in.
         </p>
         <CompanyForm stored={toCompanyValues(company)} />
+      </Card>
+    </>
+  );
+  const terminalsTab = (
+    <>
+      <Card title="Terminals" className="tl-card">
+        <TerminalsCard rows={terminals} canEdit={admin} />
       </Card>
     </>
   );
@@ -267,7 +277,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
   );
   // The same tabs the load drawer has. The company, the plan, the team and the integrations are the admin's, so everyone else is not even shown them.
   const tabs: SettingsTab[] = [
-    ...(admin ? [{ key: "company", label: "Company", panel: companyTab }, { key: "plan", label: "Plan", panel: planTab }, { key: "team", label: "Team", panel: teamTab }, { key: "integrations", label: "Integrations", panel: integrationsTab }] : []),
+    ...(admin ? [{ key: "company", label: "Company", panel: companyTab }, { key: "plan", label: "Plan", panel: planTab }, { key: "team", label: "Team", panel: teamTab }, { key: "terminals", label: "Terminals", panel: terminalsTab }, { key: "integrations", label: "Integrations", panel: integrationsTab }] : []),
     { key: "display", label: "Display", panel: displayTab },
     { key: "rules", label: "Rules", panel: rulesTab }
   ];

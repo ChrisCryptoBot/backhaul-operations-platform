@@ -64,6 +64,9 @@ model Workspace {
   partnerEvents      PartnerEvent[]
   iftaLines          IftaLine[]
   fuelTransactions   FuelTransaction[]
+  terminals          Terminal[]
+  driverSchedules    DriverSchedule[]
+  driverTimeOff      DriverShiftException[]
   members            Member[]
   threads            Thread[]
   vehicles           Vehicle[]
@@ -446,17 +449,22 @@ model Driver {
   vetSafetyScore     Int?      @map("vet_safety_score")
   vetAuthorityActive Boolean?  @map("vet_authority_active")
   vetFlags           Json?     @map("vet_flags")
+  /// The driver's short code: first initial plus the first three letters of the last name (JSMI), a number on the end for a second driver who comes to the same one (JSMI2). Made once, never follows a rename.
+  code               String?
   active             Boolean   @default(true)
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  workspace       Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  assignedVehicle Vehicle?     @relation(fields: [assignedVehicleId], references: [id], onDelete: SetNull)
+  workspace       Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignedVehicle Vehicle?              @relation(fields: [assignedVehicleId], references: [id], onDelete: SetNull)
   assignments     Assignment[]
   thread          Thread?
   settlements     Settlement[]
+  schedule        DriverSchedule?
+  timeOff         DriverShiftException[]
 
   @@unique([workspaceId, phoneUserId])
+  @@unique([workspaceId, code])
   @@index([workspaceId, active, name])
   @@index([workspaceId, terminal])
   @@index([assignedVehicleId])
@@ -932,4 +940,58 @@ model FuelTransaction {
   @@index([loadId])
   @@index([settlementId])
   @@map("fuel_transactions")
+}
+
+/// A terminal (yard, branch, region) as a named list the desk manages. Drivers, trucks and trailers keep their `terminal` text column, which now holds one of these names; a driver's terminal is
+/// their home base, not a fence (anyone can be assigned a load from anywhere). Seeded from the distinct values in use. Names are unique per workspace regardless of case (an index on lower(name)).
+model Terminal {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  name        String
+  city        String?
+  note        String?
+  archivedAt  DateTime? @map("archived_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, archivedAt])
+  @@map("terminals")
+}
+
+/// A driver's weekly shift template on the carrier's clock. `week` is seven entries Sunday to Saturday, each `{ "start": minutes, "end": minutes }` for a shift that starts that day (an end at or before
+/// the start runs past midnight into the next morning) or null for a day off. No row means no schedule set: the driver is neither on nor off, and is never flagged.
+model DriverSchedule {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  driverId    String   @unique @map("driver_id")
+  week        Json
+  setBy       String?  @map("set_by")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  driver    Driver    @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+  @@map("driver_schedules")
+}
+
+/// One date that differs from the template: time off, home time (kind off) or a different shift for that day (kind shift, with its start and end in minutes). `dateKey` is the day the shift starts, YYYY-MM-DD on the carrier's clock.
+model DriverShiftException {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  driverId    String   @map("driver_id")
+  dateKey     String   @map("date_key")
+  kind        String
+  startMinute Int?     @map("start_minute")
+  endMinute   Int?     @map("end_minute")
+  note        String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  driver    Driver    @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@unique([driverId, dateKey])
+  @@index([workspaceId, dateKey])
+  @@map("driver_shift_exceptions")
 }

@@ -22,6 +22,7 @@ import { useToast } from "./kit/toast";
 import { LiveFuelPrice } from "./live-fuel-price";
 import { DraftNote, useDraft } from "./kit/use-draft";
 import { DateInput } from "./date-input";
+import { useTerminalNames } from "./terminal-names";
 import { TERMINAL_LIST_ID, TERMINAL_MAX_LENGTH } from "@/lib/terminal";
 
 // ── Small pieces ───────────────────────────────────────────────────────────────────────────────
@@ -67,6 +68,7 @@ function useShownErrors<K extends string>() {
 export type DriverRow = { id: string; name: string; phone: string | null; email: string | null; cdlClass: string | null; cdlExpiry: string; medicalCardExpiry: string; truckId: string | null; truckName: string | null; payKind: string; payRate: string; terminal: string; carrierMc: string; carrierDot: string; payrollWorkerType: string; payrollEmployeeId: string; phoneUserId: string; active: boolean; onLoads: number; onLoadNumbers: string[] };
 
 function DriverDialog({ open, onClose, driver }: { open: boolean; onClose: () => void; driver?: DriverRow }) {
+  const terminalNames = useTerminalNames();
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
@@ -171,8 +173,15 @@ function DriverDialog({ open, onClose, driver }: { open: boolean; onClose: () =>
             <DateInput type="date" value={values.medicalCardExpiry} onChange={set("medicalCardExpiry")} />
           </Field>
         </div>
-        <Field label="Terminal" error={errors.terminal} hint="The yard or branch they work out of. Pick one already in use or type a new one.">
-          <input value={values.terminal} onChange={set("terminal")} list={TERMINAL_LIST_ID} maxLength={TERMINAL_MAX_LENGTH} autoComplete="off" />
+        <Field label="Home terminal" error={errors.terminal} hint="Their home base, not a limit: any driver can be given a load from anywhere. An admin adds terminals in Settings.">
+          <select value={values.terminal} onChange={set("terminal")}>
+            <option value="">None</option>
+            {(terminalNames.includes(values.terminal) || !values.terminal ? terminalNames : [...terminalNames, values.terminal]).map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
         </Field>
         <div className="dlg-two">
           <Field label="Carrier MC" error={errors.carrierMc} hint="Only if they drive under their own authority.">

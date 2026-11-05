@@ -240,7 +240,8 @@ export function checkTruckRows(table: string[][], existingNames: ReadonlySet<str
  */
 export const driverKey = (name: string, phone: string) => `${name.trim().replace(/\s+/g, " ").toLowerCase()}|${digits(phone)}`;
 
-export function checkDriverRows(table: string[][], truckIdByName: ReadonlyMap<string, string>, existingKeys: ReadonlySet<string>): ImportCheck<DriverImport & { truckId: string }> {
+/** `knownTerminals` (lower case), when given, are the terminals on the fleet's list: a driver named at one that is not on it is reported, never silently added (an admin adds terminals in Settings). */
+export function checkDriverRows(table: string[][], truckIdByName: ReadonlyMap<string, string>, existingKeys: ReadonlySet<string>, knownTerminals: ReadonlySet<string> | null = null): ImportCheck<DriverImport & { truckId: string }> {
   const seen = new Map<string, number>();
   return walk<DriverImport & { truckId: string }>("drivers", table, (cells, header, line) => {
     const raw: Record<string, string> = {};
@@ -253,6 +254,7 @@ export function checkDriverRows(table: string[][], truckIdByName: ReadonlyMap<st
     const check = validateDriver({ ...raw, assignedVehicleId: truckId ?? "" });
     const errors = check.ok ? [] : messages(check.errors, labelOf("drivers"));
     if (truckName && truckId === null) errors.push(`Truck: No truck named ${truckName} is in service. Import the trucks first.`);
+    if (check.ok && knownTerminals && check.value.terminal.trim() && !knownTerminals.has(check.value.terminal.replace(/\s+/g, " ").trim().toLowerCase())) errors.push(`Terminal: ${check.value.terminal.trim()} is not on the terminal list. An admin adds it in Settings, Terminals, then load the file again.`);
     if (!check.ok || errors.length > 0) return { errors };
     const key = driverKey(check.value.name, check.value.phone);
     if (existingKeys.has(key)) return { errors: [`Name: ${check.value.name}${check.value.phone ? ` with that phone` : ""} is already a driver.`] };

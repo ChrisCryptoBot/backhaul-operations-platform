@@ -5,6 +5,8 @@ import { saveTruckHomeCoordinates } from "@/server/geo/persist";
 import { recordAudit } from "./audit";
 import { lockWorkspace, roomFor, unitUse } from "./plan";
 import { currentWorkspaceId } from "./workspace";
+import { allocateDriverCodes } from "./driver-codes";
+import { canonicalTerminals, cleanTerminalName, terminalNames } from "./terminal-list";
 
 /**
  * Bulk import of trucks and drivers. The file is read and checked here, on the server, every time: the preview a person sees and the import that follows both run
@@ -29,12 +31,13 @@ async function read(kind: ImportKind, text: string, workspaceId: string): Promis
     const inService = await prisma.trailer.findMany({ where: { workspaceId, archivedAt: null }, select: { number: true } });
     return { ok: true, table, trailers: checkTrailerRows(table, new Set(inService.map((t) => t.number.toLowerCase()))) };
   }
-  const [trucks, drivers] = await Promise.all([
+  const [trucks, drivers, listed] = await Promise.all([
     prisma.vehicle.findMany({ where: { workspaceId, archivedAt: null }, select: { id: true, name: true } }),
-    prisma.driver.findMany({ where: { workspaceId }, select: { name: true, phone: true } })
+    prisma.driver.findMany({ where: { workspaceId }, select: { name: true, phone: true } }),
+    terminalNames(workspaceId)
   ]);
   const byName = new Map(trucks.filter((t) => t.name).map((t) => [t.name!.toLowerCase(), t.id]));
-  return { ok: true, table, drivers: checkDriverRows(table, byName, new Set(drivers.map((d) => driverKey(d.name, d.phone ?? "")))) };
+  return { ok: true, table, drivers: checkDriverRows(table, byName, new Set(drivers.map((d) => driverKey(d.name, d.phone ?? ""))), new Set(listed.map((n) => n.toLowerCase()))) };
 }
 
 export type ImportPreview =
@@ -87,6 +90,9 @@ export async function commitImport(kind: ImportKind, text: string, fileName: str
       await lockWorkspace(tx, workspaceId);
       const room = await roomFor(UNIT_OF[kind], check.good.length, workspaceId, tx);
       if (!room.ok) return `${room.message} This file has ${check.good.length.toLocaleString("en-US")} to add.`;
+      const named = [...(r.trucks?.good.map(({ item }) => item.values.terminal) ?? []), ...(r.trailers?.good.map(({ item }) => item.values.terminal) ?? []), ...(r.drivers?.good.map(({ item }) => item.values.terminal) ?? [])];
+      const canon = await canonicalTerminals(tx, workspaceId, named);
+      const termOf = (t: string | null | undefined) => canon.get(cleanTerminalName(t).toLowerCase()) ?? null;
       if (r.trucks) {
         const rows = r.trucks.good.map(({ item: { values: v, mpg, specs } }) => ({
           workspaceId,
@@ -95,7 +101,7 @@ export async function commitImport(kind: ImportKind, text: string, fileName: str
           mpg,
           fuelType: v.fuelType || null,
           homeBaseAddress: v.homeBaseAddress || null,
-          terminal: v.terminal || null,
+          terminal: termOf(v.terminal),
           make: v.make || null,
           model: v.model || null,
           year: specs.year,
@@ -125,7 +131,7 @@ export async function commitImport(kind: ImportKind, text: string, fileName: str
           hasLiftgate: v.hasLiftgate === "yes",
           hasETrack: v.hasETrack === "yes",
           status: v.status,
-          terminal: v.terminal || null,
+          terminal: termOf(v.terminal),
           location: v.location || null,
           registrationExpiry: n.registrationExpiry,
           inspectionExpiry: n.inspectionExpiry,
@@ -133,8 +139,10 @@ export async function commitImport(kind: ImportKind, text: string, fileName: str
         }));
         for (let i = 0; i < rows.length; i += IMPORT_CHUNK) await tx.trailer.createMany({ data: rows.slice(i, i + IMPORT_CHUNK) });
       } else if (r.drivers) {
-        const rows = r.drivers.good.map(({ item: d }) => ({
+        const codes = await allocateDriverCodes(tx, workspaceId, r.drivers.good.map(({ item: d }) => d.values.name));
+        const rows = r.drivers.good.map(({ item: d }, i) => ({
           workspaceId,
+          code: codes[i]!,
           name: d.values.name,
           phone: d.values.phone || null,
           email: d.values.email || null,
@@ -144,7 +152,7 @@ export async function commitImport(kind: ImportKind, text: string, fileName: str
           assignedVehicleId: d.truckId || null,
           defaultPayKind: d.values.payKind || null,
           defaultPayRate: d.payRate,
-          terminal: d.values.terminal || null
+          terminal: termOf(d.values.terminal)
         }));
         for (let i = 0; i < rows.length; i += IMPORT_CHUNK) await tx.driver.createMany({ data: rows.slice(i, i + IMPORT_CHUNK) });
       }

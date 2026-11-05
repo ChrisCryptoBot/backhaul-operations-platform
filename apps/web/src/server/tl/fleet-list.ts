@@ -103,7 +103,7 @@ export async function listDriversPage(query: DriverPageQuery = {}, workspaceId =
   const where: Prisma.DriverWhereInput = {
     workspaceId,
     ...(query.terminal ? { terminal: query.terminal } : {}),
-    ...(q ? { AND: terms(q).map((t) => ({ OR: [contains("name", t), contains("phone", t), { assignedVehicle: { name: { contains: t, mode: "insensitive" as const } } }] })) } : {})
+    ...(q ? { AND: terms(q).map((t) => ({ OR: [contains("name", t), contains("phone", t), contains("code", t), { assignedVehicle: { name: { contains: t, mode: "insensitive" as const } } }] })) } : {})
   };
   const total = await prisma.driver.count({ where });
   const pages = pageCount(total, pageSize);
@@ -131,6 +131,7 @@ export async function listDriversPage(query: DriverPageQuery = {}, workspaceId =
     return {
       id: d.id,
       name: d.name,
+      code: d.code,
       phone: d.phone,
       email: d.email,
       cdlClass: d.cdlClass,

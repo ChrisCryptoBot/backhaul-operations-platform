@@ -341,7 +341,7 @@ export type SettlementView = {
   id: string;
   number: string;
   status: "draft" | "final" | "void";
-  driver: { id: string; name: string; terminal: string | null };
+  driver: { id: string; name: string; code: string | null; terminal: string | null };
   /** Who the statement is from: the workspace. */
   issuer: string;
   /** The company's identity for the sheet's header. */
@@ -376,7 +376,7 @@ export async function getSettlement(id: string, workspaceId = currentWorkspaceId
     number: s.number,
     issuer: s.workspace.name,
     company: toCompany(s.workspace),
-    driver: { id: s.driver.id, name: s.driver.name, terminal: s.driver.terminal },
+    driver: { id: s.driver.id, name: s.driver.name, code: s.driver.code, terminal: s.driver.terminal },
     start: ymd(s.periodStart),
     end: ymd(s.periodEnd),
     periodLabel: periodText(ymd(s.periodStart), ymd(s.periodEnd)),

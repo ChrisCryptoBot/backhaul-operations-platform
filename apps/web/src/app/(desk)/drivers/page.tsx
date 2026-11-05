@@ -21,6 +21,7 @@ import { CarrierStatus } from "@/components/desk/carrier-status";
 export const metadata = { title: "Drivers · TrueLane" };
 
 const COLUMNS: Column[] = [
+  { key: "code", label: "Code", group: "Driver", width: 80 },
   { key: "driver", sortable: true, label: "Driver", group: "Driver", sticky: true, width: 220 },
   { key: "truck", sortable: true, label: "Truck", group: "Driver" },
   { key: "terminal", label: "Terminal", group: "Driver" },
@@ -75,8 +76,9 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
     return {
       id: d.id,
       flag: d.active && d.blocker ? "bad" : undefined,
-      search: [d.name, d.phone, d.truck].filter(Boolean).join(" "),
+      search: [d.name, d.code, d.phone, d.truck].filter(Boolean).join(" "),
       cells: {
+        code: d.code ? <i className="pl-code">{d.code}</i> : <span className="dim">—</span>,
         driver: (
           <>
             <Link href={`/drivers/${d.id}`}><b>{d.name}</b></Link>
@@ -131,7 +133,7 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
           <AddDriver use={use} />
         </CanGate>
       </PageHead>
-      <DataTableTools tableId="drivers-table" total={pageData.total} placeholder="Search driver, phone, truck…" server={{ path: "/drivers", q: pageData.q, keep: searchParams?.sort ? { sort: searchParams.sort } : {} }} />
+      <DataTableTools tableId="drivers-table" total={pageData.total} placeholder="Search driver, code, phone, truck…" server={{ path: "/drivers", q: pageData.q, keep: searchParams?.sort ? { sort: searchParams.sort } : {} }} />
       <DataTable id="drivers-table" label="Drivers" columns={COLUMNS} rows={rows} sortHref={sortHref} empty={<EmptyState icon="drivers" title="No drivers yet">Add a driver and they show up here with their CDL and medical card dates.</EmptyState>} />
       <Pager page={pageData.page} pageSize={pageData.pageSize} total={pageData.total} hrefFor={(n) => href({ sort: searchParams?.sort, page: n })} newer="Previous" older="Next" />
     </>

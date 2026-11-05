@@ -11,6 +11,8 @@ import { lockWorkspace, roomFor } from "./plan";
 import { num, numOrNull } from "./convert";
 import { profileMathInput } from "./evaluate";
 import { currentWorkspace, currentWorkspaceId } from "./workspace";
+import { allocateDriverCode } from "./driver-codes";
+import { canonicalTerminals, cleanTerminalName } from "./terminal-list";
 
 /**
  * Who drives and what they drive: adding, changing, deactivating and archiving drivers and trucks, and a truck's cost profile.
@@ -47,6 +49,7 @@ export async function saveDriver(raw: Record<string, unknown>, id: string | null
   if (!check.ok) return { ok: false, errors: check.errors };
   const ws = await currentWorkspace();
   const v = check.value;
+  v.terminal = (await canonicalTerminals(prisma, ws.id, [v.terminal])).get(cleanTerminalName(v.terminal).toLowerCase()) ?? "";
   const truck = v.assignedVehicleId ? await prisma.vehicle.findFirst({ where: { id: v.assignedVehicleId, workspaceId: ws.id, archivedAt: null } }) : null;
   if (v.assignedVehicleId && !truck) return { ok: false, errors: { assignedVehicleId: "That truck is not available." } };
   const data = { name: v.name, phone: v.phone || null, email: v.email || null, cdlClass: v.cdlClass || null, cdlExpiry: check.cdlExpiry, medicalCardExpiry: check.medicalCardExpiry, assignedVehicleId: truck?.id ?? null, defaultPayKind: v.payKind || null, defaultPayRate: check.payRate, terminal: v.terminal || null, carrierMcNumber: v.carrierMc || null, carrierDotNumber: v.carrierDot || null, payrollWorkerType: v.payrollWorkerType || null, payrollEmployeeId: v.payrollEmployeeId || null, phoneUserId: v.phoneUserId || null };
@@ -63,7 +66,7 @@ export async function saveDriver(raw: Record<string, unknown>, id: string | null
       await lockWorkspace(tx, ws.id);
       const room = await roomFor("driver", 1, ws.id, tx);
       if (!room.ok) return room;
-      const d = await tx.driver.create({ data: { workspaceId: ws.id, ...data } });
+      const d = await tx.driver.create({ data: { workspaceId: ws.id, ...data, code: await allocateDriverCode(tx, ws.id, v.name) } });
       await recordAudit({ entity: "fleet", action: "driver_added", summary: `${v.name} added as a driver`, before: null, after, at: now, workspaceId: ws.id }, tx);
       return d;
     });
@@ -143,6 +146,7 @@ export async function saveTruck(raw: Record<string, unknown>, id: string | null,
   if (!check.ok) return { ok: false, errors: check.errors };
   const ws = await currentWorkspace();
   const v = check.value;
+  v.terminal = (await canonicalTerminals(prisma, ws.id, [v.terminal])).get(cleanTerminalName(v.terminal).toLowerCase()) ?? "";
   const clash = await prisma.vehicle.findFirst({ where: { workspaceId: ws.id, archivedAt: null, name: { equals: v.name, mode: "insensitive" }, ...(id ? { id: { not: id } } : {}) } });
   if (clash) return { ok: false, errors: { name: "A truck with that name already exists." } };
   const data = {
