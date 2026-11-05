@@ -1,0 +1,24 @@
+import { isPublicPath } from "./auth-route";
+
+/**
+ * The demo's front door. With sign-in off (DESK_AUTH not on) there are no accounts, but the demo still has a sign-in page and a Sign out: signing in is one button that
+ * makes a plain cookie, and signing out removes it and goes back to the sign-in page. The cookie proves nothing about anyone and grants nothing: it is the demo desk's own
+ * "I have come in", for invented data only. With DESK_AUTH on it is never read or made (the real sign-in decides), and DEMO_LOGIN=off turns the demo door off altogether.
+ * Pure, so the middleware (edge) and the tests share it.
+ */
+export const DEMO_COOKIE = "desk-demo";
+export const DEMO_TTL_SECONDS = 8 * 3600;
+/** Shown in the sign-in form's fields by the demo button. Display only: nothing is checked against them. */
+export const DEMO_EMAIL = "demo@truelane.example";
+export const DEMO_PASSWORD = "demo-desk";
+
+export const demoLoginOn = (env: Record<string, string | undefined>): boolean => env.DESK_AUTH !== "on" && env.DEMO_LOGIN !== "off";
+
+export type DemoDoor = { kind: "next" } | { kind: "sign_in" } | { kind: "unauthorized" };
+
+/** What the demo door does with a request: the public pages, the demo sign-in and signing out are open; anything else needs the demo cookie. */
+export function demoDecide(i: { path: string; method: string; hasDemo: boolean; wantsHtml: boolean }): DemoDoor {
+  if (isPublicPath(i.path) || i.path === "/auth/demo") return { kind: "next" };
+  if (i.hasDemo) return { kind: "next" };
+  return i.method === "GET" && i.wantsHtml ? { kind: "sign_in" } : { kind: "unauthorized" };
+}

@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { DeskShell } from "@/components/desk/desk-shell";
 import { UnderlayProvider } from "@/components/desk/underlay";
 import { SLEEP_COOKIE, asSleepMinutes } from "@/lib/appearance";
+import { demoLoginOn } from "@/lib/demo-session";
 import { requirePage } from "@/server/tl/access";
 import { getShellData } from "@/server/tl/shell";
 import "./desk.css";
@@ -25,7 +26,7 @@ export default async function DeskLayout({ children, drawer }: { children: React
   const sleepMinutes = asSleepMinutes(jar.get(SLEEP_COOKIE)?.value);
   return (
     <UnderlayProvider>
-      <DeskShell data={data} initialCollapsed={collapsed} sleepMinutes={sleepMinutes} drawer={drawer}>
+      <DeskShell data={data} initialCollapsed={collapsed} sleepMinutes={sleepMinutes} drawer={drawer} demoLogin={demoLoginOn(process.env)}>
         {children}
       </DeskShell>
     </UnderlayProvider>

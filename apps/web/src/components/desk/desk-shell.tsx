@@ -67,7 +67,7 @@ const NAV: Array<{ label: string; items: Item[] }> = [
 
 const SIDEBAR_COOKIE = "desk-sidebar";
 
-export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinutes = 15 }: { children: React.ReactNode; drawer?: React.ReactNode; data: ShellData; initialCollapsed: boolean; sleepMinutes?: number }) {
+export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinutes = 15, demoLogin = false }: { children: React.ReactNode; drawer?: React.ReactNode; data: ShellData; initialCollapsed: boolean; sleepMinutes?: number; demoLogin?: boolean }) {
   const underlay = useUnderlay();
   // With a load open in the drawer the URL is the load's, but the page you are on (and the sidebar item to light) is the one underneath.
   const here = usePathname() ?? "";
@@ -153,7 +153,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
           <TerminalScope terminals={data.terminals} terminal={data.terminal} />
           <Link href="/enterprise" className="t-mid">Talk to a person</Link>
           {data.account.on && data.account.name ? <span className="t-mid who" title={`${data.account.name}${role ? `, ${role}` : ""}`}>{data.account.name}{role ? ` · ${role}` : ""}</span> : null}
-          {data.account.on ? <AuthSignOutButton className="t-mid t-linkbtn">Sign out</AuthSignOutButton> : null}
+          {data.account.on ? <AuthSignOutButton className="t-mid t-linkbtn">Sign out</AuthSignOutButton> : demoLogin ? <a href="/auth/leave" className="t-mid">Sign out</a> : null}
         </header>
         <div className="t-tick" role="group" aria-label="Fleet totals">
           <div><span>Open loads</span><b>{t.open}</b></div>

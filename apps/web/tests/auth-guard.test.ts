@@ -57,14 +57,14 @@ describe("every server action asks who is calling", () => {
 });
 
 describe("every route handler asks who is calling", () => {
-  const OPEN = new Set(["app/(public)/auth/enter/route.ts", "app/(public)/auth/leave/route.ts"]);
+  const OPEN = new Set(["app/(public)/auth/enter/route.ts", "app/(public)/auth/leave/route.ts", "app/(public)/auth/demo/route.ts"]);
   const routes = files(SRC, (f) => /[\\/]route\.ts$/.test(f));
 
   it("sees the routes", () => {
     expect(routes.length).toBeGreaterThanOrEqual(14);
   });
 
-  it("guards each one, except the two that make and end the session", () => {
+  it("guards each one, except those that make and end the session (and the demo's)", () => {
     const bare = routes.filter((f) => !OPEN.has(rel(f))).filter((f) => !/await guardRoute\("\w+"(, "\w+")*\)/.test(read(f))).map(rel);
     expect(bare, "Start the handler with `const denied = await guardRoute(role); if (denied) return denied;`").toEqual([]);
   });

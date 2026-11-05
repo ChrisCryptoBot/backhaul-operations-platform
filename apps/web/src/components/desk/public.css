@@ -44,3 +44,9 @@
 .pub-btn.sm { min-height: 34px; margin: 0; padding: 0 var(--db-4); font-size: var(--db-text-sm); }
 .pub-btn:disabled { opacity: 0.6; cursor: default; }
 @media (max-width: 900px) { .pub-split { grid-template-columns: minmax(0, 1fr); } .pub-grid { grid-template-columns: minmax(0, 1fr); } }
+
+.pub-demo-form { display: grid; gap: 10px; margin: 12px 0 0; max-width: 360px; }
+.pub-demo-form label { display: grid; gap: 4px; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--label); }
+.pub-demo-form input { height: 28px; padding: 0 8px; border: 1px solid var(--line-hi); background: var(--sunk); color: var(--typed); text-transform: none; letter-spacing: 0; font-size: 12px; }
+.pub-demo-form .pub-btn { margin-top: 4px; cursor: pointer; border: 0; }
+.pub-demo-form .pub-btn:disabled { cursor: progress; opacity: .8; }

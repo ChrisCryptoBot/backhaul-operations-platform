@@ -48,6 +48,7 @@ const EXEMPT: Record<string, string> = {
   "components/desk/copy-text.tsx": "a read-only box to copy from",
   // Chosen and used at once.
   "components/desk/terminal-scope.tsx": "applies the moment it is chosen (a cookie)",
+  "components/desk/public/demo-sign-in.tsx": "display-only demo fields filled by its one button; nothing is typed, kept or checked",
   "components/desk/global-search.tsx": "a search box: a result is picked at once",
   "components/desk/kit/modal.tsx": "a confirmation's reason is typed where it is asked and sent at once",
   // A filter or a pick that goes into the address (GET): the sidebar remembers it per module (rememberedQuery).

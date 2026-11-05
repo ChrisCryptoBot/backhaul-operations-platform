@@ -3,6 +3,8 @@ import React from "react";
 import type { Metadata } from "next";
 import { SignIn } from "@clerk/nextjs";
 import { ContactCard } from "@/components/desk/public/contact-card";
+import { DemoSignIn } from "@/components/desk/public/demo-sign-in";
+import { demoLoginOn } from "@/lib/demo-session";
 import { authOn } from "@/server/tl/identity";
 
 export const metadata: Metadata = { title: "Sign in · TrueLane" };
@@ -20,6 +22,21 @@ export default function SignInPage() {
           <SignIn path="/sign-in" routing="path" fallbackRedirectUrl="/auth/enter" forceRedirectUrl="/auth/enter" signUpUrl="/sign-up" />
           <p className="pub-alt">
             Your desk&apos;s admin adds you to it. Running 50 or more trucks? <Link href="/enterprise">Ask for a person</Link>.
+          </p>
+        </section>
+        <ContactCard />
+      </div>
+    );
+  }
+  if (demoLoginOn(process.env)) {
+    return (
+      <div className="pub-split">
+        <section className="pub-card" aria-labelledby="si-h">
+          <h1 id="si-h">Sign in</h1>
+          <p>This is the demo desk. There are no accounts yet: one button fills in the demo credentials and signs you in. Every name, load and number in it is invented.</p>
+          <DemoSignIn />
+          <p className="pub-alt">
+            New here? <Link href="/sign-up">Create an account</Link>. Running 50 or more trucks? <Link href="/enterprise">Ask for a person</Link>.
           </p>
         </section>
         <ContactCard />
