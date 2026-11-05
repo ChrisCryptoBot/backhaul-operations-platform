@@ -15,6 +15,7 @@ describe("the demo's people", () => {
     expect(DEMO_USERS.map((u) => [u.key, u.role, u.landing])).toEqual([
       ["admin", "admin", "/loads"],
       ["dispatcher", "dispatcher", "/dispatch"],
+      ["driver_manager", "driver_manager", "/schedules"],
       ["accounting", "accounting", "/invoices"],
       ["viewer", "viewer", "/loads"]
     ]);
@@ -64,6 +65,14 @@ describe("the demo desk holds each person to the real role matrix", () => {
     for (const cap of ["dispatch", "quote", "admin", "writeoff"] as const) expect(await ask("accounting", cap), cap).toEqual({ ok: false, reason: "forbidden" });
   });
 
+  it("a driver manager sets the roster and cannot dispatch, quote, bill or administer", async () => {
+    expect(await ask("driver_manager", "roster")).toMatchObject({ ok: true, identity: { role: "driver_manager", name: "Driver manager" } });
+    expect(await ask("driver_manager", "documents")).toMatchObject({ ok: true });
+    for (const cap of ["dispatch", "quote", "figures", "bill", "payout", "writeoff", "admin"] as const) expect(await ask("driver_manager", cap), cap).toEqual({ ok: false, reason: "forbidden" });
+    // Nobody else may set shifts, codes or home terminals; a dispatcher and a viewer read them.
+    for (const who of ["dispatcher", "accounting", "viewer"]) expect(await ask(who, "roster"), who).toEqual({ ok: false, reason: "forbidden" });
+  });
+
   it("a viewer reads and nothing else", async () => {
     expect(await ask("viewer")).toMatchObject({ ok: true, identity: { role: "viewer" } });
     for (const cap of ["dispatch", "bill", "quote", "documents", "admin"] as const) expect(await ask("viewer", cap), cap).toEqual({ ok: false, reason: "forbidden" });
@@ -71,7 +80,7 @@ describe("the demo desk holds each person to the real role matrix", () => {
 
   it("what the demo refuses is exactly what the matrix refuses", async () => {
     for (const u of DEMO_USERS) {
-      for (const cap of ["read", "quote", "dispatch", "documents", "figures", "billing_details", "bill", "payout", "writeoff", "admin"] as const) {
+      for (const cap of ["read", "quote", "dispatch", "roster", "documents", "figures", "billing_details", "bill", "payout", "writeoff", "admin"] as const) {
         expect((await ask(u.key, cap)).ok, `${u.key} ${cap}`).toBe(can(u.role, [], cap));
       }
     }
@@ -88,6 +97,9 @@ describe("what each person is shown", () => {
     expect(shell).toMatch(/label: "Quote a load"[^}]*roles: \["admin", "dispatcher"\]/);
     expect(shell).toMatch(/label: "Payroll"[^}]*roles: \["admin", "accounting"\]/);
     expect(shell).toMatch(/label: "Settlements"[^}]*roles: \["admin", "accounting"\]/);
+    // A driver manager sees the people-side screens and not the freight or billing ones.
+    expect(shell).toMatch(/label: "Schedules"[^}]*roles: \["admin", "dispatcher", "driver_manager", "viewer"\]/);
+    expect(shell).toMatch(/label: "Planner"[^}]*roles: \["admin", "dispatcher", "driver_manager", "viewer"\]/);
   });
 
   it("Settings is tabs, and the company, plan, team and integrations are only offered to an admin", () => {

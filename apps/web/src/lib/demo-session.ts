@@ -22,6 +22,7 @@ export type DemoUser = { key: string; label: string; role: Role; name: string; e
 export const DEMO_USERS: readonly DemoUser[] = [
   { key: "admin", label: "Admin", role: "admin", name: "Demo admin", email: "admin@demo.truelane.example", landing: "/loads", blurb: "Everything, including the company, the plan, the team, the integrations and the thresholds." },
   { key: "dispatcher", label: "Dispatcher", role: "dispatcher", name: "Dispatcher", email: "dispatch@demo.truelane.example", landing: "/dispatch", blurb: "Quotes, books, assigns and sends loads, and enters what the driver did. No billing, no company settings." },
+  { key: "driver_manager", label: "Driver manager", role: "driver_manager", name: "Driver manager", email: "drivers@demo.truelane.example", landing: "/schedules", blurb: "Sets shifts, time off, driver codes and each driver's home terminal. Cannot dispatch or bill." },
   { key: "accounting", label: "Billing", role: "accounting", name: "Demo billing", email: "billing@demo.truelane.example", landing: "/invoices", blurb: "Invoices, payments, driver statements and payroll. Cannot dispatch." },
   { key: "viewer", label: "Viewer", role: "viewer", name: "Demo viewer", email: "viewer@demo.truelane.example", landing: "/loads", blurb: "Looks at everything and changes nothing." }
 ];

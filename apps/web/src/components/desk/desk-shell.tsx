@@ -7,6 +7,7 @@ import { AuthSignOutButton } from "./auth-sign-out";
 import { SleepGuard } from "./splash";
 import { ToastProvider } from "./kit/toast";
 import { DraftScope } from "./kit/use-draft";
+import { TerminalNames } from "./terminal-names";
 import { VIEW_PREFIX, rememberedQuery } from "@/lib/draft";
 import { ZONE_COOKIE, activeTz } from "@/lib/tz";
 import { GlobalSearch } from "./global-search";
@@ -32,8 +33,8 @@ const NAV: Array<{ label: string; items: Item[] }> = [
       { href: "/quote", label: "Quote a load", code: "QT", roles: ["admin", "dispatcher"] },
       { href: "/loads", label: "Loads", code: "LD" },
       { href: "/dispatch", label: "Dispatch queue", code: "DQ", pill: (c) => (c.needsDriver > 0 ? { n: c.needsDriver, tone: "warn" } : null), roles: ["admin", "dispatcher"] },
-      { href: "/messages", label: "Messages", code: "MS", pill: (c) => (c.unreadMessages > 0 ? { n: c.unreadMessages, tone: "warn" } : null), roles: ["admin", "dispatcher", "accounting"] },
-      { href: "/planner", label: "Planner", code: "PL", roles: ["admin", "dispatcher", "viewer"] },
+      { href: "/messages", label: "Messages", code: "MS", pill: (c) => (c.unreadMessages > 0 ? { n: c.unreadMessages, tone: "warn" } : null), roles: ["admin", "dispatcher", "driver_manager", "accounting"] },
+      { href: "/planner", label: "Planner", code: "PL", roles: ["admin", "dispatcher", "driver_manager", "viewer"] },
       { href: "/alerts", label: "Alerts", code: "AL", pill: (c) => (c.alertsBlock > 0 ? { n: c.alertsBlock + c.alertsWarn, tone: "alert" } : c.alertsWarn > 0 ? { n: c.alertsWarn, tone: "warn" } : null) },
       { href: "/rate-cons", label: "Rate confirmations", code: "RC", roles: ["admin", "dispatcher"] }
     ]
@@ -42,7 +43,8 @@ const NAV: Array<{ label: string; items: Item[] }> = [
     label: "Fleet",
     items: [
       { href: "/drivers", label: "Drivers", code: "DR" },
-      { href: "/fleet", label: "Trucks", code: "TK", roles: ["admin", "dispatcher", "viewer"] },
+      { href: "/schedules", label: "Schedules", code: "SC", roles: ["admin", "dispatcher", "driver_manager", "viewer"] },
+      { href: "/fleet", label: "Trucks", code: "TK", roles: ["admin", "dispatcher", "driver_manager", "viewer"] },
       { href: "/trailers", label: "Trailers", code: "TR", roles: ["admin", "dispatcher", "viewer"] }
     ]
   },
@@ -160,6 +162,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
   return (
     <ToastProvider>
     <DraftScope value={`${data.workspaceName}:${data.account.name}`}>
+    <TerminalNames value={data.terminals}>
       <ZoneSync zone={data.timezone} />
       <div className="t-app" data-collapsed={collapsed ? "true" : "false"}>
         <a className="skip" href="#main">
@@ -224,6 +227,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
       </datalist>
       {drawer}
       <SleepGuard minutes={sleepMinutes} />
+    </TerminalNames>
     </DraftScope>
     </ToastProvider>
   );

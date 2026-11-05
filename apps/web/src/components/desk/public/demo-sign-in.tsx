@@ -4,7 +4,7 @@ import React from "react";
 import { DEMO_PASSWORD, DEMO_USERS } from "@/lib/demo-session";
 
 /**
- * The demo's sign-in: a button for each way of using the desk (admin, dispatcher, billing, viewer). A button fills the two fields with that person's demo credentials and signs in as them,
+ * The demo's sign-in: a button for each way of using the desk (admin, dispatcher, driver manager, billing, viewer). A button fills the two fields with that person's demo credentials and signs in as them,
  * and each lands on the screen that job starts on. The fields are display-only (the server checks nothing: there are no accounts in the demo), so nothing typed here is ever kept or sent
  * anywhere but to the demo door.
  */

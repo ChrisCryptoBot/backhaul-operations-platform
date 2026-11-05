@@ -12,6 +12,7 @@
  */
 import { PrismaClient } from "@prisma/client";
 import { randomUUID } from "node:crypto";
+import { nextDriverCode } from "../src/lib/driver-code";
 
 const url = process.env.DATABASE_URL ?? "";
 if (!/\/demo_scale(\?|$)/.test(url)) {
@@ -135,13 +136,18 @@ async function main() {
   await chunked(trailers, 2000, (part) => prisma.trailer.createMany({ data: part }));
 
   const driverIds: string[] = [];
+  const takenCodes = new Set<string>();
   const drivers = Array.from({ length: DRIVERS }, (_, i) => {
     const id = randomUUID();
     driverIds.push(id);
+    const name = `${pick(FIRST)} ${pick(LAST)} ${i + 1}`;
+    const code = nextDriverCode(name, takenCodes);
+    takenCodes.add(code);
     return {
       id,
       workspaceId: WORKSPACE_ID,
-      name: `${pick(FIRST)} ${pick(LAST)} ${i + 1}`,
+      name,
+      code,
       phone: `555-01${String(i % 100).padStart(2, "0")}`,
       cdlClass: "A",
       cdlExpiry: new Date(now + between(30, 900) * DAY),
@@ -153,6 +159,8 @@ async function main() {
     };
   });
   await chunked(drivers, 1000, (part) => prisma.driver.createMany({ data: part }));
+  // The terminals in use become the fleet's managed list.
+  await prisma.terminal.createMany({ data: [...new Set(drivers.map((d) => d.terminal))].sort().map((name) => ({ workspaceId: WORKSPACE_ID, name })) });
 
   // Loads: most completed over the last 18 months, some cancelled, ~600 open (draft, accepted, in progress) around now, ~400 saved quotes.
   const OPEN = Math.min(600, Math.floor(LOADS * 0.012));

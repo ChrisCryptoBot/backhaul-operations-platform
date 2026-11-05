@@ -9,6 +9,7 @@ import { seedMessages } from "./seed-messages";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { computeBreakEvenRpm, computeSurvivalFloorRpm } from "../src/truelane/lib/domain/calculators";
 import { reasonLabel } from "../src/lib/disruptions";
+import { nextDriverCode } from "../src/lib/driver-code";
 
 const prisma = new PrismaClient();
 const WORKSPACE_ID = "demo-workspace";
@@ -169,12 +170,16 @@ async function main() {
     { kind: "cpm", rate: 0.55 }
   ];
   const drivers = [];
+  const takenCodes = new Set<string>();
   for (const [i, name] of DRIVERS.entries()) {
+    const code = nextDriverCode(name, takenCodes);
+    takenCodes.add(code);
     drivers.push(
       await prisma.driver.create({
         data: {
           workspaceId: WORKSPACE_ID,
           name,
+          code,
           phone: `555-01${String(10 + i)}`,
           email: `driver${i + 1}@example.test`,
           cdlClass: "A",
@@ -190,6 +195,15 @@ async function main() {
       })
     );
   }
+
+  // The terminals in use become the fleet's managed list (Settings, Terminals).
+  const terminalNames = [...new Set([...vehicles.map((v) => v.terminal), ...TRAILERS.map((t) => t.terminal)].filter(Boolean))].sort();
+  await prisma.terminal.createMany({ data: terminalNames.map((name) => ({ workspaceId: WORKSPACE_ID, name })) });
+
+  // Shifts for most of the demo drivers, so the Planner shows ON SHIFT and OFF DUTY; Casey has none, so the demo shows a driver who is neither on nor off.
+  const week = (shift: { start: number; end: number }, days: number[]) => Array.from({ length: 7 }, (_, d) => (days.includes(d) ? shift : null));
+  const shifts = [week({ start: 6 * 60, end: 18 * 60 }, [1, 2, 3, 4, 5]), week({ start: 8 * 60, end: 20 * 60 }, [1, 2, 3, 4, 5, 6]), week({ start: 22 * 60, end: 6 * 60 }, [0, 1, 2, 3, 4])];
+  for (const [i, w] of shifts.entries()) await prisma.driverSchedule.create({ data: { workspaceId: WORKSPACE_ID, driverId: drivers[i]!.id, week: w, setBy: "seed" } });
 
   const now = Date.now();
   let seq = 40000;

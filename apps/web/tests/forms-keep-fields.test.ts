@@ -59,6 +59,7 @@ const EXEMPT: Record<string, string> = {
   "app/(desk)/kpi/page.tsx": "filters that go into the address",
   "app/(desk)/audit/page.tsx": "filters that go into the address",
   "app/(desk)/planner/page.tsx": "filters that go into the address",
+  "app/(desk)/schedules/page.tsx": "a search that goes into the address; the shift editor itself (components/desk/roster-table.tsx) keeps its fields with useDraft",
   "app/(desk)/messages/page.tsx": "picks a conversation, which goes into the address",
   "app/(desk)/settings/page.tsx": "appearance buttons that save at once"
 };
