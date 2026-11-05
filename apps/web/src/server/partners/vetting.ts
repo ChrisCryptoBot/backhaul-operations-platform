@@ -27,7 +27,7 @@ export async function vetDriverCarrier(driverId: string, now = new Date(), works
   await prisma.$transaction(async (tx) => {
     await tx.driver.update({ where: { id: driverId }, data: { vetStatus: result.data.status, coiExpiresAt: coiValid, vetCheckedAt: now } });
     await recordAudit(
-      { entity: "fleet", action: "carrier_vetted", summary: `${d.name}: carrier checked with ${providerName(provider)}, ${vetLabel(result.data.status).toLowerCase()}${coiValid ? `, insurance good through ${coiValid.toISOString().slice(0, 10)}` : ""}`, before: { Check: vetLabel(d.vetStatus) }, after: { Check: vetLabel(result.data.status), "Insurance good through": coiValid ? coiValid.toISOString().slice(0, 10) : null }, at: now, workspaceId },
+      { entity: "fleet", action: "carrier_vetted", summary: `${d.name}: carrier checked with ${providerName(provider)}, ${vetLabel(result.data.status).toLowerCase()}${coiValid ? `, insurance good through ${coiValid.toISOString().slice(0, 10)}` : ""}${result.data.safetyScore != null ? `, safety score ${result.data.safetyScore}` : ""}${(result.data.flags ?? []).length > 0 ? `. ${result.data.flags!.slice(0, 3).join(" ")}` : ""}`, before: { Check: vetLabel(d.vetStatus) }, after: { Check: vetLabel(result.data.status), "Insurance good through": coiValid ? coiValid.toISOString().slice(0, 10) : null, "Safety score": result.data.safetyScore != null ? String(result.data.safetyScore) : null }, at: now, workspaceId },
       tx
     );
   });

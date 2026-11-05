@@ -4,6 +4,8 @@ import { currentWorkspaceId } from "@/server/tl/workspace";
 import { num } from "@/server/tl/convert";
 import { randomBytes } from "node:crypto";
 import { keyMode } from "./adapters/sandbox";
+import { sandboxPayrollEvent } from "./adapters/gusto";
+import { sandboxTrackingEvent } from "./adapters/project44";
 import { sandboxFactoringEvent } from "./adapters/triumphpay";
 import { workspaceReader } from "./credentials";
 import { syncEld } from "./eld";
@@ -55,6 +57,33 @@ export async function sendTestEvent(capability: string, provider: string, now = 
     const answer = await handleWebhook({ provider, token: conn.webhookToken, raw: event.raw, signature: event.signature, now });
     if (answer.status !== 200 || !answer.body.ok) return fail("The desk's own receiver refused the test event.");
     return { ok: true, what: `Signed ${kind === "factoring.funded" ? "funding" : "payment"} event delivered for ${moving.invoiceNumber ?? moving.loadNumber ?? "the invoice"}`, result: `the desk answered: ${answer.body.result}`, loadId: moving.id };
+  }
+
+  if (capability === "payroll") {
+    // A pay run that has been sent and not yet cleared is paid, as the company's own event says it.
+    const sent = await prisma.settlement.findFirst({ where: { workspaceId, status: "final", paidAt: null, payrollReference: { not: null }, NOT: { payrollReference: { startsWith: "pending:" } } }, orderBy: { payrollSentAt: "desc" }, select: { id: true, number: true, payrollReference: true } });
+    if (sent?.payrollReference) {
+      const ev = sandboxPayrollEvent({ kind: "payroll.paid", runId: sent.payrollReference, id, secret, now });
+      const out = await handleWebhook({ provider, token: conn.webhookToken, raw: ev.raw, signature: ev.signature, now });
+      if (out.status !== 200 || !out.body.ok) return fail("The desk's own receiver refused the test event.");
+      return { ok: true, what: `Signed pay-run-cleared event delivered for run ${sent.payrollReference}`, result: `the desk answered: ${out.body.result}`, loadId: null };
+    }
+    const ping = sandboxPayrollEvent({ kind: "ping", runId: null, id, secret, now });
+    const out = await handleWebhook({ provider, token: conn.webhookToken, raw: ping.raw, signature: ping.signature, now });
+    if (out.status !== 200 || !out.body.ok) return fail("The desk's own receiver refused the test ping.");
+    return { ok: true, what: "Signed test ping delivered (no statement is out with payroll to clear)", result: `the desk answered: ${out.body.result}`, loadId: null };
+  }
+
+  if (capability === "tracking") {
+    // The newest open load with a stop: the truck is said to have reached its next stop's geofence.
+    const open = await prisma.load.findFirst({ where: { workspaceId, deletedAt: null, status: { in: ["accepted", "in_progress"] }, loadNumber: { not: null } }, orderBy: { updatedAt: "desc" }, include: { stops: { orderBy: { stopSequence: "asc" } } } });
+    const next = open?.stops.find((s) => s.arrivedAt == null) ?? open?.stops[0];
+    if (open && next) {
+      const ev = sandboxTrackingEvent({ kind: "tracking.arrived", loadNumber: open.loadNumber, stop: next.stopSequence, id, secret, now });
+      const out = await handleWebhook({ provider, token: conn.webhookToken, raw: ev.raw, signature: ev.signature, now });
+      if (out.status !== 200 || !out.body.ok) return fail("The desk's own receiver refused the test event.");
+      return { ok: true, what: `Signed geofence event delivered for ${open.loadNumber}, stop ${next.stopSequence}`, result: `the desk answered: ${out.body.result}`, loadId: open.id };
+    }
   }
 
   const event = sandboxFactoringEvent({ kind: "ping", invoiceNumber: null, referenceId: null, id, secret, now });

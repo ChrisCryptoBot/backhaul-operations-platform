@@ -160,10 +160,10 @@ describe("the router", () => {
   const eld = routed("eld");
   const key = (value: string, name = "MOTIVE_API_KEY") => (n: string) => (n === name ? value : undefined);
 
-  it("ships ELD for Motive and factoring for TriumphPay, and nothing else yet", () => {
+  it("ships an adapter for each shelf, one company each so far", () => {
     expect(shippedProviders("eld")).toEqual(["motive"]);
     expect(shippedProviders("factoring")).toEqual(["triumphpay"]);
-    expect(shippedProviders("fuel_card")).toEqual([]);
+    expect(shippedProviders("fuel_card")).toEqual(["wex"]);
   });
 
   it("a sandbox key on the demo desk answers from the simulator; a real key answers 'not implemented' until the company is wired", async () => {
@@ -184,13 +184,14 @@ describe("nothing an adapter does leaves the desk", () => {
   const code = (f: string) => fs.readFileSync(path.join(dir, f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
   it("no adapter file calls fetch, opens a socket or imports an HTTP client", () => {
-    expect(files.length).toBeGreaterThanOrEqual(5);
+    expect(files.length).toBeGreaterThanOrEqual(10);
     for (const f of files) {
       const text = code(f);
       expect(text, f).not.toMatch(/\bfetch\s*\(/);
       expect(text, f).not.toMatch(/node:(http|https|net|tls|dgram|dns)/);
       expect(text, f).not.toMatch(/\b(axios|undici|got|node-fetch|XMLHttpRequest|WebSocket)\b/);
-      expect(text, f).not.toMatch(/https?:\/\//);
+      // A link is allowed only on a reserved name that can never resolve (.invalid, .test, .example).
+      expect(text, f).not.toMatch(/https?:\/\/(?![\w.-]*\.(invalid|test|example)[/"'`])/);
     }
   });
 });

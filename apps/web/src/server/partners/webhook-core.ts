@@ -1,4 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { gustoEventToNeutral } from "./adapters/gusto";
+import { p44EventToNeutral } from "./adapters/project44";
 import { triumphEventToNeutral } from "./adapters/triumphpay";
 
 /**
@@ -22,8 +24,8 @@ export function verifySignature(raw: string, header: string | null | undefined, 
 }
 
 /** The neutral envelope an adapter maps a company's event into. */
-export type PartnerEventKind = "factoring.submitted" | "factoring.funded" | "factoring.paid" | "factoring.rejected" | "ping";
-export const EVENT_KINDS: readonly PartnerEventKind[] = ["factoring.submitted", "factoring.funded", "factoring.paid", "factoring.rejected", "ping"];
+export type PartnerEventKind = "factoring.submitted" | "factoring.funded" | "factoring.paid" | "factoring.rejected" | "payroll.paid" | "tracking.arrived" | "tracking.departed" | "ping";
+export const EVENT_KINDS: readonly PartnerEventKind[] = ["factoring.submitted", "factoring.funded", "factoring.paid", "factoring.rejected", "payroll.paid", "tracking.arrived", "tracking.departed", "ping"];
 
 export type NeutralEvent = {
   /** The company's own id for this event: what makes a repeat recognisable. */
@@ -33,6 +35,8 @@ export type NeutralEvent = {
   reference: string | null;
   /** The factor's own reference for the invoice, kept when it is new. */
   referenceId: string | null;
+  /** For a tracking event: the stop (its number in the load) the truck reached or left. */
+  stop?: number | null;
 };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -54,7 +58,7 @@ export function readNeutralEvent(parsed: unknown, raw: string): NeutralEvent | n
  * An event as the receiver reads it: the company's own shape when it has an adapter that knows it (TriumphPay's, modeled in adapters/triumphpay.ts), else the neutral envelope. A body that is
  * neither is null, recorded as ignored.
  */
-const OWN_SHAPE: Record<string, (parsed: unknown) => NeutralEvent | null> = { triumphpay: triumphEventToNeutral };
+const OWN_SHAPE: Record<string, (parsed: unknown) => NeutralEvent | null> = { triumphpay: triumphEventToNeutral, gusto: gustoEventToNeutral, project44: p44EventToNeutral };
 export function readEvent(provider: string, parsed: unknown, raw: string): NeutralEvent | null {
   return OWN_SHAPE[provider]?.(parsed) ?? readNeutralEvent(parsed, raw);
 }

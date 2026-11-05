@@ -1,13 +1,18 @@
 import { err, type Capability } from "@/truelane/partners/contract";
 import type { AdapterShapes } from "../call";
 import { notImplemented } from "../not-implemented";
+import { gustoAdapter } from "./gusto";
+import { highwayAdapter } from "./highway";
 import { motiveAdapter } from "./motive";
+import { p44Adapter } from "./project44";
+import { proMilesAdapter } from "./promiles";
+import { wexAdapter } from "./wex";
 import { keyMode } from "./sandbox";
 import { triumphAdapter } from "./triumphpay";
 import type { Adapter, ProviderAdapter } from "./types";
 
 /**
- * The adapters the desk ships, by capability and company. A company with no entry (Samsara, WEX, project44, ...) answers "not implemented" until one is written: a new company is one
+ * The adapters the desk ships, by capability and company. A company with no entry (Samsara, AtoB, FourKites, ...) answers "not implemented" until one is written: a new company is one
  * file with the same three layers (types.ts) and one line here. The router picks live or sandbox per call from the key the fleet typed (sandbox.ts), so the same code path serves a real fleet
  * and a demo.
  */
@@ -15,7 +20,12 @@ type Table<K extends Capability> = Record<string, ProviderAdapter<AdapterShapes[
 
 const SHIPPED: { [K in Capability]?: Table<K> } = {
   eld: { motive: motiveAdapter },
-  factoring: { triumphpay: triumphAdapter }
+  factoring: { triumphpay: triumphAdapter },
+  fuel_card: { wex: wexAdapter },
+  tracking: { project44: p44Adapter },
+  vetting: { highway: highwayAdapter },
+  payroll: { gusto: gustoAdapter },
+  ifta: { promiles: proMilesAdapter }
 };
 
 /** An adapter for a capability that picks the company's entry, and live or simulator, for each call. */

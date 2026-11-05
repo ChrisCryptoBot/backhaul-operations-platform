@@ -30,21 +30,37 @@ export type AdapterShapes = {
       drivers?: Array<{ id: string; eldDriverId: string | null; driveMinutes: number; shiftMinutes: number; cycleMinutes: number }>;
     };
   };
-  fuel_card: { in: { vehicleName: string | null; accountId: string; since: string | null; until: string | null }; out: { purchases: Array<{ on: string; gallons: number | null; amount: number }> } };
-  tracking: { in: { loadId: string; share: boolean }; out: { sharing: boolean } };
-  vetting: { in: { mcNumber: string | null; dotNumber: string | null }; out: { status: "clear" | "review" | "failed"; coiExpiresAt: string | null } };
-  payroll: { in: { statements: Array<{ id: string; number: string; employeeId: string | null; workerType: string | null; total: number; periodStart: string; periodEnd: string }> }; out: { reference: string } };
-  ifta: { in: { quarter: string; vehicles: Array<{ id: string; name: string | null }> }; out: { jurisdictions: Array<{ state: string; miles: number; gallons: number }> } };
+  fuel_card: {
+    in: { vehicleName: string | null; accountId: string; since: string | null; until: string | null };
+    /** `amount` is what the card was charged, after the discount. */
+    out: { purchases: Array<{ on: string; gallons: number | null; amount: number; id?: string; location?: string | null; pricePerGallon?: number | null; discountPerGallon?: number | null; discount?: number | null }> };
+  };
+  tracking: {
+    in: { loadId: string; share: boolean; loadNumber?: string | null; stops?: Array<{ sequence: number; role: string; city: string; lat?: number | null; lng?: number | null; /** When the stop's window opens. */ opensAt?: string | null }> };
+    out: { sharing: boolean; /** The link a customer follows. */ shareUrl?: string | null; milestones?: Array<{ stop: number; kind: "arrived" | "departed"; at: string }> };
+  };
+  vetting: {
+    in: { mcNumber: string | null; dotNumber: string | null };
+    out: { status: "clear" | "review" | "failed"; coiExpiresAt: string | null; safetyScore?: number | null; authorityActive?: boolean; liabilityCoverage?: number | null; cargoCoverage?: number | null; flags?: string[] };
+  };
+  payroll: {
+    in: { statements: Array<{ id: string; number: string; employeeId: string | null; workerType: string | null; total: number; periodStart: string; periodEnd: string; idempotencyKey?: string }> };
+    out: { reference: string; payments?: Array<{ id: string; status: string }> };
+  };
+  ifta: {
+    in: { quarter: string; vehicles: Array<{ id: string; name: string | null }>; /** The quarter's delivered loads, each with its places and miles. */ trips?: Array<{ id: string; vehicleId: string; origin: string; destination: string; miles: number; mpg?: number | null }> };
+    out: { jurisdictions: Array<{ state: string; miles: number; gallons: number }> };
+  };
 };
 
 export const partnerAdapters: { [K in Capability]: Adapter<AdapterShapes[K]["in"], AdapterShapes[K]["out"]> } = {
   factoring: routed("factoring"),
   eld: routed("eld"),
-  fuel_card: stub as never,
-  tracking: stub as never,
-  vetting: stub as never,
-  payroll: stub as never,
-  ifta: stub as never
+  fuel_card: routed("fuel_card"),
+  tracking: routed("tracking"),
+  vetting: routed("vetting"),
+  payroll: routed("payroll"),
+  ifta: routed("ifta")
 };
 
 const env = (name: string) => process.env[name];

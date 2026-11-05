@@ -5,6 +5,7 @@ import { WEBHOOK_SECRET_ENV } from "@/truelane/partners/contract";
 import { recordAudit } from "@/server/tl/audit";
 import { workspaceReader } from "./credentials";
 import { applyFactoringUpdate } from "./factoring";
+import { applyPayrollPaid, applyTrackingMilestone } from "./events";
 import { recordHealth } from "./health";
 import { MAX_WEBHOOK_BYTES, factoringStatusOf, readEvent, signatureHeaderFor, verifySignature } from "./webhook-core";
 
@@ -61,6 +62,12 @@ export async function handleWebhook(i: { provider: string; token: string; raw: s
       else applied = await applyFactoringUpdate(load.id, status, event.referenceId, now, conn.workspaceId);
       if (load && !applied) detail = "Not an allowed step from where the invoice is.";
     }
+  } else if (event.kind === "payroll.paid" && conn.capability === "payroll") {
+    applied = await applyPayrollPaid(event.reference, now, conn.workspaceId);
+    if (!applied) detail = "No sent statements on that run.";
+  } else if ((event.kind === "tracking.arrived" || event.kind === "tracking.departed") && conn.capability === "tracking") {
+    applied = await applyTrackingMilestone({ reference: event.reference, stop: event.stop ?? null, kind: event.kind }, now, conn.workspaceId);
+    if (!applied) detail = "No open load with that reference.";
   } else if (event.kind === "ping") {
     applied = true;
   }

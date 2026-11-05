@@ -45,7 +45,8 @@ export const sandboxTriumphClient: TriumphClient = {
 /** A webhook body in the factor's own shape. `kind` is what happened to the invoice. */
 export type TriumphEvent = { event_id: string; event_type: string; created_at: string; data: { invoice_number: string | null; reference_id: string | null; amount?: number } };
 
-const TYPE_FOR: Record<Exclude<PartnerEventKind, "ping">, string> = {
+type FactoringKind = Extract<PartnerEventKind, `factoring.${string}`>;
+const TYPE_FOR: Record<FactoringKind, string> = {
   "factoring.submitted": "invoice.under_review",
   "factoring.funded": "invoice.funded",
   "factoring.paid": "payment.received",
@@ -56,7 +57,7 @@ const TYPE_FOR: Record<Exclude<PartnerEventKind, "ping">, string> = {
  * What the simulator sends as the factor's confirmations: a body in the factor's shape and its signature (hex HMAC-SHA256 of the raw bytes, the scheme the receiver checks), so a test or a
  * demo can deliver it to the real receiver in-process. `id` makes the event repeatable: the same id twice is one event.
  */
-export function sandboxFactoringEvent(i: { kind: PartnerEventKind; invoiceNumber: string | null; referenceId: string | null; amount?: number; id: string; secret: string; now?: Date }): { raw: string; signature: string } {
+export function sandboxFactoringEvent(i: { kind: FactoringKind | "ping"; invoiceNumber: string | null; referenceId: string | null; amount?: number; id: string; secret: string; now?: Date }): { raw: string; signature: string } {
   const body: TriumphEvent =
     i.kind === "ping"
       ? { event_id: i.id, event_type: "webhook.test", created_at: (i.now ?? new Date()).toISOString(), data: { invoice_number: null, reference_id: null } }

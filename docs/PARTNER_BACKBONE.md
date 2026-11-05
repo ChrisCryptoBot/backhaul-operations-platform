@@ -33,9 +33,21 @@ What the ELD simulator gives: each desk truck a position at one of twelve freigh
 
 What the factoring simulator gives: an invoice sent from the desk is answered with a reference that names it (`TP-SBX-<invoice>`) and the state "with the factor"; `sandboxFactoringEvent` builds the factor's funded, paid, rejected and test events in the factor's shape and signs them the way the receiver checks, so a test or a demo can deliver them to `POST /partners/webhook/<company or "factoring">/<token>`.
 
+### The other shelves (same three layers)
+
+| Shelf | Modeled after | Client calls | What the desk does with the answer | Simulator |
+|---|---|---|---|---|
+| Fuel cards | WEX (Comdata is the same shape) | `transactions({account, from, to})` | A trip's purchases: gallons, the card's discount a gallon, the amount charged after discount; DEF counts as money, not gallons. The audit says how much the discount saved. | A fill about every day and a half for the unit, 70 to 140 gallons at a price near the average, a discount of 10 to 45 cents, now and then DEF. Stable for a unit and a day. |
+| Load tracking | project44 (FourKites is the same shape) | `openShipment`, `stopShipment`, `events` | A link a customer follows, said in the load's trail; geofence events come back by **signed webhook** (`tracking.arrived` / `tracking.departed`) and are said in the load's trail. They change no stop, arrival or detention. Sharing still needs the carrier's yes per load. | A link on `track.sandbox.invalid` (a name that can never resolve); events follow the load's own stop windows. |
+| Carrier vetting | Highway (Carrier411 is the same shape) | `carrier({mc, dot})` | Three words by the desk's own rule (`normalizeHighway`): **failed** (authority not active, no liability certificate, or it has lapsed), **review** (any alert, safety score under 60, a certificate lapsing within 30 days, liability under $1M, no or low or lapsed cargo certificate), else **clear**. The desk keeps the status and the earliest certificate date; the audit line carries the score and the first reasons. | Chosen by the MC's last digit so a demo can show every outcome: 0 inactive authority, 1 certificate lapses in 12 days, 2 safety score 48, 3 cargo $50,000, 4 lapsed certificate, any other digit clear. |
+| Payroll | Gusto | `submitPayments` | One payment per statement, a contractor as a contractor payment and an employee as wages, keyed by the statement so it is paid once; a worker the company does not know blocks the whole batch (the claim is released, nothing is marked sent). The company's **cleared-run webhook** (`payroll.paid`) marks the statements on that run paid (`paid_method` payroll), once. | The same batch is the same run (`GUS-SBX-<hash>`); a payment of nothing is rejected. |
+| IFTA | ProMiles | `mileage({trips})` | The quarter's delivered loads (workspace calendar) go out with their places and loaded miles; the miles by state that come back are **kept** (`ifta_lines`, one answer per quarter, replaced as a whole). Gallons are fuel consumed from the miles at the truck's miles to the gallon; fuel bought comes from the fuel card. Empty miles are not in these numbers until an ELD's state odometer is. | Splits a trip over the states it passes through (eight corridors, either direction; else half and half between the ends; one state if both ends are in it). |
+
+Every simulator is keyed the same way: a company key that starts with `sandbox_`. Each webhook-driven shelf (factoring, payroll, tracking) has a builder in its adapter file that makes the company's event in the company's shape and signs it, which is what **Send test event** in Settings uses (it hands the event to the desk's own receiver, in-process).
+
 ## Tables (migration `20261122000000_partner_backbone`)
 
-Migration `20261123000000_eld_telemetry` adds the truck's last position and the driver's ELD id and clocks (all optional, written only by the ELD sync).
+Migration `20261124000000_ifta_store` adds `ifta_lines` (the IFTA mileage store). Migration `20261123000000_eld_telemetry` adds the truck's last position and the driver's ELD id and clocks (all optional, written only by the ELD sync).
 
 `partner_credentials` (workspace, provider, sealed envelope, per-field hints; one row per fleet and company), `partner_events` (provider, event id unique: the once-only record, with kind, outcome applied/ignored/failed), and added columns on `partner_connections` (last synced, failures, next try, webhook token).
 
@@ -53,7 +65,8 @@ Losing `DESK_CREDENTIAL_KEY` with no previous key loses the stored keys (they ar
 - A live call to any company. The live client of each shipped adapter answers "not implemented"; no endpoint is guessed. The panel says "not switched on" until one is.
 - Real per-company signature header and event shape (the neutral envelope `{id, type, reference}` is read today).
 - Plan gating of partner features; a screen to link a tractor to its ELD id; a fuel-card transaction store.
-- A poll for factoring, payroll, tracking or fuel cards (a missed webhook is not reconciled by asking the company): it needs each company's real API shape; until one is chosen those kinds are told by webhook or asked for by a person, as the policy table says.
+- A poll for factoring, payroll or tracking (a missed webhook is not reconciled by asking the company): it needs each company's real API shape; until one is chosen those kinds are told by webhook or asked for by a person, as the policy table says.
+- Screens for what the new adapters produce: a fuel transaction list and settlement deduction, the tracking share link on the load page, a vetting score column, a payroll paid badge, and the IFTA quarter screen and CSV (the data and the store exist; no page shows them yet).
 - **Insurance is not a capability** in the vendored contract (`src/truelane/partners/contract.ts`, from the phone repo), so it has no connection row, keys, webhook or rhythm here. Adding it means changing the contract in the phone repo and re-vendoring.
 - Verticals with no store or screen: IFTA (state miles, quarter screen, CSV), tracking (opt-in per load, share link), insurance (capability, certificate records, expiry alerts), COI-expiry and ELD-stale alert rules.
 - Counsel review before a money-moving or location-sharing capability is switched on for anyone.
