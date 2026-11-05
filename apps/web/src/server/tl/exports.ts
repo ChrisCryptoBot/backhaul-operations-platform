@@ -233,7 +233,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
       return {
         filename: cut ? name(`settlements-first-${cap}`) : name("settlements"),
         csv: toCsv(
-          ["Statement", "Status", "Driver", "Period start", "Period end", "Loads", "Pay for loads", "Adjustments", "Total", "Finalized", "Paid", "Payment method", "Payroll sent", "Payroll reference", "Voided", "Void reason"],
+          ["Statement", "Status", "Driver", "Period start", "Period end", "Loads", "Pay for loads", "Fuel card deducted", "Adjustments", "Total", "Finalized", "Paid", "Payment method", "Payroll sent", "Payroll reference", "Voided", "Void reason"],
           rows.map((s): CsvCell[] => [
             s.number,
             SETTLEMENT_STATUS[s.status] ?? s.status,
@@ -242,6 +242,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
             utcYmd(s.periodEnd),
             s.loads,
             two(s.loadsTotal),
+            two(s.fuelTotal),
             two(s.adjustmentsTotal),
             two(s.total),
             ymd(s.finalizedAt),
@@ -269,6 +270,15 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
             break;
           }
           lines.push([...head, "Load", l.loadNumber, l.lane, l.deliveredAt ? ymd(new Date(l.deliveredAt)) : null, l.basis, two(l.amount)]);
+        }
+        if (cut) break;
+        for (const f of s.statement.fuel) {
+          if (lines.length >= cap) {
+            cut = true;
+            break;
+          }
+          // A deduction is negative in the file, as it is on the statement.
+          lines.push([...head, "Fuel card", f.loadNumber, null, f.on, `${f.location ?? "Fuel card purchase"}${f.gallons != null ? `, ${f.gallons} gal` : ""}`, two(-f.amount)]);
         }
         if (cut) break;
         for (const a of s.statement.adjustments) {

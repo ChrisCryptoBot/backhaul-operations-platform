@@ -547,15 +547,19 @@ model Settlement {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  driver           Driver           @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  driver           Driver            @relation(fields: [driverId], references: [id], onDelete: Restrict)
   loads            SettlementLoad[]
   /// When the statement was sent to payroll, and the reference payroll gave it. Blank until sent.
-  payrollSentAt    DateTime?        @map("payroll_sent_at")
-  payrollReference String?          @map("payroll_reference")
+  /// Fuel card purchases deducted on this statement: the ids picked while it is a draft, and the ledger as it was when it was finalized.
+  fuelIds          Json?             @map("fuel_ids")
+  fuel             Json?
+  fuelTransactions FuelTransaction[]
+  payrollSentAt    DateTime?         @map("payroll_sent_at")
+  payrollReference String?           @map("payroll_reference")
   /// When the driver was paid, and how, when it was not through payroll (a check, a transfer). A statement paid either way cannot be voided.
-  paidAt           DateTime?        @map("paid_at")
-  paidMethod       String?          @map("paid_method")
+  paidAt           DateTime?         @map("paid_at")
+  paidMethod       String?           @map("paid_method")
 
   @@unique([workspaceId, number])
   @@index([workspaceId, status])
@@ -916,12 +920,16 @@ model FuelTransaction {
   amount            Decimal  @db.Decimal(12, 2)
   createdAt         DateTime @default(now()) @map("created_at")
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  vehicle   Vehicle?  @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
-  load      Load?     @relation(fields: [loadId], references: [id], onDelete: SetNull)
+  workspace    Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  vehicle      Vehicle?    @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  load         Load?       @relation(fields: [loadId], references: [id], onDelete: SetNull)
+  /// The driver statement this purchase was deducted on (set when that statement is finalized, cleared if it is voided). A purchase is deducted once.
+  settlementId String?     @map("settlement_id")
+  settlement   Settlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, provider, externalId])
   @@index([workspaceId, postedAt])
   @@index([loadId])
+  @@index([settlementId])
   @@map("fuel_transactions")
 }

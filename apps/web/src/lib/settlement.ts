@@ -42,6 +42,12 @@ export type StatementLine = {
   brokerStatus: SettlementLoad["brokerStatus"];
 };
 
+/**
+ * A fuel card purchase deducted from a driver's pay: what the card was charged (after its discount), with the date, the place and the gallons, so the statement can list it. A deduction is a
+ * positive amount here and comes off the total; it is a record the dispatcher picked for this statement, never something taken automatically.
+ */
+export type FuelLine = { id: string; on: string; location: string | null; gallons: number | null; pricePerGallon: number | null; discount: number | null; amount: number; loadNumber: string | null };
+
 export type AdjustmentInput = { label: string; amount: string };
 export type Adjustment = { label: string; amount: number };
 
@@ -91,15 +97,19 @@ export const MAX_ADJUSTMENTS = 20;
 export type Statement = {
   lines: StatementLine[];
   adjustments: Adjustment[];
+  /** The fuel card purchases deducted, and what they come to (a positive amount that comes off). */
+  fuel: FuelLine[];
+  fuelTotal: number;
   loadsTotal: number;
   adjustmentsTotal: number;
+  /** Net pay: pay for the loads, less fuel, plus the adjustments (a deduction among them is negative). */
   total: number;
   errors: Record<string, string>;
   blockers: string[];
   cautions: string[];
 };
 
-export function computeStatement(input: { loads: SettlementLoad[]; hours: Record<string, string>; adjustments: AdjustmentInput[] }): Statement {
+export function computeStatement(input: { loads: SettlementLoad[]; hours: Record<string, string>; adjustments: AdjustmentInput[]; fuel?: FuelLine[] }): Statement {
   const errors: Record<string, string> = {};
   const blockers: string[] = [];
   const cautions: string[] = [];
@@ -142,7 +152,9 @@ export function computeStatement(input: { loads: SettlementLoad[]; hours: Record
 
   const loadsCents = lines.reduce((sum, l) => sum + (l.amount == null ? 0 : cents(l.amount)), 0);
   const adjustmentCents = adjustments.reduce((sum, a) => sum + cents(a.amount), 0);
-  const totalCents = loadsCents + adjustmentCents;
+  const fuel = input.fuel ?? [];
+  const fuelCents = fuel.reduce((sum, f) => sum + cents(f.amount), 0);
+  const totalCents = loadsCents - fuelCents + adjustmentCents;
 
   for (const l of lines) if (l.amount == null && !errors[`hours.${l.loadId}`]) blockers.push(`Enter the hours for ${l.loadNumber ?? "an hourly load"}.`);
   if (Object.keys(errors).length > 0) blockers.unshift("Fix what is marked.");
@@ -154,7 +166,7 @@ export function computeStatement(input: { loads: SettlementLoad[]; hours: Record
   const unpaid = lines.filter((l) => l.brokerStatus !== "paid" && l.brokerStatus !== "paid_short").length;
   if (unpaid > 0) cautions.push(`${unpaid} of these ${unpaid === 1 ? "loads is" : "loads are"} not paid by the customer yet. Pay the driver on your own terms; the statement does not wait for it.`);
 
-  return { lines, adjustments, loadsTotal: dollars(loadsCents), adjustmentsTotal: dollars(adjustmentCents), total: dollars(totalCents), errors, blockers, cautions };
+  return { lines, adjustments, fuel, fuelTotal: dollars(fuelCents), loadsTotal: dollars(loadsCents), adjustmentsTotal: dollars(adjustmentCents), total: dollars(totalCents), errors, blockers, cautions };
 }
 
 // ── The period ─────────────────────────────────────────────────────────────────────────────────
@@ -239,8 +251,9 @@ export function periodCovering(deliveredAt: Array<Date | string>, tz?: string): 
 }
 
 /** A statement as it was frozen: the same totals the editor shows, from the stored lines and adjustments. */
-export function statementOf(lines: StatementLine[], adjustments: Adjustment[]): Statement {
+export function statementOf(lines: StatementLine[], adjustments: Adjustment[], fuel: FuelLine[] = []): Statement {
   const loadsCents = lines.reduce((sum, l) => sum + (l.amount == null ? 0 : cents(l.amount)), 0);
   const adjustmentCents = adjustments.reduce((sum, a) => sum + cents(a.amount), 0);
-  return { lines, adjustments, loadsTotal: dollars(loadsCents), adjustmentsTotal: dollars(adjustmentCents), total: dollars(loadsCents + adjustmentCents), errors: {}, blockers: [], cautions: [] };
+  const fuelCents = fuel.reduce((sum, f) => sum + cents(f.amount), 0);
+  return { lines, adjustments, fuel, fuelTotal: dollars(fuelCents), loadsTotal: dollars(loadsCents), adjustmentsTotal: dollars(adjustmentCents), total: dollars(loadsCents - fuelCents + adjustmentCents), errors: {}, blockers: [], cautions: [] };
 }

@@ -4,7 +4,7 @@ import { toCompany } from "./company";
 import { prisma } from "@/lib/db";
 import type { AuditSnapshot } from "@/lib/audit-diff";
 import { rateConTotal, type PayKind } from "@/lib/pay";
-import { computeStatement, linePay, periodBounds, periodCovering, periodText, statementOf, validatePeriod, type Adjustment, type AdjustmentInput, type SettlementLoad, type Statement, type StatementLine } from "@/lib/settlement";
+import { computeStatement, linePay, periodBounds, periodCovering, periodText, statementOf, validatePeriod, type Adjustment, type AdjustmentInput, type FuelLine, type SettlementLoad, type Statement, type StatementLine } from "@/lib/settlement";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { currentWorkspaceId } from "./workspace";
@@ -17,7 +17,8 @@ import { workspaceTimezone } from "./zone";
  * paid on two statements. Voiding a final statement keeps it as it was and frees its loads for another. Every step is audited. Gross pay
  * only: no taxes or payroll deductions are worked out here.
  */
-export type Draft = { hours: Record<string, string>; adjustments: AdjustmentInput[] };
+/** `fuel` is the ids of the fuel card purchases picked to be deducted on this statement; none picked is the default, and a purchase that is no longer eligible is quietly left out. */
+export type Draft = { hours: Record<string, string>; adjustments: AdjustmentInput[]; fuel?: string[] };
 export type SettleResult = { ok: true; id: string } | { ok: false; error?: string; errors?: Record<string, string> };
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -86,6 +87,36 @@ const typedHours = (hours: unknown): Record<string, string> => {
 const typedAdjustments = (rows: unknown): AdjustmentInput[] =>
   Array.isArray(rows) ? (rows as Array<{ label?: unknown; amount?: unknown }>).map((r) => ({ label: typeof r.label === "string" ? r.label : "", amount: typeof r.amount === "string" ? r.amount : "" })) : [];
 
+const typedFuelIds = (v: unknown): string[] => (Array.isArray(v) ? (v as unknown[]).filter((x): x is string => typeof x === "string") : []);
+
+const toFuelLine = (r: Prisma.FuelTransactionGetPayload<{ include: { load: { select: { loadNumber: true } } } }>): FuelLine => ({
+  id: r.id,
+  on: r.postedAt.toISOString().slice(0, 10),
+  location: r.location,
+  gallons: numOrNull(r.gallons),
+  pricePerGallon: numOrNull(r.pricePerGallon),
+  discount: numOrNull(r.discount),
+  amount: num(r.amount),
+  loadNumber: r.load?.loadNumber ?? null
+});
+
+/**
+ * The fuel card purchases that could come off this driver's pay for the period: bought in it (on the workspace's calendar), on the truck the driver is assigned to or on a load the driver ran, and
+ * not already deducted on another statement. They are offered, never taken: a dispatcher picks which come off.
+ */
+export async function eligibleFuel(driverId: string, start: string, end: string, workspaceId = currentWorkspaceId(), db: Db = prisma): Promise<FuelLine[]> {
+  const bounds = periodBounds(start, end, await workspaceTimezone(workspaceId));
+  if (!bounds) return [];
+  const driver = await db.driver.findFirst({ where: { id: driverId, workspaceId }, select: { assignedVehicleId: true } });
+  if (!driver) return [];
+  const rows = await db.fuelTransaction.findMany({
+    where: { workspaceId, settlementId: null, postedAt: { gte: bounds.from, lt: bounds.to }, OR: [...(driver.assignedVehicleId ? [{ vehicleId: driver.assignedVehicleId }] : []), { load: { assignment: { is: { driverId } } } }] },
+    include: { load: { select: { loadNumber: true } } },
+    orderBy: [{ postedAt: "asc" }, { id: "asc" }]
+  });
+  return rows.map(toFuelLine);
+}
+
 // ── Start, save, finalize, void, discard ───────────────────────────────────────────────────────
 
 export async function startSettlement(input: { driverId: string; start: string; end: string }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<SettleResult> {
@@ -120,9 +151,11 @@ export async function startSettlement(input: { driverId: string; start: string; 
 }
 
 /** What a draft says today: its loads from the database, and the totals those and the typed values come to. */
-async function draftStatement(s: Prisma.SettlementGetPayload<object>, draft: Draft): Promise<{ loads: SettlementLoad[]; statement: Statement }> {
-  const loads = await eligibleLoads(s.driverId, ymd(s.periodStart), ymd(s.periodEnd), s.workspaceId);
-  return { loads, statement: computeStatement({ loads, hours: draft.hours, adjustments: draft.adjustments }) };
+async function draftStatement(s: Prisma.SettlementGetPayload<object>, draft: Draft): Promise<{ loads: SettlementLoad[]; fuelOptions: FuelLine[]; statement: Statement }> {
+  const [loads, fuelOptions] = await Promise.all([eligibleLoads(s.driverId, ymd(s.periodStart), ymd(s.periodEnd), s.workspaceId), eligibleFuel(s.driverId, ymd(s.periodStart), ymd(s.periodEnd), s.workspaceId)]);
+  const picked = new Set(draft.fuel ?? []);
+  const fuel = fuelOptions.filter((f) => picked.has(f.id));
+  return { loads, fuelOptions, statement: computeStatement({ loads, hours: draft.hours, adjustments: draft.adjustments, fuel }) };
 }
 
 /** Keep what has been typed. Hours and lines can be saved unfinished; only what is plainly wrong (a bad number) is refused. */
@@ -130,16 +163,18 @@ export async function saveDraft(id: string, draft: Draft, workspaceId = currentW
   const s = await prisma.settlement.findFirst({ where: { id, workspaceId } });
   if (!s) return { ok: false, error: "That statement does not exist." };
   if (s.status !== "draft") return { ok: false, error: "A finalized statement cannot be changed." };
-  const { loads, statement } = await draftStatement(s, draft);
+  const { loads, fuelOptions, statement } = await draftStatement(s, draft);
   if (Object.keys(statement.errors).length > 0) return { ok: false, errors: statement.errors };
   const onStatement = new Set(loads.map((l) => l.loadId));
   const hours: Record<string, string> = {};
   for (const [k, v] of Object.entries(draft.hours)) if (onStatement.has(k) && v.trim() !== "") hours[k] = v.trim();
   const adjustments = draft.adjustments.filter((r) => r.label.trim() !== "" || r.amount.trim() !== "").map((r) => ({ label: r.label.trim(), amount: r.amount.trim() }));
   // Written only while it is still a draft: a statement finalized or discarded a moment ago (another tab, another person) is not overwritten with what was typed.
-  const changed = JSON.stringify([typedHours(s.hours), typedAdjustments(s.adjustments)]) !== JSON.stringify([hours, adjustments]);
+  const allowed = new Set(fuelOptions.map((f) => f.id));
+  const fuelIds = (draft.fuel ?? []).filter((id) => allowed.has(id));
+  const changed = JSON.stringify([typedHours(s.hours), typedAdjustments(s.adjustments), typedFuelIds(s.fuelIds)]) !== JSON.stringify([hours, adjustments, fuelIds]);
   const saved = await prisma.$transaction(async (tx) => {
-    const out = await tx.settlement.updateMany({ where: { id, workspaceId, status: "draft" }, data: { hours: hours as Prisma.InputJsonObject, adjustments: adjustments as unknown as Prisma.InputJsonArray } });
+    const out = await tx.settlement.updateMany({ where: { id, workspaceId, status: "draft" }, data: { hours: hours as Prisma.InputJsonObject, adjustments: adjustments as unknown as Prisma.InputJsonArray, fuelIds: fuelIds as unknown as Prisma.InputJsonArray } });
     if (out.count !== 1) return false;
     if (changed) await recordAudit({ entity: "settlement", action: "statement_saved", summary: `${s.number} saved: ${Object.keys(hours).length} ${Object.keys(hours).length === 1 ? "hours entry" : "hours entries"}, ${adjustments.length} ${adjustments.length === 1 ? "adjustment" : "adjustments"}`, before: null, after: { Statement: s.number, Hours: Object.keys(hours).length, Adjustments: adjustments.length }, at: new Date(), workspaceId }, tx);
     return true;
@@ -162,7 +197,7 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
   if (confirmedTotal != null && !new Prisma.Decimal(statement.total).toDecimalPlaces(2).equals(new Prisma.Decimal(confirmedTotal).toDecimalPlaces(2))) return { ok: false, error: `${s.number} now comes to ${money(statement.total)}, not the ${money(confirmedTotal)} you were looking at: a load or its pay changed. Review it, then finalize again.` };
 
   const period = periodText(ymd(s.periodStart), ymd(s.periodEnd));
-  const after: AuditSnapshot = { Statement: s.number, Driver: s.driver.name, Period: period, Loads: statement.lines.length, "Pay for loads": money(statement.loadsTotal), Adjustments: money(statement.adjustmentsTotal), Total: money(statement.total) };
+  const after: AuditSnapshot = { Statement: s.number, Driver: s.driver.name, Period: period, Loads: statement.lines.length, "Pay for loads": money(statement.loadsTotal), Adjustments: money(statement.adjustmentsTotal), ...(statement.fuel.length > 0 ? { "Fuel card": `-${money(statement.fuelTotal)}` } : {}), Total: money(statement.total) };
   const hours: Record<string, string> = {};
   for (const [k, v] of Object.entries(draft.hours)) if (statement.lines.some((l) => l.loadId === k) && v.trim() !== "") hours[k] = v.trim();
   try {
@@ -174,6 +209,8 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
           status: "final",
           lines: statement.lines as unknown as Prisma.InputJsonArray,
           adjustments: statement.adjustments as unknown as Prisma.InputJsonArray,
+          fuel: statement.fuel as unknown as Prisma.InputJsonArray,
+          fuelIds: statement.fuel.map((f) => f.id) as unknown as Prisma.InputJsonArray,
           hours: hours as Prisma.InputJsonObject,
           total: new Prisma.Decimal(statement.total),
           finalizedAt: now
@@ -181,6 +218,11 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
       });
       if (claimed.count !== 1) throw new LostDraft();
       await tx.settlementLoad.createMany({ data: statement.lines.map((l) => ({ settlementId: id, loadId: l.loadId, amount: new Prisma.Decimal(l.amount ?? 0) })) });
+      // Each fuel purchase comes off one statement, once: taken from the state it was read in, so one a second statement took a moment ago stops this one rather than coming off twice.
+      if (statement.fuel.length > 0) {
+        const taken = await tx.fuelTransaction.updateMany({ where: { id: { in: statement.fuel.map((f) => f.id) }, workspaceId, settlementId: null }, data: { settlementId: id } });
+        if (taken.count !== statement.fuel.length) throw new FuelTaken();
+      }
       // Each load's own history says it was paid, and on what.
       for (const l of statement.lines) {
         await recordAudit({ entity: "settlement", action: "load_settled", loadId: l.loadId, loadNumber: l.loadNumber, summary: `Paid to ${s.driver.name} on ${s.number}: ${money(l.amount ?? 0)}`, before: null, after: { Statement: s.number, Pay: money(l.amount ?? 0) }, at: now, workspaceId }, tx);
@@ -192,10 +234,17 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
     });
   } catch (e) {
     if (e instanceof LostDraft) return { ok: false, error: `${s.number} was just finalized or discarded by someone else. Reload it.` };
+    if (e instanceof FuelTaken) return { ok: false, error: "A fuel purchase on this statement was just deducted on another statement. Reload it and pick again." };
     if (isUniqueViolation(e)) return { ok: false, error: "A load on this statement was just settled on another one. Reload it and try again." };
     throw e;
   }
   return { ok: true, id };
+}
+
+class FuelTaken extends Error {
+  constructor() {
+    super("a fuel purchase was taken by another statement");
+  }
 }
 
 class LostDraft extends Error {
@@ -222,6 +271,8 @@ export async function voidSettlement(id: string, reason: string, now = new Date(
       if (voided.count !== 1) throw new PaidAlready();
       const freed = await tx.settlementLoad.findMany({ where: { settlementId: id }, select: { load: { select: { id: true, loadNumber: true } } } });
       await tx.settlementLoad.deleteMany({ where: { settlementId: id } });
+      // Its fuel purchases go back to being available: they were deducted on a statement that no longer stands.
+      await tx.fuelTransaction.updateMany({ where: { settlementId: id, workspaceId }, data: { settlementId: null } });
       for (const f of freed) await recordAudit({ entity: "settlement", action: "load_released", loadId: f.load.id, loadNumber: f.load.loadNumber, summary: `Released from ${s.number}: it can be paid on another statement`, reason: why, before: { Statement: s.number }, after: { Statement: null }, at: now, workspaceId }, tx);
       await recordAudit(
         { entity: "settlement", action: "statement_voided", summary: `${s.number} voided for ${s.driver.name} (${money(total)}); its loads can be paid again`, reason: why, before: { Status: "Final", Total: money(total) }, after: { Status: "Void" }, at: now, workspaceId },
@@ -301,6 +352,9 @@ export type SettlementView = {
   /** Draft only: what has been typed. */
   hours: Record<string, string>;
   adjustmentRows: AdjustmentInput[];
+  /** Draft only: the fuel card purchases that could come off this driver's pay, and the ids picked so far. */
+  fuelOptions: FuelLine[];
+  fuelPicked: string[];
   /** The totals: live for a draft, as frozen for a final or void statement. */
   statement: Statement;
   finalizedAt: string | null;
@@ -335,12 +389,14 @@ export async function getSettlement(id: string, workspaceId = currentWorkspaceId
   if (s.status === "draft") {
     const hours = typedHours(s.hours);
     const adjustmentRows = typedAdjustments(s.adjustments);
-    const { loads, statement } = await draftStatement(s, { hours, adjustments: adjustmentRows });
-    return { ...base, status: "draft", loads, hours, adjustmentRows, statement };
+    const fuelPicked = typedFuelIds(s.fuelIds);
+    const { loads, fuelOptions, statement } = await draftStatement(s, { hours, adjustments: adjustmentRows, fuel: fuelPicked });
+    return { ...base, status: "draft", loads, hours, adjustmentRows, fuelOptions, fuelPicked: fuelPicked.filter((id) => fuelOptions.some((f) => f.id === id)), statement };
   }
   const lines = (Array.isArray(s.lines) ? s.lines : []) as unknown as StatementLine[];
   const adjustments = (Array.isArray(s.adjustments) ? s.adjustments : []) as unknown as Adjustment[];
-  return { ...base, status: s.status as "final" | "void", loads: [], hours: typedHours(s.hours), adjustmentRows: [], statement: statementOf(lines, adjustments) };
+  const fuel = (Array.isArray(s.fuel) ? s.fuel : []) as unknown as FuelLine[];
+  return { ...base, status: s.status as "final" | "void", loads: [], hours: typedHours(s.hours), adjustmentRows: [], fuelOptions: [], fuelPicked: [], statement: statementOf(lines, adjustments, fuel) };
 }
 
 export type SettlementRow = {
@@ -355,6 +411,8 @@ export type SettlementRow = {
   loads: number;
   loadsTotal: number;
   adjustmentsTotal: number;
+  /** Fuel card purchases deducted (a positive amount that comes off). */
+  fuelTotal: number;
   total: number | null;
   finalizedAt: Date | null;
   paidAt: Date | null;
@@ -412,10 +470,14 @@ async function resolveSettlementRows(rows: SettlementWithDriver[], workspaceId: 
       list.push({ completedAt: l.completedAt, sl: toSettlementLoad(l) });
       byDriver.set(l.assignment.driverId, list);
     }
+    // The fuel purchases picked on these drafts, read together: still available (not deducted elsewhere) and picked on that draft.
+    const pickedIds = [...new Set(drafts.flatMap((d) => typedFuelIds(d.fuelIds)))];
+    const pickedFuel = pickedIds.length > 0 ? (await prisma.fuelTransaction.findMany({ where: { id: { in: pickedIds }, workspaceId, settlementId: null }, include: { load: { select: { loadNumber: true } } } })).map(toFuelLine) : [];
     for (const s of drafts) {
       const b = boundsById.get(s.id);
       const loads = b ? (byDriver.get(s.driverId) ?? []).filter((x) => x.completedAt >= b.from && x.completedAt < b.to).map((x) => x.sl) : [];
-      const statement = computeStatement({ loads, hours: typedHours(s.hours), adjustments: typedAdjustments(s.adjustments) });
+      const mine = new Set(typedFuelIds(s.fuelIds));
+      const statement = computeStatement({ loads, hours: typedHours(s.hours), adjustments: typedAdjustments(s.adjustments), fuel: pickedFuel.filter((f) => mine.has(f.id)) });
       draftMap.set(s.id, { loads, statement });
     }
   }
@@ -441,12 +503,13 @@ async function resolveSettlementRows(rows: SettlementWithDriver[], workspaceId: 
     };
     if (s.status === "draft") {
       const got = draftMap.get(s.id) ?? { loads: [], statement: computeStatement({ loads: [], hours: {}, adjustments: [] }) };
-      return { ...common, loads: got.loads.length, loadsTotal: got.statement.loadsTotal, adjustmentsTotal: got.statement.adjustmentsTotal, total: got.statement.total, statement: got.statement };
+      return { ...common, loads: got.loads.length, loadsTotal: got.statement.loadsTotal, adjustmentsTotal: got.statement.adjustmentsTotal, fuelTotal: got.statement.fuelTotal, total: got.statement.total, statement: got.statement };
     }
     const lines = (Array.isArray(s.lines) ? s.lines : []) as unknown as StatementLine[];
     const adjustments = (Array.isArray(s.adjustments) ? s.adjustments : []) as unknown as Adjustment[];
-    const statement = statementOf(lines, adjustments);
-    return { ...common, loads: lines.length, loadsTotal: statement.loadsTotal, adjustmentsTotal: statement.adjustmentsTotal, total: numOrNull(s.total) ?? statement.total, statement };
+    const fuel = (Array.isArray(s.fuel) ? s.fuel : []) as unknown as FuelLine[];
+    const statement = statementOf(lines, adjustments, fuel);
+    return { ...common, loads: lines.length, loadsTotal: statement.loadsTotal, adjustmentsTotal: statement.adjustmentsTotal, fuelTotal: statement.fuelTotal, total: numOrNull(s.total) ?? statement.total, statement };
   });
 }
 

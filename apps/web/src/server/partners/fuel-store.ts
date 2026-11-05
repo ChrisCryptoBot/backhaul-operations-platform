@@ -112,6 +112,8 @@ export type FuelRow = {
   loadNumber: string | null;
   statementId: string | null;
   statementNumber: string | null;
+  /** The purchase was deducted from the driver's pay on that statement (not only on a load that is on it). */
+  deducted: boolean;
 };
 export type FuelTotals = { purchases: number; gallons: number; charged: number; discount: number; netPerGallon: number | null };
 
@@ -121,7 +123,7 @@ export async function listFuel(opts: { days?: number; page?: number; terminal?: 
   const page = Math.max(1, whole(opts.page ?? 1));
   const where: Prisma.FuelTransactionWhereInput = { workspaceId, postedAt: { gte: new Date(`${dayOf(new Date(now.getTime() - span * DAY))}T00:00:00Z`) }, ...(opts.terminal ? { vehicle: { terminal: opts.terminal } } : {}) };
   const [rows, total, sums] = await Promise.all([
-    prisma.fuelTransaction.findMany({ where, include: { vehicle: { select: { name: true } }, load: { select: { loadNumber: true, settlement: { select: { settlement: { select: { id: true, number: true, status: true } } } } } } }, orderBy: [{ postedAt: "desc" }, { id: "asc" }], skip: (page - 1) * FUEL_PAGE, take: FUEL_PAGE }),
+    prisma.fuelTransaction.findMany({ where, include: { vehicle: { select: { name: true } }, settlement: { select: { id: true, number: true, status: true } }, load: { select: { loadNumber: true, settlement: { select: { settlement: { select: { id: true, number: true, status: true } } } } } } }, orderBy: [{ postedAt: "desc" }, { id: "asc" }], skip: (page - 1) * FUEL_PAGE, take: FUEL_PAGE }),
     prisma.fuelTransaction.count({ where }),
     prisma.fuelTransaction.aggregate({ where, _sum: { gallons: true, amount: true, discount: true } })
   ]);
@@ -129,7 +131,9 @@ export async function listFuel(opts: { days?: number; page?: number; terminal?: 
   const charged = num(sums._sum.amount);
   return {
     rows: rows.map((r) => {
-      const st = r.load?.settlement?.settlement;
+      // The statement it was deducted on comes first; failing that, the statement the load it is tied to is on.
+      const direct = r.settlement && r.settlement.status !== "void" ? r.settlement : null;
+      const st = direct ?? r.load?.settlement?.settlement;
       return {
         id: r.id,
         postedAt: r.postedAt,
@@ -147,7 +151,8 @@ export async function listFuel(opts: { days?: number; page?: number; terminal?: 
         loadNumber: r.load?.loadNumber ?? null,
         // A statement that was voided is not a statement the load is on.
         statementId: st && st.status !== "void" ? st.id : null,
-        statementNumber: st && st.status !== "void" ? st.number : null
+        statementNumber: st && st.status !== "void" ? st.number : null,
+        deducted: direct != null
       };
     }),
     totals: { purchases: total, gallons, charged, discount: num(sums._sum.discount), netPerGallon: gallons > 0 ? new Prisma.Decimal(charged).div(gallons).toDecimalPlaces(3).toNumber() : null },

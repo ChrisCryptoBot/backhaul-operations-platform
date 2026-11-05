@@ -65,7 +65,13 @@ export default async function FuelPage({ searchParams }: { searchParams?: { days
       disc: r.discountPerGallon == null ? <span className="dim">—</span> : <span className="t-pos">{ppg(r.discountPerGallon)}</span>,
       charged: usd(r.amount, 2),
       load: r.loadId ? <Link href={`/loads/${r.loadId}`}>{r.loadNumber ?? "Load"}</Link> : <span className="dim">not tied</span>,
-      statement: r.statementId ? <Link href={`/settlements/${r.statementId}`}>{r.statementNumber}</Link> : <span className="dim">{r.loadId ? "load not on a statement" : "—"}</span>
+      statement: r.statementId ? (
+        <>
+          <Link href={`/settlements/${r.statementId}`}>{r.statementNumber}</Link> {r.deducted ? <span className="t-st" data-tone="ok">deducted</span> : <span className="dim">load is on it</span>}
+        </>
+      ) : (
+        <span className="dim">{r.loadId ? "not deducted" : "—"}</span>
+      )
     }
   }));
   const t = data.totals;

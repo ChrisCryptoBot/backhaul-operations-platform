@@ -7,7 +7,8 @@ import { discardSettlementAction, finalizeSettlementAction, markSettlementPaidAc
 import type { Company } from "@/lib/company";
 import { shortDate, usd } from "@/lib/desk-format";
 import { paidMethodLabel } from "@/lib/pay-method";
-import { computeStatement, MAX_ADJUSTMENTS, validatePeriod, type AdjustmentInput, type PeriodPreset, type SettlementLoad } from "@/lib/settlement";
+import { computeStatement, MAX_ADJUSTMENTS, validatePeriod, type AdjustmentInput, type FuelLine, type PeriodPreset, type SettlementLoad } from "@/lib/settlement";
+import { FuelLedger, NetPay } from "./statement-fuel";
 
 import { DateInput } from "./date-input";
 import { DocHead } from "./doc-head";
@@ -177,6 +178,8 @@ export function SettlementEditor({
   loads,
   initialHours,
   initialAdjustments,
+  fuelOptions = [],
+  initialFuel = [],
   canEdit = true,
   who = "Accounting or Admin"
 }: {
@@ -188,14 +191,21 @@ export function SettlementEditor({
   loads: SettlementLoad[];
   initialHours: Record<string, string>;
   initialAdjustments: AdjustmentInput[];
+  /** The fuel card purchases that could come off this driver's pay, and the ids already picked. */
+  fuelOptions?: FuelLine[];
+  initialFuel?: string[];
   canEdit?: boolean;
   who?: string;
 }) {
   const router = useRouter();
   const toast = useToast();
   // The hours and adjustments typed are kept until the draft is saved, finalized or started over.
-  const [form, setForm, kept] = useDraft<{ hours: typeof initialHours; rows: AdjustmentInput[] }>(`settlement:${id}`, { hours: initialHours, rows: initialAdjustments.length > 0 ? initialAdjustments : [{ label: "", amount: "" }] });
+  const [form, setForm, kept] = useDraft<{ hours: typeof initialHours; rows: AdjustmentInput[]; fuel?: string[] }>(`settlement:${id}`, { hours: initialHours, fuel: initialFuel, rows: initialAdjustments.length > 0 ? initialAdjustments : [{ label: "", amount: "" }] });
   const { hours, rows } = form;
+  // Only purchases that are still on offer count: one picked in a kept draft that has since gone to another statement is left out, as the server leaves it out.
+  const offered = new Set(fuelOptions.map((f) => f.id));
+  const pickedFuel = (form.fuel ?? initialFuel).filter((x) => offered.has(x));
+  const setFuel = (ids: string[]) => setForm((f) => ({ ...f, fuel: ids }));
   const setHours = (u: React.SetStateAction<typeof initialHours>) => setForm((f) => ({ ...f, hours: typeof u === "function" ? u(f.hours) : u }));
   const setRows = (u: React.SetStateAction<AdjustmentInput[]>) => setForm((f) => ({ ...f, rows: typeof u === "function" ? u(f.rows) : u }));
   const [tried, setTried] = React.useState(false);
@@ -204,9 +214,9 @@ export function SettlementEditor({
   const [message, setMessage] = React.useState<string | null>(null);
   const [serverErrors, setServerErrors] = React.useState<Record<string, string>>({});
 
-  const st = computeStatement({ loads, hours, adjustments: rows });
+  const st = computeStatement({ loads, hours, adjustments: rows, fuel: fuelOptions.filter((f) => pickedFuel.includes(f.id)) });
   const errors = { ...(tried ? st.errors : {}), ...serverErrors };
-  const draft = { hours, adjustments: rows };
+  const draft = { hours, adjustments: rows, fuel: pickedFuel };
   const setRow = (i: number, patch: Partial<AdjustmentInput>) => setRows((r) => r.map((x, k) => (k === i ? { ...x, ...patch } : x)));
 
   async function save(then?: () => void) {
@@ -354,6 +364,55 @@ export function SettlementEditor({
             </button>
           </section>
 
+          {fuelOptions.length > 0 ? (
+            <section className="tl-card">
+              <h2>Fuel card purchases</h2>
+              <p className="tl-note" style={{ marginBottom: 10, maxWidth: "72ch" }}>
+                Bought in this period on {driverName}&apos;s truck or on a load they ran, and not yet deducted on another statement. Tick the ones that come off their pay. Nothing is deducted until you finalize.
+              </p>
+              <table className="tl-table" aria-label="Fuel card purchases that could be deducted">
+                <thead>
+                  <tr>
+                    <th scope="col" style={{ width: 28 }} />
+                    <th scope="col">Date</th>
+                    <th scope="col">Where</th>
+                    <th scope="col">Load</th>
+                    <th scope="col" className="num">Gallons</th>
+                    <th scope="col" className="num">Charged</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {fuelOptions.map((f) => {
+                    const on = pickedFuel.includes(f.id);
+                    return (
+                      <tr key={f.id} aria-selected={on || undefined}>
+                        <td>
+                          <input type="checkbox" checked={on} aria-label={`Deduct the ${f.location ?? "fuel"} purchase of ${f.on}`} onChange={(e) => setFuel(e.target.checked ? [...pickedFuel, f.id] : pickedFuel.filter((x) => x !== f.id))} />
+                        </td>
+                        <td>{f.on}</td>
+                        <td>{f.location ?? "—"}</td>
+                        <td>{f.loadNumber ?? "—"}</td>
+                        <td className="num">{f.gallons == null ? "—" : f.gallons.toLocaleString("en-US", { maximumFractionDigits: 1 })}</td>
+                        <td className="num">{usd(f.amount, 2)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div className="dlg-row" style={{ marginTop: 10 }}>
+                <button type="button" className="tl-btn sm" onClick={() => setFuel(fuelOptions.map((f) => f.id))} disabled={pickedFuel.length === fuelOptions.length}>
+                  Deduct all
+                </button>
+                <button type="button" className="tl-btn sm" onClick={() => setFuel([])} disabled={pickedFuel.length === 0}>
+                  Deduct none
+                </button>
+                <span className="tl-sub" style={{ marginLeft: "auto" }}>
+                  {pickedFuel.length} of {fuelOptions.length} picked · {usd(st.fuelTotal, 2)} comes off
+                </span>
+              </div>
+            </section>
+          ) : null}
+
           <section className="tl-card">
             <h2>Statement</h2>
             <dl className="rc-facts">
@@ -361,13 +420,19 @@ export function SettlementEditor({
                 <dt>Pay for loads</dt>
                 <dd>{usd(st.loadsTotal, 2)}</dd>
               </div>
+              {st.fuel.length > 0 ? (
+                <div>
+                  <dt>Fuel card</dt>
+                  <dd>{usd(-st.fuelTotal, 2)}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt>Adjustments</dt>
                 <dd>{usd(st.adjustmentsTotal, 2)}</dd>
               </div>
               <div>
                 <dt>
-                  <b>Total to {driverName}</b>
+                  <b>{st.fuel.length > 0 ? `Net pay to ${driverName}` : `Total to ${driverName}`}</b>
                 </dt>
                 <dd>
                   <b>{usd(st.total, 2)}</b>
@@ -378,7 +443,7 @@ export function SettlementEditor({
             {st.cautions.map((c) => (
               <p key={c} className="tl-note">{c}</p>
             ))}
-            <p className="tl-note">This is gross pay for the loads and adjustments above. Taxes and payroll deductions are not worked out here.</p>
+            <p className="tl-note">{st.fuel.length > 0 ? "Net pay: pay for the loads, less the fuel card purchases picked, plus the adjustments above." : "This is gross pay for the loads and adjustments above."} Taxes and payroll deductions are not worked out here.</p>
             {message ? <p className="tl-note warn" role="alert">{message}</p> : null}
             {canEdit ? (
               <div className="dlg-row" style={{ marginTop: 12 }}>
@@ -408,7 +473,7 @@ export function SettlementEditor({
       </div>
 
       <article className="rp print-only">
-        <DocHead kicker="Pay statement" number={number} company={company} heroLabel="Gross pay" hero={usd(st.total, 2)} sub={`${driverName} · ${periodLabel}`} stamp={{ text: "Draft", tone: "plain" }} />
+        <DocHead kicker="Pay statement" number={number} company={company} heroLabel={st.fuel.length > 0 ? "Net pay" : "Gross pay"} hero={usd(st.total, 2)} sub={`${driverName} · ${periodLabel}`} stamp={{ text: "Draft", tone: "plain" }} />
         <table style={{ marginTop: 14 }} aria-label="Draft statement details">
           <tbody>
             <tr>
@@ -472,16 +537,9 @@ export function SettlementEditor({
             </table>
           </>
         ) : null}
-        <h2>Total</h2>
-        <table aria-label="Draft total">
-          <tbody>
-            <tr>
-              <td><b>Total to {driverName}</b></td>
-              <td className="num"><b>{usd(st.total, 2)}</b></td>
-            </tr>
-          </tbody>
-        </table>
-        <p className="rp-foot">Draft gross pay for the loads and adjustments above. Not yet finalized.</p>
+        <FuelLedger fuel={st.fuel} total={st.fuelTotal} />
+        <NetPay driverName={driverName} loadsTotal={st.loadsTotal} fuelTotal={st.fuelTotal} adjustmentsTotal={st.adjustmentsTotal} total={st.total} hasFuel={st.fuel.length > 0} />
+        <p className="rp-foot">{st.fuel.length > 0 ? "Draft net pay: pay for the loads, less the fuel card purchases picked, plus the adjustments above." : "Draft gross pay for the loads and adjustments above."} Not yet finalized.</p>
       </article>
     </>
   );
