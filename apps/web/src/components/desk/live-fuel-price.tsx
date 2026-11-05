@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { perGallon } from "@/lib/desk-format";
 import { decideFuelFill, weekOf, type FuelKind } from "@/lib/eia";
 import { addressReady } from "@/lib/geo";
 
@@ -100,7 +101,7 @@ export function LiveFuelPrice({ fuel, origin, destination, typed, onUse, idle, a
               onUse(price);
               setShown({ kind: "filled", text: `Replaced with $${price} a gallon.` });
             }}>
-            {`Replace with $${shown.live.pricePerGallon.toFixed(2)}`}
+            {`Replace with ${perGallon(shown.live.pricePerGallon)}`}
           </button>
           <button type="button" className="tl-btn sm" onClick={() => setShown(null)}>
             Keep mine

@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import React from "react";
 import { connectPartnerAction, disconnectPartnerAction, factorInvoiceAction, factoringUpdateAction, importFuelAction, saveFuelCardAction, sendToPayrollAction, syncEldAction, vetCarrierAction } from "@/app/(desk)/actions";
+import { usd } from "@/lib/desk-format";
 import { PROVIDERS } from "@/truelane/partners/contract";
 import { ReadOnlyBanner } from "./kit/read-only";
 import { useToast } from "./kit/toast";
@@ -377,7 +378,7 @@ export function FuelImport({ loadId, current, onFill }: { loadId: string; curren
             return;
           }
           if (!typed) onFill(String(out.amount));
-          setState({ busy: false, bad: false, reason: null, note: typed ? `The card shows $${out.amount.toFixed(2)} for ${out.purchases} ${out.purchases === 1 ? "purchase" : "purchases"}. Your number stays.` : `Filled from ${out.purchases} ${out.purchases === 1 ? "purchase" : "purchases"} on the card.` });
+          setState({ busy: false, bad: false, reason: null, note: typed ? `The card shows ${usd(out.amount, 2)} for ${out.purchases} ${out.purchases === 1 ? "purchase" : "purchases"}. Your number stays.` : `Filled from ${out.purchases} ${out.purchases === 1 ? "purchase" : "purchases"} on the card.` });
         }}>
         {state.busy ? "Reading the card…" : "Import from fuel card"}
       </button>

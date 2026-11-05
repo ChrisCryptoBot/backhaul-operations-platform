@@ -81,7 +81,7 @@ describe.skipIf(!run)("linehaul actually paid at delivery", () => {
     expect(Number(done.actualRevenue)).toBe(850.25);
     expect(Number(done.quotedRevenue)).toBe(1000); // the rate on the load is not rewritten
     const delivered = await prisma.auditEvent.findFirstOrThrow({ where: { loadId: l.id, action: "delivered" } });
-    expect(delivered.summary).toContain("linehaul paid $850.25 (the load said $1000.00)");
+    expect(delivered.summary).toContain("linehaul paid $850.25 (the load said $1,000.00)");
     expect(delivered.after).toMatchObject({ "Linehaul paid": "$850.25" });
     const inv = await invoiceLoad(l.id, { form: { number: "LH-B", terms: "30", detention: false, lumper: "", layover: "", otherLabel: "", other: "" } });
     expect(inv).toMatchObject({ ok: true });

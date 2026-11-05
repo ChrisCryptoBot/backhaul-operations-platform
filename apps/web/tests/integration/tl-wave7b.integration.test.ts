@@ -171,8 +171,8 @@ describe.skipIf(!run)("percent pay and driver statements on the demo database", 
     expect(await finalizeSettlement(L.draft2!, { hours: {}, adjustments: [] })).toMatchObject({ ok: false, error: "There is nothing to pay on this statement." });
 
     const [done] = await events("statement_finalized");
-    expect(done!.after).toMatchObject({ Driver: "W7B Driver A", Loads: 6, "Pay for loads": "$1376.00", Adjustments: "$-57.65", Total: "$1318.35" });
-    expect(done!.summary).toContain("$1318.35");
+    expect(done!.after).toMatchObject({ Driver: "W7B Driver A", Loads: 6, "Pay for loads": "$1,376.00", Adjustments: "−$57.65", Total: "$1,318.35" });
+    expect(done!.summary).toContain("$1,318.35");
   });
 
   test("voiding needs a reason, keeps the statement as it was, and frees its loads for another statement", async () => {

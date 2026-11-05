@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { miles, perMile, usd } from "@/lib/desk-format";
+import fs from "node:fs";
+import path from "node:path";
+import { gallons, miles, perGallon, perMile, usd } from "@/lib/desk-format";
 
 describe("numbers are the product: one minus, honest blanks, fixed decimals", () => {
   it("a loss carries the real minus (U+2212), never a hyphen", () => {
@@ -25,5 +27,24 @@ describe("numbers are the product: one minus, honest blanks, fixed decimals", ()
   it("a negative that rounds to nothing is not shown as a loss", () => {
     expect(usd(-0.2)).toBe("$0");
     expect(perMile(-0.001)).toBe("$0.00/mi");
+  });
+
+  it("a price a gallon is two places (three for a discount), a dash when unknown, and gallons are to a tenth", () => {
+    expect(perGallon(3.899)).toBe("$3.90");
+    expect(perGallon(0.25, 3)).toBe("$0.250");
+    expect(perGallon(-0.1, 3)).toBe("−$0.100");
+    expect(perGallon(null)).toBe("—");
+    expect(gallons(null)).toBe("—");
+    expect(gallons(1234.56)).toBe("1,234.6");
+    expect(gallons(100)).toBe("100");
+  });
+
+  it("no screen builds its own dollars with a raw template: they go through desk-format", () => {
+    const root = path.join(__dirname, "..", "src");
+    const files = [
+      "components/desk/verdict-card.tsx", "components/desk/load-view.tsx", "components/desk/load-actions.tsx", "components/desk/partner-actions.tsx",
+      "components/desk/live-fuel-price.tsx", "components/desk/statement-fuel.tsx", "app/(desk)/fleet/page.tsx", "app/(desk)/fleet/[id]/page.tsx", "app/(desk)/fuel/page.tsx"
+    ];
+    for (const f of files) expect(fs.readFileSync(path.join(root, f), "utf8"), f).not.toMatch(/\$\$\{[^}]*toFixed/);
   });
 });

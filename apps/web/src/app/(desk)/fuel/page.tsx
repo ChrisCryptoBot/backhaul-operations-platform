@@ -6,7 +6,7 @@ import { CanGate } from "@/components/desk/kit/can-gate";
 import { EmptyState } from "@/components/desk/kit/states";
 import { Pager } from "@/components/desk/pager";
 import { PageHead, Stat } from "@/components/desk/ui";
-import { dayYear, usd } from "@/lib/desk-format";
+import { dayYear, gallons, perGallon, usd } from "@/lib/desk-format";
 import { asPage } from "@/lib/paging";
 import { partnerStatus } from "@/server/partners/connections";
 import { FUEL_PAGE, listFuel } from "@/server/partners/fuel-store";
@@ -29,8 +29,6 @@ const COLUMNS: Column[] = [
   { key: "statement", label: "Driver statement", group: "Tied to" }
 ];
 
-const gal = (n: number | null) => (n == null ? "—" : n.toLocaleString("en-US", { maximumFractionDigits: 1 }));
-const ppg = (n: number | null) => (n == null ? "—" : `$${n.toFixed(3)}`);
 
 /**
  * Fuel: what the fuel cards were charged for, as the card company reported it: each purchase with its gallons, its price and the card's discount a gallon, and the load and the driver
@@ -60,9 +58,9 @@ export default async function FuelPage({ searchParams }: { searchParams?: { days
       date: dayYear(r.postedAt, "UTC"),
       truck: r.truckId ? <Link href={`/fleet/${r.truckId}`}>{r.truck ?? "Truck"}</Link> : <span className="dim">—</span>,
       where: r.location ?? <span className="dim">—</span>,
-      gallons: gal(r.gallons),
-      ppg: ppg(r.pricePerGallon),
-      disc: r.discountPerGallon == null ? <span className="dim">—</span> : <span className="t-pos">{ppg(r.discountPerGallon)}</span>,
+      gallons: gallons(r.gallons),
+      ppg: perGallon(r.pricePerGallon),
+      disc: r.discountPerGallon == null ? <span className="dim">—</span> : <span className="t-pos">{perGallon(r.discountPerGallon, 3)}</span>,
       charged: usd(r.amount, 2),
       load: r.loadId ? <Link href={`/loads/${r.loadId}`}>{r.loadNumber ?? "Load"}</Link> : <span className="dim">not tied</span>,
       statement: r.statementId ? (
@@ -93,8 +91,8 @@ export default async function FuelPage({ searchParams }: { searchParams?: { days
       </div>
       <div className="tl-grid cols-4">
         <Stat label="Purchases" value={String(t.purchases)} sub={`in the last ${days} days`} />
-        <Stat label="Gallons" value={gal(t.gallons)} />
-        <Stat label="Charged" value={usd(t.charged, 2)} sub={t.netPerGallon != null ? `${ppg(t.netPerGallon)} a gallon after discount` : undefined} />
+        <Stat label="Gallons" value={gallons(t.gallons)} />
+        <Stat label="Charged" value={usd(t.charged, 2)} sub={t.netPerGallon != null ? `${perGallon(t.netPerGallon, 3)} a gallon after discount` : undefined} />
         <Stat label="Discount saved" value={usd(t.discount, 2)} tone={t.discount > 0 ? "ok" : undefined} />
       </div>
       <DataTable

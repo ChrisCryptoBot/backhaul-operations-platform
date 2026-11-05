@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { loadStatusFor } from "@/lib/load-state";
 import { prisma } from "@/lib/db";
-import { dateTime } from "@/lib/desk-format";
+import { dateTime, usd } from "@/lib/desk-format";
 import { EXPENSE_ITEMS, otherExpenseTotal, validateComplete, validateCorrection, validateExpenses, validateStart, type CompleteValues, type CorrectValues, type ExpenseInput, type ExpenseValues, type StartValues, type TripErrors } from "@/lib/trip";
 import { recordAudit } from "./audit";
 import { claimAssignment, claimLoad, LoadMoved } from "./claim";
@@ -21,7 +21,8 @@ import { stopClocksOf } from "./stop-clock";
  */
 export type TripResult = { ok: true } | { ok: false; error?: string; errors?: TripErrors };
 
-const money = (n: number) => `$${n.toFixed(2)}`;
+/** Dollars and cents as the desk says them everywhere: grouped, with a real minus (src/lib/desk-format.ts). */
+const money = (n: number) => usd(n, 2);
 
 type ExtrasLoad = {
   expenseFuelActual: unknown;

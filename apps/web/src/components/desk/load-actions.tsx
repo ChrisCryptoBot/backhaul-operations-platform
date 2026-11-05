@@ -913,7 +913,7 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff =
       toast(
         out.balance != null
           ? { text: `Part payment recorded. ${usd(out.balance, 2)} is still owed.`, tone: "ok" }
-          : { text: out.difference ? `Paid, $${Math.abs(out.difference).toFixed(2)} ${out.difference < 0 ? "written off" : "over"}.` : "Marked paid.", tone: out.difference && out.difference < 0 ? "bad" : "ok" }
+          : { text: out.difference ? `Paid, ${usd(Math.abs(out.difference), 2)} ${out.difference < 0 ? "written off" : "over"}.` : "Marked paid.", tone: out.difference && out.difference < 0 ? "bad" : "ok" }
       );
       router.refresh();
     } else setMessage(out.error ?? "That could not be recorded.");

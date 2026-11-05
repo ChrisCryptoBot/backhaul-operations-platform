@@ -813,7 +813,7 @@ export function CostProfileForm({
             {field("insuranceOtherMonthly")}
             <div className="th-field">
               <span className="th-label">Total</span>
-              <div className="cp-total">{usd(preview?.numbers.monthlyInsurance ?? 0)} a month</div>
+              <div className="cp-total">{preview?.numbers.monthlyInsurance != null ? `${usd(preview.numbers.monthlyInsurance)} a month` : "\u2014"}</div>
             </div>
           </div>
         ) : (

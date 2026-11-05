@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { usd } from "@/lib/desk-format";
 import type { Company } from "@/lib/company";
 import { toCompany } from "./company";
 import { prisma } from "@/lib/db";
@@ -24,7 +25,8 @@ export type SettleResult = { ok: true; id: string } | { ok: false; error?: strin
 type Db = Prisma.TransactionClient | typeof prisma;
 type LoadWithAssignment = Prisma.LoadGetPayload<{ include: { assignment: true } }>;
 
-const money = (n: number) => `$${n.toFixed(2)}`;
+/** Dollars and cents as the desk says them everywhere: grouped, with a real minus (src/lib/desk-format.ts). */
+const money = (n: number) => usd(n, 2);
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
 function brokerStatus(l: { paymentStatus: string | null; paidAmount: unknown; invoicedAmount: unknown; writeOffAmount: unknown }): SettlementLoad["brokerStatus"] {

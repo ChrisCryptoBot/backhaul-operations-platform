@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { describePay } from "@/lib/audit-diff";
 import { driverBlocker } from "@/lib/clearance";
-import { dateTime } from "@/lib/desk-format";
+import { dateTime, usd } from "@/lib/desk-format";
 import { loadWindow, windowsOverlap, type StopWindow, type Window } from "@/lib/schedule";
 import { PAY_KIND_KEYS, PERCENT_MAX, rateConTotal } from "@/lib/pay";
 import { assertDriverSafe, driverFacingPay, payEstimate, projectLoadToSummary, type AssignmentPay, type LoadSummary, type PayKind } from "./projector";
@@ -145,7 +145,8 @@ export async function truckClashesIn(vehicleIds: string[], exceptLoadId: string,
   return out;
 }
 
-const money = (n: number) => `$${n.toFixed(2)}`;
+/** Dollars and cents as the desk says them everywhere: grouped, with a real minus (src/lib/desk-format.ts). */
+const money = (n: number) => usd(n, 2);
 
 /**
  * Create or replace the draft assignment for a load. A load that was already sent keeps its row and bumps the version.

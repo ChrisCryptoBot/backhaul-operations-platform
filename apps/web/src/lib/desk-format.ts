@@ -21,6 +21,19 @@ export const perMile = (n: number | null | undefined): string => {
 
 export const miles = (n: number | null | undefined): string => (n == null || !Number.isFinite(n) ? "—" : `${Math.round(n).toLocaleString("en-US")} mi`);
 
+/**
+ * A price a gallon: two places for a posted price, three where cents of discount matter (a card's discount a gallon, an average after discount). A price that is not known is a dash, a
+ * negative (a credit) carries the real minus, and there is no "/gal" on it: the column says what it is.
+ */
+export const perGallon = (n: number | null | undefined, digits: 2 | 3 = 2): string => {
+  if (n == null || !Number.isFinite(n)) return "—";
+  const text = Math.abs(n).toFixed(digits);
+  return `${n < 0 && /[1-9]/.test(text) ? MINUS : ""}$${text}`;
+};
+
+/** Gallons, to a tenth. Not known is a dash, never 0. */
+export const gallons = (n: number | null | undefined): string => (n == null || !Number.isFinite(n) ? "—" : n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 1 }));
+
 export const pct = (fraction: number | null | undefined, digits = 0): string =>
   fraction == null || !Number.isFinite(fraction) ? "—" : `${(fraction * 100).toFixed(digits)}%`;
 

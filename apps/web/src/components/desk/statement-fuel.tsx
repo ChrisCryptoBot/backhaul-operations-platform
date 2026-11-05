@@ -1,8 +1,7 @@
 import React from "react";
-import { dayYear, usd } from "@/lib/desk-format";
+import { dayYear, gallons, usd } from "@/lib/desk-format";
 import type { FuelLine } from "@/lib/settlement";
 
-const gal = (n: number | null) => (n == null ? "—" : n.toLocaleString("en-US", { maximumFractionDigits: 1 }));
 /** A purchase's day is a calendar date: read it at noon UTC so no clock moves it to a neighbouring day. */
 const dayOf = (on: string) => dayYear(new Date(`${on}T12:00:00Z`), "UTC");
 
@@ -31,7 +30,7 @@ export function FuelLedger({ fuel, total, caption = "Fuel card purchases deducte
               <td>{dayOf(f.on)}</td>
               <td>{f.location ?? "—"}</td>
               <td>{f.loadNumber ?? "—"}</td>
-              <td className="num">{gal(f.gallons)}</td>
+              <td className="num">{gallons(f.gallons)}</td>
               <td className="num rp-bad">{usd(-f.amount, 2)}</td>
             </tr>
           ))}

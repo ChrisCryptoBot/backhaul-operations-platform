@@ -24,7 +24,7 @@ const COLUMNS: Column[] = [
   { key: "driver", sortable: true, label: "Driver", group: "Driver", sticky: true, width: 220 },
   { key: "truck", sortable: true, label: "Truck", group: "Driver" },
   { key: "terminal", label: "Terminal", group: "Driver" },
-  { key: "pay", label: "Usual pay", group: "Driver" },
+  { key: "pay", label: "Usual pay", group: "Driver", align: "num" },
   { key: "cdl", label: "CDL", group: "Compliance" },
   { key: "medical", label: "Medical card", group: "Compliance" },
   { key: "clearance", label: "Clearance", group: "Compliance" },

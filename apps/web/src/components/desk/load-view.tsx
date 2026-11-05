@@ -192,7 +192,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   const gapText = (perMi: number | null, floor: number) => {
     if (perMi == null) return "—";
     const gap = perMi - floor;
-    return `$${Math.abs(gap).toFixed(2)} a mile ${gap >= 0 ? "over" : "short of"} your floor`;
+    return `${usd(Math.abs(gap), 2)} a mile ${gap >= 0 ? "over" : "short of"} your floor`;
   };
   const milesTip = (ev: NonNullable<typeof evaluation>, homeCounted: boolean, perMi: number | null, title: string, sub: string, note: string): TipData => ({
     title,
@@ -356,7 +356,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           PAPERS: {refsOk ? "REFS & APPT VERIFIED" : `MISSING ${gapsPhrase(gaps).toUpperCase()}`}
         </span>
         <span className={`cp-gate ${floorOk ? "ok" : "bad"}`} title="Floor rate comparison">
-          MARGIN: {allIn != null && floorThreshold > 0 ? (allIn >= floorThreshold ? `+$${(allIn - floorThreshold).toFixed(2)}/MI CLEAR` : `-$${(floorThreshold - allIn).toFixed(2)}/MI SHORT`) : "NO FLOOR"}
+          MARGIN: {allIn != null && floorThreshold > 0 ? (allIn >= floorThreshold ? `+${usd(allIn - floorThreshold, 2)}/MI CLEAR` : `\u2212${usd(floorThreshold - allIn, 2)}/MI SHORT`) : "NO FLOOR"}
         </span>
       </div>
 

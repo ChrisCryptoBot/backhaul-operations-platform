@@ -6,7 +6,7 @@ import { listAudit } from "@/server/tl/audit";
 import { Card, PageHead, StatusChip } from "@/components/desk/ui";
 import { CostProfileForm, TruckForm, TruckRowActions } from "@/components/desk/fleet-forms";
 import { ACTION_LABEL } from "@/lib/audit-diff";
-import { dateTime, miles, perMile, shortDate } from "@/lib/desk-format";
+import { dateTime, miles, perGallon, perMile, shortDate } from "@/lib/desk-format";
 import { num } from "@/server/tl/convert";
 import { FuelCardForm } from "@/components/desk/partner-actions";
 import { CanGate } from "@/components/desk/kit/can-gate";
@@ -45,7 +45,7 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
           </div>
           <div>
             <dt>Fuel price</dt>
-            <dd>{d.numbers.lastFuelPricePerGallon != null ? `$${d.numbers.lastFuelPricePerGallon.toFixed(2)}` : "—"}</dd>
+            <dd>{perGallon(d.numbers.lastFuelPricePerGallon)}</dd>
           </div>
         </dl>
       </section>

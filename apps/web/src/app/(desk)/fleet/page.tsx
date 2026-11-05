@@ -9,7 +9,7 @@ import { DataTableTools } from "@/components/desk/data-table-tools";
 import { AddTruck, TruckRowActions } from "@/components/desk/fleet-forms";
 import { unitUse } from "@/server/tl/plan";
 import { EmptyState } from "@/components/desk/kit/states";
-import { miles, perMile } from "@/lib/desk-format";
+import { miles, perGallon, perMile, usd } from "@/lib/desk-format";
 import { currentTerminal } from "@/server/tl/terminal";
 import { partnerState } from "@/server/partners/call";
 import { SyncEldButton } from "@/components/desk/partner-actions";
@@ -65,11 +65,11 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
       type: t.type?.replace("_", " ") ?? "—",
       terminal: t.terminal ?? <span className="dim">—</span>,
       mpg: t.mpg ?? "—",
-      fuel: t.fuelPrice != null ? `$${t.fuelPrice.toFixed(2)}` : "—",
+      fuel: perGallon(t.fuelPrice),
       planned: miles(t.monthlyMiles),
       breakEven: perMile(t.breakEvenRpm),
       survival: perMile(t.survivalFloorRpm),
-      detention: t.detentionRate != null ? `$${t.detentionRate.toFixed(0)}/h` : <span className="dim">none</span>,
+      detention: t.detentionRate != null ? `${usd(t.detentionRate)}/h` : <span className="dim">none</span>,
       loads: t.loads,
       open: t.open,
       act: (

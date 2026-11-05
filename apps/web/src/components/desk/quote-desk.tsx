@@ -2296,7 +2296,7 @@ function VerdictPanel({ row, verdict, values, lane, milesFrom, fuelFrom }: { row
   if (d.timeTrap && d.profitPerHour != null && !verdict.sentence.includes("an hour against")) notes.push(`Profit per trip hour is ${usd(d.profitPerHour, 2)}, under the ${usd(d.hourlyTarget, 0)} an hour target.`);
   if (d.requiredRests > 0) notes.push(`A run this long needs ${d.requiredRests} ten-hour ${d.requiredRests === 1 ? "rest" : "rests"}: about ${d.elapsedHours.toFixed(0)} hours elapsed.`);
   const ground = groundOf({ miles: milesFrom, fuel: fuelFrom, market: lane ? { laneLoads: lane.loads, laneDays: lane.days } : values.marketRate.trim() === "" ? "none" : "typed", driver: /from this assignment/.test(row.labourNote) });
-  const sgnRate = (n: number) => `${n < 0 ? "\u2212" : "+"}$${Math.abs(n).toFixed(2)}/mi`;
+  const sgnRate = (n: number) => `${n < 0 ? "\u2212" : "+"}${perMile(Math.abs(n))}`;
   const ladder: LadderLine[] =
     row.allInPerMile == null || row.marginPerMile == null || row.leftOver == null
       ? []

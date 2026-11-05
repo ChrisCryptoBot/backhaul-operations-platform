@@ -2,10 +2,11 @@
 
 import React from "react";
 import { createPortal } from "react-dom";
+import { perMile } from "@/lib/desk-format";
 import { CARD_LINES, type Ground, type Ruler, type Verdict, type VerdictState } from "@/lib/verdict";
 
-/** "$1.23/mi". */
-const rate = (n: number) => `$${n.toFixed(2)}/mi`;
+/** "$1.23/mi": two places, a real minus, a dash when not known. */
+const rate = perMile;
 
 type Say = { title: string; body: string };
 type Hit = (title: string, body: string) => Record<string, unknown>;
