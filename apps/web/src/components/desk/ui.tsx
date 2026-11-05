@@ -40,11 +40,11 @@ export function Card({ title, action, children, className }: { title?: string; a
   );
 }
 
+/** A headline figure. Its tone is a square beside it, never a colour on the figure: ink stays white, grey is not known. */
 export function Stat({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "ok" | "warn" | "bad" }) {
-  const color = tone === "ok" ? "var(--db-pos)" : tone === "warn" ? "var(--db-warn)" : tone === "bad" ? "var(--db-neg)" : undefined;
   return (
-    <div className="tl-card tl-stat">
-      <div className="v" style={color ? { color } : undefined}>{value}</div>
+    <div className="tl-card tl-stat" data-tone={tone}>
+      <div className="v">{value}</div>
       <div className="l">{label}</div>
       {sub ? <div className="s">{sub}</div> : null}
     </div>

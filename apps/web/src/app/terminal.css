@@ -351,3 +351,18 @@ input::placeholder,textarea::placeholder{color:var(--dim);opacity:1}
 .th-field :is(input,select,textarea){text-transform:none;letter-spacing:0;font-size:12px}
 .th-field :is(small,.tl-sub,.sub,span[role=alert]),.th-field>span:not(.th-label){text-transform:none;letter-spacing:0}
 .th-field :is(small,.tl-sub,.sub){font:11px/14px var(--sans);color:var(--dim)}
+
+/* Tone is a square, never a colour on a figure (green, amber and red belong to verdicts, deltas and money states). */
+.km-value.ok,.km-value.warn,.km-value.bad,.trio .v.ok,.trio .v.warn,.trio .v.bad,.tone-neg,.tone-warn,.tone-pos{color:var(--ink)!important}
+:is(.km-value,.trio .v,.tl-stat .v,.tone-neg,.tone-warn,.tone-pos)::before{content:"";display:none;width:.32em;height:.32em;min-width:7px;min-height:7px;margin-right:.3em;vertical-align:middle}
+.km-value:is(.ok,.warn,.bad)::before,.trio .v:is(.ok,.warn,.bad)::before,.tl-stat[data-tone] .v::before,.tone-neg::before,.tone-warn::before,.tone-pos::before{display:inline-block}
+.km-value.ok::before,.tl-stat[data-tone=ok] .v::before,.trio .v.ok::before,.tone-pos::before{background:var(--pos-fill)}
+.km-value.warn::before,.tl-stat[data-tone=warn] .v::before,.trio .v.warn::before,.tone-warn::before{background:var(--warn-fill)}
+.km-value.bad::before,.tl-stat[data-tone=bad] .v::before,.trio .v.bad::before,.tone-neg::before{background:var(--neg-fill)}
+
+/* Alert rows are ruled, not boxed: a blocking one is marked by its word and its square, not a red frame. */
+.al[data-level=block]{border:0;border-bottom:1px solid var(--line);margin:0;padding:var(--db-2) var(--db-2)}
+.al[data-level=block] .lvl{color:var(--neg)}
+
+/* A count under a figure sits on its own line. */
+dd>.sub{display:block;color:var(--dim)}
