@@ -22,11 +22,11 @@
   --db-fg-dim: var(--dim);
   --db-fg-faint: var(--faint);
 
-  --db-accent: var(--label);
-  --db-accent-hover: var(--label-hi);
+  --db-accent: var(--bar);
+  --db-accent-hover: var(--bar-hi);
   --db-accent-press: var(--label);
   --db-accent-fg: var(--label);
-  --db-accent-on: var(--on-label);
+  --db-accent-on: var(--on-bar);
   --db-accent-bg: var(--head);
   --db-accent-ring: var(--label-hi);
   --db-accent-ink: var(--label);
