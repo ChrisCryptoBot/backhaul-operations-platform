@@ -584,3 +584,12 @@ dd>.sub{display:block;color:var(--dim)}
 .fm .maplibregl-ctrl-group button{background-color:var(--panel);border-color:var(--line)}
 .fm .maplibregl-ctrl-icon{filter:invert(1)}
 [data-theme=day] .fm .maplibregl-ctrl-icon{filter:none}
+
+/* Radar regions: three buttons in the map's corner (Lower 48, Alaska, Hawaii) with the units in each; the camera is held inside the chosen region's box. */
+.rd-regions{position:absolute;top:10px;right:10px;z-index:3;display:flex;border:1px solid var(--line-hi);background:var(--panel)}
+.rd-region{height:26px;padding:0 10px;border:0;background:transparent;color:var(--mid);font:500 11px/16px var(--mono);letter-spacing:.04em;cursor:pointer}
+.rd-region+.rd-region{border-left:1px solid var(--line)}
+.rd-region span{margin-left:6px;color:var(--dim);font-weight:500}
+.rd-region:hover{background:var(--hover);color:var(--ink)}
+.rd-region[aria-pressed=true]{background:var(--bar);color:var(--on-bar);font-weight:600}
+.rd-region[aria-pressed=true] span{color:var(--on-bar)}

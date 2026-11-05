@@ -15,6 +15,7 @@ let zips: Map<string, [number, number]> | null = null;
 let places: Place[] | null = null;
 let byKey: Map<string, Place> | null = null;
 let byName: Map<string, Place[]> | null = null;
+let byState: Map<string, Place[]> | null = null;
 let grid: Map<string, Place[]> | null = null;
 const CELL = 0.5; // degrees
 
@@ -31,6 +32,7 @@ function load() {
   places = [];
   byKey = new Map();
   byName = new Map();
+  byState = new Map();
   grid = new Map();
   for (const line of PLACE_LINES.split("\n")) {
     const [st, name, la, ln, area, f] = line.split("|");
@@ -44,6 +46,7 @@ function load() {
     const list = byName.get(norm(name)) ?? [];
     list.push(p);
     byName.set(norm(name), list);
+    byState.set(st, [...(byState.get(st) ?? []), p]);
     const cell = cellOf(p.lat, p.lng);
     const g = grid.get(cell) ?? [];
     g.push(p);
@@ -81,6 +84,20 @@ export function nearestPlace(lat: number, lng: number, maxMiles = 60): { label: 
     }
   }
   return best ? { label: `${best.p.name}, ${best.p.st}`, miles: best.d } : null;
+}
+
+/**
+ * The Census names some cities in a longer way ("Urban Honolulu", "Nashville-Davidson", "Louisville/Jefferson County"). When a typed city is not a name as it stands, take the place in that state whose name
+ * begins with it (before a space, a hyphen or a slash) or ends with it ("Urban Honolulu"), the incorporated and the larger one first.
+ */
+function looseMatch(city: string, st: string): Place | null {
+  if (city.length < 3) return null;
+  const hits = (byState!.get(st) ?? []).filter((p) => {
+    const n = norm(p.name);
+    return n.startsWith(`${city} `) || n.startsWith(`${city}-`) || n.startsWith(`${city}/`) || n.endsWith(` ${city}`);
+  });
+  if (hits.length === 0) return null;
+  return [...hits].sort((a, b) => Number(b.incorporated) - Number(a.incorporated) || b.area - a.area)[0]!;
 }
 
 /** The place a typed phrase names, offline, or null. `75201`, `75201-1234`, `Dallas, TX`, `dallas tx`, `Dallas, Texas`, `Atlanta`, `TX`, `Texas`. */
@@ -121,7 +138,7 @@ export function findPlace(raw: string): Found | null {
   }
   const city = norm(cityText);
   if (state) {
-    const p = byKey!.get(`${city}|${state.abbr}`);
+    const p = byKey!.get(`${city}|${state.abbr}`) ?? looseMatch(city, state.abbr);
     return p ? { kind: "city", label: `${p.name}, ${p.st}`, lat: p.lat, lng: p.lng, defaultRadius: null } : null;
   }
   // A city with no state: only when the name is one place, or one place is far the biggest (so "Atlanta" is Georgia and "Springfield" is left to the person to qualify).

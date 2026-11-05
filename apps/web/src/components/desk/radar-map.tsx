@@ -9,6 +9,7 @@ import { INTERSTATES } from "@/lib/basemap/interstates";
 import { US_STATES } from "@/lib/basemap/us-states";
 import { radarParamsText, type RadarPoint, type RadarQueryParams, type SearchInfo } from "@/lib/radar-points";
 import { boundsAround, radiusRing } from "@/lib/radius";
+import { REGIONS, REGION_KEYS, boxAround, firstRegion, mapLng, regionCounts, regionOf, within as withinRegion, type Box, type RegionKey } from "@/lib/radar-regions";
 import type { RadarTractor, RadarTrailer } from "@/server/tl/radar";
 import type { RadarPoints } from "@/server/tl/radar-query";
 import { RadarList } from "./radar-list";
@@ -137,7 +138,7 @@ function addImages(map: MapLibreMap, t: Tokens) {
 
 type Feat = { type: "Feature"; geometry: { type: "Point"; coordinates: [number, number] }; properties: Record<string, string | number> };
 const collection = (features: Feat[]) => ({ type: "FeatureCollection" as const, features });
-const pointFeature = (u: RadarPoint): Feat => ({ type: "Feature", geometry: { type: "Point", coordinates: [u.lng, u.lat] }, properties: { id: u.id, k: u.k, icon: u.icon, heading: u.h, sev: u.sev, t: u.t, r: u.r, name: u.name } });
+const pointFeature = (u: RadarPoint): Feat => ({ type: "Feature", geometry: { type: "Point", coordinates: [mapLng(u.lat, u.lng), u.lat] }, properties: { id: u.id, k: u.k, icon: u.icon, heading: u.h, sev: u.sev, t: u.t, r: u.r, name: u.name } });
 
 export const CLUSTER_MAX_ZOOM = 10;
 const CLUSTER_RADIUS = 64;
@@ -173,10 +174,8 @@ function styleOf(t: Tokens): StyleSpecification {
   };
 }
 
-const US_BOUNDS: [[number, number], [number, number]] = [
-  [-125, 24],
-  [-66.5, 49.8]
-];
+/** A box as MapLibre wants it. */
+const ll = (b: Box): [[number, number], [number, number]] => [[b[0], b[1]], [b[2], b[3]]];
 
 export type Ring = { lat: number; lng: number; radius: number } | null;
 export type Focus = { lat: number; lng: number; zoom: number; n: number } | null;
@@ -208,6 +207,10 @@ export function Canvas({
   const mapRef = React.useRef<MapLibreMap | null>(null);
   const ready = React.useRef(false);
   const fitted = React.useRef("");
+  // The region the camera is held to (the lower 48, Alaska or Hawaii). The first view is the one with the most units.
+  const regionRef = React.useRef<RegionKey>(firstRegion(points));
+  const [region, setRegion] = React.useState<RegionKey>(regionRef.current);
+  const counts = React.useMemo(() => regionCounts(points), [points]);
   const latest = React.useRef({ points, sel, ring: ring ?? null, fitKey: fitKey ?? "", clustered });
   latest.current = { points, sel, ring: ring ?? null, fitKey: fitKey ?? "", clustered };
   const pick = React.useRef(onSelect);
@@ -215,28 +218,49 @@ export function Canvas({
   const stack = React.useRef(onStack);
   stack.current = onStack;
 
+  /** Hold the camera inside a region's box (a hard stop at its edge, so the land cannot be dragged out of view). */
+  const hold = React.useCallback((key: RegionKey) => {
+    const map = mapRef.current;
+    regionRef.current = key;
+    setRegion(key);
+    map?.setMaxBounds(ll(REGIONS[key].clamp));
+  }, []);
+
+  const goRegion = React.useCallback(
+    (key: RegionKey) => {
+      const map = mapRef.current;
+      hold(key);
+      map?.fitBounds(ll(REGIONS[key].fit), { padding: compact ? 8 : 24, duration: 500 });
+    },
+    [hold, compact]
+  );
+
   const push = React.useCallback(() => {
     const map = mapRef.current;
     if (!map || !ready.current) return;
     const { points: pts, sel: chosen, ring: rg, fitKey: key } = latest.current;
     (map.getSource("units") as GeoJSONSource).setData(collection(pts.map(pointFeature)) as never);
     const found = chosen ? pts.find((u) => u.id === chosen.id && (chosen.kind === "tractor" ? u.k === "t" : u.k === "r")) : null;
-    (map.getSource("selected") as GeoJSONSource).setData(collection(found ? [{ type: "Feature", geometry: { type: "Point", coordinates: [found.lng, found.lat] }, properties: {} }] : []) as never);
-    (map.getSource("radius") as GeoJSONSource).setData({ type: "FeatureCollection", features: rg ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: radiusRing(rg, rg.radius) } }] : [] } as never);
+    (map.getSource("selected") as GeoJSONSource).setData(collection(found ? [{ type: "Feature", geometry: { type: "Point", coordinates: [mapLng(found.lat, found.lng), found.lat] }, properties: {} }] : []) as never);
+    (map.getSource("radius") as GeoJSONSource).setData({ type: "FeatureCollection", features: rg ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: radiusRing({ lat: rg.lat, lng: mapLng(rg.lat, rg.lng) }, rg.radius) } }] : [] } as never);
     // Fit once for each fit key (the first load, and every new or cleared search), not on every refresh.
     if (fitted.current !== key && (pts.length > 0 || rg)) {
       fitted.current = key;
       if (rg) {
-        const b = boundsAround(rg, rg.radius * 1.08);
-        map.fitBounds([[b.minLng, b.minLat], [b.maxLng, b.maxLat]], { padding: compact ? 16 : 40, maxZoom: 11, duration: 0 });
+        // A search in Alaska or Hawaii moves the camera's box there first, so the fit is never clamped away.
+        const k = regionOf(rg.lat, rg.lng);
+        if (k !== regionRef.current) hold(k);
+        const b = boundsAround({ lat: rg.lat, lng: mapLng(rg.lat, rg.lng) }, rg.radius * 1.08);
+        map.fitBounds(ll(withinRegion([b.minLng, b.minLat, b.maxLng, b.maxLat], k)), { padding: compact ? 16 : 40, maxZoom: 11, duration: 0 });
       } else {
-        const lngs = pts.map((u) => u.lng);
-        const lats = pts.map((u) => u.lat);
-        const pad = 1.5;
-        map.fitBounds([[Math.min(...lngs) - pad, Math.min(...lats) - pad], [Math.max(...lngs) + pad, Math.max(...lats) + pad]], { padding: compact ? 16 : 48, maxZoom: 6.5, duration: 0 });
+        // Open on the region with the most units, fitted to the units in it (one truck in Anchorage does not stretch the first view across the world).
+        const k = firstRegion(pts);
+        if (k !== regionRef.current) hold(k);
+        const box = boxAround(pts.filter((u) => regionOf(u.lat, u.lng) === k)) ?? REGIONS[k].fit;
+        map.fitBounds(ll(withinRegion(box, k)), { padding: compact ? 16 : 48, maxZoom: 6.5, duration: 0 });
       }
     }
-  }, [compact]);
+  }, [compact, hold]);
 
   React.useEffect(() => {
     let dead = false;
@@ -248,7 +272,7 @@ export function Canvas({
       ml.setWorkerUrl("/maplibre-gl-worker.mjs");
       const tokens = readTokens();
       const family = getComputedStyle(document.body).fontFamily || "monospace";
-      map = new ml.Map({ container: box.current, style: styleOf(tokens), bounds: US_BOUNDS, fitBoundsOptions: { padding: compact ? 8 : 24 }, interactive: !compact, attributionControl: false, dragRotate: false, pitchWithRotate: false, renderWorldCopies: false, maxZoom: MAP_MAX_ZOOM, minZoom: 2 });
+      map = new ml.Map({ container: box.current, style: styleOf(tokens), bounds: ll(REGIONS[regionRef.current].fit), maxBounds: ll(REGIONS[regionRef.current].clamp), fitBoundsOptions: { padding: compact ? 8 : 24 }, interactive: !compact, attributionControl: false, dragRotate: false, pitchWithRotate: false, renderWorldCopies: false, maxZoom: MAP_MAX_ZOOM, minZoom: 2 });
       mapRef.current = map;
       // The container is laid out after the map is made (the rail, a split that is dragged): follow its size, or the map paints only part of it.
       watch = new ResizeObserver(() => map?.resize());
@@ -313,9 +337,24 @@ export function Canvas({
     if (map && ready.current) (map.getSource("units") as GeoJSONSource).setClusterOptions({ cluster: clustered });
   }, [clustered]);
   React.useEffect(() => {
-    if (focus && mapRef.current) mapRef.current.easeTo({ center: [focus.lng, focus.lat], zoom: focus.zoom, duration: 500 });
-  }, [focus]);
-  return <div ref={box} className="rd-canvas" role="img" aria-label={`Map of ${points.length} units`} />;
+    if (!focus || !mapRef.current) return;
+    const k = regionOf(focus.lat, focus.lng);
+    if (k !== regionRef.current) hold(k);
+    mapRef.current.easeTo({ center: [mapLng(focus.lat, focus.lng), focus.lat], zoom: focus.zoom, duration: 500 });
+  }, [focus, hold]);
+  return (
+    <>
+      <div ref={box} className="rd-canvas" role="img" aria-label={`Map of ${points.length} units`} />
+      <div className="rd-regions" role="group" aria-label="Region">
+        {REGION_KEYS.map((k) => (
+          <button key={k} type="button" className="rd-region" aria-pressed={region === k} onClick={() => goRegion(k)}>
+            {REGIONS[k].label}
+            <span>{counts[k].toLocaleString("en-US")}</span>
+          </button>
+        ))}
+      </div>
+    </>
+  );
 }
 
 const ago = (iso: string | null, now: number) => {

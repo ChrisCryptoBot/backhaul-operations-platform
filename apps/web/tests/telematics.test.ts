@@ -163,21 +163,23 @@ describe("the HUD counts", () => {
 });
 
 describe("the bundled basemap needs no network and is sane", () => {
-  it("has the lower 48 and DC, each a ring of at least four points inside the continental US", () => {
-    expect(US_STATES.length).toBe(49);
+  it("has the fifty states and DC, each a ring of at least four points, none past the world's edge", () => {
+    expect(US_STATES.length).toBe(51);
     for (const s of US_STATES) {
       expect(s.rings.length, s.name).toBeGreaterThan(0);
       for (const ring of s.rings) {
         expect(ring.length).toBeGreaterThanOrEqual(4);
         for (const [lng, lat] of ring) {
-          expect(lng).toBeGreaterThan(-125.5);
+          expect(lng).toBeGreaterThanOrEqual(-180);
           expect(lng).toBeLessThan(-66);
-          expect(lat).toBeGreaterThan(24);
-          expect(lat).toBeLessThan(49.5);
+          expect(lat).toBeGreaterThan(18);
+          expect(lat).toBeLessThan(72.5);
+          // Only Alaska and Hawaii are outside the continental box.
+          if (lat < 24 || lat > 49.5 || lng < -125.5) expect(["Alaska", "Hawaii"], s.name).toContain(s.name);
         }
       }
     }
-    expect(US_STATES.map((s) => s.name)).not.toContain("Alaska");
+    expect(US_STATES.map((s) => s.name)).toEqual(expect.arrayContaining(["Alaska", "Hawaii"]));
   });
   it("draws the twelve freight corridors inside the country, each with at least two points", () => {
     expect(INTERSTATES.map((c) => c.name)).toEqual(["I-5", "I-10", "I-20", "I-35", "I-40", "I-55", "I-65", "I-70", "I-75", "I-80", "I-90", "I-95"]);

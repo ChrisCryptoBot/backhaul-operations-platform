@@ -44,6 +44,13 @@ describe("the radar clusters thousands of units and hands stacks over as a list"
     expect(map).toContain("setClusterOptions"); // clusters can be switched off
     expect(map).toMatch(/maxZoom: MAP_MAX_ZOOM/);
   });
+  it("holds the camera inside a region (a hard stop) and has Lower 48, Alaska and Hawaii buttons", () => {
+    expect(map).toContain("maxBounds");
+    expect(map).toContain("setMaxBounds");
+    expect(map).toContain("REGION_KEYS");
+    expect(map).toContain('className="rd-regions"');
+    expect(map).toContain("mapLng("); // the western Aleutians are drawn west of -180
+  });
   it("the Trucks and Trailers pages carry the map above the table on a split, narrowed by the same search", () => {
     for (const page of ["src/app/(desk)/fleet/page.tsx", "src/app/(desk)/trailers/page.tsx"]) {
       const src = read(page);

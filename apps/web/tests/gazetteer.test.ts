@@ -62,6 +62,10 @@ describe("typed places, offline", () => {
       expect(c.lat, t).toBeCloseTo(32.79, 1);
     }
     expect(findPlace("Atlanta, GA")!.label).toBe("Atlanta, GA");
+    // The Census names some cities longer; a typed city still finds them.
+    expect(findPlace("Honolulu, HI")!.label).toContain("Honolulu");
+    expect(findPlace("Nashville, TN")!.label).toContain("Nashville");
+    expect(findPlace("Anchorage, AK")!.lat).toBeCloseTo(61.2, 0);
     expect(findPlace("St. Louis, MO")!.label).toBe("St. Louis, MO");
     expect(findPlace("New York, NY")!.label).toContain("New York");
     const tx = findPlace("TX")!;
