@@ -7,6 +7,10 @@ import { searchDesk } from "@/server/tl/search";
 import { getAlerts } from "@/server/tl/alerts";
 import { listBoardRows } from "@/server/tl/queries";
 import { getPlannerData } from "@/server/tl/planner";
+import { stopClocksOf } from "@/server/tl/stop-clock";
+import { saveLoadDetails } from "@/server/tl/edit";
+import { startTrip } from "@/server/tl/execution";
+import { toEditValues } from "@/lib/load-edit";
 
 /**
  * Needs a seeded database (see tl-dispatch.integration.test.ts). Creates its own driver and loads, and removes them
@@ -143,6 +147,31 @@ describe.skipIf(!run)("audit trail, unassign and the double-booking guard", () =
     const item = [...plan.tray.flat()].find((i) => i.loadId === made.id);
     expect(item?.startZone).toBe("America/New_York");
     expect(item?.endZone).toBe("America/Chicago");
+  });
+
+  test("a time typed for an Eastern stop is read on Eastern time, and an unchanged edit form moves nothing", async () => {
+    const start = base + 100 * D;
+    const l = await makeLoad("AUD-TYPED", start, start + D, {
+      stops: {
+        create: [
+          { stopSequence: 1, stopType: "pickup", addressString: "Boston, MA", timeWindowEarliest: new Date(start), timeWindowLatest: new Date(start + 2 * H), referenceNumbers: ["PU-T"] },
+          { stopSequence: 2, stopType: "delivery", addressString: "Dallas, TX", timeWindowEarliest: new Date(start + D - 2 * H), timeWindowLatest: new Date(start + D), referenceNumbers: ["DEL-T"] }
+        ]
+      }
+    });
+    // The edit form shows the window on each stop's own clock and reads it back the same: saving with nothing changed changes nothing.
+    const stored = await prisma.load.findUniqueOrThrow({ where: { id: l.id }, include: { stops: { orderBy: { stopSequence: "asc" } } } });
+    const clocks = await stopClocksOf(l.id, WS);
+    expect(clocks.map((c) => c.zone)).toEqual(["America/New_York", "America/Chicago"]);
+    const form = toEditValues(stored, Object.fromEntries(clocks.map((c) => [c.id, c.zone])));
+    expect(await saveLoadDetails(l.id, form)).toMatchObject({ ok: true, changed: false });
+    // A pickup typed as 8:00 for the Boston dock is 13:00 UTC in January.
+    await assignDriver({ loadId: l.id, driverId, pay: { kind: "flat", rate: 350 } });
+    await dispatchLoad(l.id);
+    await recordDriverResponse(l.id, "accepted");
+    expect(await startTrip(l.id, { arrivedAt: "2026-01-15T08:00", waitMinutes: "", seal: "" })).toEqual({ ok: true });
+    const pickup = await prisma.stop.findFirstOrThrow({ where: { loadId: l.id, stopSequence: 1 } });
+    expect(pickup.arrivedAt!.toISOString()).toBe("2026-01-15T13:00:00.000Z");
   });
 
   test("the alerts say when their read of delivered loads was cut short", async () => {

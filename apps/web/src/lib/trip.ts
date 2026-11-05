@@ -5,9 +5,10 @@ import { parseCentralLocal } from "./zoned";
  * the delivery (arrival and wait at each stop, when it was delivered, whether there is proof of delivery, what it cost) and the expenses on
  * their own. Checked here and again on the server. Pure.
  */
-export type StartValues = { arrivedAt: string; waitMinutes: string; seal: string };
+/** `zone`: the clock at the stop the time is typed for (an IANA zone). The desk fills it in from where the stop is; left out, a time is read on the carrier's clock. */
+export type StartValues = { arrivedAt: string; waitMinutes: string; seal: string; zone?: string | null };
 /** `seal` is the seal number put on or read at that stop (optional; blank keeps what is already recorded). */
-export type CompleteStopValues = { id: string; arrivedAt: string; waitMinutes: string; seal?: string };
+export type CompleteStopValues = { id: string; arrivedAt: string; waitMinutes: string; seal?: string; zone?: string | null };
 /** The costs a trip can carry beyond fuel and tolls, itemised as the phone does. Their total is added to "other" and kept as the load's other expense, so every sum that reads it is unchanged. */
 export const EXPENSE_ITEMS = [
   { key: "lumper", label: "Lumper" },
@@ -29,7 +30,7 @@ export type MilesValues = { pickup: string; loaded: string; home: string };
  */
 export type ExpenseValues = { fuel: string; tolls: string; misc: string; layover?: string; items?: Partial<Record<ExpenseItemKey, string>>; rider?: string; revenueNote?: string; miles?: MilesValues; backhaul?: boolean; /** On a TONU: the miles the truck drove for a load that was not ready. */ tonuMiles?: string };
 /** `actualRevenue` is the linehaul the broker actually paid, when it is not the rate on the load (a short pay, an adjusted rate): blank keeps the load's own rate. */
-export type CompleteValues = ExpenseValues & { stops: CompleteStopValues[]; deliveredAt: string; pod: "received" | "none"; podNote: string; actualRevenue?: string };
+export type CompleteValues = ExpenseValues & { stops: CompleteStopValues[]; deliveredAt: string; /** The clock at the last stop, where the delivery happened. */ deliveredZone?: string | null; pod: "received" | "none"; podNote: string; actualRevenue?: string };
 
 export type TripErrors = Record<string, string>;
 export type StartInput = { arrivedAt: Date; waitMinutes: number | null; seal: string | null };
@@ -55,13 +56,13 @@ const t = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 /** A clock a little ahead is allowed: the dispatcher's clock and the driver's are not the same. */
 const FUTURE_SLACK_MS = 10 * 60_000;
 
-function time(errors: TripErrors, key: string, raw: string, now: number, required: boolean): Date | null {
+function time(errors: TripErrors, key: string, raw: string, now: number, required: boolean, zone?: string | null): Date | null {
   const s = t(raw);
   if (s === "") {
     if (required) errors[key] = "When? Pick a date and time.";
     return null;
   }
-  const ms = parseCentralLocal(s);
+  const ms = parseCentralLocal(s, zone ?? undefined);
   if (ms == null) {
     errors[key] = "A real date and time.";
     return null;
@@ -135,7 +136,7 @@ export function validateCorrection(v: CorrectValues, now = Date.now()): { ok: tr
   const stops = v.stops.map((s, i) => {
     const seal = t(s.seal ?? "");
     if (seal.length > 30) errors[`stop${i}.seal`] = "A seal number is 30 characters at most.";
-    return { id: s.id, arrivedAt: time(errors, `stop${i}.arrivedAt`, s.arrivedAt, now, false), waitMinutes: minutes(errors, `stop${i}.waitMinutes`, s.waitMinutes), seal: seal === "" ? null : seal };
+    return { id: s.id, arrivedAt: time(errors, `stop${i}.arrivedAt`, s.arrivedAt, now, false, s.zone), waitMinutes: minutes(errors, `stop${i}.waitMinutes`, s.waitMinutes), seal: seal === "" ? null : seal };
   });
   const reason = t(v.reason);
   if (reason.length < 3) errors.reason = "Say what was wrong, so the record shows why it changed.";
@@ -156,7 +157,7 @@ export function validateCorrection(v: CorrectValues, now = Date.now()): { ok: tr
 
 export function validateStart(v: StartValues, now = Date.now()): { ok: true; value: StartInput } | { ok: false; errors: TripErrors } {
   const errors: TripErrors = {};
-  const arrivedAt = time(errors, "arrivedAt", v.arrivedAt, now, true);
+  const arrivedAt = time(errors, "arrivedAt", v.arrivedAt, now, true, v.zone);
   const waitMinutes = minutes(errors, "waitMinutes", v.waitMinutes);
   const seal = t(v.seal);
   if (seal.length > 30) errors.seal = "A seal number is 30 characters at most.";
@@ -169,9 +170,9 @@ export function validateComplete(v: CompleteValues, now = Date.now()): { ok: tru
   const stops = v.stops.map((s, i) => {
     const seal = t(s.seal ?? "");
     if (seal.length > 30) errors[`stop${i}.seal`] = "A seal number is 30 characters at most.";
-    return { id: s.id, arrivedAt: time(errors, `stop${i}.arrivedAt`, s.arrivedAt, now, false), waitMinutes: minutes(errors, `stop${i}.waitMinutes`, s.waitMinutes), seal: seal === "" ? null : seal };
+    return { id: s.id, arrivedAt: time(errors, `stop${i}.arrivedAt`, s.arrivedAt, now, false, s.zone), waitMinutes: minutes(errors, `stop${i}.waitMinutes`, s.waitMinutes), seal: seal === "" ? null : seal };
   });
-  const deliveredAt = time(errors, "deliveredAt", v.deliveredAt, now, true);
+  const deliveredAt = time(errors, "deliveredAt", v.deliveredAt, now, true, v.deliveredZone);
   const note = t(v.podNote);
   if (v.pod !== "received" && v.pod !== "none") errors.pod = "Say whether there is proof of delivery.";
   if (v.pod === "none" && note.length < 3) errors.podNote = "Say why there is no proof of delivery.";

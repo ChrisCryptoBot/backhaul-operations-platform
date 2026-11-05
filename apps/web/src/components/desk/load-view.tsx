@@ -32,6 +32,7 @@ import { DeleteLoadButton } from "./delete-load";
 import { deriveTimeline } from "@/lib/desk-timeline";
 import { CAN_CANCEL, CAN_RESCHEDULE, CAN_TONU, reasonLabel } from "@/lib/disruptions";
 import { toCentralLocal } from "@/lib/zoned";
+import { workspaceTimezone } from "@/server/tl/zone";
 import { ACTION_LABEL } from "@/lib/audit-diff";
 import { gapsPhrase, refList, sendReadiness } from "@/lib/send-readiness";
 import { SHELF_CAPABILITIES, shelfFor, shelfHeader, type ShelfCapability } from "@/lib/partner-shelf";
@@ -119,14 +120,20 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     const n = num(v);
     return n > 0 ? String(n) : "";
   };
+  // A time typed for a stop is the dock's time (src/lib/tz.ts): each stop's own clock, from where it is, falling back to the workspace's.
+  const workspaceZone = await workspaceTimezone(currentWorkspaceId());
+  const stopZones = Object.fromEntries(load.stops.map((s) => [s.id, stopZoneOf(s, workspaceZone)]));
+  const lastStopZone = load.stops.length > 0 ? stopZones[load.stops[load.stops.length - 1]!.id] : undefined;
+  const pickupStop = load.stops.find((s) => s.timeWindowEarliest != null);
   const tripStops = load.stops.map((s) => ({
     id: s.id,
     sequence: s.stopSequence,
     role: s.stopRole ?? s.stopType,
     place: s.facilityName ?? s.addressString,
-    arrivedLocal: s.arrivedAt ? toCentralLocal(s.arrivedAt.getTime()) : "",
+    zone: stopZones[s.id],
+    arrivedLocal: s.arrivedAt ? toCentralLocal(s.arrivedAt.getTime(), stopZones[s.id]) : "",
     waitMinutes: s.waitMinutes != null ? String(s.waitMinutes) : "",
-    opensLocal: s.timeWindowEarliest ? toCentralLocal(s.timeWindowEarliest.getTime()) : "",
+    opensLocal: s.timeWindowEarliest ? toCentralLocal(s.timeWindowEarliest.getTime(), stopZones[s.id]) : "",
     seal: s.sealNumber ?? ""
   }));
   const tripVisible = !!a && ["accepted", "in_progress", "completed", "tonu"].includes(load.status);
@@ -461,7 +468,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           driverName={a?.driver.name ?? null}
           stops={tripStops}
           expenses={{ fuel: stored(load.expenseFuelActual), tolls: stored(load.expenseTolls), misc: stored(Math.max(0, num(load.expenseMisc) - itemisedSum)), layover: stored(load.layoverPay), items: storedItems, rider: stored(load.insuranceRiderFlat), revenueNote: load.revenueNote ?? "", miles: { pickup: stored(load.pickupDeadheadMiles), loaded: stored(load.loadedMiles), home: stored(load.returnDeadheadMiles) }, backhaul: load.isBackhaul, tonuMiles: stored(load.tonuMiles) }}
-          delivered={load.completedAt ? toCentralLocal(load.completedAt.getTime()) : ""}
+          delivered={load.completedAt ? toCentralLocal(load.completedAt.getTime(), lastStopZone) : ""}
           pod={{ note: load.podNote ?? "", without: load.closedWithoutPod === true }}
           quoted={stored(load.quotedRevenue)}
           canDispatch={may("dispatch")}
@@ -476,7 +483,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--db-2)" }}>
         <h3 style={{ margin: 0 }}>Stops Sequence</h3>
         {fellThrough ? null : (
-          <LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load)} scheduleLocked={scheduleLocked} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} truckName={load.vehicle?.name ?? null} dealLocked={load.paymentStatus ? "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." : settled ? "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." : null} />
+          <LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load, stopZones)} scheduleLocked={scheduleLocked} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} truckName={load.vehicle?.name ?? null} dealLocked={load.paymentStatus ? "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." : settled ? "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." : null} />
         )}
       </div>
 
@@ -915,7 +922,8 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
             loadId={load.id}
             loadNumber={load.loadNumber ?? "This load"}
             can={can}
-            pickupLocal={firstPickup ? toCentralLocal(firstPickup.getTime()) : null}
+            pickupLocal={firstPickup ? toCentralLocal(firstPickup.getTime(), pickupStop ? stopZones[pickupStop.id] : undefined) : null}
+            pickupZone={pickupStop ? stopZones[pickupStop.id] : undefined}
             driverName={a?.driver.name ?? null}
             reconfirm={!!a && (a.status === "dispatched" || a.status === "accepted")}
           />

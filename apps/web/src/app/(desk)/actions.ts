@@ -15,6 +15,9 @@ import { ZONE_COOKIE } from "@/lib/tz";
 import { cancelLoad, recordTonu, reopenCancelled, rescheduleLoad } from "@/server/tl/disruptions";
 import { invoiceLoad, markLoadPaid } from "@/server/tl/invoicing";
 import { parseCentralLocal } from "@/lib/zoned";
+import { currentWorkspaceId } from "@/server/tl/workspace";
+import { pickupClock, stopClocksOf } from "@/server/tl/stop-clock";
+import { workspaceTimezone } from "@/server/tl/zone";
 import { saveThresholds } from "@/server/tl/thresholds";
 import { saveCompany } from "@/server/tl/company";
 import { saveCustomer, type SaveCustomerResult } from "@/server/tl/customers";
@@ -191,7 +194,9 @@ export async function rescheduleAction(formData: FormData) {
   await requireCan("dispatch");
   const loadId = text(formData, "loadId");
   await attempt(loadId, async () => {
-    const at = parseCentralLocal(text(formData, "pickup"));
+    // The new pickup is typed on the clock at the pickup (the dock's time), as the dialog says.
+    const ws = currentWorkspaceId();
+    const at = parseCentralLocal(text(formData, "pickup"), pickupClock(await stopClocksOf(loadId, ws), await workspaceTimezone(ws)));
     if (at == null) throw new DispatchError("bad_time", "Pick a date and time for the new pickup.");
     await rescheduleLoad({ loadId, newPickup: new Date(at), reason: text(formData, "reason"), note: text(formData, "note") });
     return "Pickup rescheduled. Every stop moved with it.";

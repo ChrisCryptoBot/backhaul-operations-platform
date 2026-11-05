@@ -70,4 +70,12 @@ describe("the server asks the workspace, not the cookie, wherever money is added
     expect(s).toContain("periodCovering(g.loads.map((l) => l.completedAt), tz)");
     expect(src("src/app/(desk)/settlements/page.tsx")).toContain("await workspaceTimezone(currentWorkspaceId())");
   });
+
+  it("every date in an exported file is on the workspace's zone, not the display cookie", () => {
+    const x = src("src/server/tl/exports.ts");
+    expect(x).toContain("const tz = await workspaceTimezone(currentWorkspaceId())");
+    expect(x).not.toContain("activeTz");
+    // The audit export stamps each event on the same clock.
+    expect(x).toContain("toCentralLocal(e.createdAt.getTime(), tz)");
+  });
 });

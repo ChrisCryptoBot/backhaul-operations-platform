@@ -11,6 +11,7 @@ import { tripHoursOf } from "./dispatch";
 import { payEstimate, type PayKind } from "./projector";
 import { rateConTotal } from "@/lib/pay";
 import { currentWorkspaceId } from "./workspace";
+import { stopClocksOf } from "./stop-clock";
 
 /**
  * Entering a trip for a driver who is not entering it on the phone. It is the same record the phone writes: arrival and wait at each stop, the
@@ -107,7 +108,9 @@ async function loadFor(loadId: string, workspaceId: string) {
 
 /** The driver picked up: they arrived at the first stop, waited, and sealed the trailer. The load is on the road. */
 export async function startTrip(loadId: string, values: StartValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult> {
-  const check = validateStart(values, now.getTime());
+  // A time typed for a stop is the dock's time: read on the clock where the stop is (the zone the browser sent is not trusted).
+  const clocks = await stopClocksOf(loadId, workspaceId);
+  const check = validateStart({ ...values, zone: clocks[0]?.zone }, now.getTime());
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
   const load = await loadFor(loadId, workspaceId);
@@ -205,7 +208,8 @@ export async function reopenDelivered(loadId: string, reason: string, now = new 
  * rate becomes the load's actual revenue, as the phone does, and the waits add up to the dock wait the verdict reads.
  */
 export async function completeTrip(loadId: string, values: CompleteValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult> {
-  const check = validateComplete(values, now.getTime());
+  const clocks = await stopClocksOf(loadId, workspaceId);
+  const check = validateComplete({ ...values, deliveredZone: clocks[clocks.length - 1]?.zone, stops: values.stops.map((s) => ({ ...s, zone: clocks.find((c) => c.id === s.id)?.zone })) }, now.getTime());
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
   const load = await loadFor(loadId, workspaceId);
@@ -331,7 +335,8 @@ export async function saveExpenses(loadId: string, values: ExpenseValues, now = 
  * delivered can be corrected; not once an invoice is made from it (it carries what was billed), unless only a seal changed. The reason is kept.
  */
 export async function correctTrip(loadId: string, values: CorrectValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult & { changed?: boolean }> {
-  const check = validateCorrection(values, now.getTime());
+  const clocks = await stopClocksOf(loadId, workspaceId);
+  const check = validateCorrection({ ...values, stops: values.stops.map((s) => ({ ...s, zone: clocks.find((c) => c.id === s.id)?.zone })) }, now.getTime());
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
   const load = await loadFor(loadId, workspaceId);

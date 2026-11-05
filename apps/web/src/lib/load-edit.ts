@@ -11,9 +11,11 @@ export type EditStopValues = {
   role: "pickup" | "delivery";
   address: string;
   facility: string;
-  /** "2026-10-30T08:00" on the Dallas clock, or blank. */
+  /** "2026-10-30T08:00" on the clock at the stop (`zone`), or blank: the dock's time, as the rate confirmation prints it. */
   earliest: string;
   latest: string;
+  /** The clock at this stop (an IANA zone), filled in from where the stop is. Left out, a time is read on the carrier's clock. */
+  zone?: string | null;
   /** Reference numbers, separated by commas. */
   refs: string;
   contactName: string;
@@ -156,8 +158,8 @@ export function validateLoadEdit(v: LoadEditValues): LoadEditCheck {
     const refs = splitRefs(s.refs);
     if (refs.length > 10) errors[key("refs")] = "Ten reference numbers at most.";
     else if (refs.some((r) => r.length > 40)) errors[key("refs")] = "A reference number is too long.";
-    const earliest = t(s.earliest) ? parseCentralLocal(t(s.earliest)) : null;
-    const latest = t(s.latest) ? parseCentralLocal(t(s.latest)) : null;
+    const earliest = t(s.earliest) ? parseCentralLocal(t(s.earliest), s.zone ?? undefined) : null;
+    const latest = t(s.latest) ? parseCentralLocal(t(s.latest), s.zone ?? undefined) : null;
     if (t(s.earliest) && earliest == null) errors[key("earliest")] = "A real date and time.";
     if (t(s.latest) && latest == null) errors[key("latest")] = "A real date and time.";
     if (latest != null && earliest == null && !errors[key("latest")]) errors[key("earliest")] = "Add when the window opens.";
@@ -230,10 +232,10 @@ type StoredLoad = {
   stops: Array<{ id: string; stopRole: string | null; stopType: string; addressString: string; facilityName: string | null; timeWindowEarliest: Date | null; timeWindowLatest: Date | null; referenceNumbers: unknown; contactName: string | null; contactPhone: string | null; stopNotes: string | null }>;
 };
 
-/** The form's values from a stored load, with times on the Dallas clock. */
-export function toEditValues(load: StoredLoad): LoadEditValues {
+/** The form's values from a stored load, each stop's times on the clock at that stop (`zones` by stop id; a stop with none is on the carrier's clock). */
+export function toEditValues(load: StoredLoad, zones: Record<string, string> = {}): LoadEditValues {
   const s = (v: unknown) => (v == null ? "" : String(v));
-  const local = (d: Date | null) => (d ? toCentralLocal(d.getTime()) : "");
+  const local = (d: Date | null, zone?: string) => (d ? toCentralLocal(d.getTime(), zone) : "");
   /** A stored decimal as the figure to show: no trailing zeros, blank when there is none or it is zero. */
   const money = (v: unknown) => {
     if (v == null) return "";
@@ -272,8 +274,9 @@ export function toEditValues(load: StoredLoad): LoadEditValues {
       role: (x.stopRole ?? x.stopType) === "delivery" ? "delivery" : "pickup",
       address: x.addressString,
       facility: s(x.facilityName),
-      earliest: local(x.timeWindowEarliest),
-      latest: local(x.timeWindowLatest),
+      earliest: local(x.timeWindowEarliest, zones[x.id]),
+      latest: local(x.timeWindowLatest, zones[x.id]),
+      zone: zones[x.id] ?? null,
       refs: Array.isArray(x.referenceNumbers) ? (x.referenceNumbers as unknown[]).map(String).join(", ") : "",
       contactName: s(x.contactName),
       contactPhone: s(x.contactPhone),

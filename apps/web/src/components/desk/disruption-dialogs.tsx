@@ -26,14 +26,17 @@ export function DisruptionButtons({
   loadNumber,
   can,
   pickupLocal,
+  pickupZone,
   driverName,
   reconfirm
 }: {
   loadId: string;
   loadNumber: string;
   can: { reschedule: boolean; cancel: boolean; tonu: boolean };
-  /** The current pickup as "2026-10-30T08:00" on the Dallas clock, to start the date field from. */
+  /** The current pickup as "2026-10-30T08:00" on the clock at the pickup, to start the date field from. */
   pickupLocal: string | null;
+  /** The clock at the pickup (an IANA zone). */
+  pickupZone?: string;
   driverName: string | null;
   /** The driver already has the load, so a new time means they have to confirm again. */
   reconfirm: boolean;
@@ -107,7 +110,7 @@ export function DisruptionButtons({
       <Modal open={open === "reschedule"} onClose={close} eyebrow={loadNumber} title="Move the pickup">
         <form action={rescheduleAction} className="dlg-form" onSubmit={onSend}>
           <input type="hidden" name="loadId" value={loadId} />
-          <p className="tl-note">Every stop moves by the same amount, so the time between them stays as it was. Times are {clockName()}.</p>
+          <p className="tl-note">Every stop moves by the same amount, so the time between them stays as it was. The new time is the pickup&apos;s own clock, {clockName(pickupZone)}.</p>
           <label className="tl-field">
             New pickup
             <DateInput type="datetime-local" name="pickup" required value={v.pickup} onChange={(e) => set({ pickup: e.target.value })} />

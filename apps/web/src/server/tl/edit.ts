@@ -18,6 +18,8 @@ import { truckLimits } from "./quote";
 import { duplicateMessage, findTwinLoad } from "./twins";
 import { enqueueForLoad } from "@/server/bridge/outbox";
 import { currentWorkspaceId } from "./workspace";
+import { stopClocksOf } from "./stop-clock";
+import { workspaceTimezone } from "./zone";
 
 /**
  * Change what a booked load says. Anything can be corrected while the load is open; once it is on the road or delivered its details (who it is
@@ -32,7 +34,10 @@ const text = (v: unknown) => (v == null || v === "" ? null : String(v));
 const yesNo = (v: boolean | null | undefined) => (v === true ? "Yes" : "No");
 
 export async function saveLoadDetails(loadId: string, values: LoadEditValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<EditResult> {
-  const check = validateLoadEdit(values);
+  // The times typed for a stop are the dock's: read on the clock where each stop is, worked out here and not taken from the browser.
+  const clocks = await stopClocksOf(loadId, workspaceId);
+  const carrier = await workspaceTimezone(workspaceId);
+  const check = validateLoadEdit({ ...values, stops: values.stops.map((s) => ({ ...s, zone: clocks.find((c) => c.id === s.id)?.zone ?? carrier })) });
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
   const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null }, include: { stops: { orderBy: { stopSequence: "asc" } }, assignment: { include: { driver: true } }, vehicle: true, settlement: true } });

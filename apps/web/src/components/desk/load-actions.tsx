@@ -20,7 +20,7 @@ import { useToast } from "./kit/toast";
 import { DraftNote, useDraft } from "./kit/use-draft";
 import { tried } from "./kit/tried";
 import { DateInput } from "./date-input";
-import { clockName } from "@/lib/tz";
+import { activeTz, clockName, zoneAbbr } from "@/lib/tz";
 
 type Errors = Record<string, string>;
 
@@ -96,7 +96,10 @@ function TripExtras<T extends ExpenseValues>({ v, set, errors, tonu }: { v: T; s
   );
 }
 
-const nowLocal = () => toCentralLocal(Date.now());
+/** Now, as "2026-10-30T08:00" on the clock in `zone` (a stop's clock for a time typed for that stop), else on the carrier's. */
+const nowLocal = (zone?: string) => toCentralLocal(Date.now(), zone);
+/** A short name for a clock, "ET", for a label; no zone means the carrier's own. */
+const clockOf = (zone?: string | null) => zoneAbbr(zone ?? activeTz());
 
 // ── Edit a load ────────────────────────────────────────────────────────────────────────────────
 
@@ -284,10 +287,10 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
                     <Fld label="Address" error={errors[`stop${i}.address`]}>
                       <AddressInput label={`Address for stop ${i + 1}`} value={s.address} disabled={scheduleLocked} onChange={(text) => setStop(i, { address: text })} invalid={!!errors[`stop${i}.address`]} />
                     </Fld>
-                    <Fld label={`Opens (${clockName()})`} error={errors[`stop${i}.earliest`]}>
+                    <Fld label={`Opens (${clockName(s.zone ?? undefined)})`} error={errors[`stop${i}.earliest`]}>
                       <DateInput type="datetime-local" value={s.earliest} disabled={scheduleLocked} onChange={(e) => setStop(i, { earliest: e.target.value })} />
                     </Fld>
-                    <Fld label="Closes" error={errors[`stop${i}.latest`]}>
+                    <Fld label={`Closes (${clockName(s.zone ?? undefined)})`} error={errors[`stop${i}.latest`]}>
                       <DateInput type="datetime-local" value={s.latest} disabled={scheduleLocked} onChange={(e) => setStop(i, { latest: e.target.value })} />
                     </Fld>
                     <Fld label="Facility" error={errors[`stop${i}.facility`]}>
@@ -318,8 +321,11 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
 
 // ── Enter the trip for the driver ──────────────────────────────────────────────────────────────
 
-/** `opensLocal` is when the stop window opens (the carrier clock), for the early-arrival advisory. */
-export type TripStop = { id: string; sequence: number; role: string; place: string; arrivedLocal: string; waitMinutes: string; seal: string; opensLocal?: string };
+/**
+ * `opensLocal` is when the stop window opens, for the early-arrival advisory. Both it and `arrivedLocal` are on the clock at the stop (`zone`): a time typed for a stop is the dock's time, as
+ * the rate confirmation prints it.
+ */
+export type TripStop = { id: string; sequence: number; role: string; place: string; arrivedLocal: string; waitMinutes: string; seal: string; opensLocal?: string; zone?: string };
 
 /**
  * What the driver did, entered by the desk: the pickup (arrival, wait, seal), the delivery (arrival and wait at each stop, when, proof of
@@ -369,13 +375,16 @@ export function TripEntry({
   const canComplete = status === "in_progress";
   const canExpense = status === "in_progress" || status === "completed" || status === "tonu";
   const later = stops.slice(1);
+  const pickupZone = stops[0]?.zone;
+  const deliveryZone = stops[stops.length - 1]?.zone;
+  const zoneOfStop = (id: string) => stops.find((s) => s.id === id)?.zone;
 
   function open(next: "start" | "complete" | "expenses" | "correct") {
     setErrors({});
     setMessage(null);
     // The starting figures go in only when nothing has been typed; what was typed stays.
-    if (next === "start" && start.arrivedAt === "" && start.waitMinutes === "" && start.seal === "") setStart({ arrivedAt: nowLocal(), waitMinutes: "", seal: "" });
-    if (next === "complete" && done.deliveredAt === "") setDone({ stops: later.map((s) => ({ id: s.id, arrivedAt: s.arrivedLocal, waitMinutes: s.waitMinutes, seal: s.seal })), deliveredAt: nowLocal(), pod: "received", podNote: "", fuel: expenses.fuel, tolls: expenses.tolls, misc: expenses.misc, layover: expenses.layover ?? "", items: expenses.items, rider: expenses.rider, revenueNote: expenses.revenueNote, miles: expenses.miles, backhaul: expenses.backhaul, actualRevenue: "" });
+    if (next === "start" && start.arrivedAt === "" && start.waitMinutes === "" && start.seal === "") setStart({ arrivedAt: nowLocal(pickupZone), waitMinutes: "", seal: "" });
+    if (next === "complete" && done.deliveredAt === "") setDone({ stops: later.map((s) => ({ id: s.id, arrivedAt: s.arrivedLocal, waitMinutes: s.waitMinutes, seal: s.seal })), deliveredAt: nowLocal(deliveryZone), pod: "received", podNote: "", fuel: expenses.fuel, tolls: expenses.tolls, misc: expenses.misc, layover: expenses.layover ?? "", items: expenses.items, rider: expenses.rider, revenueNote: expenses.revenueNote, miles: expenses.miles, backhaul: expenses.backhaul, actualRevenue: "" });
     // A correction starts from what is recorded; a draft kept for other stops (the load changed) is not used.
     if (next === "correct" && (fix.stops.length !== stops.length || fix.stops.some((s, i) => s.id !== stops[i]?.id))) setFix({ stops: stops.map((s) => ({ id: s.id, arrivedAt: s.arrivedLocal, waitMinutes: s.waitMinutes, seal: s.seal })), detentionRate: "", detentionGraceMinutes: "", reason: "" });
     setMode(next);
@@ -421,7 +430,7 @@ export function TripEntry({
                   {s.sequence}. {s.role}
                   <div className="tl-sub">{s.place}</div>
                 </td>
-                <td>{s.arrivedLocal ? s.arrivedLocal.replace("T", " ") : <span className="dim">—</span>}</td>
+                <td>{s.arrivedLocal ? `${s.arrivedLocal.replace("T", " ")} ${clockOf(s.zone)}` : <span className="dim">—</span>}</td>
                 <td className="num">{s.waitMinutes ? `${s.waitMinutes} min` : <span className="dim">—</span>}</td>
                 <td>{s.seal || <span className="dim">—</span>}</td>
               </tr>
@@ -436,7 +445,7 @@ export function TripEntry({
           {delivered ? (
             <>
               <dt>Delivered</dt>
-              <dd>{delivered.replace("T", " ")} {clockName()}</dd>
+              <dd>{delivered.replace("T", " ")} {clockName(deliveryZone)}</dd>
             </>
           ) : null}
           <dt>Proof of delivery</dt>
@@ -491,7 +500,7 @@ export function TripEntry({
               className="tl-btn primary"
               disabled={busy}
               onClick={() => {
-                const c = validateStart(start);
+                const c = validateStart({ ...start, zone: pickupZone });
                 if (!c.ok) return setErrors(c.errors);
                 void run(() => startTripAction(loadId, start), "Picked up. The load is on the road.", startDraft);
               }}>
@@ -500,8 +509,8 @@ export function TripEntry({
           </>
         }>
         <div className="dlg-form">
-          <p className="tl-note">The load goes on the road. Times are {clockName()}, and are what has already happened.</p>
-          <Fld label="Arrived at the pickup" error={errors.arrivedAt}>
+          <p className="tl-note">The load goes on the road. Times are on the clock at the dock ({clockName(pickupZone)}), and are what has already happened.</p>
+          <Fld label={`Arrived at the pickup (${clockOf(pickupZone)})`} error={errors.arrivedAt}>
             <DateInput type="datetime-local" value={start.arrivedAt} onChange={(e) => setStart({ ...start, arrivedAt: e.target.value })} />
           </Fld>
           <div className="dlg-two">
@@ -532,7 +541,7 @@ export function TripEntry({
               className="tl-btn primary"
               disabled={busy}
               onClick={() => {
-                const c = validateComplete(done);
+                const c = validateComplete({ ...done, deliveredZone: deliveryZone, stops: done.stops.map((x) => ({ ...x, zone: zoneOfStop(x.id) })) });
                 if (!c.ok) return setErrors(c.errors);
                 void run(() => completeTripAction(loadId, done), "Delivered. It is ready to invoice.", doneDraft);
               }}>
@@ -543,7 +552,7 @@ export function TripEntry({
         <div className="dlg-form">
           {later.map((s, i) => (
             <div key={s.id} className="dlg-two">
-              <Fld label={`Arrived at stop ${s.sequence} (${s.role})`} error={errors[`stop${i}.arrivedAt`]}>
+              <Fld label={`Arrived at stop ${s.sequence} (${s.role}, ${clockOf(s.zone)})`} error={errors[`stop${i}.arrivedAt`]}>
                 <DateInput type="datetime-local" value={done.stops[i]?.arrivedAt ?? ""} onChange={(e) => setDone({ ...done, stops: done.stops.map((x, k) => (k === i ? { ...x, arrivedAt: e.target.value } : x)) })} />
               </Fld>
               <Fld label="Waited (minutes)" error={errors[`stop${i}.waitMinutes`]}>
@@ -554,7 +563,7 @@ export function TripEntry({
               </Fld>
             </div>
           ))}
-          <Fld label="Delivered at" error={errors.deliveredAt}>
+          <Fld label={`Delivered at (${clockOf(deliveryZone)})`} error={errors.deliveredAt}>
             <DateInput type="datetime-local" value={done.deliveredAt} onChange={(e) => setDone({ ...done, deliveredAt: e.target.value })} />
           </Fld>
           <div role="radiogroup" aria-label="Proof of delivery" className="le-checks">
@@ -606,7 +615,7 @@ export function TripEntry({
               className="tl-btn primary"
               disabled={busy}
               onClick={() => {
-                const c = validateCorrection(fix);
+                const c = validateCorrection({ ...fix, stops: fix.stops.map((x) => ({ ...x, zone: zoneOfStop(x.id) })) });
                 if (!c.ok) return setErrors(c.errors);
                 void run(() => correctTripAction(loadId, fix), "Corrected.", fixDraft);
               }}>
@@ -622,7 +631,7 @@ export function TripEntry({
             const early = s.opensLocal && arrived && arrived < s.opensLocal ? Math.round((Date.parse(`${s.opensLocal}:00Z`) - Date.parse(`${arrived}:00Z`)) / 60000) : 0;
             return (
               <div key={s.id} className="dlg-two">
-                <Fld label={`Arrived at stop ${s.sequence} (${s.role})`} error={errors[`stop${i}.arrivedAt`]} hint={early > 0 ? `${early} min before the window opened. Free time starts when it opens, so the wait to enter is counted from then.` : undefined}>
+                <Fld label={`Arrived at stop ${s.sequence} (${s.role}, ${clockOf(s.zone)})`} error={errors[`stop${i}.arrivedAt`]} hint={early > 0 ? `${early} min before the window opened. Free time starts when it opens, so the wait to enter is counted from then.` : undefined}>
                   <DateInput type="datetime-local" value={arrived} onChange={(e) => setFix({ ...fix, stops: fix.stops.map((x, k) => (k === i ? { ...x, arrivedAt: e.target.value } : x)) })} />
                 </Fld>
                 <Fld label="Waited (minutes)" error={errors[`stop${i}.waitMinutes`]}>

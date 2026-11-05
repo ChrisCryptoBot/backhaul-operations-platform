@@ -11,7 +11,8 @@ import { moneyState } from "@/lib/money-state";
 import { asSort } from "@/lib/paging";
 import { paidMethodLabel } from "@/lib/pay-method";
 import { toCentralLocal } from "@/lib/zoned";
-import { activeTz } from "@/lib/tz";
+import { currentWorkspaceId } from "./workspace";
+import { workspaceTimezone } from "./zone";
 import { factoringLabel } from "@/server/partners/factoring";
 import { listAudit } from "./audit";
 import { listTrailersPage } from "./trailers";
@@ -41,8 +42,8 @@ type Query = Record<string, string | string[] | undefined>;
 
 const two = (n: number | null | undefined): number | null => (n == null || !Number.isFinite(n) ? null : new Prisma.Decimal(n).toDecimalPlaces(2).toNumber());
 const pctOf = (fraction: number | null | undefined): number | null => (fraction == null || !Number.isFinite(fraction) ? null : new Prisma.Decimal(fraction).times(100).toDecimalPlaces(1).toNumber());
-/** A date in an export, on the carrier's own clock (src/lib/tz.ts), "2026-10-30". */
-const ymd = (d: Date | null | undefined): string | null => (d ? new Intl.DateTimeFormat("en-CA", { timeZone: activeTz(), year: "numeric", month: "2-digit", day: "2-digit" }).format(d) : null);
+/** A date in an export on the clock `tz`, "2026-10-30". A file is money and records: its dates are the workspace's own zone (never the display cookie), so the same load is on the same day for everyone who exports it. */
+const ymdIn = (d: Date | null | undefined, tz: string): string | null => (d ? new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(d) : null);
 const utcYmd = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null);
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
@@ -50,6 +51,8 @@ const SETTLEMENT_STATUS: Record<string, string> = { draft: "Draft", final: "Fina
 
 export async function buildExport(kind: string, query: Query, now = new Date(), opts: { maxRows?: number } = {}): Promise<{ filename: string; csv: string } | null> {
   const cap = opts.maxRows ?? MAX_EXPORT_ROWS;
+  const tz = await workspaceTimezone(currentWorkspaceId());
+  const ymd = (d: Date | null | undefined) => ymdIn(d, tz);
   const day = ymd(now)!;
   const name = (part: string) => `truelane-desk-${part}-${day}.csv`;
 
@@ -309,7 +312,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
       filename: total > rows.length ? name(`audit-log-latest-${rows.length}`) : name("audit-log"),
       csv: toCsv(
         ["When (Central)", "Load", "What", "Detail", "Reason", "By"],
-        rows.map((e): CsvCell[] => [toCentralLocal(e.createdAt.getTime()).replace("T", " "), e.loadNumber, ACTION_LABEL[e.action] ?? e.action, e.summary, e.reason, e.actor])
+        rows.map((e): CsvCell[] => [toCentralLocal(e.createdAt.getTime(), tz).replace("T", " "), e.loadNumber, ACTION_LABEL[e.action] ?? e.action, e.summary, e.reason, e.actor])
       )
     };
   }
