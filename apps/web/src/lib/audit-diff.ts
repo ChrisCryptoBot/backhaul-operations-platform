@@ -93,6 +93,7 @@ export type AuditAction =
   | "carrier_vetted"
   | "payroll_sent"
   | "partner_connected"
+  | "timezone_changed"
   | "driver_link_flag"
   | "trailer_added"
   | "trailer_changed"
@@ -171,6 +172,7 @@ export const ACTION_LABEL: Record<string, string> = {
   carrier_vetted: "Carrier checked",
   payroll_sent: "Sent to payroll",
   partner_connected: "Company connected",
+  timezone_changed: "Time zone changed",
   driver_link_flag: "Out of step with the driver's phone",
   trailer_added: "Trailer added",
   trailer_changed: "Trailer changed",
@@ -250,6 +252,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   carrier_vetted: "info",
   payroll_sent: "ok",
   partner_connected: "info",
+  timezone_changed: "info",
   driver_link_flag: "warn",
   trailer_added: "info",
   trailer_changed: "muted",
@@ -270,5 +273,5 @@ export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[]
   { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_deactivated", "driver_reactivated", "truck_added", "truck_changed", "truck_archived", "truck_restored", "import_completed", "cost_profile_changed", "trailer_added", "trailer_changed", "trailer_archived", "trailer_restored", "trailer_hooked", "trailer_unhooked", "trailer_assigned"] },
   { key: "customers", label: "Customers", actions: ["customer_added", "customer_changed"] },
   { key: "partners", label: "Partners", actions: ["factoring_requested", "factoring_updated", "eld_linked", "hos_synced", "fuel_imported", "carrier_vetted", "payroll_sent", "partner_connected", "driver_link_flag"] },
-  { key: "settings", label: "Settings", actions: ["thresholds_changed", "company_changed"] }
+  { key: "settings", label: "Settings", actions: ["thresholds_changed", "company_changed", "timezone_changed"] }
 ];

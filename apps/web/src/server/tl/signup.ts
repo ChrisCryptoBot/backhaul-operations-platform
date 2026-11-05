@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { checkRequest, kindFor, parseTrucks, type RequestErrors, type RequestValues, type SignupKind } from "@/lib/signup";
+import { callTime, checkRequest, kindFor, parseTrucks, type RequestErrors, type RequestValues, type SignupKind } from "@/lib/signup";
 
 /**
  * Requests for an account. The kind (self-serve or enterprise) is worked out here from the truck count; the form never chooses it.
@@ -30,7 +30,7 @@ export async function saveSignupRequest(v: RequestValues): Promise<SaveRequestRe
       phone: v.phone || null,
       trucks,
       mcNumber: v.mcNumber || null,
-      bestTime: v.bestTime || null,
+      bestTime: callTime(v),
       note: v.note || null
     },
     select: { id: true }

@@ -8,6 +8,7 @@ import { Modal } from "./kit/modal";
 import { DateInput } from "./date-input";
 import { useDraft } from "./kit/use-draft";
 import { useSubmitOutcome } from "./kit/use-submit-outcome";
+import { clockName } from "@/lib/tz";
 
 type Kind = "reschedule" | "cancel" | "tonu";
 
@@ -106,7 +107,7 @@ export function DisruptionButtons({
       <Modal open={open === "reschedule"} onClose={close} eyebrow={loadNumber} title="Move the pickup">
         <form action={rescheduleAction} className="dlg-form" onSubmit={onSend}>
           <input type="hidden" name="loadId" value={loadId} />
-          <p className="tl-note">Every stop moves by the same amount, so the time between them stays as it was. Times are Dallas time.</p>
+          <p className="tl-note">Every stop moves by the same amount, so the time between them stays as it was. Times are {clockName()}.</p>
           <label className="tl-field">
             New pickup
             <DateInput type="datetime-local" name="pickup" required value={v.pickup} onChange={(e) => set({ pickup: e.target.value })} />

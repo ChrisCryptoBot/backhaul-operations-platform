@@ -1,4 +1,5 @@
-import { DESK_TZ } from "./zoned";
+import { activeTz } from "./tz";
+
 
 /** The most a message may hold. The same limit applies in the box, the action and the database write. */
 export const MAX_BODY = 1000;
@@ -36,17 +37,17 @@ export function snippet(body: string, max = 64): string {
   return `${(at > max * 0.6 ? cut.slice(0, at) : cut).trimEnd()}…`;
 }
 
-const ymd = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: DESK_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+const ymd = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: activeTz(), year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 
 /** "Today", "Yesterday" or "Oct 29", by the desk's own calendar (Central), never the browser's. */
 export function dayLabel(d: Date, now: Date = new Date()): string {
   const key = ymd(d);
   if (key === ymd(now)) return "Today";
   if (key === ymd(new Date(now.getTime() - 24 * 3_600_000))) return "Yesterday";
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: DESK_TZ });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: activeTz() });
 }
 
-export const timeLabel = (d: Date) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: DESK_TZ });
+export const timeLabel = (d: Date) => d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: activeTz() });
 
 /** A thread list's stamp: the time today, "Yesterday", or the date. */
 export function stamp(d: Date, now: Date = new Date()): string {

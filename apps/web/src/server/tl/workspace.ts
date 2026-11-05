@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
 import { NotSignedIn, authOn, sessionIdentity } from "./identity";
+// Registers how a time on a page finds the carrier's zone (src/lib/tz.ts); every server path that knows a workspace loads it.
+import "./zone";
 
 /**
  * The tenancy seam. The demo has one workspace; TrueLane's user_id / Clerk org id replaces `currentWorkspaceId` later without touching callers.

@@ -1,5 +1,6 @@
 import { boardSearchText, type BoardFilterable } from "./board-filter";
-import { DESK_TZ } from "./zoned";
+import { activeTz } from "./tz";
+
 
 /**
  * The Loads screen's two views. Open is the live board: loads that still need a driver, a confirmation or a trip. History is what has finished:
@@ -77,8 +78,8 @@ export function historyRows<T extends HistoryRow>(rows: T[], f: { filter?: strin
   return sorted;
 }
 
-const monthKey = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: DESK_TZ, year: "numeric", month: "2-digit" }).format(d);
-const monthLabel = (d: Date) => d.toLocaleDateString("en-US", { timeZone: DESK_TZ, month: "long", year: "numeric" });
+const monthKey = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: activeTz(), year: "numeric", month: "2-digit" }).format(d);
+const monthLabel = (d: Date) => d.toLocaleDateString("en-US", { timeZone: activeTz(), month: "long", year: "numeric" });
 
 /** Consecutive rows that fall in the same month on the Dallas calendar, in the order given. A row without a date goes under "Undated". */
 export function monthGroups<T extends HistoryRow>(rows: T[]): Array<{ key: string; label: string; rows: T[] }> {

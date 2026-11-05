@@ -24,7 +24,8 @@ export function ContactCard({ heading = "Talk to a person" }: { heading?: string
         <li>
           <span>Book a time</span>
           <a href={CONTACT.bookingUrl} target="_blank" rel="noopener noreferrer">
-            Pick a time that suits
+            Pick a time that suits <span aria-hidden="true">{"\u2197"}</span>
+            <span className="db-sr-only"> (opens the scheduling page in a new tab)</span>
           </a>
         </li>
       </ul>

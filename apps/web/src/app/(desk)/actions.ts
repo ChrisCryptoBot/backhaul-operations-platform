@@ -10,6 +10,8 @@ import { removeLoadDocument, type DocResult } from "@/server/tl/documents";
 import { addMember, setMemberGrants, removeMember, setMemberRole, type MemberResult } from "@/server/tl/members";
 import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
 import { retryBridgeDelivery } from "@/server/bridge/retry";
+import { setWorkspaceTimezone } from "@/server/tl/zone-setting";
+import { ZONE_COOKIE } from "@/lib/tz";
 import { cancelLoad, recordTonu, reopenCancelled, rescheduleLoad } from "@/server/tl/disruptions";
 import { invoiceLoad, markLoadPaid } from "@/server/tl/invoicing";
 import { parseCentralLocal } from "@/lib/zoned";
@@ -370,6 +372,17 @@ export async function saveCustomerAction(values: CustomerValues, id: string | nu
 // ── Appearance (Settings) ──────────────────────────────────────────────────────────────────────
 
 /** Saves the theme and/or density in cookies (read by the root layout) and returns to Settings with a note. */
+/** The carrier's own clock. Admin only: it moves where days, weeks and months are counted for everyone on the desk. */
+export async function saveTimezoneAction(formData: FormData) {
+  await requireCan("admin");
+  const out = await setWorkspaceTimezone(formData.get("timezone"));
+  if (!out.ok) redirect("/settings?error=" + encodeURIComponent(out.error));
+  // The page reads its clock from this cookie, so the person who changed it sees it at once; everyone else is brought to it on their next page (the shell checks it against the desk).
+  cookies().set(ZONE_COOKIE, out.zone, { path: "/", maxAge: 60 * 60 * 24 * 365, sameSite: "lax" });
+  revalidatePath("/", "layout");
+  redirect("/settings?note=" + encodeURIComponent(out.changed ? "Time zone saved." : "That is already the time zone."));
+}
+
 export async function setAppearanceAction(formData: FormData) {
   await requireCan("read");
   const jar = cookies();

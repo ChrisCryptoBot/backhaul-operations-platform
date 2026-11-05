@@ -24,7 +24,7 @@ const TABLE: Record<string, Capability[]> = {
   // negotiating
   saveQuoteAction: ["quote"], bookQuoteAction: ["quote"], passQuoteAction: ["quote"], discardQuoteAction: ["quote"],
   // running loads and the fleet
-  assignAction: ["dispatch"], assignFromQueueAction: ["dispatch"], unassignAction: ["dispatch"], sendAction: ["dispatch"], respondAction: ["dispatch"], retryBridgeAction: ["dispatch"], cancelAction: ["dispatch"], tonuAction: ["dispatch"],
+  assignAction: ["dispatch"], assignFromQueueAction: ["dispatch"], unassignAction: ["dispatch"], sendAction: ["dispatch"], respondAction: ["dispatch"], retryBridgeAction: ["dispatch"], saveTimezoneAction: ["admin"], cancelAction: ["dispatch"], tonuAction: ["dispatch"],
   rescheduleAction: ["dispatch"], readUploadedRateConAction: ["dispatch"], saveRateConAction: ["dispatch"], saveLoadDetailsAction: ["dispatch"], deleteLoadAction: ["dispatch"], restoreLoadAction: ["dispatch"],
   startTripAction: ["dispatch"], undoStartAction: ["dispatch"], reopenDeliveredAction: ["dispatch"], reopenCancelledAction: ["dispatch"], completeTripAction: ["dispatch"],
   saveDriverAction: ["dispatch"], setDriverActiveAction: ["dispatch"], saveTruckAction: ["dispatch"], setTruckArchivedAction: ["dispatch"], saveTrailerAction: ["dispatch"], setTrailerArchivedAction: ["dispatch"],

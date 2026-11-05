@@ -1,4 +1,5 @@
-import { DESK_TZ } from "./zoned";
+import { activeTz } from "./tz";
+
 
 /**
  * Checks on a rate confirmation after it was read and before it becomes a load. A reader can be confidently wrong about things that look fine:
@@ -33,7 +34,7 @@ const place = (address: string): string => {
 };
 
 const name = (s: CheckStop, i: number) => `Stop ${i + 1} (${place(s.addressString)})`;
-const day = (t: number) => new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: DESK_TZ });
+const day = (t: number) => new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: activeTz() });
 
 /** The first stop that is wholly before an earlier stop's window, as a pair of indexes, or null. */
 export function firstOutOfOrder(stops: readonly CheckStop[]): [number, number] | null {

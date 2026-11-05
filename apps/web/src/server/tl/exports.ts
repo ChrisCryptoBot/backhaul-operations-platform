@@ -10,7 +10,8 @@ import { reasonLabel } from "@/lib/disruptions";
 import { moneyState } from "@/lib/money-state";
 import { asSort } from "@/lib/paging";
 import { paidMethodLabel } from "@/lib/pay-method";
-import { DESK_TZ, toCentralLocal } from "@/lib/zoned";
+import { toCentralLocal } from "@/lib/zoned";
+import { activeTz } from "@/lib/tz";
 import { factoringLabel } from "@/server/partners/factoring";
 import { listAudit } from "./audit";
 import { listTrailersPage } from "./trailers";
@@ -40,8 +41,8 @@ type Query = Record<string, string | string[] | undefined>;
 
 const two = (n: number | null | undefined): number | null => (n == null || !Number.isFinite(n) ? null : new Prisma.Decimal(n).toDecimalPlaces(2).toNumber());
 const pctOf = (fraction: number | null | undefined): number | null => (fraction == null || !Number.isFinite(fraction) ? null : new Prisma.Decimal(fraction).times(100).toDecimalPlaces(1).toNumber());
-const YMD_FMT = new Intl.DateTimeFormat("en-CA", { timeZone: DESK_TZ, year: "numeric", month: "2-digit", day: "2-digit" });
-const ymd = (d: Date | null | undefined): string | null => (d ? YMD_FMT.format(d) : null);
+/** A date in an export, on the carrier's own clock (src/lib/tz.ts), "2026-10-30". */
+const ymd = (d: Date | null | undefined): string | null => (d ? new Intl.DateTimeFormat("en-CA", { timeZone: activeTz(), year: "numeric", month: "2-digit", day: "2-digit" }).format(d) : null);
 const utcYmd = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null);
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 

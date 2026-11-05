@@ -32,7 +32,7 @@ describe("the customer email", () => {
         "",
         "Pickup: Dallas, TX, 01/12/2027 8:00 AM",
         "Delivery: Atlanta, GA, 01/13/2027 5:00 PM",
-        "Times are Dallas time.",
+        "Times are Central time.",
         "Loaded miles: 800 mi",
         "Equipment: 42,000 lb dry van",
         "Rate: $1,850 ($2.31/mi loaded)",
@@ -59,7 +59,7 @@ describe("the customer email", () => {
 
 describe("the driver text", () => {
   test("is the trip in a few short lines, with no money in it", () => {
-    expect(buildBrief("driver", input)).toBe(["Dallas, TX to Atlanta, GA - 800 mi", "PU 01/12/2027 8:00 AM, DEL 01/13/2027 5:00 PM (Dallas time)", "42k lb dry van - Load# ACM-1001 - PO PO-55"].join("\n"));
+    expect(buildBrief("driver", input)).toBe(["Dallas, TX to Atlanta, GA - 800 mi", "PU 01/12/2027 8:00 AM, DEL 01/13/2027 5:00 PM (Central time)", "42k lb dry van - Load# ACM-1001 - PO PO-55"].join("\n"));
   });
 
   test("lists the stops between, and drops lines it has nothing for", () => {

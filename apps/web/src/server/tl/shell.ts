@@ -12,6 +12,7 @@ import { finishedTotals } from "./finished-totals";
 import { currentTerminal, listTerminals } from "./terminal";
 import { agingSummary } from "./aging";
 import { currentWorkspaceId } from "./workspace";
+import { asZone } from "@/lib/tz";
 import { unreadMessageCount } from "./messages";
 
 /**
@@ -28,6 +29,8 @@ export type ShellData = {
   terminal: string | null;
   /** The workspace's name, for the account block at the foot of the sidebar. */
   workspaceName: string;
+  /** The carrier's own clock (an IANA zone): what a time on every screen is read on. */
+  timezone: string;
   /** Whether sign-in is on, and who is signed in (for the account block and its Sign out). */
   account: { on: boolean; name: string; role: Role | null };
 };
@@ -61,6 +64,7 @@ export function buildShellData(rows: ShellRow[], now: number = Date.now(), alert
     terminals: [],
     terminal: null,
     workspaceName: "",
+    timezone: "America/Chicago",
     account: { on: false, name: "", role: null }
   };
 }
@@ -86,7 +90,7 @@ export async function getShellData(workspaceId = currentWorkspaceId()): Promise<
     finishedTotals(workspaceId, new Date(now)),
     listTerminals(workspaceId),
     unreadMessageCount(workspaceId),
-    prisma.workspace.findUnique({ where: { id: workspaceId }, select: { name: true } })
+    prisma.workspace.findUnique({ where: { id: workspaceId }, select: { name: true, timezone: true } })
   ]);
   const terminal = await currentTerminal(workspaceId);
   const who = sessionIdentity();
@@ -97,6 +101,7 @@ export async function getShellData(workspaceId = currentWorkspaceId()): Promise<
     terminals,
     terminal,
     workspaceName: workspace?.name ?? "",
+    timezone: asZone(workspace?.timezone),
     account: { on: authOn(), name: who?.name ?? "", role: who?.role ?? null }
   };
 }

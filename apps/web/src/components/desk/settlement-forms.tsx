@@ -8,7 +8,7 @@ import type { Company } from "@/lib/company";
 import { shortDate, usd } from "@/lib/desk-format";
 import { paidMethodLabel } from "@/lib/pay-method";
 import { computeStatement, MAX_ADJUSTMENTS, validatePeriod, type AdjustmentInput, type PeriodPreset, type SettlementLoad } from "@/lib/settlement";
-import { DESK_TZ } from "@/lib/zoned";
+
 import { DateInput } from "./date-input";
 import { DocHead } from "./doc-head";
 import { DriverPicker } from "./driver-picker";
@@ -17,6 +17,8 @@ import { ReadOnlyGate } from "./kit/read-only";
 import { useToast } from "./kit/toast";
 import { tried as attempt } from "./kit/tried";
 import { DraftNote, useDraft } from "./kit/use-draft";
+import { activeTz } from "@/lib/tz";
+import { clockName } from "@/lib/tz";
 
 function Fld({ label, error, hint, children }: { label: string; error?: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -148,7 +150,7 @@ export function StartStatement({ presets, initial, label = "Start a statement", 
             ))}
           </div>
           <div className="dlg-two">
-            <Fld label="First day" error={errors.start} hint="Dallas calendar, delivered on or after.">
+            <Fld label="First day" error={errors.start} hint={`On your ${clockName()} calendar, delivered on or after.`}>
               <DateInput type="date" value={start} onChange={(e) => setStart(e.target.value)} />
             </Fld>
             <Fld label="Last day" error={errors.end} hint="Delivered on or before.">
@@ -497,7 +499,7 @@ const PAID_METHODS = [
 export function MarkSettlementPaid({ id, number, driverName, total }: { id: string; number: string; driverName: string; total: number }) {
   const router = useRouter();
   const toast = useToast();
-  const today = () => new Date().toLocaleDateString("en-CA", { timeZone: DESK_TZ });
+  const today = () => new Date().toLocaleDateString("en-CA", { timeZone: activeTz() });
   const [open, setOpen] = React.useState(false);
   // Kept until the payout is recorded.
   const [{ paidOn, method }, setPayout, draft] = useDraft(`settlement-paid:${id}`, { paidOn: today(), method: "check" });

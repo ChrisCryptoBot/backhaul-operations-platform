@@ -17,6 +17,8 @@ import { shouldMeasureMiles, sourceAfterTyping, type MilesSource } from "@/lib/r
 import type { Measured } from "@/server/geo/measure";
 import { Icon } from "./kit/icons";
 import { DateInput } from "./date-input";
+import { activeTz, zoneAbbr } from "@/lib/tz";
+import { clockName } from "@/lib/tz";
 
 const SAMPLES = [
   { file: "RC-AFB-482913_dallas-to-houston_cargo-van.pdf", title: "Sample 1", lane: "Dallas, TX to Houston, TX", detail: "One pickup, one delivery · cargo van" },
@@ -40,7 +42,7 @@ const STEPS = ["Read a document", "Check what was read", "Save as a draft load"]
 
 type Stage = "pick" | "reading" | "check" | "saved";
 
-const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" });
+const clock = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: activeTz() });
 
 /**
  * A document that was read and is being checked survives going to another page and coming back: the read cost a paid call and the
@@ -535,8 +537,8 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
                           <div className="rc-stop-body">
                             <div className="rc-stop-head">
                               <span className="qt-role">{s.stopType === "pickup" ? "Pickup" : "Delivery"}</span>
-                              {ends ? <span className="tl-sub">Window ends {clock(ends)} CT</span> : null}
-                              {s.zone && s.zone !== "America/Chicago" && s.printed ? <span className="tl-sub">{`Printed ${s.printed}, the time zone at the stop`}</span> : null}
+                              {ends ? <span className="tl-sub">Window ends {clock(ends)} {zoneAbbr(activeTz())}</span> : null}
+                              {s.zone && s.zone !== activeTz() && s.printed ? <span className="tl-sub">{`Printed ${s.printed}, the time zone at the stop`}</span> : null}
                               {s.contactPhone ? <span className="tl-sub">{s.contactPhone}</span> : null}
                             </div>
                             <div className="rc-stop-grid">
@@ -549,7 +551,7 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
                                 <AddressInput label={`Address for stop ${i + 1}`} value={s.addressString} onChange={(text) => setStop(i, { addressString: text })} invalid={s.addressString.trim() === ""} />
                               </label>
                               <label className="tl-field">
-                                <span>Appointment, Dallas time<span className="db-sr-only"> for stop {i + 1}</span></span>
+                                <span>Appointment, {clockName()}<span className="db-sr-only"> for stop {i + 1}</span></span>
                                 <DateInput type="datetime-local" value={s.timeWindowEarliest ? toCentralLocal(new Date(s.timeWindowEarliest).getTime()) : ""} onChange={(e) => moveStop(i, e.target.value)} />
                               </label>
                             </div>

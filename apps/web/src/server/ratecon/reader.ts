@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { buildExtractionParams, isSupportedMime, normalizeExtraction, readExtraction } from "@/truelane/rate-con/core";
 import { DEMO_RATE_CON_READINGS } from "./fixtures";
 import { resolveStopZones } from "@/server/geo/zones";
+import { activeTz } from "@/lib/tz";
 import { parseRateConExtraction } from "@/truelane/lib/rateCon/types";
 import { extractionToLoadDraft, type RateConLoadDraft } from "./map";
 
@@ -27,7 +28,7 @@ export type ReadOutcome =
 /** The draft, with each stop's time read in the stop's own zone (looked up from where the stop is). */
 async function draftWithZones(extraction: unknown): Promise<RateConLoadDraft | null> {
   const parsed = parseRateConExtraction(extraction);
-  const zones = parsed ? await resolveStopZones(parsed.stops.map((s) => s.address)) : undefined;
+  const zones = parsed ? await resolveStopZones(parsed.stops.map((s) => s.address), activeTz()) : undefined;
   return extractionToLoadDraft(extraction, zones);
 }
 

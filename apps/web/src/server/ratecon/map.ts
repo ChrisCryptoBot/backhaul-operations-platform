@@ -3,6 +3,7 @@ import { readEquipment, resolveTrailer } from "@/truelane/lib/rateCon/equipment"
 import { instantInZone } from "@/truelane/lib/rateCon/stopTime";
 import { cityState } from "@/lib/city-state";
 import { printedLabel, zoneForAddress, type StopZone } from "@/server/geo/zones";
+import { activeTz } from "@/lib/tz";
 
 export { cityState };
 
@@ -115,7 +116,7 @@ export function extractionToLoadDraft(raw: unknown, zones?: Array<StopZone | und
       status: "draft"
     },
     stops: x.stops.map((s, i) => {
-      const where = zones?.[i] ?? zoneForAddress(s.address);
+      const where = zones?.[i] ?? zoneForAddress(s.address, activeTz());
       const end = s.windowEndTime && s.appointmentType === "window" ? stopTime(s.appointmentDate, s.windowEndTime, where.zone) : null;
       const start = stopTime(s.appointmentDate, s.appointmentTime, where.zone);
       return {

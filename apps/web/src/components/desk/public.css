@@ -50,3 +50,7 @@
 .pub-demo-form input { height: 28px; padding: 0 8px; border: 1px solid var(--line-hi); background: var(--sunk); color: var(--typed); text-transform: none; letter-spacing: 0; font-size: 12px; }
 .pub-demo-form .pub-btn { margin-top: 4px; cursor: pointer; border: 0; }
 .pub-demo-form .pub-btn:disabled { cursor: progress; opacity: .8; }
+
+.pub-inline { display: flex; gap: 8px; align-items: stretch; }
+.pub-inline input { flex: 1 1 auto; min-width: 0; }
+.pub-inline select { flex: 0 0 auto; max-width: 46%; height: auto; border: 1px solid var(--line-hi); background: var(--sunk); color: var(--typed); padding: 0 8px; font: inherit; font-size: 12px; }

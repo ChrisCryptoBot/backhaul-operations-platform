@@ -28,6 +28,7 @@ import { useToast } from "./kit/toast";
 import { DateInput } from "./date-input";
 import { parseBrokerSnippet } from "@/lib/quote-parser";
 import "./quote-terminal.css";
+import { clockName } from "@/lib/tz";
 
 /** How long ago an ISO time was, in the unit that reads best: "3 min ago", "2 h ago", "1 d ago". */
 const ago = (iso: string) => {
@@ -1130,7 +1131,7 @@ export function QuoteDesk({
                           {err(`stop${i}`) ? <span className="th-err">{err(`stop${i}`)}</span> : null}
                         </label>
                         <label className="tl-field qt-when">
-                          <span className="db-sr-only">Stop {i + 1} time, Dallas time</span>
+                          <span className="db-sr-only">Stop {i + 1} time, {clockName()}</span>
                           <DateInput type="datetime-local" value={s.appointment} onChange={(e) => setStop(i, { appointment: e.target.value })} aria-invalid={err(`stop${i}Time`) ? true : undefined} />
                           {err(`stop${i}Time`) ? <span className="th-err">{err(`stop${i}Time`)}</span> : null}
                         </label>
@@ -1157,7 +1158,7 @@ export function QuoteDesk({
                 <button type="button" className="tl-btn sm" onClick={addStop}>
                   Add a stop
                 </button>
-                <span className="tl-sub">Times are Dallas time, needed to book it and not to price it.</span>
+                <span className="tl-sub">Times are {clockName()}, needed to book it and not to price it.</span>
               </div>
             </section>
 

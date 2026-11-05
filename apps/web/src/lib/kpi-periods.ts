@@ -1,4 +1,5 @@
-import { centralMidnight, centralParts, DESK_TZ } from "./zoned";
+import { centralMidnight, centralParts } from "./zoned";
+import { activeTz } from "./tz";
 
 /**
  * The periods the KPI dashboard offers, and the equivalent period before each one to compare against.
@@ -58,7 +59,7 @@ export function previousWindow(period: KpiPeriod, now: number): TimeWindow | nul
   return { start, end: Math.min(sameDate, cur.start - 1) };
 }
 
-const day = (ms: number, withYear = false) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: withYear ? "numeric" : undefined, timeZone: DESK_TZ });
+const day = (ms: number, withYear = false) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: withYear ? "numeric" : undefined, timeZone: activeTz() });
 
 /**
  * "Oct 1 to Oct 28". When the window is not in the current year (last year's year to date) both ends carry the year, so two

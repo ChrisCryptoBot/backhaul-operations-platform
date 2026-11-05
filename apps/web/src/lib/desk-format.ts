@@ -1,5 +1,6 @@
 /** Display helpers for the dispatcher desk. Pure. */
 import { percentText } from "./pay";
+import { activeTz, zoneAbbr } from "./tz";
 
 /** The one minus on the desk is the real one (U+2212), so a column of figures lines up and a loss cannot be mistaken for a dash. */
 const MINUS = "−";
@@ -26,26 +27,41 @@ export const pct = (fraction: number | null | undefined, digits = 0): string =>
 export const signedPct = (fraction: number | null | undefined): string =>
   fraction == null || !Number.isFinite(fraction) ? "—" : `${fraction > 0 ? "+" : ""}${(fraction * 100).toFixed(1)}%`;
 
-/** The demo fleet runs out of Dallas, so every time on the desk is shown in Central time. */
-const DISPLAY_TZ = "America/Chicago";
-
-export function shortDate(d: Date | string | null | undefined): string {
+/**
+ * Every time on the desk is shown on the carrier's own clock (src/lib/tz.ts: the workspace's zone, Eastern, Central, Mountain or Pacific) and says which, "9:30 AM ET". A stop's
+ * appointment is the other clock: `stopTime` shows it where the dock is, with the carrier's clock beside it when the two differ.
+ */
+export function shortDate(d: Date | string | null | undefined, tz: string = activeTz()): string {
   if (!d) return "—";
   const date = typeof d === "string" ? new Date(d) : d;
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: DISPLAY_TZ });
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: tz });
 }
 
 /** "Oct 12, 2026": a day with its year, for lists that reach back more than a year. */
-export function dayYear(d: Date | string | null | undefined): string {
+export function dayYear(d: Date | string | null | undefined, tz: string = activeTz()): string {
   if (!d) return "—";
   const date = typeof d === "string" ? new Date(d) : d;
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: DISPLAY_TZ });
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: tz });
 }
 
-export function dateTime(d: Date | string | null | undefined): string {
+export function dateTime(d: Date | string | null | undefined, tz: string = activeTz()): string {
   if (!d) return "—";
   const date = typeof d === "string" ? new Date(d) : d;
-  return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: DISPLAY_TZ }) + " CT";
+  return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: tz }) + " " + zoneAbbr(tz);
+}
+
+/**
+ * A stop's appointment time, read on the clock at the stop: "Nov 2, 5:24 PM CT". When the stop's zone is not the carrier's, the carrier's clock follows in brackets, "Nov 2, 6:24 PM ET
+ * (5:24 PM CT)", so a dispatcher in Boston sees both the dock's time and their own. `stopZone` is worked out on the server from the stop's coordinates or state.
+ */
+export function stopTime(d: Date | string | null | undefined, stopZone: string | null | undefined, tz: string = activeTz()): string {
+  if (!d) return "—";
+  const date = typeof d === "string" ? new Date(d) : d;
+  const zone = stopZone || tz;
+  const there = date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: zone }) + " " + zoneAbbr(zone);
+  if (zone === tz) return there;
+  const mine = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: tz });
+  return `${there} (${mine} ${zoneAbbr(tz)})`;
 }
 
 export type Verdict = "accept" | "caution" | "reject" | "needs_fuel";

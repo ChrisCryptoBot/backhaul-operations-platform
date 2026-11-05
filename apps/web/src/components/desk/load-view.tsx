@@ -37,6 +37,8 @@ import { gapsPhrase, refList, sendReadiness } from "@/lib/send-readiness";
 import { SHELF_CAPABILITIES, shelfFor, shelfHeader, type ShelfCapability } from "@/lib/partner-shelf";
 import { partnerStatus } from "@/server/partners/connections";
 import { linkStateFor } from "@/server/bridge/outbox";
+import { stopZoneOf } from "@/server/geo/stop-zone";
+import { activeTz } from "@/lib/tz";
 import { FAILURE_TEXT, type FailureWord } from "@/server/bridge/core";
 import { AssignmentChip, StatusChip, VerdictChip } from "./ui";
 import { AlertList } from "./alert-bits";
@@ -47,7 +49,7 @@ import { ConfirmForm } from "./kit/confirm-form";
 import { DisruptionButtons } from "./disruption-dialogs";
 import { Icon } from "./kit/icons";
 import { Tip, type TipData } from "./kit/tooltip";
-import { dateTime, miles, PAY_KIND_LABEL, payLabel, perMile, signedPct, usd } from "@/lib/desk-format";
+import { dateTime, miles, PAY_KIND_LABEL, payLabel, perMile, signedPct, stopTime, usd } from "@/lib/desk-format";
 import { rateConTotal } from "@/lib/pay";
 import { telHref } from "@/lib/contact";
 import { LoadCockpit, SplitDocViewer, DriverCabSheet } from "./load-cockpit";
@@ -228,6 +230,9 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   // Stops & Cities for Ribbon
   const firstStop = load.stops[0];
   const lastStop = load.stops[load.stops.length - 1];
+  // Two clocks (src/lib/tz.ts): money and days are the carrier's; an appointment is read where the dock is, with the carrier's time beside it when they differ.
+  const carrierZone = activeTz();
+  const zoneOfStop = (s: (typeof load.stops)[number]) => stopZoneOf(s, carrierZone);
   const originCity = firstStop?.facilityName ?? load.originAddress?.split(",")[0] ?? "Origin";
   const destCity = lastStop?.facilityName ?? load.destinationAddress?.split(",")[0] ?? "Destination";
 
@@ -268,7 +273,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           <span className="cp-sub">Pickup</span>
           <span className="cp-city" title={load.originAddress ?? undefined}>{originCity}</span>
           <span style={{ fontSize: 11, color: "var(--db-fg-dim)" }}>
-            {firstStop?.timeWindowEarliest ? dateTime(firstStop.timeWindowEarliest) : "Window open"}
+            {firstStop?.timeWindowEarliest ? stopTime(firstStop.timeWindowEarliest, zoneOfStop(firstStop)) : "Window open"}
           </span>
         </div>
 
@@ -292,7 +297,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           <span className="cp-sub">Delivery</span>
           <span className="cp-city" title={load.destinationAddress ?? undefined}>{destCity}</span>
           <span style={{ fontSize: 11, color: "var(--db-fg-dim)" }}>
-            {lastStop?.timeWindowEarliest ? dateTime(lastStop.timeWindowEarliest) : "Window open"}
+            {lastStop?.timeWindowEarliest ? stopTime(lastStop.timeWindowEarliest, zoneOfStop(lastStop)) : "Window open"}
           </span>
         </div>
       </div>
@@ -491,8 +496,8 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
                     {s.stopNotes ? <div className="tl-sub" style={{ color: "var(--db-warn)" }}>{s.stopNotes}</div> : null}
                   </td>
                   <td className="num">
-                    <div>{dateTime(s.timeWindowEarliest)}</div>
-                    {closes ? <div className="tl-sub">closes {dateTime(closes)}</div> : null}
+                    <div>{stopTime(s.timeWindowEarliest, zoneOfStop(s))}</div>
+                    {closes ? <div className="tl-sub">closes {stopTime(closes, zoneOfStop(s))}</div> : null}
                     <div className="tl-sub">{Array.isArray(s.referenceNumbers) && (s.referenceNumbers as string[]).length > 0 ? (s.referenceNumbers as string[]).join(", ") : "no reference number"}</div>
                     {s.sealNumber ? <div className="tl-sub">seal {s.sealNumber}</div> : null}
                   </td>

@@ -5,6 +5,8 @@ import { SESSION_COOKIE, SESSION_TTL_SECONDS } from "@/lib/session-cookie";
 import { clerkSeam } from "@/server/tl/clerk";
 import { authOn } from "@/server/tl/identity";
 import { memberForSignIn } from "@/server/tl/members";
+import { ZONE_COOKIE } from "@/lib/tz";
+import { workspaceTimezone } from "@/server/tl/zone";
 import { signSession, usableSecret } from "@/server/tl/session-token";
 
 /**
@@ -29,5 +31,6 @@ export async function GET(req: NextRequest) {
     path: "/",
     maxAge: SESSION_TTL_SECONDS
   });
+  res.cookies.set(ZONE_COOKIE, await workspaceTimezone(member.workspaceId), { path: "/", maxAge: 60 * 60 * 24 * 365, sameSite: "lax" });
   return res;
 }

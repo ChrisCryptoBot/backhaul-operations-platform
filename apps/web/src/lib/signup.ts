@@ -22,6 +22,8 @@ export function parseTrucks(raw: unknown): number | null {
   return n >= 1 && n <= MAX_TRUCKS ? n : null;
 }
 
+import { CARRIER_ZONES, clockName, isCarrierZone } from "./tz";
+
 export type RequestValues = {
   name: string;
   company: string;
@@ -31,10 +33,12 @@ export type RequestValues = {
   trucks: string;
   mcNumber: string;
   bestTime: string;
+  /** The time zone the best time to call is in (one of the carrier zones), so a fleet on either coast never has to do the sum. Blank: the person did not say. */
+  callZone: string;
   note: string;
 };
 
-export const EMPTY_REQUEST: RequestValues = { name: "", company: "", role: "", email: "", phone: "", trucks: "", mcNumber: "", bestTime: "", note: "" };
+export const EMPTY_REQUEST: RequestValues = { name: "", company: "", role: "", email: "", phone: "", trucks: "", mcNumber: "", bestTime: "", callZone: "", note: "" };
 
 export type RequestErrors = Partial<Record<keyof RequestValues, string>>;
 
@@ -50,6 +54,21 @@ export function readRequest(form: FormData): RequestValues {
   }
   return out;
 }
+
+const ZONE_WORDS = /\b(ET|EST|EDT|CT|CST|CDT|MT|MST|MDT|PT|PST|PDT|AKT|HST|eastern|central|mountain|pacific|arizona|alaska|hawaii|local|my time|your time)\b/i;
+
+/**
+ * The best time to call as it is kept: the words the person typed, with their zone after them ("Weekdays after 2 pm (Pacific time)") unless they already said one. The zone is one of the
+ * carrier zones or nothing; anything else is dropped, never stored.
+ */
+export function callTime(v: Pick<RequestValues, "bestTime" | "callZone">): string | null {
+  const text = v.bestTime.trim();
+  if (!text) return null;
+  if (!isCarrierZone(v.callZone) || ZONE_WORDS.test(text)) return text;
+  return `${text} (${clockName(v.callZone)})`;
+}
+
+export const CALL_ZONE_CHOICES = CARRIER_ZONES.map((z) => ({ id: z.id, label: `${z.abbr} \u00b7 ${z.name}` }));
 
 /** What is wrong with a request, field by field. `enterprise` also asks for a phone number or a best time to call, since a person will phone. */
 export function checkRequest(v: RequestValues, kind: SignupKind): RequestErrors {

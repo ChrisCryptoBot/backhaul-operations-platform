@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { DESK_TZ } from "@/lib/zoned";
+import { workspaceTimezone } from "./zone";
 import { answerCache, clockBucket } from "./answer-cache";
 import { terminalSql } from "./terminal-sql";
 import { currentWorkspaceId } from "./workspace";
@@ -31,15 +31,17 @@ export const clearAgingCache = () => answers.clear();
 const BILLED = Prisma.sql`coalesce(l.invoiced_amount, case when l.status = 'tonu' then coalesce(l.tonu_revenue, 0) else l.quoted_revenue + coalesce(l.fuel_surcharge, 0) end)`;
 
 export async function agingSummary(now = Date.now(), workspaceId = currentWorkspaceId(), terminal: string | null = null): Promise<Aging> {
-  return answers.remember([workspaceId, terminal, clockBucket(now, 900_000)], workspaceId, async () => {
+  // Aging is counted on the carrier's own calendar (a day ends at the carrier's midnight), read from the workspace, never from a cookie.
+  const tz = await workspaceTimezone(workspaceId);
+  return answers.remember([workspaceId, terminal, tz, clockBucket(now, 900_000)], workspaceId, async () => {
     const [r] = await prisma.$queryRaw<
       Array<{ n: number; total: number | null; overdue_n: number; overdue_amount: number | null; oldest: number | null; next_due: number | null; c_n: number; c_a: number | null; a_n: number; a_a: number | null; b_n: number; b_a: number | null; c2_n: number; c2_a: number | null; d_n: number; d_a: number | null }>
     >`
       with o as (
         select greatest(${BILLED} - coalesce(l.paid_amount, 0), 0)::float8 as owing,
           case when l.invoiced_at is null then null
-            else ((l.invoiced_at at time zone 'UTC') at time zone ${DESK_TZ})::date + coalesce(l.pay_terms_days, 0) end as due,
-          (${new Date(now)}::timestamp at time zone 'UTC' at time zone ${DESK_TZ})::date as today
+            else ((l.invoiced_at at time zone 'UTC') at time zone ${tz})::date + coalesce(l.pay_terms_days, 0) end as due,
+          (${new Date(now)}::timestamp at time zone 'UTC' at time zone ${tz})::date as today
         from loads l
         where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status <> 'quote' and l.payment_status = 'invoiced' ${terminalSql(terminal, workspaceId)}
       ), d as (select owing, due, today, (today - due) as late from o)

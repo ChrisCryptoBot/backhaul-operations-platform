@@ -3,7 +3,8 @@
 import React from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { submitRequestAction, type RequestState } from "@/app/(public)/actions";
-import { EMPTY_REQUEST, ENTERPRISE_TRUCKS, type RequestValues } from "@/lib/signup";
+import { CALL_ZONE_CHOICES, EMPTY_REQUEST, ENTERPRISE_TRUCKS, type RequestValues } from "@/lib/signup";
+import { CARRIER_ZONES, zoneAbbr } from "@/lib/tz";
 import { useDraft } from "../kit/use-draft";
 
 const INITIAL: RequestState = { values: EMPTY_REQUEST, errors: {} };
@@ -41,6 +42,17 @@ export function RequestForm({ enterprise, trucks }: { enterprise: boolean; truck
   const [state, action] = useFormState(submitRequestAction, INITIAL);
   const [v, setV] = useDraft<RequestValues>(`request:${enterprise ? "enterprise" : "self"}`, { ...EMPTY_REQUEST, trucks: trucks ?? "" });
   const e = state.errors;
+  // The visitor's own zone, from their browser, offered as the default so a West Coast or East Coast fleet does not do the sum: they can change it, and it is kept with the rest.
+  React.useEffect(() => {
+    if (v.callZone) return;
+    try {
+      const mine = CARRIER_ZONES.find((z) => z.abbr === zoneAbbr(Intl.DateTimeFormat().resolvedOptions().timeZone));
+      if (mine) setV((cur) => (cur.callZone ? cur : { ...cur, callZone: mine.id }));
+    } catch {
+      /* no zone to read: they pick one */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const input = (name: keyof RequestValues, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <input id={`f-${name}`} name={name} value={v[name]} onChange={(ev) => setV((cur) => ({ ...cur, [name]: ev.target.value }))} aria-invalid={e[name] ? true : undefined} aria-describedby={e[name] ? `e-${name}` : undefined} {...props} />
   );
@@ -75,8 +87,18 @@ export function RequestForm({ enterprise, trucks }: { enterprise: boolean; truck
             <Field name="phone" label="Phone" hint="A number to reach you on, or give a time below." error={e.phone}>
               {input("phone", { type: "tel", autoComplete: "tel" })}
             </Field>
-            <Field name="bestTime" label="Best time to call" error={e.bestTime}>
-              {input("bestTime", { placeholder: "Weekdays after 2 pm Central" })}
+            <Field name="bestTime" label="Best time to call" hint="In your own time zone: pick it beside the time." error={e.bestTime}>
+              <div className="pub-inline">
+                {input("bestTime", { placeholder: "Weekdays after 2 pm" })}
+                <select id="f-callZone" name="callZone" aria-label="Your time zone" value={v.callZone} onChange={(ev) => setV((cur) => ({ ...cur, callZone: ev.target.value }))}>
+                  <option value="">My time zone</option>
+                  {CALL_ZONE_CHOICES.map((z) => (
+                    <option key={z.id} value={z.id}>
+                      {z.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </Field>
           </>
         ) : null}

@@ -1,5 +1,6 @@
 import { invoiceTotalDue } from "@/truelane/lib/invoice";
 import { deskDaysBetween } from "./overdue";
+import { activeTz } from "./tz";
 
 /**
  * Billing a delivered load: what must be true first, the lines that make the total, and the reminder to send when it is late. Pure, so the
@@ -133,7 +134,7 @@ export function revisedInvoiceNumber(base: string, used: ReadonlySet<string>): s
  * team will ask for. The desk does not send it: that is outward-facing, and goes out from whoever is on the account.
  */
 export function reminderText(i: { broker: string | null; invoiceNumber: string | null; loadNumber: string | null; poNumber: string | null; amount: number; sent: Date; due: Date; now: Date; origin: string | null; destination: string | null }): string {
-  const day = (d: Date) => d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "America/Chicago" });
+  const day = (d: Date) => d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: activeTz() });
   const late = Math.max(0, deskDaysBetween(i.due, i.now));
   return [
     `Hello${i.broker ? ` ${i.broker} accounts team` : ""},`,

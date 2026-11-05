@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import Link from "next/link";
 import React from "react";
-import { setAppearanceAction } from "../actions";
+import { saveTimezoneAction, setAppearanceAction } from "../actions";
 import { Card, PageHead } from "@/components/desk/ui";
 import { SleepNowButton } from "@/components/desk/splash";
 import { ThresholdsForm } from "@/components/desk/thresholds-form";
@@ -35,6 +35,9 @@ import { TeamCard } from "@/components/desk/team-card";
 import { isPlatformAdmin, requirePage } from "@/server/tl/access";
 import { listMembers } from "@/server/tl/members";
 import { can } from "@/lib/roles";
+import { CARRIER_ZONES, clockName } from "@/lib/tz";
+import { workspaceTimezone } from "@/server/tl/zone";
+import { currentWorkspaceId } from "@/server/tl/workspace";
 
 export const metadata = { title: "Settings · TrueLane" };
 
@@ -46,6 +49,7 @@ export default async function SettingsPage() {
   const sleepMinutes = asSleepMinutes(jar.get(SLEEP_COOKIE)?.value);
   const isCustomSleep = !(SLEEP_PRESETS as readonly number[]).includes(sleepMinutes);
   const me = await requirePage("read");
+  const zone = await workspaceTimezone(currentWorkspaceId());
   const [row, kpi, company, plan, partners, members] = await Promise.all([getStoredThresholds(), getDeskKpi({ period: "4w", compare: false }), getCompany(), planSummary(), partnerStatus(), listMembers()]);
   const seats = plan.units.find((u) => u.kind === "member")!;
   const stored = Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, row[f.key] ?? null])) as Record<keyof Thresholds, number | null>;
@@ -110,6 +114,28 @@ export default async function SettingsPage() {
           Companies TrueLane can work with for the freight, trucks, fuel, insurance and pay of this fleet. A company can be connected once its keys are set on the server; until then its buttons elsewhere in the desk say so. Nothing is sent to a company that is not connected.
         </p>
         <IntegrationsList rows={partners.map((r) => ({ capability: r.capability, label: r.label, provider: r.provider, name: r.name, configured: r.configured, connected: r.connected, accountLabel: r.accountLabel }))} />
+      </Card>
+
+      <Card title="Time zone" className="tl-card">
+        <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
+          The carrier&apos;s own clock. It decides where a billing day ends, how an invoice ages, which week a driver&apos;s statement covers and what &ldquo;this month&rdquo; means, and every time on the desk is
+          shown on it. A stop keeps its own clock: an appointment at a dock in another zone is shown where the dock is, with your time beside it.
+        </p>
+        <div className="st-row">
+          <span className="th-label" id="st-zone">Your clock</span>
+          {can(me.role, me.grants, "admin") ? (
+            <form action={saveTimezoneAction} className="t-seg" role="group" aria-labelledby="st-zone">
+              {CARRIER_ZONES.map((z) => (
+                <button key={z.id} type="submit" name="timezone" value={z.id} aria-pressed={zone === z.id} title={z.name}>
+                  {z.abbr}
+                </button>
+              ))}
+            </form>
+          ) : (
+            <span>{CARRIER_ZONES.find((z) => z.id === zone)?.name ?? zone}</span>
+          )}
+          <span className="tl-sub">{clockName(zone)}. {can(me.role, me.grants, "admin") ? "Saves straight away." : "An admin can change it."}</span>
+        </div>
       </Card>
 
       <Card title="Appearance" className="tl-card">

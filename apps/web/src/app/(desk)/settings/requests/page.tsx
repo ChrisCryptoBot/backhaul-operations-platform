@@ -6,11 +6,12 @@ import { PageHead } from "@/components/desk/ui";
 import { listSignupRequests } from "@/server/tl/signup";
 import { isPlatformAdmin, requirePage } from "@/server/tl/access";
 import { notFound } from "next/navigation";
+import { activeTz } from "@/lib/tz";
 
 export const metadata: Metadata = { title: "Sign-up requests · TrueLane" };
 export const dynamic = "force-dynamic";
 
-const when = (d: Date) => d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" });
+const when = (d: Date) => d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: activeTz() });
 
 /**
  * Who has asked for an account, newest first, enterprise requests marked. Read only: a person follows up (an enterprise request is set up by hand with

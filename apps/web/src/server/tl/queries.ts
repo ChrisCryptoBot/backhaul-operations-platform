@@ -14,7 +14,7 @@ import { podStopsMissing } from "./documents";
 import { voidedInvoiceNumbers } from "./invoicing";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
-import { DESK_TZ } from "@/lib/zoned";
+import { workspaceTimezone } from "./zone";
 
 /**
  * Read model for the dispatcher screens, all computed from the TrueLane-shaped tables with TrueLane's own math.
@@ -218,10 +218,11 @@ async function invoiceWhere(scope: InvoiceScope, workspaceId: string, f: Invoice
   if (f.show === "part") and.push({ paidAmount: { gt: 0 } });
   if (f.show === "factored") and.push({ factoringStatus: { not: "none" } });
   if (f.show === "overdue") {
+    const tz = await workspaceTimezone(workspaceId);
     const late = await prisma.$queryRaw<Array<{ id: string }>>`
       select l.id from loads l
       where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.payment_status = 'invoiced' and l.invoiced_at is not null
-        and ((l.invoiced_at at time zone 'UTC') at time zone ${DESK_TZ})::date + coalesce(l.pay_terms_days, 0) < (${now}::timestamp at time zone 'UTC' at time zone ${DESK_TZ})::date`;
+        and ((l.invoiced_at at time zone 'UTC') at time zone ${tz})::date + coalesce(l.pay_terms_days, 0) < (${now}::timestamp at time zone 'UTC' at time zone ${tz})::date`;
     and.push({ id: { in: late.map((r) => r.id) } });
   }
   return { workspaceId, deletedAt: null, ...SCOPE_WHERE[scope], AND: and };

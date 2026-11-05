@@ -1,5 +1,6 @@
 import { centralMidnight, centralParts } from "./zoned";
 import { loadWindow, windowsOverlap } from "./schedule";
+import { activeTz } from "./tz";
 
 /**
  * The planner: who is on what, day by day, and what is due now. Both read the loads' stop windows and the arrival times the phone
@@ -198,7 +199,7 @@ export function buildWatchlist(loads: PlannerLoad[], now: number, upcomingDays =
   return out.sort((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state] || a.due.getTime() - b.due.getTime());
 }
 
-const clock = (ms: number) => new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" });
+const clock = (ms: number) => new Date(ms).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: activeTz() });
 
 /** What a planner cell says about a load's time on that day: when it starts, when it ends, or that it runs all day. */
 export function timeText(i: Pick<PlannerItem, "start" | "end" | "startsHere" | "endsHere">): string {

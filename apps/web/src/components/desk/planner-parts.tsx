@@ -5,9 +5,10 @@ import { spanText, timeText } from "@/lib/planner";
 import { dateTime } from "@/lib/desk-format";
 import { AssignButton } from "./assign-modal";
 import { Icon } from "./kit/icons";
+import { activeTz } from "@/lib/tz";
 
 const STATE_LABEL: Record<DueItem["state"], string> = { past_due: "Past due", today: "Due today", upcoming: "Coming up", done: "Reached today" };
-const clock = (d: Date) => new Date(d).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" });
+const clock = (d: Date) => new Date(d).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: activeTz() });
 
 function dueWords(i: DueItem, now: number): string {
   if (i.state === "past_due") return `The window closed at ${clock(i.due)}; ${spanText(i.minutesOver ?? 0)} over and nobody has arrived`;

@@ -12,6 +12,7 @@
 import { display } from "./date-field";
 import { miles, perMile, usd } from "./desk-format";
 import { grossPerLoadedMile, type QuoteStop } from "./quote";
+import { clockName } from "./tz";
 
 export type BriefKind = "customer" | "driver" | "dispatch";
 
@@ -56,7 +57,7 @@ function customerEmail(i: BriefInput): string {
     const at = when(s);
     lines.push(`${label}: ${clean(s.address) || "TBD"}${at ? `, ${at}` : ""}`);
   });
-  if (stops.some((s) => s.appointment)) lines.push("Times are Dallas time.");
+  if (stops.some((s) => s.appointment)) lines.push(`Times are ${clockName()}.`);
 
   const mi = positive(i.loadedMiles);
   if (mi != null) lines.push(`Loaded miles: ${miles(mi)}`);
@@ -91,7 +92,7 @@ function driverText(i: BriefInput): string {
   const pickup = when(stops[0]);
   const delivery = last > 0 ? when(stops[last]) : "";
   const times = [pickup ? `PU ${pickup}` : "", delivery ? `DEL ${delivery}` : ""].filter(Boolean);
-  if (times.length) lines.push(`${times.join(", ")} (Dallas time)`);
+  if (times.length) lines.push(`${times.join(", ")} (${clockName()})`);
 
   const weight = positive(i.weightLbs);
   const shortWeight = weight == null ? "" : weight >= 1000 ? `${Math.round(weight / 1000)}k lb` : `${Math.round(weight)} lb`;

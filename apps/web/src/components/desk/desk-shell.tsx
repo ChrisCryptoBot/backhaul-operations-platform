@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import React from "react";
 import { AuthSignOutButton } from "./auth-sign-out";
 import { SleepGuard } from "./splash";
 import { ToastProvider } from "./kit/toast";
 import { DraftScope } from "./kit/use-draft";
 import { VIEW_PREFIX, rememberedQuery } from "@/lib/draft";
+import { ZONE_COOKIE, activeTz } from "@/lib/tz";
 import { GlobalSearch } from "./global-search";
 import { TerminalScope } from "./terminal-scope";
 import { TERMINAL_LIST_ID } from "@/lib/terminal";
@@ -66,6 +67,17 @@ const NAV: Array<{ label: string; items: Item[] }> = [
 ];
 
 const SIDEBAR_COOKIE = "desk-sidebar";
+
+/** The desk's own clock decides how times read; a browser that has not been told it (a new device, a changed setting) is brought into line once, then the page is read again. */
+function ZoneSync({ zone }: { zone: string }) {
+  const router = useRouter();
+  React.useEffect(() => {
+    if (activeTz() === zone) return;
+    document.cookie = `${ZONE_COOKIE}=${zone}; path=/; max-age=31536000; samesite=lax`;
+    router.refresh();
+  }, [zone, router]);
+  return null;
+}
 
 export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinutes = 15, demoLogin = false }: { children: React.ReactNode; drawer?: React.ReactNode; data: ShellData; initialCollapsed: boolean; sleepMinutes?: number; demoLogin?: boolean }) {
   const underlay = useUnderlay();
@@ -141,6 +153,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
   return (
     <ToastProvider>
     <DraftScope value={`${data.workspaceName}:${data.account.name}`}>
+      <ZoneSync zone={data.timezone} />
       <div className="t-app" data-collapsed={collapsed ? "true" : "false"}>
         <a className="skip" href="#main">
           Skip to content

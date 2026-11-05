@@ -51,6 +51,9 @@ model Workspace {
 
   /// The plan the workspace is on (starter | growth | pro | enterprise). A missing plan is read as Starter (src/lib/plans.ts effectivePlan), never as "no limit".
   plan               String?  @default("starter")
+  /// The carrier's own clock (an IANA zone such as America/New_York): where billing days, aging, weekly driver limits, statement weeks and "this month" are counted. Stops keep their own
+  /// local time (an appointment at a facility is read in the facility's zone); see src/lib/tz.ts. New workspaces start on Central, as the desk always has.
+  timezone           String   @default("America/Chicago") @map("timezone")
   /// The driver link (docs/DRIVER_LINK_DESIGN.md): the Clerk Organization this workspace is mapped to on the bridge (null = not bridged: the dispatcher records the driver's answers), and the
   /// last `sync_seq` of the bridge table read, so each pull continues where the last one ended.
   bridgeOrgId        String?  @map("bridge_org_id")

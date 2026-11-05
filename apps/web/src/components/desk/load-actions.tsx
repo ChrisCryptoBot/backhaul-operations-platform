@@ -20,6 +20,7 @@ import { useToast } from "./kit/toast";
 import { DraftNote, useDraft } from "./kit/use-draft";
 import { tried } from "./kit/tried";
 import { DateInput } from "./date-input";
+import { clockName } from "@/lib/tz";
 
 type Errors = Record<string, string>;
 
@@ -283,7 +284,7 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
                     <Fld label="Address" error={errors[`stop${i}.address`]}>
                       <AddressInput label={`Address for stop ${i + 1}`} value={s.address} disabled={scheduleLocked} onChange={(text) => setStop(i, { address: text })} invalid={!!errors[`stop${i}.address`]} />
                     </Fld>
-                    <Fld label="Opens (Dallas time)" error={errors[`stop${i}.earliest`]}>
+                    <Fld label={`Opens (${clockName()})`} error={errors[`stop${i}.earliest`]}>
                       <DateInput type="datetime-local" value={s.earliest} disabled={scheduleLocked} onChange={(e) => setStop(i, { earliest: e.target.value })} />
                     </Fld>
                     <Fld label="Closes" error={errors[`stop${i}.latest`]}>
@@ -317,7 +318,7 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
 
 // ── Enter the trip for the driver ──────────────────────────────────────────────────────────────
 
-/** `opensLocal` is when the stop window opens (Dallas time), for the early-arrival advisory. */
+/** `opensLocal` is when the stop window opens (the carrier clock), for the early-arrival advisory. */
 export type TripStop = { id: string; sequence: number; role: string; place: string; arrivedLocal: string; waitMinutes: string; seal: string; opensLocal?: string };
 
 /**
@@ -435,7 +436,7 @@ export function TripEntry({
           {delivered ? (
             <>
               <dt>Delivered</dt>
-              <dd>{delivered.replace("T", " ")} Dallas time</dd>
+              <dd>{delivered.replace("T", " ")} {clockName()}</dd>
             </>
           ) : null}
           <dt>Proof of delivery</dt>
@@ -499,7 +500,7 @@ export function TripEntry({
           </>
         }>
         <div className="dlg-form">
-          <p className="tl-note">The load goes on the road. Times are Dallas time, and are what has already happened.</p>
+          <p className="tl-note">The load goes on the road. Times are {clockName()}, and are what has already happened.</p>
           <Fld label="Arrived at the pickup" error={errors.arrivedAt}>
             <DateInput type="datetime-local" value={start.arrivedAt} onChange={(e) => setStart({ ...start, arrivedAt: e.target.value })} />
           </Fld>

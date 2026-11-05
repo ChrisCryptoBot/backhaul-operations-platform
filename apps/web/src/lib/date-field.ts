@@ -1,6 +1,6 @@
 /**
  * The rules behind the desk's date and date-and-time field (components/desk/date-input.tsx). Pure, so they can be tested.
- * A field's value is what a native date box would give: "2026-10-29" for a day, "2026-10-29T17:06" for a day and a time (24-hour, no zone: the desk reads it as Dallas time).
+ * A field's value is what a native date box would give: "2026-10-29" for a day, "2026-10-29T17:06" for a day and a time (24-hour, no zone: the desk reads it as the carrier's clock).
  */
 export type Ymd = { y: number; m: number; d: number };
 export type Hm = { h: number; min: number };

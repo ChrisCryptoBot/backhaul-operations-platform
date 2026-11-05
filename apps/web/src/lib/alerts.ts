@@ -2,6 +2,7 @@ import { daysPastDue } from "./overdue";
 import { clearanceSoon, driverBlocker } from "./clearance";
 import { trailerBlocker, trailerClearanceSoon } from "./trailer-clearance";
 import { loadWindow, windowsOverlap, type Window } from "./schedule";
+import { activeTz } from "./tz";
 
 /**
  * Per-load alerts, derived from the rows on every request (nothing is stored). Three levels:
@@ -194,7 +195,7 @@ const OPEN = ["draft", "accepted", "in_progress"];
 /** A delivered load with no proof of delivery file is flagged after this many days. */
 export const POD_ALERT_DAYS = 21;
 
-const day = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Chicago" });
+const day = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: activeTz() });
 const hours = (ms: number) => (ms >= DAY ? `${Math.floor(ms / DAY)} d` : `${Math.max(1, Math.floor(ms / HOUR))} h`);
 const hasRefs = (v: unknown) => Array.isArray(v) && v.some((x) => typeof x === "string" && x.trim() !== "");
 

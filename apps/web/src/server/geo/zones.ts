@@ -13,19 +13,20 @@ export const DESK_ZONE = "America/Chicago";
 export type StopZone = { zone: string; source: "coordinates" | "state" | "assumed" };
 
 /** The zone from the address text alone: no network, so it is the answer wherever a lookup is not possible. */
-export function zoneForAddress(address: string | null | undefined): StopZone {
+export function zoneForAddress(address: string | null | undefined, fallback: string = DESK_ZONE): StopZone {
   const byState = zoneForState(stateOfAddress(address));
-  return byState ? { zone: byState, source: "state" } : { zone: DESK_ZONE, source: "assumed" };
+  // A state that spans two zones, or no state, is read on the carrier's own clock and flagged as assumed, so the review says so.
+  return byState ? { zone: byState, source: "state" } : { zone: fallback, source: "assumed" };
 }
 
 /** Each stop's zone, in order. A stop that cannot be placed on the map falls back on its own; nothing here throws. */
-export async function resolveStopZones(addresses: Array<string | null | undefined>): Promise<StopZone[]> {
+export async function resolveStopZones(addresses: Array<string | null | undefined>, fallback: string = DESK_ZONE): Promise<StopZone[]> {
   return Promise.all(
     addresses.map(async (address) => {
       const text = (address ?? "").trim();
       const place = text ? await geocode(text) : null;
       const zone = place ? zoneAt(place.lat, place.lng) : null;
-      return zone ? { zone, source: "coordinates" as const } : zoneForAddress(text);
+      return zone ? { zone, source: "coordinates" as const } : zoneForAddress(text, fallback);
     })
   );
 }

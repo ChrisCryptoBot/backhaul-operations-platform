@@ -4,6 +4,8 @@ import { startTrip } from "@/server/tl/execution";
 import { recordAudit } from "@/server/tl/audit";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { num } from "@/server/tl/convert";
+import { workspaceTimezone } from "@/server/tl/zone";
+import { toCentralLocal } from "@/lib/zoned";
 import { assertDriverSafe } from "@/server/tl/projector";
 export { bridgeServerReady, driverMode, enqueueBridge, enqueueForLoad, type OutboxKind } from "./outbox";
 import { BridgeTransportError, type BridgeTransport } from "./transport";
@@ -107,6 +109,8 @@ export async function pullBridgeResponses(transport: BridgeTransport, opts: { wo
   const res: PullResult = { read: 0, applied: 0, flagged: 0, ignored: 0, cursor: wholeOf(ws?.bridgeCursor) };
   if (!ws?.bridgeOrgId) return res;
   const orgId = ws.bridgeOrgId;
+  // A time the phone reports is placed on the carrier's own clock when it is put into the desk's trip form.
+  const tz = await workspaceTimezone(workspaceId);
   const rows = await transport.changedSince(orgId, wholeOf(ws.bridgeCursor), opts.limit ?? 200);
   res.read = rows.length;
   for (const row of rows) {
@@ -136,7 +140,7 @@ export async function pullBridgeResponses(transport: BridgeTransport, opts: { wo
       if (step === "accepted" || step === "declined") {
         await recordDriverResponse(a.loadId, step, now, step === "declined" ? (answer.declinedReason ?? undefined) : undefined, workspaceId);
       } else if (step === "in_progress") {
-        const r = await startTrip(a.loadId, { arrivedAt: toLocalInput(answer.startedAt ?? now.toISOString()), waitMinutes: "", seal: "" }, now, workspaceId);
+        const r = await startTrip(a.loadId, { arrivedAt: toCentralLocal(Date.parse(answer.startedAt ?? now.toISOString()), tz), waitMinutes: "", seal: "" }, now, workspaceId);
         if (!r.ok) {
           stopped = `The phone says the driver picked up, but the desk could not record the pickup: ${r.error ?? "the pickup needs its details"}. Enter it on the load.`;
           break;
@@ -159,13 +163,6 @@ export async function pullBridgeResponses(transport: BridgeTransport, opts: { wo
   if (last > was) await prisma.workspace.update({ where: { id: workspaceId }, data: { bridgeCursor: BigInt(last) } });
   res.cursor = last;
   return res;
-}
-
-/** An ISO time as the desk's trip form takes it: the Central wall clock, "YYYY-MM-DDTHH:mm". */
-function toLocalInput(iso: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(iso));
-  const p = Object.fromEntries(parts.map((x) => [x.type, x.value]));
-  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
 }
 
 export { BRIDGE_ENV, FAILURE_TEXT };

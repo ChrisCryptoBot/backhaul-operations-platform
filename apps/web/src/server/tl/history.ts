@@ -4,6 +4,7 @@ import { asHistoryFilter, asHistorySort, payRecord, PROFIT_SORT_WINDOW, PROFIT_S
 import { boardRowOf, loadInclude, type BoardRow } from "./queries";
 import { terminalSql } from "./terminal-sql";
 import { currentWorkspaceId } from "./workspace";
+import { workspaceTimezone } from "./zone";
 
 /**
  * The Loads screen's History, a page at a time. A fleet has tens of thousands of finished loads, so the filter, the sort, the search and the counts are done by the
@@ -66,8 +67,8 @@ const DATED = Prisma.sql`coalesce(l.completed_at, l.cancelled_at, l.scheduled_da
 /** What a load earned (lib/load-gross.ts, in SQL): paid linehaul when entered else the agreed rate, plus surcharge and layover; a TONU is its fee; a cancelled load nothing. */
 const GROSS = Prisma.sql`(case when l.status = 'cancelled' then 0 when l.status = 'tonu' then coalesce(l.tonu_revenue, 0) else (case when coalesce(l.actual_revenue, 0) > 0 then l.actual_revenue else l.quoted_revenue end) + coalesce(l.fuel_surcharge, 0) + coalesce(l.layover_pay, 0) end)`;
 const PER_MILE = Prisma.sql`case when cp.id is null or l.status in ('tonu', 'cancelled') then null else ${GROSS} / nullif(l.pickup_deadhead_miles + l.loaded_miles + case when l.is_backhaul then 0 else l.return_deadhead_miles end, 0) end`;
-/** The Dallas calendar month a load is dated in, "2026-10": the same grouping the page draws. Dates are stored as UTC wall-clock, so they are read as UTC first. */
-const MONTH = Prisma.sql`to_char((${DATED} at time zone 'UTC') at time zone 'America/Chicago', 'YYYY-MM')`;
+/** The calendar month a load is dated in on the carrier's own clock, "2026-10": the same grouping the page draws. Dates are stored as UTC wall-clock, so they are read as UTC first. */
+const monthSql = (tz: string) => Prisma.sql`to_char((${DATED} at time zone 'UTC') at time zone ${tz}, 'YYYY-MM')`;
 
 function whereSql(workspaceId: string, q: string, lane?: string, terminal?: string | null) {
   const terms = q.split(/\s+/).map((t) => t.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")).filter(Boolean).slice(0, 6);
@@ -148,10 +149,11 @@ export async function listHistory(query: HistoryQuery = {}, workspaceId = curren
     record = payRecord(money.map((m) => ({ id: "", loadNumber: null, origin: null, destination: null, vehicleName: null, driverName: null, verdict: null, perMile: null, scheduledDate: null, completedAt: null, cancelledAt: null, ...m })));
   }
   // Month headers count the whole month for this filter and search, not only the rows on this page.
+  const tz = await workspaceTimezone(workspaceId);
   const monthly = query.lean
     ? []
     : await prisma.$queryRaw<Array<{ month: string | null; n: number; earned: number }>>`
-    select ${MONTH} as month, count(*)::int as n, coalesce(sum(case when l.status in ('completed', 'tonu') then ${GROSS} else 0 end), 0)::float8 as earned
+    select ${monthSql(tz)} as month, count(*)::int as n, coalesce(sum(case when l.status in ('completed', 'tonu') then ${GROSS} else 0 end), 0)::float8 as earned
     ${FROM} where ${where}${FILTER_SQL[filter]} group by 1`;
   const months = Object.fromEntries(monthly.map((m) => [m.month ?? "undated", { loads: m.n, earned: m.earned }]));
   return { rows, total, counts, filter, sort, page, pageSize, pages, record, months, windowed, windowSize: PROFIT_SORT_WINDOW };

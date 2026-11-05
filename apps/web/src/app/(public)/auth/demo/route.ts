@@ -1,6 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { safeNext } from "@/lib/auth-route";
 import { DEMO_COOKIE, DEMO_TTL_SECONDS, demoLoginOn } from "@/lib/demo-session";
+import { ZONE_COOKIE } from "@/lib/tz";
+import { currentWorkspaceId } from "@/server/tl/workspace";
+import { workspaceTimezone } from "@/server/tl/zone";
 
 /**
  * The demo's sign-in: the sign-in page's "Use demo credentials" button posts here. It checks nothing (there are no accounts) and makes the demo cookie, then goes to the desk.
@@ -12,5 +15,7 @@ export async function POST(req: NextRequest) {
   const next = safeNext(typeof form?.get("next") === "string" ? (form!.get("next") as string) : null);
   const res = NextResponse.redirect(new URL(next, req.url), 303);
   res.cookies.set(DEMO_COOKIE, "1", { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: DEMO_TTL_SECONDS });
+  // The desk reads its times on the carrier's clock: it is set here so the first page already has it.
+  res.cookies.set(ZONE_COOKIE, await workspaceTimezone(currentWorkspaceId()), { path: "/", maxAge: 60 * 60 * 24 * 365, sameSite: "lax" });
   return res;
 }
