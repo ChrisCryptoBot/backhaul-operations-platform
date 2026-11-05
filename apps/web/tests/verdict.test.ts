@@ -202,6 +202,17 @@ describe("the card's skeleton (docs/VERDICT_CARD.md)", () => {
     expect(css).not.toMatch(/\.qt-side::after/);
   });
 
+  test("every part of the card still explains itself on hover and on Tab, with the tooltip and the strip", () => {
+    expect(card).toContain('className="vc-tip"');
+    expect(card).toContain("onMouseEnter");
+    expect(card).toContain("onFocus");
+    expect(card).toContain("onMouseLeave");
+    expect(card).toContain('className="vc-explain"');
+    expect(css).toMatch(/\.vc-tip\{[^}]*position:fixed/);
+    // the mark, word, sentence, ruler parts, ladder lines and the board tag all take it
+    expect((card.match(/\{\.\.\.on\(/g) ?? []).length).toBeGreaterThanOrEqual(8);
+  });
+
   test("the buttons say the verdict too: on a Reject, rejecting is the main button and booking is Book anyway", () => {
     const actions = desk.slice(desk.indexOf('<div className="qt-actions">'), desk.indexOf("</aside>"));
     expect(actions).toMatch(/verdict\?\.state === "reject" \? \(\s*<button type="button" className="tl-btn primary"[^>]*onClick=\{onOpenPass\}>\s*Reject it/);

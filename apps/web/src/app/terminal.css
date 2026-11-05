@@ -426,3 +426,12 @@ dd>.sub{display:block;color:var(--dim)}
 }
 /* Printed sheets and paper never take glass. */
 @media print{.t-cmd,.dr,.k-modal,.k-toast,.t-pop,.menu-pop{-webkit-backdrop-filter:none;backdrop-filter:none;background:#fff;clip-path:none}}
+
+/* The verdict card's hover tooltip: a flat ticket beside the part, above everything but dialogs. Transient, so it takes the glass wash when glass is on. */
+.vc-tip{position:fixed;z-index:120;width:max-content;max-width:min(320px,calc(100vw - 24px));display:grid;gap:4px;padding:8px 10px;background:var(--panel);border:1px solid var(--line-hi);font:12px/17px var(--sans);color:var(--mid);pointer-events:none}
+.vc-tip b{color:var(--ink);font-weight:600}
+[data-learn]{cursor:help}
+[data-learn]:focus-visible{outline:2px solid var(--label-hi);outline-offset:2px}
+.vc-rule>[data-learn]{position:absolute}
+.vc-rule>.off[data-learn]{position:absolute}
+.vc-rule .loss[data-learn]::before,.vc-rule .flr[data-learn]::before,.vc-rule .mkt[data-learn]::before{content:"";position:absolute;inset:-8px -6px}

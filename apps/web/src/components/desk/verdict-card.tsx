@@ -1,33 +1,91 @@
 "use client";
 
 import React from "react";
+import { createPortal } from "react-dom";
 import { CARD_LINES, type Ground, type Ruler, type Verdict, type VerdictState } from "@/lib/verdict";
 
 /** "$1.23/mi". */
 const rate = (n: number) => `$${n.toFixed(2)}/mi`;
 
 type Say = { title: string; body: string };
-const Explain = React.createContext<((s: Say) => void) | null>(null);
+type Hit = (title: string, body: string) => Record<string, unknown>;
+const Explain = React.createContext<Hit | null>(null);
 
 /**
- * The card teaches its own logic. Hover (or Tab to) any part and one fixed strip at the foot of the card says what it is and how it is worked out; the strip keeps the last thing said,
- * so it can be read without holding the pointer still. Inside a card (`ExplainScope`) `on(title, body)` returns what to spread on a part; outside one (a table row) it is a plain title.
+ * The tooltip itself, as the card always had: hover (or Tab to) any part and it says what it is and how it is worked out, drawn on the page itself so a card edge never clips it.
+ * It is measured once drawn and kept wholly inside the window: centred on the part when there is room, slid sideways when there is not, put above when there is no room below.
+ */
+function ExplainTip({ title, body, cx, top, bottom }: Say & { cx: number; top: number; bottom: number }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [at, setAt] = React.useState<{ left: number; top: number } | null>(null);
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const gap = 8;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const left = Math.max(gap, Math.min(cx - w / 2, window.innerWidth - w - gap));
+    const below = bottom + 10;
+    setAt({ left, top: below + h + gap <= window.innerHeight ? below : Math.max(gap, top - 10 - h) });
+  }, [title, body, cx, top, bottom]);
+  return (
+    <div ref={ref} className="vc-tip" role="tooltip" style={{ left: at?.left ?? 0, top: at?.top ?? 0, visibility: at ? "visible" : "hidden" }}>
+      <b>{title}</b>
+      <span>{body}</span>
+    </div>
+  );
+}
+
+/** One tooltip per card (or per tag): `on(title, body)` returns what to spread on a part; `tip` goes once anywhere. */
+function useTip() {
+  const [shown, setShown] = React.useState<(Say & { cx: number; top: number; bottom: number }) | null>(null);
+  const on: Hit = (title, body) => {
+    const show = (e: React.SyntheticEvent<HTMLElement>) => {
+      const r = e.currentTarget.getBoundingClientRect();
+      setShown({ title, body, cx: r.left + r.width / 2, top: r.top, bottom: r.bottom });
+    };
+    return { tabIndex: 0, "data-learn": "", onMouseEnter: show, onFocus: show, onMouseLeave: () => setShown(null), onBlur: () => setShown(null) };
+  };
+  const tip = shown && typeof document !== "undefined" ? createPortal(<ExplainTip {...shown} />, document.body) : null;
+  return { on, tip };
+}
+
+/**
+ * The card teaches its own logic, two ways at once. Hover or Tab to any part and a tooltip sits beside it; the strip at the foot of the card keeps the last thing said, so it can be read
+ * without holding the pointer still (and by a screen reader, as a status). Outside a card (a table row) a part has the tooltip alone.
  */
 export function ExplainScope({ children }: { children: React.ReactNode }) {
   const [said, setSaid] = React.useState<Say | null>(null);
+  const { on: tipOn, tip } = useTip();
+  const on: Hit = (title, body) => {
+    const t = tipOn(title, body) as { onMouseEnter: (e: React.SyntheticEvent<HTMLElement>) => void; onFocus: (e: React.SyntheticEvent<HTMLElement>) => void };
+    return {
+      ...t,
+      onMouseEnter: (e: React.SyntheticEvent<HTMLElement>) => {
+        setSaid({ title, body });
+        t.onMouseEnter(e);
+      },
+      onFocus: (e: React.SyntheticEvent<HTMLElement>) => {
+        setSaid({ title, body });
+        t.onFocus(e);
+      }
+    };
+  };
   return (
-    <Explain.Provider value={setSaid}>
+    <Explain.Provider value={on}>
       {children}
       <div className="vc-explain" role="status" aria-live="polite">
         <b>{said?.title ?? "Hover or tab to any figure."}</b> {said?.body ?? "It says what it is and how it is worked out."}
       </div>
+      {tip}
     </Explain.Provider>
   );
 }
 
 function useExplain() {
-  const set = React.useContext(Explain);
-  return (title: string, body: string) => (set ? { tabIndex: 0, "data-learn": "", onMouseEnter: () => set({ title, body }), onFocus: () => set({ title, body }) } : { title: `${title}. ${body}` });
+  const inCard = React.useContext(Explain);
+  const own = useTip();
+  return { on: inCard ?? own.on, tip: inCard ? null : own.tip };
 }
 
 /** What each of the four verdicts means, in the words of the rules that decide it. */
@@ -66,12 +124,13 @@ export function VerdictMark({ state, size = 34 }: { state: VerdictState; size?: 
 
 /** A verdict's mark and word on one line, for a table row or a bar. The same two things as the card, smaller. */
 export function VerdictTag({ state, word }: { state: VerdictState; word: string }) {
-  const on = useExplain();
+  const { on, tip } = useExplain();
   const what = STATE_EXPLAIN[state];
   return (
     <span className="vc-tag" data-state={state} {...on(what.title, what.body)}>
       <VerdictMark state={state} size={15} />
       {word}
+      {tip}
     </span>
   );
 }
@@ -82,7 +141,7 @@ export function VerdictTag({ state, word }: { state: VerdictState; word: string 
  */
 export function VerdictRuler({ ruler, state }: { ruler: Ruler; state: VerdictState }) {
   const { floor, offer, market, marketName } = ruler;
-  const on = useExplain();
+  const { on, tip } = useExplain();
   const said = `This load pays ${rate(offer.value)} against a floor of ${rate(floor.value)}${market ? ` and ${marketName.toLowerCase()} at ${rate(market.value)}` : ""}.`;
   const gap = offer.value - floor.value;
   const clamp = (at: number) => Math.max(1, Math.min(99, at));
@@ -137,7 +196,7 @@ export function VerdictRuler({ ruler, state }: { ruler: Ruler; state: VerdictSta
 
 /** The top of the card: the mark and the word, the sentence that says why, and (optionally) the one figure on the right. The first thing read, in the same place every time. */
 export function VerdictHead({ verdict, figure }: { verdict: Verdict; figure?: React.ReactNode }) {
-  const on = useExplain();
+  const { on, tip } = useExplain();
   const what = STATE_EXPLAIN[verdict.state];
   return (
     <div className="vc-head">
@@ -159,7 +218,7 @@ export type LadderLine = { k: string; v: string; say: Say; tone?: "typed" | "neg
 
 /** The working, as a ladder a person can audit at a glance: each line is one step of the sum, and Left over is the total at the foot. */
 export function VerdictLadder({ lines }: { lines: LadderLine[] }) {
-  const on = useExplain();
+  const { on, tip } = useExplain();
   return (
     <dl className="t-kv" aria-label="The working">
       {lines.map((l) => (
