@@ -119,7 +119,7 @@ describe.skipIf(!run)("the partner seams", () => {
   });
 
   test("a call goes through three checks in order: keys, then the connection, then the adapter", async () => {
-    expect(await partnerState("factoring", null, W)).toMatchObject({ provider: "triumphpay", configured: false, connected: false, reason: expect.stringContaining("no keys on the server") });
+    expect(await partnerState("factoring", null, W)).toMatchObject({ provider: "triumphpay", configured: false, connected: false, reason: expect.stringContaining("has no keys yet") });
     expect(await connectPartner("factoring", "triumphpay", null, new Date(), W)).toMatchObject({ ok: false, error: expect.stringContaining("no keys") }); // nothing to connect to
     process.env.TRIUMPHPAY_API_KEY = "test-key";
     expect(await partnerState("factoring", null, W)).toMatchObject({ configured: true, connected: false, reason: expect.stringContaining("not connected for this fleet") });

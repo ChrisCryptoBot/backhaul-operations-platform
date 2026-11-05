@@ -33,7 +33,8 @@ import { saveLoadDetails, type EditResult } from "@/server/tl/edit";
 import { assignFromQueue, assignOptions, type AssignOptions, type AssignOutcome } from "@/server/tl/suggest";
 import { currentTerminal } from "@/server/tl/terminal";
 import { assignTrailerToLoad, hookTrailer, saveTrailer, setTrailerArchived, type AssignTrailerResult, type SaveResult as TrailerSaveResult } from "@/server/tl/trailers";
-import { connectPartner, disconnectPartner, type ConnectResult } from "@/server/partners/connections";
+import { connectPartner, disconnectPartner, retryConnection, type ConnectResult } from "@/server/partners/connections";
+import { deleteCredential, saveCredential, type SaveCredentialResult } from "@/server/partners/credentials";
 import { applyFactoringUpdate, factorInvoice, type FactorResult } from "@/server/partners/factoring";
 import { syncEld, type SyncResult } from "@/server/partners/eld";
 import { importFuelForLoad, saveFuelCard, type FuelCardResult, type SaveFuelCard } from "@/server/partners/fuel-card";
@@ -737,6 +738,31 @@ export async function connectPartnerAction(capability: string, provider: string,
   await requireCan("admin");
   const out = await connectPartner(String(capability), String(provider), accountLabel);
   if (out.ok) revalidatePath("/", "layout");
+  return out;
+}
+
+/** Save this fleet's own keys for a company (sealed on the server; nothing comes back but whether it worked). Admin only. */
+export async function savePartnerKeysAction(provider: string, values: Record<string, string>): Promise<SaveCredentialResult> {
+  await requireCan("admin");
+  const clean: Record<string, string> = {};
+  if (values && typeof values === "object") for (const [k, v] of Object.entries(values)) if (typeof v === "string") clean[String(k)] = v;
+  const out = await saveCredential(String(provider), clean);
+  if (out.ok) revalidatePath("/settings");
+  return out;
+}
+
+export async function removePartnerKeysAction(provider: string): Promise<{ ok: true; removed: boolean }> {
+  await requireCan("admin");
+  const removed = await deleteCredential(String(provider));
+  revalidatePath("/settings");
+  return { ok: true, removed };
+}
+
+/** After a run of failed calls: clear the failures and ask again at once. */
+export async function retryPartnerAction(capability: string, provider: string): Promise<ConnectResult> {
+  await requireCan("admin");
+  const out = await retryConnection(String(capability), String(provider));
+  if (out.ok) revalidatePath("/settings");
   return out;
 }
 

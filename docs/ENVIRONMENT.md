@@ -42,6 +42,12 @@ Legend: **Required** = the desk does not work without it. **Secret** = never pri
 
 A fleet is switched on by setting its Clerk Organization id on the workspace (`workspaces.bridge_org_id`) and each driver's phone account (`drivers.phone_user_id`); neither is an environment variable.
 
+## The partner backbone (docs/PARTNER_BACKBONE.md)
+| Name | Required | Secret | What it does |
+|---|---|---|---|
+| `DESK_CREDENTIAL_KEY` | to let a fleet keep its own keys | yes | 32 random bytes in base64. Seals each fleet's partner keys (AES-256-GCM) before they are stored; the database alone opens nothing. Without it, a fleet cannot save keys and Settings says so. Losing it loses the stored keys (they must be pasted again). |
+| `PARTNER_CRON_SECRET` | for the schedule | yes | The secret the schedule sends (header `x-partner-cron`) to `POST /partners/cron`, which reads the connections that run on a clock (ELD hours, carrier checks). Without it the route answers 404. |
+
 ## Partner companies (docs/platform/PARTNER_API_READINESS.md; each is off until its keys are set and a fleet connects it)
 | Name | Secret | Company and use |
 |---|---|---|
@@ -56,7 +62,7 @@ A fleet is switched on by setting its Clerk Organization id on the workspace (`w
 | `GUSTO_CLIENT_ID`, `GUSTO_CLIENT_SECRET`, `GUSTO_WEBHOOK_SECRET` | yes | Payroll |
 | `PROMILES_API_KEY`, `PROMILES_WEBHOOK_SECRET` | yes | Fuel tax (IFTA) |
 
-These are per deployment today. Per-workspace credentials (one fleet's own account with a company) are the next piece of the partner backbone.
+These are the server's own keys, used when a fleet has not saved its own. A fleet's own account with a company is kept sealed per workspace (Settings, Integrations) and wins over these.
 
 ## Tests and scripts only
 | Name | What it does |

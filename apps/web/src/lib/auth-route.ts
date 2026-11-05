@@ -13,7 +13,7 @@ export type Door =
   | { kind: "unauthorized" };
 
 /** Pages anyone may open: the splash, the sign-in and sign-up pages, asking for a person, the "no desk yet" page and signing out. */
-const PUBLIC = [/^\/$/, /^\/sign-in(\/.*)?$/, /^\/sign-up(\/.*)?$/, /^\/enterprise(\/.*)?$/, /^\/no-workspace$/, /^\/auth\/leave$/, /^\/bridge\/cron$/, /^\/icon\.svg$/];
+const PUBLIC = [/^\/$/, /^\/sign-in(\/.*)?$/, /^\/sign-up(\/.*)?$/, /^\/enterprise(\/.*)?$/, /^\/no-workspace$/, /^\/auth\/leave$/, /^\/bridge\/cron$/, /^\/partners\/webhook\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/, /^\/partners\/cron$/, /^\/icon\.svg$/];
 
 export const isPublicPath = (path: string): boolean => PUBLIC.some((re) => re.test(path));
 

@@ -29,7 +29,11 @@ import { toCompanyValues } from "@/lib/company";
 import { getCompany } from "@/server/tl/company";
 import { planSummary } from "@/server/tl/plan";
 import { partnerStatus } from "@/server/partners/connections";
-import { IntegrationsList } from "@/components/desk/partner-actions";
+import { IntegrationsPanel } from "@/components/desk/integrations-panel";
+import { allCredentialStatus, credentialsAvailable } from "@/server/partners/credentials";
+import { webhookPaths } from "@/server/partners/connections";
+import { headers } from "next/headers";
+import { dateTime } from "@/lib/desk-format";
 import { PLANS, priceText } from "@/lib/plans";
 import { TeamCard } from "@/components/desk/team-card";
 import { isPlatformAdmin, requirePage } from "@/server/tl/access";
@@ -50,6 +54,9 @@ export default async function SettingsPage() {
   const isCustomSleep = !(SLEEP_PRESETS as readonly number[]).includes(sleepMinutes);
   const me = await requirePage("read");
   const zone = await workspaceTimezone(currentWorkspaceId());
+  const [keyStatus, hooks] = await Promise.all([allCredentialStatus(), webhookPaths()]);
+  const host = headers().get("x-forwarded-host") ?? headers().get("host") ?? "";
+  const integrationsOrigin = host ? `${headers().get("x-forwarded-proto") ?? "https"}://${host}` : "";
   const [row, kpi, company, plan, partners, members] = await Promise.all([getStoredThresholds(), getDeskKpi({ period: "4w", compare: false }), getCompany(), planSummary(), partnerStatus(), listMembers()]);
   const seats = plan.units.find((u) => u.kind === "member")!;
   const stored = Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, row[f.key] ?? null])) as Record<keyof Thresholds, number | null>;
@@ -111,9 +118,27 @@ export default async function SettingsPage() {
 
       <Card title="Integrations" className="tl-card">
         <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
-          Companies TrueLane can work with for the freight, trucks, fuel, insurance and pay of this fleet. A company can be connected once its keys are set on the server; until then its buttons elsewhere in the desk say so. Nothing is sent to a company that is not connected.
+          Companies TrueLane can work with for the freight, trucks, fuel, insurance and pay of this fleet. Each takes this fleet&apos;s own keys (kept sealed on the server; only the last four characters are ever shown) or the server&apos;s. Nothing is sent to a company that is not connected.
+          {credentialsAvailable() ? "" : " This server cannot keep a fleet's own keys yet: whoever runs it needs to set a credential key."}
         </p>
-        <IntegrationsList rows={partners.map((r) => ({ capability: r.capability, label: r.label, provider: r.provider, name: r.name, configured: r.configured, connected: r.connected, accountLabel: r.accountLabel }))} />
+        <IntegrationsPanel
+          canKeep={credentialsAvailable() && can(me.role, me.grants, "admin")}
+          whyNot={credentialsAvailable() ? "An admin sets the keys." : "This server cannot keep a fleet's own keys yet. Whoever runs it sets the credential key first."}
+          origin={integrationsOrigin}
+          items={partners.map((r) => ({
+            capability: r.capability,
+            label: r.label,
+            provider: r.provider,
+            name: r.name,
+            configured: r.configured,
+            status: r.status,
+            lastError: r.lastError,
+            failures: r.failures,
+            lastSyncedAt: r.lastSyncedAt ? dateTime(r.lastSyncedAt) : null,
+            fields: keyStatus.get(r.provider) ?? [],
+            webhookPath: hooks.get(`${r.capability}:${r.provider}`) ?? null
+          }))}
+        />
       </Card>
 
       <Card title="Time zone" className="tl-card">
