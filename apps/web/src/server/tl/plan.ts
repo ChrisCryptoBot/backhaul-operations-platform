@@ -59,8 +59,11 @@ export async function planSummary(workspaceId = currentWorkspaceId()) {
     limit: limitOf(key, "truck"),
     units: [use("truck", trucks), use("driver", drivers), use("trailer", trailers), use("member", members)],
     price: priceText(key),
-    monthly: centsText(cents),
-    parts: p.perTruckCents > 0 ? `${centsText(p.baseCents)} + ${trucks} × ${centsText(p.perTruckCents)}` : centsText(p.baseCents)
+    monthly: key === "enterprise" ? "By agreement" : centsText(cents),
+    parts:
+      key === "enterprise"
+        ? "By agreement"
+        : (p.perTruckCents > 0 ? `${centsText(p.baseCents)} + ${trucks} × ${centsText(p.perTruckCents)}` : centsText(p.baseCents)) + (cents === p.minCents && p.baseCents + p.perTruckCents * trucks < p.minCents ? `, minimum ${centsText(p.minCents)}` : "")
   };
 }
 

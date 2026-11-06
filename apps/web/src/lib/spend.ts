@@ -21,13 +21,15 @@ export type UsageRefusal = "workspace_day" | "workspace_month" | "global_day" | 
 
 /**
  * The ceilings. `estCents` is what one unit is estimated to cost (whole cents, rounded up), used only for the monthly dollar ceiling.
- *  - anthropic_desk: a rate-confirmation read, about 8 cents (the phone's own estimate is 5-8). Per desk per day comes from the plan (lib/plans.ts); everyone together: 60 reads a day and $25 a month
- *    (the desk's own Anthropic workspace is capped at $25 in the Console, so this stops first).
+ *  - anthropic_desk: a rate-confirmation read, about 8 cents (the phone's own estimate is 5-8; 7 to 13 cents at the model in use, docs/PRICING_RESEARCH_2026-11.md). Per desk: the daily burst limit and the
+ *    month's hard limit come from the desk's truck count (lib/plans.ts: 25 reads a truck a month included, plus what its overage ceiling pays for). Everyone together: 300 reads a day and $150 a
+ *    month (2026-11-06; was 60 and $25, which one 25-truck customer would have used up alone). The desk's own Anthropic workspace is capped in the Console, and that cap must be raised to match
+ *    before the first paying desk (it was $25), or the Console stops first.
  *  - mapbox_geocode / mapbox_directions: temporary geocoding and routing. Free tier is 100,000 of each a month; the ceiling is 60,000 of each for everyone (60%), so an overage is not possible by accident.
  *  - mapbox_permanent: geocoding whose result is stored. NO free tier (about 0.5 cent each); 150 a day per desk and 3,000 a month for everyone (about $15).
  */
 export const SPEND: Record<UsageService, { estCents: number; limits: UsageLimits }> = {
-  anthropic_desk: { estCents: 8, limits: { globalDay: 60, globalMonthCents: 2_500 } },
+  anthropic_desk: { estCents: 8, limits: { globalDay: 300, globalMonthCents: 15_000 } },
   mapbox_geocode: { estCents: 0, limits: { workspaceDay: 800, globalDay: 3_000, globalMonth: 60_000 } },
   mapbox_directions: { estCents: 0, limits: { workspaceDay: 700, globalDay: 3_000, globalMonth: 60_000 } },
   mapbox_permanent: { estCents: 1, limits: { workspaceDay: 150, globalMonth: 3_000 } }

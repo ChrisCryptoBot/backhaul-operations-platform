@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
 import { MAX_RATE_CON_PAGES, pdfPageCount } from "../src/lib/pdf-pages";
-import { RATE_CON_READS_BY_PLAN, rateConReadsPerDay } from "../src/lib/plans";
+import { burstReadsPerDay, hardMonthlyReads } from "../src/lib/plans";
 import { SPEND, decideClaim, refusalText, switchedOff, windowStarts, type Counts } from "../src/lib/spend";
 import { BUDGETS } from "../src/server/tl/budget";
 
@@ -18,12 +18,12 @@ describe("the ceilings (spend-guardrails plan)", () => {
     expect(SPEND.mapbox_permanent.limits).toEqual({ workspaceDay: 150, globalMonth: 3_000 });
     expect(SPEND.mapbox_permanent.estCents).toBeGreaterThan(0);
   });
-  it("desk reads: a global 60 a day and 25 dollars a month; the per-desk number comes from the plan", () => {
-    expect(SPEND.anthropic_desk.limits).toEqual({ globalDay: 60, globalMonthCents: 2_500 });
-    expect(RATE_CON_READS_BY_PLAN).toEqual({ starter: 10, growth: 25, pro: 50, enterprise: 100 });
-    expect(rateConReadsPerDay(null)).toBe(10); // no plan chosen is Starter
-    expect(rateConReadsPerDay("nonsense")).toBe(10);
-    expect(rateConReadsPerDay("pro")).toBe(50);
+  it("desk reads: a global 300 a day and 150 dollars a month (one 25-truck desk alone is about 375 reads, 30 dollars); the per-desk numbers come from the fleet's size", () => {
+    expect(SPEND.anthropic_desk.limits).toEqual({ globalDay: 300, globalMonthCents: 15_000 });
+    expect(burstReadsPerDay(10)).toBe(25);
+    expect(hardMonthlyReads(10)).toBe(450);
+    // the shared ceiling must hold the heaviest allowed month of one large desk: 49 trucks x 25 reads + 200 over, at 8 cents a read
+    expect(hardMonthlyReads(49) * SPEND.anthropic_desk.estCents).toBeLessThan(SPEND.anthropic_desk.limits.globalMonthCents!);
   });
   it("the per-instance route budgets were cut: a measure is up to a hundred calls, so 300 a day allowed about 30,000 calls", () => {
     expect(BUDGETS.geo_measure).toBe(60);
