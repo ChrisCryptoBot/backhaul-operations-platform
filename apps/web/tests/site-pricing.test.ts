@@ -1,56 +1,35 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
-import { PLANS, centsText, limitOf, type Plan } from "@/lib/plans";
+import { PLANS, centsText } from "@/lib/plans";
 
 /**
- * The dispatcher software page (truelane-site/build.html, in the phone's repo beside this one) shows the plans. The page is plain HTML, so the numbers are typed there; this keeps
- * each card equal to the desk's own plan numbers, so a price changed in src/lib/plans.ts cannot go on being sold at the old figure. Skipped when the site is not beside the desk
- * (the desk's own repo on its own).
+ * The dispatcher software page (truelane-site/build.html, in the phone's repo beside this one) no longer lists plans (2026-11-06): it shows the $750 Leak Read and says
+ * "Founding-carrier pricing, quoted after the Read" for Signals and the Desk. src/lib/plans.ts stays the desk's own internal plan config. This keeps a plan's price from
+ * going on the public page by accident, so a figure is never sold from a stale copy. Skipped when the site is not beside the desk (the desk's own repo on its own).
  */
 const PAGE = path.join(__dirname, "..", "..", "..", "..", "truelane-site", "build.html");
 const present = existsSync(PAGE);
 
-const cards = (html: string): string[] => {
-  const section = html.slice(html.indexOf('id="pricing"'), html.indexOf('id="shelf"'));
-  return section.split('<div class="blueprint price-card">').slice(1);
-};
-const textOf = (s: string) => s.replace(/<[^>]+>/g, " ").replace(/&[a-z]+;/g, " ").replace(/\s+/g, " ").trim();
+const textOf = (s: string) => s.replace(/<style[\s\S]*?<\/style>/g, " ").replace(/<script[\s\S]*?<\/script>/g, " ").replace(/<[^>]+>/g, " ").replace(/&[a-z]+;/g, " ").replace(/\s+/g, " ").trim();
 
-const priceOf = (p: Plan) => (p.perTruckCents > 0 ? `${centsText(p.baseCents)} /mo + ${centsText(p.perTruckCents)} a truck` : `${centsText(p.baseCents)} /mo`);
-const fleetOf = (p: Plan) => (p.max == null ? `${p.min} trucks and up` : `${p.min} to ${p.max} trucks`);
-
-describe.skipIf(!present)("the plans on the dispatcher software page", () => {
+describe.skipIf(!present)("the pricing on the dispatcher software page", () => {
   const html = present ? readFileSync(PAGE, "utf8") : "";
-  const found = cards(html);
+  const shown = [...textOf(html).matchAll(/\$\d[\d,]*(?:\.\d\d)?/g)].map((m) => m[0]);
 
-  test("one card per plan, in the plans' order, each with the plan's name, price and fleet size", () => {
-    expect(found).toHaveLength(PLANS.length);
-    PLANS.forEach((p, i) => {
-      const t = textOf(found[i]!);
-      expect(t).toContain(p.label);
-      expect(t).toContain(priceOf(p));
-      expect(t).toContain(fleetOf(p));
-    });
-  });
-
-  test("each card states the limits the desk enforces: trucks, and twice as many drivers and trailers", () => {
-    PLANS.forEach((p, i) => {
-      const t = textOf(found[i]!);
-      const trucks = limitOf(p.key, "truck");
-      if (trucks == null) {
-        expect(t).toContain("No automatic limit");
-        return;
-      }
-      expect(t).toContain(`Up to ${trucks} trucks`);
-      expect(t).toContain(`Up to ${limitOf(p.key, "driver")} drivers and ${limitOf(p.key, "trailer")} trailers`);
-    });
-  });
-
-  test("no other price is quoted on the page", () => {
-    const amounts = new Set(PLANS.flatMap((p) => [p.baseCents, p.perTruckCents]).filter((c) => c > 0).map((c) => centsText(c)));
-    const shown = [...textOf(html.replace(/<style[\s\S]*?<\/style>/g, " ").replace(/<script[\s\S]*?<\/script>/g, " ")).matchAll(/\$\d[\d,]*(?:\.\d\d)?/g)].map((m) => m[0]);
+  test("the only price is the Leak Read's $750", () => {
     expect(shown.length).toBeGreaterThan(0);
-    for (const a of shown) expect(amounts.has(a), `${a} is not one of the plans' amounts`).toBe(true);
+    for (const a of shown) expect(a, `${a} is not the Read's price`).toBe("$750");
+  });
+
+  test("no internal plan amount (base or per truck) is on the page", () => {
+    const planAmounts = new Set(PLANS.flatMap((p) => [p.baseCents, p.perTruckCents]).filter((c) => c > 0).map((c) => centsText(c)));
+    for (const a of shown) expect(planAmounts.has(a), `${a} is one of the plans' amounts`).toBe(false);
+  });
+
+  test("Signals and the Desk are founding-carrier pricing, quoted after the Read", () => {
+    const t = textOf(html);
+    expect(t).toContain("Founding-carrier pricing");
+    expect(t).toContain("quoted after the");
   });
 });
