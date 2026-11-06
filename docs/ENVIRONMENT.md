@@ -50,6 +50,18 @@ A fleet is switched on by setting its Clerk Organization id on the workspace (`w
 | `DESK_PARTNER_SANDBOX` | no | no | `on` lets the built-in partner simulator run on a desk that has sign-in on. The simulator answers realistic ELD and factoring payloads from inside the desk (no network) for a company key that starts with `sandbox_`. It is always on for the demo desk (sign-in off) and off for a real desk unless this is set, so a real fleet cannot be handed invented hours or positions by typing a word into a box. |
 | `PARTNER_CRON_SECRET` | for the schedule | yes | The secret the schedule sends (header `x-partner-cron`) to `POST /partners/cron`, which reads the connections that run on a clock (ELD hours, carrier checks), re-seals keys after a rotation, and removes webhook events older than 90 days. Without it the route answers 404. |
 
+## Signals and notifications (docs/SIGNALS.md; each channel is off until everything it needs is set, and none is ever set from a form)
+| Name | Required | Secret | What it does |
+|---|---|---|---|
+| `SIGNALS_CRON_SECRET` | for the schedule | yes | The secret the schedule sends (header `x-signals-cron`) to `POST /signals/cron`, which keeps every desk's signals up to date, tells people about what is due, and sends the weekly report when its hour has come. Without it the route answers 404. n8n's Schedule trigger is the clock. |
+| `NOTIFY_WEBHOOK_URL` | for the webhook channel | yes | Where the desk posts each notice as signed JSON: an n8n Webhook trigger, or any receiver. `https` only (plain `http` only to this machine on the demo desk). Never typed into the desk. |
+| `NOTIFY_WEBHOOK_SECRET` | with `NOTIFY_WEBHOOK_URL` | yes | Signs each post: header `x-desk-signature` is `v1=` and the HMAC-SHA256, in hex, of `<x-desk-timestamp>.<body>` with this secret. The receiver checks it. |
+| `NOTIFY_DESK_URL` | no | no | The desk's own address (`https://...`) for the links inside messages. Left out, the address the cron call came in on is used. |
+| `RESEND_API_KEY` | for email | yes | Email through Resend. Dark until this, `NOTIFY_FROM_EMAIL` and `NOTIFY_TO_EMAIL` are all set. |
+| `NOTIFY_FROM_EMAIL` | for email | no | The sender address Resend sends from (a domain verified on Resend). |
+| `NOTIFY_TO_EMAIL` | for email | no | Who the email goes to: one address or several, separated by commas. |
+| `SLACK_WEBHOOK_URL` | for Slack without n8n | yes | A Slack incoming webhook (`https://hooks.slack.com/...`, no other host is accepted). |
+
 ## Partner companies (docs/platform/PARTNER_API_READINESS.md; each is off until its keys are set and a fleet connects it)
 | Name | Secret | Company and use |
 |---|---|---|

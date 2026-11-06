@@ -46,7 +46,8 @@ $migrations = @(
   "20261201000000_asset_history",
   "20261202000000_regions_scope",
   "20261203000000_imported_history",
-  "20261204000000_signals"
+  "20261204000000_signals",
+  "20261205000000_notification_subject"
 )
 foreach ($m in $migrations) {
   npx prisma migrate resolve --applied $m --schema=./prisma/schema.prisma

@@ -1301,6 +1301,8 @@ model NotificationLog {
   attempts    Int       @default(0)
   /// A short reason only, never a body or a secret.
   error       String?
+  /// The subject line of what was sent (a line of words: never a body, a key or an address), so the desk can show what went out.
+  subject     String?
   signalId    String?   @map("signal_id")
   createdAt   DateTime  @default(now()) @map("created_at")
   nextTryAt   DateTime? @map("next_try_at")
