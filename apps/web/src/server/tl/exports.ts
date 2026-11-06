@@ -398,7 +398,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
 
   if (kind === "kpi-drivers" || kind === "kpi-lanes" || kind === "kpi-brokers" || kind === "kpi-weeks" || kind === "kpi-trucks") {
     const p = parseKpiParams(query);
-    const k = await getDeskKpi({ period: p.period, compare: false, filters: p.filters }, now);
+    const k = await getDeskKpi({ period: p.period, compare: false, filters: p.filters, terminals: termList(await currentTerminal()) }, now);
     const tag = `${p.period}-${day}`;
     if (kind === "kpi-drivers") {
       return {

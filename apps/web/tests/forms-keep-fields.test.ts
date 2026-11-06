@@ -54,8 +54,8 @@ const EXEMPT: Record<string, string> = {
   // A filter or a pick that goes into the address (GET): the sidebar remembers it per module (rememberedQuery).
   "components/desk/data-table-tools.tsx": "a search and filter that go into the address",
   "components/desk/live-form.tsx": "a filter form that goes into the address",
+  "components/desk/kpi/choice.tsx": "a filter box that goes into the address (the filter form around it applies the chosen name)",
   "app/(desk)/trailers/page.tsx": "filters that go into the address",
-  "app/(desk)/kpi/page.tsx": "filters that go into the address",
   "app/(desk)/audit/page.tsx": "filters that go into the address",
   "app/(desk)/planner/page.tsx": "filters that go into the address",
   "app/(desk)/schedules/page.tsx": "a search that goes into the address; the shift editor itself (components/desk/roster-table.tsx) keeps its fields with useDraft",

@@ -1,8 +1,8 @@
 import Link from "next/link";
 import React from "react";
-import type { DeskKpi, LaneStatus } from "@/server/tl/kpi";
+import type { DeskKpi, LaneKpi, LaneStatus } from "@/server/tl/kpi";
 import type { LaneScore } from "@/lib/kpi-extras";
-import { DataTable, type Column, type Row } from "@/components/desk/data-table";
+import { DataTable, type Column, type Row, type SortHref } from "@/components/desk/data-table";
 import { emptyZone } from "@/lib/thresholds";
 import { signedPct, miles, pct, perMile, usd } from "@/lib/desk-format";
 import { ChartFrame, shortLane } from "./parts";
@@ -40,8 +40,26 @@ const COLUMNS: Column[] = [
 ];
 
 /** Every lane that finished a load in the period, busiest first, with how its rate sits against the market. */
-export function LaneScorecard({ k, canEdit = false }: { k: DeskKpi; canEdit?: boolean }) {
-  const rows: Row[] = k.lanes.map((l) => {
+/** What the lane table can sort by, and how each column is read (the page sorts and pages the lanes on the server). */
+export const LANE_SORTERS: Record<string, (l: LaneKpi) => number | string | null> = {
+  lane: (l) => l.key,
+  loads: (l) => l.loads,
+  gross: (l) => l.gross,
+  perload: (l) => l.revPerLoad,
+  rpm: (l) => l.rpm,
+  loaded: (l) => l.loadedMiles,
+  emptytotal: (l) => l.pickupEmptyMiles + l.returnEmptyMiles,
+  trip: (l) => l.drivenMiles,
+  empty: (l) => l.emptyShare,
+  before: (l) => l.avgPickupEmpty,
+  after: (l) => l.avgReturnEmpty,
+  market: (l) => l.marketVariancePct,
+  vs: (l) => l.vsTarget
+};
+
+/** `lanes` is the page being shown (the whole list is read for the caption); `sortHref` makes the headers sort on the server. */
+export function LaneScorecard({ k, canEdit = false, lanes, sortHref }: { k: DeskKpi; canEdit?: boolean; lanes?: LaneKpi[]; sortHref?: SortHref }) {
+  const rows: Row[] = (lanes ?? k.lanes).map((l) => {
     const zone = emptyZone(l.emptyShare, k.thresholds);
     const s = STATUS[l.status];
     return {
@@ -83,7 +101,7 @@ export function LaneScorecard({ k, canEdit = false }: { k: DeskKpi; canEdit?: bo
       empty={k.lanes.length === 0 ? "No finished loads in this period." : undefined}
       caption={`${k.lanes.filter((l) => l.score === "below").length} of ${k.lanes.filter((l) => l.score !== "no_target").length} lanes with a target are BELOW it. `.concat(checked > 0 ? `${below} of ${checked} lanes with a market rate paid below it.` : "None of these lanes has a market rate on its loads yet.")}
       formula="Target per load is typed by a person (dispatch or billing); Vs target is the lane's revenue per load minus it, and the scorecard is BELOW when the lane pays less than its target per load, OK at or above it, NO TARGET when none is set. Loaded, empty and trip miles are the lane's totals in the period. Against market is (Σ all-in pay − Σ market total) ÷ Σ market total over the loads on the lane that carry a market rate. Empty miles are deadhead over every mile driven on the lane.">
-      <DataTable id="kpi-lanes" label="Lane scorecard" columns={COLUMNS} rows={rows} />
+      <DataTable id="kpi-lanes" label="Lane scorecard" columns={COLUMNS} rows={rows} sortHref={sortHref} />
     </ChartFrame>
   );
 }

@@ -1,3 +1,5 @@
+import { termList } from "@/lib/scope";
+import { currentTerminal } from "@/server/tl/terminal";
 import Link from "next/link";
 import React from "react";
 import { getDeskKpi } from "@/server/tl/kpi";
@@ -23,7 +25,7 @@ const PERIOD_NAME = { "4w": "Last four weeks", month: "This month", ytd: "Year t
 export default async function KpiReportPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const params = parseKpiParams(searchParams);
   const now = new Date();
-  const [k, company, canEdit, tz] = await Promise.all([getDeskKpi({ period: params.period, compare: params.compare, filters: params.filters }, now), getCompany(), checkAccess("dispatch", "bill"), workspaceTimezone(currentWorkspaceId())]);
+  const [k, company, canEdit, tz] = await Promise.all([getDeskKpi({ period: params.period, compare: params.compare, filters: params.filters, terminals: termList(await currentTerminal()) }, now), getCompany(), checkAccess("dispatch", "bill"), workspaceTimezone(currentWorkspaceId())]);
   // The note is for the week the report is read in (the Monday on the carrier's clock), whatever period is shown.
   const weekKey = weekKeyOf(now.getTime(), tz);
   const note = await getKpiNote(weekKey);

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import React from "react";
 import { getCustomerDetail } from "@/server/tl/customers";
+import { currentTerminal } from "@/server/tl/terminal";
 import { listAudit } from "@/server/tl/audit";
 import { Card, PageHead, Stat } from "@/components/desk/ui";
 import { CustomerForm } from "@/components/desk/customer-form";
@@ -22,7 +23,7 @@ const pct = (n: number | null) => (n == null ? "—" : `${Math.round(n * 100)}%`
 export default async function CustomerPage({ params, searchParams }: { params: { id: string }; searchParams?: { name?: string } }) {
   const isNew = params.id === "new";
   const name = (searchParams?.name ?? "").trim();
-  const d = isNew ? (name ? await getCustomerDetail({ name }) : null) : await getCustomerDetail({ id: params.id });
+  const d = isNew ? (name ? await getCustomerDetail({ name }, new Date(), undefined, await currentTerminal()) : null) : await getCustomerDetail({ id: params.id }, new Date(), undefined, await currentTerminal());
   if (!isNew && !d) notFound();
   // A name that already has a record (a link from a lane or a load) opens that record, not a second blank form.
   if (isNew && d?.record) redirect(`/customers/${d.record.id}`);

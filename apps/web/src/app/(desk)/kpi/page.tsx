@@ -6,6 +6,7 @@ import { Card, PageHead, Tabs } from "@/components/desk/ui";
 import { LiveForm } from "@/components/desk/live-form";
 import { EmptyState } from "@/components/desk/kit/states";
 import { KpiMatrix } from "@/components/desk/kpi/matrix";
+import { KpiChoice } from "@/components/desk/kpi/choice";
 import { DriverLeaderboard } from "@/components/desk/kpi/leaderboard";
 import { Bullets } from "@/components/desk/kpi/bullets";
 import { DeadheadBars, VarianceHistogram } from "@/components/desk/kpi/distribution";
@@ -25,12 +26,14 @@ const FILTER_LABEL = { lane: "Lane", broker: "Customer", driver: "Driver", truck
 
 export default async function KpiPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const params = parseKpiParams(searchParams);
-  const [k, fuelAccess, billAccess] = await Promise.all([getDeskKpi({ period: params.period, compare: params.compare, filters: params.filters }), checkAccess("quote", "figures"), checkAccess("bill")]);
-  // The headline from the Leak Ledger, for the billing office only, and only on the unfiltered dashboard (the ledger has its own scope: the terminal in view).
-  const terminal = billAccess.ok && !hasFilters(params.filters) ? await currentTerminal() : null;
-  const leaks = billAccess.ok && !hasFilters(params.filters) ? await getLeakLedger({ period: params.period, compare: params.compare, terminals: termList(terminal) }) : null;
+  // Everything on this page is for the terminals in view (the header's scope, inside what the person may see).
+  const scope = termList(await currentTerminal());
+  const [k, fuelAccess, billAccess] = await Promise.all([getDeskKpi({ period: params.period, compare: params.compare, filters: params.filters, terminals: scope }), checkAccess("quote", "figures"), checkAccess("bill")]);
+  // The headline from the Leak Ledger, for the billing office only, and only on the unfiltered dashboard.
+  const leaks = billAccess.ok && !hasFilters(params.filters) ? await getLeakLedger({ period: params.period, compare: params.compare, terminals: scope }) : null;
   const href = (over: Partial<typeof params>) => kpiHref("/kpi", params, over);
-  const choices = { lane: k.choices.lanes, broker: k.choices.brokers, driver: k.choices.drivers, truck: k.choices.trucks };
+  // A big fleet's driver chart shows the best and the worst ten; "All drivers" opens the rest.
+  const allDrivers = searchParams?.alldrivers === "1";
   const csv = (kind: string) => kpiHref(`/export/${kind}`, params);
 
   return (
@@ -61,15 +64,7 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
           {!params.compare ? <input type="hidden" name="compare" value="off" /> : null}
           {params.dh === "miles" ? <input type="hidden" name="dh" value="miles" /> : null}
           {(Object.keys(FILTER_LABEL) as Array<keyof typeof FILTER_LABEL>).map((f) => (
-            <label key={f} className="tl-field">
-              <span className="db-sr-only">{FILTER_LABEL[f]}</span>
-              <select name={f} defaultValue={params.filters[f] ?? ""} aria-label={FILTER_LABEL[f]}>
-                <option value="">All {FILTER_LABEL[f].toLowerCase()}s</option>
-                {choices[f].map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </label>
+            <KpiChoice key={`${f}:${params.filters[f] ?? ""}`} field={f} label={FILTER_LABEL[f]} plural={`${FILTER_LABEL[f].toLowerCase()}s`} value={params.filters[f] ?? ""} period={params.period} />
           ))}
           {hasFilters(params.filters) ? <Link href={href({ filters: {} })} replace className="tl-btn ghost sm">Clear filters</Link> : null}
         </LiveForm>
@@ -103,7 +98,7 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
           </div>
 
           <div className="tl-grid cols-2">
-            <DriverLeaderboard drivers={k.drivers} thresholds={k.thresholds} mode={params.dh} hrefFor={(dh) => href({ dh })} />
+            <DriverLeaderboard drivers={k.drivers} thresholds={k.thresholds} mode={params.dh} hrefFor={(dh) => href({ dh })} all={allDrivers} allHref={`${href({})}${href({}).includes("?") ? "&" : "?"}alldrivers=1`} />
             <Bullets k={k} />
           </div>
 

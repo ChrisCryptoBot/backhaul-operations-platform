@@ -1,21 +1,30 @@
 import { prisma } from "@/lib/db";
 import type { DieselPoint, KpiExtras, RolledEvent, TenderRow } from "@/lib/kpi-extras";
 import { numOrNull } from "./convert";
+import type { Terminals } from "@/lib/scope";
+import { inTerminal } from "./terminal-sql";
 
 /**
  * What the KPI reads besides the finished loads: loads moved to a new pickup time (audit events), offers received and what became of them (quotes and their decisions), each lane's target
  * rate, and the weekly diesel price. Each is read for one workspace (the diesel price is public and shared). `kpiExtrasStamp` is a few counts and dates, cheap enough to read on every visit, so a
  * kept KPI answer is rebuilt when any of these moves.
  */
-export async function getKpiExtras(workspaceId: string, since: Date): Promise<KpiExtras> {
+export async function getKpiExtras(workspaceId: string, since: Date, terminals: Terminals = null): Promise<KpiExtras> {
+  // Moved loads and offers belong to a terminal through their load (the truck or driver on it, or not placed yet): the same rule as every other scoped list. Lane targets and the diesel price are the desk's own.
+  const here = inTerminal(terminals);
   const [events, decisions, openQuotes, targets, diesel] = await Promise.all([
     prisma.auditEvent.findMany({ where: { workspaceId, action: "rescheduled", loadId: { not: null }, createdAt: { gte: since } }, select: { loadId: true, createdAt: true, reason: true } }),
-    prisma.loadDecision.findMany({ where: { decidedAt: { gte: since }, load: { workspaceId } }, select: { decisionType: true, decidedAt: true } }),
-    prisma.load.findMany({ where: { workspaceId, status: "quote", deletedAt: null, createdAt: { gte: since }, decisions: { none: {} } }, select: { createdAt: true } }),
+    prisma.loadDecision.findMany({ where: { decidedAt: { gte: since }, load: { workspaceId, ...here } }, select: { decisionType: true, decidedAt: true } }),
+    prisma.load.findMany({ where: { workspaceId, status: "quote", deletedAt: null, createdAt: { gte: since }, decisions: { none: {} }, ...here }, select: { createdAt: true } }),
     prisma.laneTarget.findMany({ where: { workspaceId }, select: { lane: true, targetRate: true } }),
     prisma.dieselPrice.findMany({ where: { region: "NUS" }, orderBy: { weekOf: "desc" }, take: 80, select: { weekOf: true, price: true } })
   ]);
-  const rolled: RolledEvent[] = events.map((e) => ({ loadId: e.loadId!, at: e.createdAt.getTime(), reason: e.reason }));
+  let moved = events;
+  if (terminals != null && events.length > 0) {
+    const mine = new Set((await prisma.load.findMany({ where: { workspaceId, id: { in: [...new Set(events.map((e) => e.loadId!))] }, ...here }, select: { id: true } })).map((l) => l.id));
+    moved = events.filter((e) => mine.has(e.loadId!));
+  }
+  const rolled: RolledEvent[] = moved.map((e) => ({ loadId: e.loadId!, at: e.createdAt.getTime(), reason: e.reason }));
   const tenders: TenderRow[] = [
     ...decisions.map((d) => ({ at: d.decidedAt.getTime(), kind: (d.decisionType === "passed" ? "passed" : "booked") as TenderRow["kind"] })),
     ...openQuotes.map((q) => ({ at: q.createdAt.getTime(), kind: "open" as const }))

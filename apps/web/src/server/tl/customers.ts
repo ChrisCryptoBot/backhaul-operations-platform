@@ -3,6 +3,8 @@ import type { AuditSnapshot } from "@/lib/audit-diff";
 import { kindLabel, validateCustomer, type CustomerCheck, type CustomerValues } from "@/lib/customer";
 import { customerScorecard } from "@/lib/customer-scorecard";
 import { notQuote } from "@/lib/quote-status";
+import { termList, type Terminals } from "@/lib/scope";
+import { inTerminal } from "./terminal-sql";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { getDeskKpi } from "./kpi";
@@ -24,6 +26,20 @@ type Row = { name: string; kind: string; mcNumber: string | null; contactName: s
 const snapshot = (c: Row): AuditSnapshot => ({ [LABEL.name]: c.name, [LABEL.kind]: kindLabel(c.kind), [LABEL.mcNumber]: c.mcNumber, [LABEL.contactName]: c.contactName, [LABEL.contactEmail]: c.contactEmail, [LABEL.contactPhone]: c.contactPhone, [LABEL.defaultPayTermsDays]: c.defaultPayTermsDays == null ? null : String(c.defaultPayTermsDays), [LABEL.notes]: c.notes });
 
 export const listCustomerRecords = (workspaceId = currentWorkspaceId()) => prisma.customer.findMany({ where: { workspaceId }, orderBy: { name: "asc" } });
+
+/**
+ * The records a person sees on Customers: all of them when they are not limited; otherwise the customers that have loads in their terminals, plus the ones with no loads anywhere yet
+ * (a new record has to be findable). A customer whose loads are all in other terminals is not theirs to see.
+ */
+export async function listCustomerRecordsInScope(terminals: Terminals, workspaceId = currentWorkspaceId()) {
+  const records = await listCustomerRecords(workspaceId);
+  if (terminals == null) return records;
+  const base = { workspaceId, deletedAt: null, ...notQuote, brokerName: { not: null } };
+  const [anywhere, here] = await Promise.all([prisma.load.groupBy({ by: ["brokerName"], where: base }), prisma.load.groupBy({ by: ["brokerName"], where: { ...base, ...inTerminal(terminals) } })]);
+  const has = new Set(anywhere.map((r) => lc(r.brokerName ?? "")));
+  const mine = new Set(here.map((r) => lc(r.brokerName ?? "")));
+  return records.filter((r) => !has.has(lc(r.name)) || mine.has(lc(r.name)));
+}
 
 /** Each customer's usual terms by lower-cased name, for an invoice to a customer whose load names none. */
 export async function customerTermsMap(workspaceId = currentWorkspaceId()): Promise<Map<string, number>> {
@@ -69,16 +85,16 @@ const RECENT = 12;
  * One customer's page: its record (when there is one), the scorecard the finished loads give (the KPI's row, plus how it pays against its terms),
  * what is still out, and its latest loads. `key` is a record's id, or a name that appears on loads and has no record yet.
  */
-export async function getCustomerDetail(key: { id?: string; name?: string }, now = new Date(), workspaceId = currentWorkspaceId()) {
+export async function getCustomerDetail(key: { id?: string; name?: string }, now = new Date(), workspaceId = currentWorkspaceId(), terminals: Terminals = null) {
   const record = key.id ? await prisma.customer.findFirst({ where: { id: key.id, workspaceId } }) : key.name ? await prisma.customer.findFirst({ where: { workspaceId, name: { equals: key.name.trim(), mode: "insensitive" } } }) : null;
   if (key.id && !record) return null;
   const name = (record?.name ?? key.name ?? "").trim();
   if (!name) return null;
 
   const [loads, thresholds, kpi] = await Promise.all([
-    prisma.load.findMany({ where: { workspaceId, deletedAt: null, ...notQuote, brokerName: { equals: name, mode: "insensitive" } }, orderBy: [{ scheduledDate: "desc" }, { createdAt: "desc" }] }),
+    prisma.load.findMany({ where: { workspaceId, deletedAt: null, ...notQuote, ...inTerminal(terminals), brokerName: { equals: name, mode: "insensitive" } }, orderBy: [{ scheduledDate: "desc" }, { createdAt: "desc" }] }),
     getThresholds(workspaceId),
-    getDeskKpi({ period: "all", compare: false }, now)
+    getDeskKpi({ period: "all", compare: false, terminals: termList(terminals) }, now, workspaceId)
   ]);
   const fallback = record?.defaultPayTermsDays ?? thresholds.defaultPayTermsDays;
   const scorecard = customerScorecard(

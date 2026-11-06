@@ -760,22 +760,24 @@ export async function getKpiRows(workspaceId = currentWorkspaceId(), opts: { sin
  * What the KPI, Customers and Lanes screens read is every load of a window (tens of thousands for a big fleet), so a finished answer is kept until the data under
  * it moves (answer-cache.ts), and it also depends on the period, the filters, the thresholds and the hour (the windows slide with the clock).
  */
-const answers = answerCache<DeskKpi>();
+const answers = answerCache<DeskKpi>(120);
 /** Tests clear it between cases. */
 export const clearKpiCache = () => answers.clear();
 
-export async function getDeskKpi(opts: { period: KpiPeriod; compare?: boolean; filters?: KpiFilters }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<DeskKpi> {
+export async function getDeskKpi(opts: { period: KpiPeriod; compare?: boolean; filters?: KpiFilters; /** Only these terminals' loads (a region's, or several); null or left out is the whole fleet. */ terminals?: readonly string[] | null }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<DeskKpi> {
   const thresholds = await getThresholds(workspaceId);
   const compare = opts.compare ?? true;
   const filters = opts.filters ?? {};
+  // Sorted, so the same terminals asked in another order are one kept answer.
+  const terminals = opts.terminals == null ? null : [...opts.terminals].sort();
   // A month or a year is the workspace's own: counted on its stored zone, and part of the kept answer's key so a change in Settings is never answered from the old zone.
   const tz = await workspaceTimezone(workspaceId);
   // The kept answer also depends on what the extras are built from (moved loads, offers, lane targets, the diesel price).
   const stamp = await kpiExtrasStamp(workspaceId);
-  return answers.remember([workspaceId, opts.period, compare, filters, clockBucket(now.getTime(), 3_600_000), thresholds, tz, stamp], workspaceId, async () => {
+  return answers.remember([workspaceId, opts.period, compare, filters, clockBucket(now.getTime(), 3_600_000), thresholds, tz, stamp, terminals], workspaceId, async () => {
     const since = new Date(rowsSince(opts.period, now.getTime(), tz));
-    const rows = await getKpiRows(workspaceId, { since, lane: filters.lane, stopsSince: new Date(stopsStart(opts.period, now.getTime(), since.getTime(), tz)) });
-    const extras = await getKpiExtras(workspaceId, since);
+    const rows = await getKpiRows(workspaceId, { since, lane: filters.lane, terminals, stopsSince: new Date(stopsStart(opts.period, now.getTime(), since.getTime(), tz)) });
+    const extras = await getKpiExtras(workspaceId, since, terminals);
     return buildDeskKpi(rows, { period: opts.period, compare, filters }, thresholds, now, tz, extras);
   });
 }

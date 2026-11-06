@@ -386,6 +386,7 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .lb-tick.amber { background: var(--db-warn-fill); } .lb-tick.red { background: var(--db-neg-fill); } .lb-tick.avg { background: var(--db-fg); }
 .lb-val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
 .lb-meta { font-size: var(--db-text-sm); color: var(--db-fg-dim); white-space: nowrap; }
+.lb-gap { list-style: none; margin: 4px 0; padding: 6px 0; border-top: 1px solid var(--db-border-soft); border-bottom: 1px solid var(--db-border-soft); text-align: center; font-size: var(--db-text-sm); color: var(--db-fg-dim); }
 
 .kc-body > .bl + .bl { margin-top: var(--db-3); }
 .bl { display: grid; gap: 4px; }

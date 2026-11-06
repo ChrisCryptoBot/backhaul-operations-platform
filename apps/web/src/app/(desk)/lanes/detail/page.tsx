@@ -1,3 +1,5 @@
+import { termList } from "@/lib/scope";
+import { currentTerminal } from "@/server/tl/terminal";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import React from "react";
@@ -18,7 +20,8 @@ export default async function LanePage({ searchParams }: { searchParams?: { lane
   const lane = (searchParams?.lane ?? "").trim();
   if (!lane) notFound();
   // The lane's open loads from the board and its latest finished ones from History (a lane can have thousands of finished loads).
-  const [k, board, finished] = await Promise.all([getDeskKpi({ period: "all", compare: false, filters: { lane } }), listBoardRows(), listHistory({ lane, pageSize: 25 })]);
+  const terminal = await currentTerminal();
+  const [k, board, finished] = await Promise.all([getDeskKpi({ period: "all", compare: false, filters: { lane }, terminals: termList(terminal) }), listBoardRows(undefined, "open", terminal), listHistory({ lane, pageSize: 25, terminal })]);
   const row = k.lanes.find((l) => l.key === lane) ?? null;
   const loads = [...board.filter((r) => `${r.origin ?? "?"} → ${r.destination ?? "?"}` === lane), ...finished.rows].sort((a, b) => (b.scheduledDate?.getTime() ?? 0) - (a.scheduledDate?.getTime() ?? 0));
   if (!row && loads.length === 0) notFound();
