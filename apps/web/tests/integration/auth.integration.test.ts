@@ -1,3 +1,4 @@
+import { limitOf } from "@/lib/plans";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import { prisma } from "@/lib/db";
 import { SESSION_COOKIE } from "@/lib/session-cookie";
@@ -155,26 +156,30 @@ describe.skipIf(!run)("sign-in on: who is on a desk", () => {
 
   test("a plan holds only so many seats; a person is on one desk; a desk keeps one admin", async () => {
     const { addMember, removeMember, setMemberRole, listMembers } = await import("@/server/tl/members");
-    await prisma.workspace.update({ where: { id: OTHER }, data: { plan: "starter" } }); // one seat
+    // The seats come from src/lib/plans.ts (Starter 3, Growth 5 since the one-formula pricing, 2026-11-06), so a change to what a plan holds changes the test with it.
+    const STARTER_SEATS = limitOf("starter", "member")!;
+    const GROWTH_SEATS = limitOf("growth", "member")!;
+    await prisma.workspace.update({ where: { id: OTHER }, data: { plan: "starter" } });
     expect(await addMember({ email: "o@example.com", name: "Olive", role: "admin" }, new Date(), OTHER)).toMatchObject({ ok: true });
-    expect(await addMember({ email: "two@example.com", name: "Two", role: "dispatcher" }, new Date(), OTHER)).toMatchObject({ ok: false, error: expect.stringContaining("Starter plan covers 1 seat") });
+    for (let i = 1; i < STARTER_SEATS; i++) expect(await addMember({ email: `s${i}@example.com`, name: `S${i}`, role: "dispatcher" }, new Date(), OTHER)).toMatchObject({ ok: true });
+    expect(await addMember({ email: "two@example.com", name: "Two", role: "dispatcher" }, new Date(), OTHER)).toMatchObject({ ok: false, error: expect.stringContaining(`Starter plan covers ${STARTER_SEATS} seats`) });
     expect(await addMember({ email: "o@example.com", name: "Olive", role: "admin" }, new Date(), W)).toMatchObject({ ok: false, error: expect.stringContaining("already on another desk") });
     expect(await addMember({ email: "bad", name: "x", role: "admin" }, new Date(), W)).toMatchObject({ ok: false });
     expect(await addMember({ email: "r@example.com", name: "R", role: "boss" }, new Date(), W)).toMatchObject({ ok: false });
 
-    const [only] = await listMembers(OTHER);
+    const only = (await listMembers(OTHER)).find((m) => m.role === "admin");
     expect(await setMemberRole(only!.id, "dispatcher", new Date(), OTHER)).toMatchObject({ ok: false, error: expect.stringContaining("one admin") });
     expect(await removeMember(only!.id, new Date(), OTHER)).toMatchObject({ ok: false, error: expect.stringContaining("one admin") });
 
-    // Growth holds 3: two admins and a dispatcher fill it; the fourth is refused, and an admin can go when another remains
+    // Growth fills with two admins and dispatchers; the next is refused, and an admin can go when another remains
     const a = await addMember({ email: "a@example.com", name: "A", role: "admin" }, new Date(), W);
     const b = await addMember({ email: "b@example.com", name: "B", role: "admin" }, new Date(), W);
-    await addMember({ email: "c@example.com", name: "C", role: "dispatcher" }, new Date(), W);
-    expect(await addMember({ email: "d@example.com", name: "D", role: "viewer" }, new Date(), W)).toMatchObject({ ok: false, error: expect.stringContaining("Growth plan covers 3 seats") });
+    for (let i = 2; i < GROWTH_SEATS; i++) await addMember({ email: `c${i}@example.com`, name: `C${i}`, role: "dispatcher" }, new Date(), W);
+    expect(await addMember({ email: "d@example.com", name: "D", role: "viewer" }, new Date(), W)).toMatchObject({ ok: false, error: expect.stringContaining(`Growth plan covers ${GROWTH_SEATS} seats`) });
     if (!a.ok || !b.ok) throw new Error("setup");
     expect(await setMemberRole(a.id, "viewer", new Date(), W)).toMatchObject({ ok: true });
     expect(await removeMember(b.id, new Date(), W)).toMatchObject({ ok: false, error: expect.stringContaining("one admin") });
-    expect((await prisma.auditEvent.findMany({ where: { workspaceId: W } })).map((e) => e.action).sort()).toEqual(["member_added", "member_added", "member_added", "member_role_changed"]);
+    expect((await prisma.auditEvent.findMany({ where: { workspaceId: W } })).map((e) => e.action).sort()).toEqual([...Array.from({ length: GROWTH_SEATS }, () => "member_added"), "member_role_changed"]);
   });
 
   test("an accounting person bills and cannot dispatch; a dispatcher cannot bill until an admin grants it, and the grant never reaches write-offs", async () => {

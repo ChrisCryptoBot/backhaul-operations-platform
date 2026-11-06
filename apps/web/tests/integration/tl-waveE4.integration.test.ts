@@ -6,6 +6,7 @@ import { BLANK_QUOTE, readQuote } from "@/lib/quote";
 import { saveTruck } from "@/server/tl/fleet";
 import { commitImport } from "@/server/tl/import";
 import { planSummary } from "@/server/tl/plan";
+import { truckLimit } from "@/lib/plans";
 import { fitQuote } from "@/server/tl/quote";
 import { listEntityAudit } from "@/server/tl/audit";
 import { partnerAdapters, partnerState } from "@/server/partners/call";
@@ -42,16 +43,18 @@ describe.skipIf(!run)("a plan holds only its number of trucks", () => {
 
   const add = (name: string) => prisma.vehicle.create({ data: { workspaceId: P, name } });
   const file = (n: number, from = 0) => ["Name", ...Array.from({ length: n }, (_, i) => `E4 Imp ${from + i}`)].join("\n");
+  // The limits come from src/lib/plans.ts, so a change to what a plan holds changes the test with it (Starter 10 trucks, Growth 25 since the one-formula pricing, 2026-11-06).
+  const STARTER = truckLimit("starter")!;
+  const GROWTH = truckLimit("growth")!;
 
   test("trucks are added up to the limit, then refused with the plan named; an archived truck does not count", async () => {
     // saveTruck works in the request's workspace, so the plan check is exercised through the import and the plan summary here
-    await add("E4 A");
-    await add("E4 B");
-    expect(await commitImport("trucks", file(1), "a.csv", new Date(), P)).toMatchObject({ ok: true, created: 1 }); // the third
+    for (let i = 0; i < STARTER - 1; i++) await add(`E4 Fill ${i}`);
+    expect(await commitImport("trucks", file(1), "a.csv", new Date(), P)).toMatchObject({ ok: true, created: 1 }); // the last one the plan holds
     const refused = await commitImport("trucks", file(1, 10), "b.csv", new Date(), P);
-    expect(refused).toMatchObject({ ok: false, error: expect.stringContaining("Starter plan covers 3 trucks") });
-    expect(await prisma.vehicle.count({ where: { workspaceId: P } })).toBe(3);
-    await prisma.vehicle.updateMany({ where: { workspaceId: P, name: "E4 B" }, data: { archivedAt: new Date() } });
+    expect(refused).toMatchObject({ ok: false, error: expect.stringContaining(`Starter plan covers ${STARTER} trucks`) });
+    expect(await prisma.vehicle.count({ where: { workspaceId: P } })).toBe(STARTER);
+    await prisma.vehicle.updateMany({ where: { workspaceId: P, name: "E4 Fill 0" }, data: { archivedAt: new Date() } });
     expect(await commitImport("trucks", file(1, 20), "c.csv", new Date(), P)).toMatchObject({ ok: true });
   });
 
@@ -64,23 +67,23 @@ describe.skipIf(!run)("a plan holds only its number of trucks", () => {
 
   test("a workspace with no plan chosen is held to Starter, and the summary says so", async () => {
     await prisma.workspace.update({ where: { id: P }, data: { plan: null } });
-    expect(await commitImport("trucks", file(1, 200), "d.csv", new Date(), P)).toMatchObject({ ok: false, error: expect.stringContaining("Starter plan covers 3 trucks") });
+    expect(await commitImport("trucks", file(1, 200), "d.csv", new Date(), P)).toMatchObject({ ok: false, error: expect.stringContaining(`Starter plan covers ${STARTER} trucks`) });
     const s = await planSummary(P);
-    expect(s).toMatchObject({ key: "starter", chosen: false, limit: 3, trucks: 3 });
-    expect(s.monthly).toBe("$49");
+    expect(s).toMatchObject({ key: "starter", chosen: false, limit: STARTER, trucks: STARTER });
+    expect(s.monthly).toBe("$349"); // one formula, $99 + $25 a truck with a $349 minimum: 10 trucks is the minimum
     await prisma.workspace.update({ where: { id: P }, data: { plan: "growth" } });
-    expect(await planSummary(P)).toMatchObject({ key: "growth", chosen: true, limit: 10 });
-    expect(await commitImport("trucks", file(7, 300), "e.csv", new Date(), P)).toMatchObject({ ok: true, created: 7 });
-    await expect(planSummary(P)).resolves.toMatchObject({ trucks: 10 });
+    expect(await planSummary(P)).toMatchObject({ key: "growth", chosen: true, limit: GROWTH });
+    expect(await commitImport("trucks", file(GROWTH - STARTER, 300), "e.csv", new Date(), P)).toMatchObject({ ok: true, created: GROWTH - STARTER });
+    await expect(planSummary(P)).resolves.toMatchObject({ trucks: GROWTH });
   });
 
   test("saveTruck in the request's workspace refuses the truck past the plan", async () => {
     const DEMO = "demo-workspace";
     const before = (await prisma.workspace.findUnique({ where: { id: DEMO }, select: { plan: true } }))?.plan ?? null;
     const count = await prisma.vehicle.count({ where: { workspaceId: DEMO, archivedAt: null } });
-    await prisma.workspace.update({ where: { id: DEMO }, data: { plan: count <= 3 ? "starter" : "growth" } });
+    await prisma.workspace.update({ where: { id: DEMO }, data: { plan: count <= STARTER ? "starter" : "growth" } });
     try {
-      const limit = count <= 3 ? 3 : 10;
+      const limit = count <= STARTER ? STARTER : GROWTH;
       for (let i = count; i < limit; i++) expect(await saveTruck({ name: `E4 Fill ${i}` }, null)).toMatchObject({ ok: true });
       expect(await saveTruck({ name: "E4 One Too Many" }, null)).toMatchObject({ ok: false, error: expect.stringMatching(/plan covers/) });
     } finally {

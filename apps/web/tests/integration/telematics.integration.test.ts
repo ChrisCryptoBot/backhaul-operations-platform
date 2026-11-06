@@ -1,3 +1,4 @@
+import { truckLimit } from "@/lib/plans";
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { prisma } from "@/lib/db";
@@ -83,11 +84,14 @@ describe.skipIf(!run)("telematics: radar, idle, dwell, onboarding", () => {
   });
 
   test("an import is held to the plan: a Starter fleet gets what fits and is told how many were left out", async () => {
+    // The sandbox fleet is 8 trucks and 8 drivers. Starter now holds 10 trucks (src/lib/plans.ts), so the fleet starts with room for 5: it already holds the rest of the plan.
+    const room = 5;
+    for (let i = 0; i < truckLimit("starter")! - room; i++) await prisma.vehicle.create({ data: { workspaceId: SMALL, name: `Tel Existing ${i}` } });
     await saveKeysAndConnect("motive", { MOTIVE_API_KEY: "sandbox_motive_key_0002" }, NOW, SMALL);
     const out = await importEldFleet(NOW, SMALL);
-    expect(out).toMatchObject({ ok: true, trucks: 3, skippedTrucks: 5 });
+    expect(out).toMatchObject({ ok: true, trucks: room, skippedTrucks: 8 - room });
     if (out.ok) expect(out.drivers + out.skippedDrivers).toBe(8);
-    expect(await prisma.vehicle.count({ where: { workspaceId: SMALL } })).toBe(3);
+    expect(await prisma.vehicle.count({ where: { workspaceId: SMALL } })).toBe(truckLimit("starter")!);
   });
 
   test("an import never overwrites what the desk has: a truck already named Unit 301 is left alone", async () => {
