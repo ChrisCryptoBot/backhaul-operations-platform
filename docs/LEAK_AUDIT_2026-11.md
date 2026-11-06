@@ -68,7 +68,7 @@ Per-load verdict against the truck's own floor, the Quote desk, detention recove
 
 ## 5. Next (Phase B, not built)
 
-1. **Leak ledger:** one weekly dollar figure per leak (empty-mile cost at the truck's cost per mile, unbilled detention, trailer dwell, below-floor shortfall, TONU not invoiced), with a trend and a drill to the loads. The consulting page's own samples are all dollar leaks.
+1. **Leak ledger (built 2026-11-05, `docs/LEAK_LEDGER.md`):** one weekly dollar figure per leak (empty-mile cost at the truck's cost per mile, unbilled detention, trailer dwell, below-floor shortfall, TONU not invoiced), with a trend and a drill to the loads. The consulting page's own samples are all dollar leaks.
 2. **Signals that persist and notify:** stored signals with a first-seen date and a status, thresholds per company, and delivery by Slack, email and text on a schedule.
 3. **Data health:** a completeness score and cross-source checks only one package can make (fuel card against trip fuel, ELD miles against billed miles, rate confirmation against invoice): the Data Readiness read, produced in the app.
 4. **Why it moved:** split a lane's week-over-week change into rate, miles, deadhead, fuel and detention.

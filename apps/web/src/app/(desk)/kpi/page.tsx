@@ -15,6 +15,8 @@ import { checkAccess } from "@/server/tl/access";
 import { hasFilters, kpiHref, parseKpiParams } from "@/lib/kpi-params";
 import { KPI_PERIODS, windowLabel } from "@/lib/kpi-periods";
 import { usd } from "@/lib/desk-format";
+import { getLeakLedger } from "@/server/tl/leaks";
+import { currentTerminal } from "@/server/tl/terminal";
 
 export const metadata = { title: "KPI dashboard · TrueLane" };
 
@@ -22,7 +24,10 @@ const FILTER_LABEL = { lane: "Lane", broker: "Customer", driver: "Driver", truck
 
 export default async function KpiPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const params = parseKpiParams(searchParams);
-  const [k, fuelAccess] = await Promise.all([getDeskKpi({ period: params.period, compare: params.compare, filters: params.filters }), checkAccess("quote", "figures")]);
+  const [k, fuelAccess, billAccess] = await Promise.all([getDeskKpi({ period: params.period, compare: params.compare, filters: params.filters }), checkAccess("quote", "figures"), checkAccess("bill")]);
+  // The headline from the Leak Ledger, for the billing office only, and only on the unfiltered dashboard (the ledger has its own scope: the terminal in view).
+  const terminal = billAccess.ok && !hasFilters(params.filters) ? await currentTerminal() : null;
+  const leaks = billAccess.ok && !hasFilters(params.filters) ? await getLeakLedger({ period: params.period, compare: params.compare, terminals: terminal ? [terminal] : null }) : null;
   const href = (over: Partial<typeof params>) => kpiHref("/kpi", params, over);
   const choices = { lane: k.choices.lanes, broker: k.choices.brokers, driver: k.choices.drivers, truck: k.choices.trucks };
   const csv = (kind: string) => kpiHref(`/export/${kind}`, params);
@@ -73,6 +78,15 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
         {k.previous ? ` · compared with ${windowLabel(k.previous)}` : ""}
         {hasFilters(params.filters) ? ` · ${Object.entries(params.filters).map(([f, v]) => `${FILTER_LABEL[f as keyof typeof FILTER_LABEL]}: ${v}`).join(", ")}` : ""}
       </p>
+
+      {leaks && leaks.current.total + leaks.openDwell.dollars > 0 ? (
+        <p className="kleak" style={{ margin: "0 0 14px" }}>
+          <Link href={kpiHref("/leaks", params)}>Leak ledger</Link>: <b>{usd(leaks.current.total)}</b> leaked in this period
+          {leaks.prior ? ` (${usd(leaks.prior.total)} in the period before)` : ""}
+          {leaks.openDwell.dollars > 0 ? `, and ${usd(leaks.openDwell.dollars)} of trailer dwell sitting right now` : ""}
+          {leaks.current.unpriced > 0 ? `. ${leaks.current.unpriced} items could not be priced.` : "."}
+        </p>
+      ) : null}
 
       {k.current.loads === 0 ? (
         <EmptyState icon="chart" title="No finished loads here">

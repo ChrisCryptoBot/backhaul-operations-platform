@@ -29,6 +29,8 @@ import { LOAD_STATUS } from "@/lib/desk-format";
 import { asInvoiceShow, INVOICE_SORT_KEYS, listBoardRows, listInvoiceRows, type BoardRow, type InvoiceScope } from "./queries";
 import { listSettlements } from "./settlement";
 import { currentTerminal } from "./terminal";
+import { getLeakLedger } from "./leaks";
+import { LEAKS, leakMeta } from "@/lib/leaks";
 
 /** The most rows one loads, invoices or statements file holds, so a click cannot build an unbounded one. A file that stopped here says so in its name. */
 export const MAX_EXPORT_ROWS = 25_000;
@@ -37,7 +39,7 @@ export const MAX_EXPORT_ROWS = 25_000;
  * The CSV files the desk offers. Each is built from the same functions the screen uses (the Loads filter, the KPI engine),
  * so a file always matches what was on screen when it was asked for. Dates are the Central calendar date.
  */
-export const EXPORT_KINDS = ["loads", "invoices", "settlements", "settlement-lines", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "kpi-trucks", "quote-decisions", "fuel", "ifta"] as const;
+export const EXPORT_KINDS = ["loads", "invoices", "settlements", "settlement-lines", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "kpi-trucks", "leaks", "leaks-weeks", "leaks-items", "quote-decisions", "fuel", "ifta"] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
 type Query = Record<string, string | string[] | undefined>;
@@ -356,6 +358,39 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
       csv: toCsv(
         ["When (Central)", "Load", "What", "Detail", "Reason", "By"],
         rows.map((e): CsvCell[] => [toCentralLocal(e.createdAt.getTime(), tz).replace("T", " "), e.loadNumber, ACTION_LABEL[e.action] ?? e.action, e.summary, e.reason, e.actor])
+      )
+    };
+  }
+
+  // The Leak Ledger (billing office only: the route asks for it). The same read the screen uses, for the terminal in view; the lines, the twelve weeks, or the biggest single items.
+  if (kind === "leaks" || kind === "leaks-weeks" || kind === "leaks-items") {
+    const p = parseKpiParams(query);
+    const terminal = await currentTerminal();
+    const l = await getLeakLedger({ period: p.period, compare: false, terminals: terminal ? [terminal] : null }, now);
+    const tag = `${p.period}-${day}`;
+    if (kind === "leaks") {
+      return {
+        filename: `truelane-desk-leaks-${tag}.csv`,
+        csv: toCsv(
+          ["Leak", "Dollars", "Items", "Items not priced", "Empty miles not priced", "Counted in the total", "Basis"],
+          l.current.lines.map((x): CsvCell[] => [x.label, two(x.dollars), x.items, x.unpriced, two(x.unpricedMiles), x.counted ? "yes" : "no", x.basis])
+        )
+      };
+    }
+    if (kind === "leaks-weeks") {
+      return {
+        filename: `truelane-desk-leaks-weeks-${tag}.csv`,
+        csv: toCsv(
+          ["Week ending", ...LEAKS.map((m) => `${m.label}${m.counted ? "" : " (not in the total)"}`), "Total (counted lines)"],
+          l.weeks.map((w): CsvCell[] => [ymd(new Date(w.end)), ...LEAKS.map((m) => two(w.byKey[m.key])), two(w.total)])
+        )
+      };
+    }
+    return {
+      filename: `truelane-desk-leaks-items-${tag}.csv`,
+      csv: toCsv(
+        ["Date", "Leak", "Load or trailer", "Lane", "Customer", "Truck", "Dollars"],
+        l.top.map((t): CsvCell[] => [ymd(new Date(t.at)), leakMeta(t.key).label, t.label, t.lane, t.customer, t.truck, two(t.dollars)])
       )
     };
   }

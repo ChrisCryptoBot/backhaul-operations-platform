@@ -337,6 +337,8 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .km-big { font-family: var(--db-font-head); font-size: var(--db-text-hero); font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
 .km { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: var(--db-border-soft); border: 1px solid var(--db-border-soft); }
 @media (min-width: 1360px) { .km { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+/* A strip of four (the Leak Ledger's groups) fills its row at every width the desk is used at. */
+.km.km-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .km-cell { background: var(--db-bg); padding: var(--db-3) var(--db-4); min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .km-label { font-family: var(--db-font-head); font-size: var(--db-text-sm); letter-spacing: 0.1em; text-transform: uppercase; color: var(--db-fg-dim); font-weight: 600; }
 .km-value { font-family: var(--db-font-head); font-size: var(--db-text-3xl); font-weight: 600; line-height: 1.05; font-variant-numeric: tabular-nums; }
@@ -422,7 +424,10 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .sm-plot { position: relative; height: 64px; }
 .sm-plot svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .sm-base { stroke: var(--db-border); stroke-width: 1; vector-effect: non-scaling-stroke; }
-.sm-line { fill: none; stroke: var(--db-accent-ink); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.sm-line { fill: none; stroke: var(--db-accent-ink); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+/* A flat wash under the line (one token at low strength, no gradient) and a faint middle rule, so the eye follows a shape instead of a polyline. */
+.sm-area { fill: var(--db-accent-ink); fill-opacity: 0.1; stroke: none; }
+.sm-mid { stroke: var(--db-border); stroke-width: 1; stroke-dasharray: 2 5; opacity: 0.6; vector-effect: non-scaling-stroke; }
 .sm-end { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 50%; background: var(--db-accent-ink); }
 .sm-ends { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--db-text-xs); color: var(--db-fg-dim); }
 .sm-ends b { font-size: var(--db-text-md); color: var(--db-fg); font-variant-numeric: tabular-nums; }

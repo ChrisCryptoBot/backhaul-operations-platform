@@ -10,3 +10,14 @@ export const terminalSql = (terminal: string | null | undefined, workspaceId: st
         or l.id in (select ta.load_id from assignments ta join drivers td on td.id = ta.driver_id where td.workspace_id = ${workspaceId} and td.terminal = ${terminal})
         or (l.vehicle_id is null and l.id not in (select tn.load_id from assignments tn)))`
     : Prisma.empty;
+
+/**
+ * The same rule for a set of terminals (a region's, or several picked): a load on a truck or with a driver of any of them, or not placed anywhere yet. `null` is everything (no scope), so the
+ * Leak Ledger and the screens that follow it ask for one thing whether the person is looking at a terminal, a region or the whole fleet. An empty set is a scope of nothing placed, which leaves only the unplaced loads.
+ */
+export const terminalSetSql = (terminals: readonly string[] | null | undefined, workspaceId: string) =>
+  terminals == null
+    ? Prisma.empty
+    : Prisma.sql` and (l.vehicle_id in (select tv.id from vehicles tv where tv.workspace_id = ${workspaceId} and tv.terminal = any(${[...terminals]}))
+        or l.id in (select ta.load_id from assignments ta join drivers td on td.id = ta.driver_id where td.workspace_id = ${workspaceId} and td.terminal = any(${[...terminals]}))
+        or (l.vehicle_id is null and l.id not in (select tn.load_id from assignments tn)))`;

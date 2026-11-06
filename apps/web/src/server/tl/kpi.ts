@@ -20,6 +20,8 @@ import { currentWorkspaceId } from "./workspace";
 import { workspaceTimezone } from "./zone";
 import { answerCache, clockBucket } from "./answer-cache";
 import { getKpiExtras, kpiExtrasStamp } from "./kpi-extras";
+import { terminalSetSql } from "./terminal-sql";
+import type { LeakLoad } from "@/lib/leaks";
 import { dieselAt, laneScore, leadDaysOf, mixLabel, mixOf, tenderStats, type KpiExtras, type LaneScore, type MixRow, type TenderStats } from "@/lib/kpi-extras";
 
 /**
@@ -321,6 +323,32 @@ function factOf(l: KpiLoadRow, t: Thresholds): Fact {
     loadedMiles: isTonu ? 0 : eff.loaded,
     trailerType: l.trailerType ?? null,
     loadType: l.loadType ?? null
+  };
+}
+
+/**
+ * A finished load as the Leak Ledger reads it, from the same money and mile definitions as every KPI fact (so the ledger's miles and floors are the dashboard's, never a second reading). Only
+ * loads that finished and earned (delivered, or a TONU) are asked for.
+ */
+export function leakLoadOf(l: KpiLoadRow): LeakLoad {
+  const mi = milesIn(l);
+  const isTonu = l.status === "tonu";
+  return {
+    loadId: l.id,
+    loadNumber: l.loadNumber,
+    doneAt: doneAtOf(l),
+    lane: laneOf(l),
+    customer: l.brokerName,
+    truck: l.vehicleName,
+    driver: l.assignment?.driverName ?? null,
+    isTonu,
+    emptyMiles: deadheadMilesOf(mi),
+    drivenMiles: drivenMiles(mi),
+    gross: loadGross(money(l)),
+    expenses: num(l.expenseFuelActual) + num(l.expenseTolls) + num(l.expenseMisc),
+    floor: numOrNull(l.snapshotBaseFloorRpm),
+    tonuRevenue: numOrNull(l.tonuRevenue) ?? 0,
+    invoiced: l.paymentStatus === "invoiced" || l.paymentStatus === "paid"
   };
 }
 
@@ -672,14 +700,19 @@ function stopsStart(period: KpiPeriod, nowMs: number, floor: number, tz: string)
 
 type KpiRaw = Omit<KpiLoadRow, "vehicleName" | "verdict" | "stops" | "assignment"> & { vehicleName: string | null; asStatus: string | null; asPayKind: string | null; asPayEstimate: number | null; asDriver: string | null };
 
-export async function getKpiRows(workspaceId = currentWorkspaceId(), opts: { since?: Date | null; lane?: string; stopsSince?: Date | null } = {}): Promise<KpiLoadRow[]> {
+export async function getKpiRows(workspaceId = currentWorkspaceId(), opts: { since?: Date | null; lane?: string; stopsSince?: Date | null; /** Only loads that finished and earned (delivered or TONU), with no stops and no verdicts: the lean read the Leak Ledger uses. */ finishedOnly?: boolean; /** Only these terminals' loads (a region's, or several); null or left out is every load. */ terminals?: readonly string[] | null } = {}): Promise<KpiLoadRow[]> {
   const [origin, destination] = opts.lane ? opts.lane.split(" → ") : [null, null];
   const since = opts.since ?? null;
+  const finishedSql = opts.finishedOnly ? Prisma.sql` and l.status in ('completed', 'tonu')` : Prisma.empty;
+  const scopeSql = terminalSetSql(opts.terminals, workspaceId);
   const OPEN = ["draft", "accepted", "in_progress"];
   const laneSql = opts.lane
     ? Prisma.sql` and l.origin_address ${origin === "?" ? Prisma.sql`is null` : Prisma.sql`= ${origin}`} and l.destination_address ${destination === "?" ? Prisma.sql`is null` : Prisma.sql`= ${destination}`}`
     : Prisma.empty;
-  const sinceSql = since
+  // The ledger reads only what finished inside the window; the dashboard also keeps every invoice still out (for the aging) whatever its age.
+  const sinceSql = since && opts.finishedOnly
+    ? Prisma.sql` and (l.completed_at >= ${since} or l.cancelled_at >= ${since} or (l.completed_at is null and l.cancelled_at is null))`
+    : since
     ? Prisma.sql` and (l.status in ('draft', 'accepted', 'in_progress') or l.payment_status = 'invoiced' or l.completed_at >= ${since} or l.cancelled_at >= ${since} or (l.completed_at is null and l.cancelled_at is null))`
     : Prisma.empty;
   // One query for the rows, with plain numbers (no Decimal objects) and the truck and driver names joined in. The truck's cost profile is read only for open loads below
@@ -696,11 +729,11 @@ export async function getKpiRows(workspaceId = currentWorkspaceId(), opts: { sin
       l.payment_status as "paymentStatus", l.invoiced_at as "invoicedAt", l.pay_terms_days as "payTermsDays", l.invoiced_amount::float8 as "invoicedAmount", l.paid_amount::float8 as "paidAmount",
       v.name as "vehicleName", a.status as "asStatus", a.pay_kind as "asPayKind", a.pay_estimate::float8 as "asPayEstimate", d.name as "asDriver"
     from loads l left join vehicles v on v.id = l.vehicle_id left join assignments a on a.load_id = l.id left join drivers d on d.id = a.driver_id
-    where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status <> 'quote'${laneSql}${sinceSql}`;
+    where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status <> 'quote'${finishedSql}${scopeSql}${laneSql}${sinceSql}`;
 
   // Stops (the waits at the dock) are read only for the loads a number is made of: open ones and those finished since `stopsSince`, not the older months the charts reach back to.
   const stopsFrom = (opts.stopsSince ?? since)?.getTime() ?? null;
-  const needStops = loads.filter((l) => OPEN.includes(l.status) || stopsFrom == null || (l.completedAt ?? l.cancelledAt ?? l.updatedAt).getTime() >= stopsFrom).map((l) => l.id);
+  const needStops = opts.finishedOnly ? [] : loads.filter((l) => OPEN.includes(l.status) || stopsFrom == null || (l.completedAt ?? l.cancelledAt ?? l.updatedAt).getTime() >= stopsFrom).map((l) => l.id);
   const stopRows = needStops.length
     ? await prisma.$queryRaw<Array<{ loadId: string; waitMinutes: number | null; arrivedAt: Date | null; timeWindowLatest: Date | null; role: string | null }>>`
         select load_id as "loadId", wait_minutes as "waitMinutes", arrived_at as "arrivedAt", time_window_latest as "timeWindowLatest", coalesce(stop_role, stop_type) as role from stops where load_id = any(${needStops})`

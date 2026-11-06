@@ -64,6 +64,7 @@ const NAV: Array<{ label: string; items: Item[] }> = [
       { href: "/payroll", label: "Payroll", code: "PY", roles: ["admin", "accounting"] },
       { href: "/fuel", label: "Fuel", code: "FU", roles: ["admin", "dispatcher", "accounting"] },
       { href: "/ifta", label: "IFTA", code: "IF", roles: ["admin", "accounting"] },
+      { href: "/leaks", label: "Leak ledger", code: "LK", roles: ["admin", "accounting"] },
       { href: "/kpi", label: "KPI dashboard", code: "KP" }
     ]
   },
