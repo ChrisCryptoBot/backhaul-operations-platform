@@ -1,3 +1,4 @@
+import { terminalFilter, inScope, scopeWords, type Terminals } from "@/lib/scope";
 import { summarizeCustomerPay, type CustomerSlowPay } from "@/lib/customer-pay";
 import type { OpenPickupCandidate } from "@/lib/backhaul-detect";
 import { Prisma, type Load } from "@prisma/client";
@@ -253,11 +254,11 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
 
 /** The offer priced for each truck and each driver who runs it, best first. A truck with no cost profile has no floor and is listed apart. */
 /** `terminal`: price only that terminal's trucks (the dispatcher's slice); null prices the whole fleet. */
-export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspaceId(), now = new Date(), terminal: string | null = null): Promise<FitResult> {
+export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspaceId(), now = new Date(), terminal: Terminals = null): Promise<FitResult> {
   const lane = await laneBenchmark(input, workspaceId, now);
   const judged = judgedBy(input, lane);
   const trucks = await prisma.vehicle.findMany({
-    where: { workspaceId, archivedAt: null, ...(terminal ? { terminal } : {}) },
+    where: { workspaceId, archivedAt: null, ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}) },
     include: { costProfile: true, drivers: { where: { active: true }, orderBy: { name: "asc" } } },
     orderBy: { name: "asc" }
   });
@@ -897,7 +898,7 @@ export async function bookQuote(
   if (!truck.costProfile) return { ok: false, error: `${truck.name} has no cost profile yet. Set it up on the truck's page, then book.` };
   // The truck is in the terminal being worked, and the driver runs that truck: the browser's word is not taken for either.
   const terminal = await currentTerminal(workspaceId);
-  if (terminal && truck.terminal !== terminal) return { ok: false, error: `${truck.name} is outside the ${terminal} terminal you are working in. Switch terminals, or pick a truck from this one.` };
+  if (terminal != null && !inScope(terminal, truck.terminal)) return { ok: false, error: `${truck.name} is outside the ${scopeWords(terminal)} you are working in. Switch your scope, or pick a truck from it.` };
   const driver = pick.driverId ? (truck.drivers.find((d) => d.id === pick.driverId) ?? null) : null;
   if (pick.driverId && !driver) return { ok: false, error: "That driver is not available on this truck." };
 

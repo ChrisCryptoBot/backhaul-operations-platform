@@ -1,3 +1,4 @@
+import { inScope, type Terminals } from "@/lib/scope";
 import { prisma } from "@/lib/db";
 import { driverBlocker, driverClashNotes } from "./dispatch";
 import { evaluateTlLoad } from "./evaluate";
@@ -42,7 +43,7 @@ export type Suggestion = {
 type RankLoad = Prisma.LoadGetPayload<{ include: typeof loadInclude }>;
 
 /** Every active driver is listed. `terminal` is the dispatcher's slice: drivers based there come first (a home base, not a restriction), everyone else follows, each tagged with their own home. */
-export async function rankDrivers(load: RankLoad, workspaceId: string, terminal: string | null = null): Promise<{ options: AssignDriverOption[]; fits: Suggestion[] }> {
+export async function rankDrivers(load: RankLoad, workspaceId: string, terminal: Terminals = null): Promise<{ options: AssignDriverOption[]; fits: Suggestion[] }> {
   const drivers = await prisma.driver.findMany({ where: { workspaceId, active: true }, include: { assignedVehicle: { include: { costProfile: true } } }, orderBy: { name: "asc" } });
   const busyBy = await driverClashNotes(drivers.map((d) => d.id), load.id, load.stops);
   // Shifts are a caution beside the clash note: one batched read of the schedules, then each driver's own checked against this load's stops on the carrier's clock.
@@ -50,7 +51,7 @@ export async function rankDrivers(load: RankLoad, workspaceId: string, terminal:
   const stopTimes = load.stops.map((s) => ({ role: s.stopRole ?? s.stopType, earliest: s.timeWindowEarliest, latest: s.timeWindowLatest }));
   const first = stopTimes.map((s) => (s.earliest ?? s.latest)?.getTime()).filter((t): t is number => t != null);
   const schedules = first.length > 0 ? await loadSchedules(workspaceId, null, dateKeyOf(Math.min(...first), tz), dateKeyOf(Math.max(...first), tz)) : new Map();
-  const at = (home: string | null) => (terminal && home?.toLowerCase() === terminal.toLowerCase() ? 0 : 1);
+  const at = (home: string | null) => (terminal != null && inScope(terminal, home) ? 0 : 1);
 
   const options: AssignDriverOption[] = [];
   const fits: Suggestion[] = [];

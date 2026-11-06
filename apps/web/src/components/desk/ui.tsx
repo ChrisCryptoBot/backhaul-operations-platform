@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ASSIGNMENT_STATUS, LOAD_STATUS, type Tone, type Verdict } from "@/lib/desk-format";
 import { VERDICT_WORD, type VerdictState } from "@/lib/verdict";
 import { VerdictTag } from "./verdict-card";
+import { ScopeChip } from "./scope-menu";
 
 /** The two-letter code each module carries in the rail and on its page head. A page whose title is not here simply has no code. */
 const CODES: Record<string, string> = {
@@ -23,6 +24,7 @@ export function PageHead({ title, sub, children }: { title: string; sub?: React.
           {code ? <i>{code}</i> : null}
           {title}
         </h1>
+        <ScopeChip />
         {children ? <div className="acts">{children}</div> : null}
       </div>
       {sub ? <div className="t-pagesub">{typeof sub === "string" ? <p>{sub}</p> : sub}</div> : null}

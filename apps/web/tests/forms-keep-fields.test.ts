@@ -47,7 +47,6 @@ const EXEMPT: Record<string, string> = {
   "components/desk/driver-picker.tsx": "a picker: the choice belongs to the form around it",
   "components/desk/copy-text.tsx": "a read-only box to copy from",
   // Chosen and used at once.
-  "components/desk/terminal-scope.tsx": "applies the moment it is chosen (a cookie)",
   "components/desk/integrations-panel.tsx": "secrets: typed once, sent to the server and emptied; a key must never be kept in a draft or in browser storage",
   "components/desk/public/demo-sign-in.tsx": "display-only demo fields filled by its one button; nothing is typed, kept or checked",
   "components/desk/global-search.tsx": "a search box: a result is picked at once",

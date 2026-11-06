@@ -7,7 +7,8 @@ import { describe, expect, test } from "vitest";
  * is not inside it and scrolls away. The head's real height is kept in --ph-h so the bar sits flush under it at any width.
  */
 const SRC = join(__dirname, "..", "src");
-const read = (p: string) => readFileSync(join(SRC, p), "utf8");
+const CR = String.fromCharCode(13);
+const read = (p: string) => readFileSync(join(SRC, p), "utf8").split(CR).join("");
 const css = read("app/terminal.css");
 const block = css.slice(css.indexOf("/* Pinned chrome:"));
 
@@ -26,7 +27,8 @@ describe("the page head and tab bar stay on screen", () => {
     const ui = read("components/desk/ui.tsx");
     const head = ui.slice(ui.indexOf("export function PageHead"), ui.indexOf("export function Card"));
     expect(head).toMatch(/<div className="t-pagehead">[\s\S]*<\/div>\s*\{sub \? <div className="t-pagesub">/);
-    expect(head.slice(head.indexOf('<div className="t-pagehead">'), head.indexOf("</div>\n      {sub"))).not.toMatch(/\bsub\b/);
+    const bar = head.slice(head.indexOf('<div className="t-pagehead">'), head.indexOf("{sub ?"));
+    expect(bar).not.toMatch(/\bsub\b/);
   });
 
   test("the shell keeps the measured height up to date", () => {

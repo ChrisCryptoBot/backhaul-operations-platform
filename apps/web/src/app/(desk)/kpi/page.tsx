@@ -1,3 +1,4 @@
+import { termList } from "@/lib/scope";
 import Link from "next/link";
 import React from "react";
 import { getDeskKpi } from "@/server/tl/kpi";
@@ -27,7 +28,7 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
   const [k, fuelAccess, billAccess] = await Promise.all([getDeskKpi({ period: params.period, compare: params.compare, filters: params.filters }), checkAccess("quote", "figures"), checkAccess("bill")]);
   // The headline from the Leak Ledger, for the billing office only, and only on the unfiltered dashboard (the ledger has its own scope: the terminal in view).
   const terminal = billAccess.ok && !hasFilters(params.filters) ? await currentTerminal() : null;
-  const leaks = billAccess.ok && !hasFilters(params.filters) ? await getLeakLedger({ period: params.period, compare: params.compare, terminals: terminal ? [terminal] : null }) : null;
+  const leaks = billAccess.ok && !hasFilters(params.filters) ? await getLeakLedger({ period: params.period, compare: params.compare, terminals: termList(terminal) }) : null;
   const href = (over: Partial<typeof params>) => kpiHref("/kpi", params, over);
   const choices = { lane: k.choices.lanes, broker: k.choices.brokers, driver: k.choices.drivers, truck: k.choices.trucks };
   const csv = (kind: string) => kpiHref(`/export/${kind}`, params);

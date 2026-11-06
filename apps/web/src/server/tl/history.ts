@@ -1,3 +1,4 @@
+import type { Terminals } from "@/lib/scope";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { asHistoryFilter, asHistorySort, payRecord, PROFIT_SORT_WINDOW, PROFIT_SORTS, type HistoryFilter, type HistorySort, type PayRecord } from "@/lib/loads-history";
@@ -22,7 +23,7 @@ export type HistoryQuery = {
   /** Only this lane, "Origin → Destination". */
   lane?: string;
   /** The header's terminal: loads on that terminal's trucks or drivers, and loads not placed anywhere yet. Null or absent is every terminal. */
-  terminal?: string | null;
+  terminal?: Terminals;
   /** Rows only: no month totals and no customer record (a file being written does not need them). */
   lean?: boolean;
 };
@@ -70,7 +71,7 @@ const PER_MILE = Prisma.sql`case when cp.id is null or l.status in ('tonu', 'can
 /** The calendar month a load is dated in on the carrier's own clock, "2026-10": the same grouping the page draws. Dates are stored as UTC wall-clock, so they are read as UTC first. */
 const monthSql = (tz: string) => Prisma.sql`to_char((${DATED} at time zone 'UTC') at time zone ${tz}, 'YYYY-MM')`;
 
-function whereSql(workspaceId: string, q: string, lane?: string, terminal?: string | null) {
+function whereSql(workspaceId: string, q: string, lane?: string, terminal?: Terminals) {
   const terms = q.split(/\s+/).map((t) => t.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")).filter(Boolean).slice(0, 6);
   const [from, to] = lane ? lane.split(" → ") : [null, null];
   const laneSql = lane
@@ -160,7 +161,7 @@ export async function listHistory(query: HistoryQuery = {}, workspaceId = curren
 }
 
 /** How many finished loads match a search (the History tab's count when another tab is open). */
-export async function countHistory(q = "", workspaceId = currentWorkspaceId(), terminal: string | null = null): Promise<number> {
+export async function countHistory(q = "", workspaceId = currentWorkspaceId(), terminal: Terminals = null): Promise<number> {
   const [c] = await prisma.$queryRaw<Array<{ n: number }>>`select count(*)::int as n ${FROM} where ${whereSql(workspaceId, q.trim(), undefined, terminal)}`;
   return c?.n ?? 0;
 }

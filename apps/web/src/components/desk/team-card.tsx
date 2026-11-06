@@ -2,18 +2,18 @@
 
 import { useRouter } from "next/navigation";
 import React from "react";
-import { addMemberAction, removeMemberAction, setMemberGrantsAction, setMemberRoleAction } from "@/app/(desk)/actions";
+import { addMemberAction, removeMemberAction, setMemberGrantsAction, setMemberRoleAction, setMemberScopeAction } from "@/app/(desk)/actions";
 import { GRANT_LABEL, ROLES, ROLE_LABEL, ROLE_NOTE, type Grant, type Role } from "@/lib/roles";
 import { useToast } from "./kit/toast";
 import { DraftNote, useDraft } from "./kit/use-draft";
 
-export type TeamRow = { id: string; email: string; name: string; role: Role; grants: Grant[]; signedIn: boolean; you: boolean };
+export type TeamRow = { id: string; email: string; name: string; role: Role; grants: Grant[]; signedIn: boolean; you: boolean; scope: { regionIds: string[]; terminals: string[] } };
 
 /**
  * Who is on this desk. Everyone sees the list; an admin adds a person by email (they sign in with that email and are on the desk), changes a role, lets a dispatcher also do the billing
  * office's work, or takes a person off. A plan holds only so many seats, and a desk keeps one admin; the server enforces both and the message says why.
  */
-export function TeamCard({ rows, canEdit, seats }: { rows: TeamRow[]; canEdit: boolean; seats: { used: number; limit: number | null } }) {
+export function TeamCard({ rows, canEdit, seats, regions = [], terminals = [] }: { rows: TeamRow[]; canEdit: boolean; seats: { used: number; limit: number | null }; regions?: Array<{ id: string; name: string }>; terminals?: string[] }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
@@ -45,6 +45,7 @@ export function TeamCard({ rows, canEdit, seats }: { rows: TeamRow[]; canEdit: b
             <th scope="col">Person</th>
             <th scope="col">Email</th>
             <th scope="col">Role</th>
+            <th scope="col">Can see</th>
             <th scope="col">Signed in</th>
             {canEdit ? <th scope="col"><span className="sr-only">Actions</span></th> : null}
           </tr>
@@ -78,6 +79,9 @@ export function TeamCard({ rows, canEdit, seats }: { rows: TeamRow[]; canEdit: b
                     <span className="tl-sub" style={{ display: "block" }}>{GRANT_LABEL.bill}</span>
                   ) : null
                 ) : null}
+              </td>
+              <td>
+                <ScopeCell row={r} regions={regions} terminals={terminals} canEdit={canEdit && r.role !== "admin"} pending={pending} onSave={(scope) => run(() => setMemberScopeAction(r.id, scope), `${r.name}'s view updated.`)} />
               </td>
               <td>{r.signedIn ? "Yes" : <span className="dim">Not yet</span>}</td>
               {canEdit ? (
@@ -134,6 +138,60 @@ export function TeamCard({ rows, canEdit, seats }: { rows: TeamRow[]; canEdit: b
           </button>
           {full ? <span className="tl-sub">Every seat of the plan is used. Talk to a person to change the plan.</span> : <span className="tl-sub">{ROLE_NOTE[role]}</span>}
         </form>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * What a person may see: everything (no limit), or the regions and terminals ticked. An admin always sees everything. The server holds them to it on every list, so a limited dispatcher cannot choose
+ * their way past it in the header.
+ */
+function ScopeCell({ row, regions, terminals, canEdit, pending, onSave }: { row: TeamRow; regions: Array<{ id: string; name: string }>; terminals: string[]; canEdit: boolean; pending: boolean; onSave: (s: { regionIds: string[]; terminals: string[] }) => void }) {
+  const [open, setOpen] = React.useState(false);
+  const [regionIds, setRegionIds] = React.useState(row.scope.regionIds);
+  const [picked, setPicked] = React.useState(row.scope.terminals);
+  React.useEffect(() => {
+    setRegionIds(row.scope.regionIds);
+    setPicked(row.scope.terminals);
+  }, [row.scope.regionIds.join("|"), row.scope.terminals.join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
+  const names = [...row.scope.regionIds.map((id) => `${regions.find((r) => r.id === id)?.name ?? "A region"} region`), ...row.scope.terminals];
+  const said = row.role === "admin" ? "Everything" : names.length === 0 ? "Everything" : names.join(", ");
+  if (!canEdit) return <span className={names.length === 0 ? "dim" : undefined}>{said}</span>;
+  const flip = (list: string[], v: string, on: boolean) => (on ? [...new Set([...list, v])] : list.filter((x) => x !== v));
+  return (
+    <>
+      <span className={names.length === 0 ? "dim" : undefined}>{said}</span>{" "}
+      <button type="button" className="tl-btn ghost sm" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        {open ? "Close" : "Change"}
+      </button>
+      {open ? (
+        <fieldset className="tm-scope" style={{ border: 0, margin: "8px 0 0", padding: 0, display: "grid", gap: 4 }}>
+          <legend className="sr-only">What {row.name} can see</legend>
+          <span className="tl-sub">Tick nothing for no limit.</span>
+          {regions.map((r) => (
+            <label key={r.id} className="dlg-check">
+              <input type="checkbox" checked={regionIds.includes(r.id)} onChange={(e) => setRegionIds((l) => flip(l, r.id, e.target.checked))} /> {r.name} region
+            </label>
+          ))}
+          {terminals.map((t) => (
+            <label key={t} className="dlg-check">
+              <input type="checkbox" checked={picked.includes(t)} onChange={(e) => setPicked((l) => flip(l, t, e.target.checked))} /> {t}
+            </label>
+          ))}
+          <span>
+            <button
+              type="button"
+              className="tl-btn sm"
+              disabled={pending}
+              onClick={() => {
+                onSave({ regionIds, terminals: picked });
+                setOpen(false);
+              }}>
+              Save
+            </button>
+          </span>
+        </fieldset>
       ) : null}
     </>
   );

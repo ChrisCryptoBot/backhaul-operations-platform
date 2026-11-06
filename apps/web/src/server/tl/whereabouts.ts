@@ -1,3 +1,4 @@
+import { terminalFilter, type Terminals } from "@/lib/scope";
 import { prisma } from "@/lib/db";
 import { cityState } from "@/lib/city-state";
 import { nearestPlace } from "@/lib/gazetteer/place-index";
@@ -65,13 +66,13 @@ function fixOf(v: FixSource, standing?: boolean): Fix | null {
 }
 
 /** The fleet's average fuel price, so an idle line is priced the same way the radar prices it. */
-async function fleetFuelPrice(workspaceId: string, terminal: string | null): Promise<number | null> {
-  const a = await prisma.costProfile.aggregate({ _avg: { lastFuelPricePerGallon: true }, where: { lastFuelPricePerGallon: { gt: 0 }, vehicle: { workspaceId, archivedAt: null, ...(terminal ? { terminal } : {}) } } });
+async function fleetFuelPrice(workspaceId: string, terminal: Terminals): Promise<number | null> {
+  const a = await prisma.costProfile.aggregate({ _avg: { lastFuelPricePerGallon: true }, where: { lastFuelPricePerGallon: { gt: 0 }, vehicle: { workspaceId, archivedAt: null, ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}) } } });
   return numOrNull(a._avg.lastFuelPricePerGallon);
 }
 
 /** Where each of these trucks is and what it is doing. Trucks with no position are still answered (with `where: null`). */
-export async function getTruckWhere(ids: string[], workspaceId = currentWorkspaceId(), terminal: string | null = null, now = new Date()): Promise<Map<string, UnitWhere>> {
+export async function getTruckWhere(ids: string[], workspaceId = currentWorkspaceId(), terminal: Terminals = null, now = new Date()): Promise<Map<string, UnitWhere>> {
   const out = new Map<string, UnitWhere>();
   if (ids.length === 0) return out;
   const [trucks, trailers, loads, fleetPrice] = await Promise.all([

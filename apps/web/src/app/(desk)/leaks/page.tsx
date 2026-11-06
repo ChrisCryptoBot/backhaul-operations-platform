@@ -1,3 +1,4 @@
+import { termList, scopeWords } from "@/lib/scope";
 import Link from "next/link";
 import React from "react";
 import { PageHead, Tabs } from "@/components/desk/ui";
@@ -20,7 +21,7 @@ export default async function LeaksPage({ searchParams }: { searchParams?: Recor
   await requirePage("bill");
   const params = parseKpiParams(searchParams);
   const terminal = await currentTerminal();
-  const ledger = await getLeakLedger({ period: params.period, compare: params.compare, terminals: terminal ? [terminal] : null });
+  const ledger = await getLeakLedger({ period: params.period, compare: params.compare, terminals: termList(terminal) });
   const href = (over: Partial<typeof params>) => kpiHref("/leaks", params, over);
   const csv = (kind: string) => kpiHref(`/export/${kind}`, params);
   const empty = ledger.current.items === 0 && ledger.openDwell.trailers === 0;
@@ -49,12 +50,12 @@ export default async function LeaksPage({ searchParams }: { searchParams?: Recor
       </div>
       <p className="tl-sub" style={{ margin: "0 0 14px" }}>
         {windowLabel(ledger.window)}
-        {ledger.previous ? ` · compared with ${windowLabel(ledger.previous)}` : ""} · {terminal ? `${terminal} terminal` : "all terminals"}
+        {ledger.previous ? ` · compared with ${windowLabel(ledger.previous)}` : ""} · {scopeWords(terminal) ?? "all terminals"}
       </p>
 
       {empty ? (
         <EmptyState icon="chart" title="No leaks found here">
-          Nothing in this period was left unbilled, given up or run empty at a priced floor{terminal ? ` in the ${terminal} terminal` : ""}. Try All time{terminal ? ", or all terminals" : ""}.
+          Nothing in this period was left unbilled, given up or run empty at a priced floor{terminal != null ? ` in ${scopeWords(terminal)}` : ""}. Try All time{terminal ? ", or all terminals" : ""}.
         </EmptyState>
       ) : (
         <div className="kstack">

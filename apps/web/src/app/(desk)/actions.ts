@@ -45,6 +45,7 @@ import { capabilityOf, saveKeysAndConnect, type SaveAndConnect } from "@/server/
 import { importEldFleet, type ImportEldResult } from "@/server/partners/eld-import";
 import { adjustTrailerDwell, clearTrailerDwell, waiveTrailerDwell, type DwellInput, type DwellResult } from "@/server/tl/dwell";
 import { logCheckCall, removeCheckCall, type CheckCallInput, type CheckCallResult } from "@/server/tl/check-calls";
+import { addRegion, archiveRegion, renameRegion, setMemberScope, setTerminalRegion, type MemberScopeInput, type RegionResult } from "@/server/tl/regions";
 import { sendTestEvent, type TestEventResult } from "@/server/partners/test-event";
 import { shareLoadLocation, type ShareResult } from "@/server/partners/tracking";
 import { syncFuelCards, type FuelSync } from "@/server/partners/fuel-store";
@@ -405,6 +406,43 @@ export async function clearTrailerDwellAction(trailerId: string): Promise<DwellR
   await requireCan("dispatch", "bill");
   const out = await clearTrailerDwell(String(trailerId));
   if (out.ok) revalidatePath("/trailers");
+  return out;
+}
+
+// ── Regions and what a person may see (an admin's): docs/SCOPE.md ──
+
+export async function addRegionAction(input: { name: string; note?: string | null }): Promise<RegionResult> {
+  await requireCan("admin");
+  const out = await addRegion({ name: String(input?.name ?? ""), note: typeof input?.note === "string" ? input.note : null });
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function renameRegionAction(id: string, name: string): Promise<RegionResult> {
+  await requireCan("admin");
+  const out = await renameRegion(String(id), String(name ?? ""));
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function archiveRegionAction(id: string): Promise<RegionResult> {
+  await requireCan("admin");
+  const out = await archiveRegion(String(id));
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function setTerminalRegionAction(terminalId: string, regionId: string | null): Promise<RegionResult> {
+  await requireCan("admin");
+  const out = await setTerminalRegion(String(terminalId), regionId ? String(regionId) : null);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+export async function setMemberScopeAction(memberId: string, input: MemberScopeInput): Promise<RegionResult> {
+  await requireCan("admin");
+  const out = await setMemberScope(String(memberId), { regionIds: Array.isArray(input?.regionIds) ? input.regionIds.map(String) : [], terminals: Array.isArray(input?.terminals) ? input.terminals.map(String) : [] });
+  if (out.ok) refreshFleet();
   return out;
 }
 

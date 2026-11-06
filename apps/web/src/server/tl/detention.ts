@@ -1,3 +1,4 @@
+import type { Terminals } from "@/lib/scope";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { summarizeDetention, type DetentionSummary } from "@/lib/detention";
@@ -99,7 +100,7 @@ export async function waiveDetention(loadId: string, reason: string, now = new D
 export const DETENTION_WINDOW_DAYS = 90;
 
 /** Every finished load of the last 90 days that waited past its free time, newest first, with the total still unbilled. */
-export async function getDetentionRecovery(workspaceId = currentWorkspaceId(), now = new Date(), terminal: string | null = null) {
+export async function getDetentionRecovery(workspaceId = currentWorkspaceId(), now = new Date(), terminal: Terminals = null) {
   const since = new Date(now.getTime() - DETENTION_WINDOW_DAYS * 86_400_000);
   // Only a load somebody waited on can have detention (a wait of nothing is never past the free time), so the database names those loads first and only they are read in full.
   const waited = await prisma.$queryRaw<Array<{ id: string }>>`

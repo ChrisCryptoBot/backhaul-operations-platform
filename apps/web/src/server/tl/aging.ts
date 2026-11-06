@@ -1,3 +1,4 @@
+import type { Terminals } from "@/lib/scope";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { workspaceTimezone } from "./zone";
@@ -30,7 +31,7 @@ export const clearAgingCache = () => answers.clear();
 
 const BILLED = Prisma.sql`coalesce(l.invoiced_amount, case when l.status = 'tonu' then coalesce(l.tonu_revenue, 0) else l.quoted_revenue + coalesce(l.fuel_surcharge, 0) end)`;
 
-export async function agingSummary(now = Date.now(), workspaceId = currentWorkspaceId(), terminal: string | null = null): Promise<Aging> {
+export async function agingSummary(now = Date.now(), workspaceId = currentWorkspaceId(), terminal: Terminals = null): Promise<Aging> {
   // Aging is counted on the carrier's own calendar (a day ends at the carrier's midnight), read from the workspace, never from a cookie.
   const tz = await workspaceTimezone(workspaceId);
   return answers.remember([workspaceId, terminal, tz, clockBucket(now, 900_000)], workspaceId, async () => {

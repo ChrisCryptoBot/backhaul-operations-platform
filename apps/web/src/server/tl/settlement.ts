@@ -1,3 +1,4 @@
+import { inScope, termList, terminalFilter, type Terminals } from "@/lib/scope";
 import { Prisma } from "@prisma/client";
 import { usd } from "@/lib/desk-format";
 import type { Company } from "@/lib/company";
@@ -368,9 +369,9 @@ export type SettlementView = {
   payrollReference: string | null;
 };
 
-export async function getSettlement(id: string, workspaceId = currentWorkspaceId(), terminal: string | null = null): Promise<SettlementView | null> {
+export async function getSettlement(id: string, workspaceId = currentWorkspaceId(), terminal: Terminals = null): Promise<SettlementView | null> {
   const s = await prisma.settlement.findFirst({ where: { id, workspaceId }, include: { driver: true, workspace: true } });
-  if (!s || (terminal != null && s.driver.terminal !== terminal)) return null;
+  if (!s || (terminal != null && !inScope(terminal, s.driver.terminal))) return null;
   const base = {
     id: s.id,
     number: s.number,
@@ -430,8 +431,8 @@ export type SettlementRow = {
 export const STATEMENTS_PAGE = 50;
 
 /** How many statements there are in each state, and what the finalized ones come to. */
-export async function settlementCounts(workspaceId = currentWorkspaceId(), terminal: string | null = null) {
-  const groups = await prisma.settlement.groupBy({ by: ["status"], where: { workspaceId, ...(terminal ? { driver: { terminal } } : {}) }, _count: { _all: true }, _sum: { total: true } });
+export async function settlementCounts(workspaceId = currentWorkspaceId(), terminal: Terminals = null) {
+  const groups = await prisma.settlement.groupBy({ by: ["status"], where: { workspaceId, ...(terminal != null ? { driver: { terminal: terminalFilter(terminal) } } : {}) }, _count: { _all: true }, _sum: { total: true } });
   const of = (status: string) => groups.find((g) => g.status === status);
   return { draft: of("draft")?._count._all ?? 0, final: of("final")?._count._all ?? 0, void: of("void")?._count._all ?? 0, finalTotal: numOrNull(of("final")?._sum.total) ?? 0 };
 }
@@ -516,13 +517,13 @@ async function resolveSettlementRows(rows: SettlementWithDriver[], workspaceId: 
 }
 
 /** Statements, newest first, a page at a time (a big fleet settles every driver every week). */
-export async function listSettlements(workspaceId = currentWorkspaceId(), opts: { skip?: number; take?: number; status?: string; driverId?: string; terminal?: string | null } = {}): Promise<SettlementRow[]> {
+export async function listSettlements(workspaceId = currentWorkspaceId(), opts: { skip?: number; take?: number; status?: string; driverId?: string; terminal?: Terminals } = {}): Promise<SettlementRow[]> {
   const rows = await prisma.settlement.findMany({
     where: {
       workspaceId,
       ...(opts.status ? { status: opts.status } : {}),
       ...(opts.driverId ? { driverId: opts.driverId } : {}),
-      ...(opts.terminal ? { driver: { terminal: opts.terminal } } : {})
+      ...(opts.terminal != null ? { driver: { terminal: terminalFilter(opts.terminal) } } : {})
     },
     include: { driver: true },
     orderBy: [{ createdAt: "desc" }, { id: "asc" }],
@@ -561,7 +562,7 @@ export type Unsettled = {
 export const TONU_DAYS = 120;
 
 /** Per driver, the delivered loads not on any final statement, what they come to, and a period that would cover them (the amount is for that period). */
-export async function unsettledByDriver(workspaceId = currentWorkspaceId(), now = new Date(), terminal: string | null = null): Promise<Unsettled[]> {
+export async function unsettledByDriver(workspaceId = currentWorkspaceId(), now = new Date(), terminal: Terminals = null): Promise<Unsettled[]> {
   // Read as the plain columns the pay is worked out from (a whole load, with its assignment and driver, is a hundred): a fleet has thousands of these.
   const [loads, tonus] = await Promise.all([
     prisma.$queryRaw<
@@ -572,12 +573,12 @@ export async function unsettledByDriver(workspaceId = currentWorkspaceId(), now 
         (l.payment_status = 'paid' and (coalesce(l.write_off_amount, 0) > 0 or (l.invoiced_amount is not null and l.paid_amount < l.invoiced_amount))) as short
       from loads l join assignments a on a.load_id = l.id and a.status = 'completed' join drivers d on d.id = a.driver_id
       where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status = 'completed'
-        and not exists (select 1 from settlement_loads sl where sl.load_id = l.id) ${terminal ? Prisma.sql`and d.terminal = ${terminal}` : Prisma.empty}`,
+        and not exists (select 1 from settlement_loads sl where sl.load_id = l.id) ${terminal != null ? Prisma.sql`and d.terminal = any(${termList(terminal)})` : Prisma.empty}`,
     prisma.$queryRaw<Array<{ driverId: string; driverName: string; n: number }>>`
       select a.driver_id as "driverId", d.name as "driverName", count(*)::int as n
       from loads l join assignments a on a.load_id = l.id and a.status = 'completed' join drivers d on d.id = a.driver_id
       where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status = 'tonu' and l.cancelled_at >= ${new Date(now.getTime() - TONU_DAYS * 86_400_000)}
-        ${terminal ? Prisma.sql`and d.terminal = ${terminal}` : Prisma.empty}
+        ${terminal != null ? Prisma.sql`and d.terminal = any(${termList(terminal)})` : Prisma.empty}
       group by a.driver_id, d.name`
   ]);
   const tonuByDriver = new Map(tonus.map((t) => [t.driverId, t.n]));

@@ -1,3 +1,4 @@
+import { terminalFilter, type Terminals } from "@/lib/scope";
 import { randomUUID } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
@@ -56,12 +57,12 @@ const readiness = (d: { payrollWorkerType: string | null; payrollEmployeeId: str
             : null;
 
 /** Final statements, newest first, a page at a time, with whether each is ready to go. */
-export async function listPayroll(opts: { page?: number; filter?: "ready" | "sent" | "all"; terminal?: string | null; now?: Date } = {}, workspaceId = currentWorkspaceId()) {
+export async function listPayroll(opts: { page?: number; filter?: "ready" | "sent" | "all"; terminal?: Terminals; now?: Date } = {}, workspaceId = currentWorkspaceId()) {
   const page = Math.max(1, opts.page ?? 1);
   const now = opts.now ?? new Date();
   const stale = new Date(now.getTime() - CLAIM_MS);
-  const terminalDriver = opts.terminal ? { terminal: opts.terminal } : {};
-  const baseFinal = { workspaceId, status: "final" as const, ...(opts.terminal ? { driver: { terminal: opts.terminal } } : {}) };
+  const terminalDriver = opts.terminal != null ? { terminal: terminalFilter(opts.terminal) } : {};
+  const baseFinal = { workspaceId, status: "final" as const, ...(opts.terminal != null ? { driver: { terminal: terminalFilter(opts.terminal) } } : {}) };
   const unsentWhere = { OR: [{ payrollSentAt: null }, { payrollSentAt: { lt: stale }, payrollReference: { startsWith: CLAIM } }] };
   const sentWhere = { payrollSentAt: { not: null }, NOT: { payrollSentAt: { lt: stale }, payrollReference: { startsWith: CLAIM } } };
   const where = { ...baseFinal, ...(opts.filter === "sent" ? sentWhere : opts.filter === "ready" ? unsentWhere : {}) };

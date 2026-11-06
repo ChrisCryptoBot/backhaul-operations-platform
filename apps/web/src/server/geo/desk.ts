@@ -1,3 +1,4 @@
+import { terminalFilter, type Terminals } from "@/lib/scope";
 import { prisma } from "@/lib/db";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { num } from "@/server/tl/convert";
@@ -11,9 +12,9 @@ const select = { id: true, homeBaseAddress: true, homeBaseLat: true, homeBaseLng
  * a truck that has an address but no point yet (it was saved before points were kept, or with no map key) is found once here and kept, so the
  * next measure does not look it up again. A screen that only wants the road miles (a rate confirmation's review) skips the trucks entirely.
  */
-export async function measureForDesk(stops: MeasureInput["stops"], workspaceId = currentWorkspaceId(), opts: { homes?: boolean; terminal?: string | null } = {}): Promise<Measured> {
+export async function measureForDesk(stops: MeasureInput["stops"], workspaceId = currentWorkspaceId(), opts: { homes?: boolean; terminal?: Terminals } = {}): Promise<Measured> {
   if (opts.homes === false) return measureQuote({ stops, homes: [] });
-  const where = { workspaceId, archivedAt: null, homeBaseAddress: { not: null }, ...(opts.terminal ? { terminal: opts.terminal } : {}) };
+  const where = { workspaceId, archivedAt: null, homeBaseAddress: { not: null }, ...(opts.terminal != null ? { terminal: terminalFilter(opts.terminal) } : {}) };
   let trucks = await prisma.vehicle.findMany({ where, select });
   // A few unlocated bases are found (and kept) each time, so a fleet whose points were never stored fills in over its next quotes without a burst of map requests.
   const missing = trucks.filter((t) => (t.homeBaseAddress ?? "").trim() !== "" && (t.homeBaseLat == null || t.homeBaseLng == null)).slice(0, 8);

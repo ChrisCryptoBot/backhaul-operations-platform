@@ -1,3 +1,4 @@
+import type { Terminals } from "@/lib/scope";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { billedOf } from "@/lib/billed";
@@ -13,6 +14,7 @@ import { dueAt } from "@/lib/overdue";
 import { podStopsMissing } from "./documents";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
+import { inTerminal } from "./terminal-sql";
 
 /**
  * Invoice a delivered load, mark an invoice paid (in full or short), and take a payment back. Each writes its audit event with the change.
@@ -309,9 +311,9 @@ export async function undoPaid(loadId: string, reason: string, now = new Date(),
 }
 
 /** The invoice as billed, for printing: its lines, who it is for, and the load it came from. */
-export async function getInvoice(loadId: string, workspaceId = currentWorkspaceId(), terminal: string | null = null) {
+export async function getInvoice(loadId: string, workspaceId = currentWorkspaceId(), terminal: Terminals = null) {
   const [l, lastChase] = await Promise.all([
-    prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, paymentStatus: { not: null }, ...(terminal ? { OR: [{ vehicle: { terminal } }, { assignment: { driver: { terminal } } }, { vehicleId: null, assignment: null }] } : {}) }, include: { stops: { orderBy: { stopSequence: "asc" } }, workspace: true, payments: { orderBy: [{ paidAt: "asc" }, { id: "asc" }] } } }),
+    prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, paymentStatus: { not: null }, ...inTerminal(terminal) }, include: { stops: { orderBy: { stopSequence: "asc" } }, workspace: true, payments: { orderBy: [{ paidAt: "asc" }, { id: "asc" }] } } }),
     prisma.auditEvent.findFirst({ where: { workspaceId, loadId, action: "invoice_chased" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { createdAt: true, actor: true } })
   ]);
   if (!l || !l.invoicedAt) return null;

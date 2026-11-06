@@ -1,3 +1,4 @@
+import type { Terminals } from "@/lib/scope";
 import { prisma } from "@/lib/db";
 import { alertsByLoad, countAlerts, deriveAlerts, type AlertLoad } from "@/lib/alerts";
 import { alertThresholds } from "@/lib/thresholds";
@@ -31,7 +32,7 @@ export type AlertScope = "shell" | "open" | "all";
  * The alerts for the loads in a terminal (and the loads not placed anywhere yet): the same alerts, narrowed. Which of the alerted loads are in the terminal is asked of the database
  * for just those loads, so a fleet's thousands of loads are not read to draw a screen.
  */
-export async function getAlertsInTerminal(terminal: string | null, now = new Date(), workspaceId = currentWorkspaceId()) {
+export async function getAlertsInTerminal(terminal: Terminals, now = new Date(), workspaceId = currentWorkspaceId()) {
   const all = await getAlerts(now, workspaceId, "all");
   if (!terminal) return all;
   const ids = [...new Set(all.alerts.map((a) => a.loadId))];

@@ -1,3 +1,4 @@
+import { terminalFilter, type Terminals } from "@/lib/scope";
 import { prisma } from "@/lib/db";
 import { equipmentCode, dwellSentence, idleLine, idleSentence } from "@/lib/radar";
 import { classifyTractor, dwell, engineStateOf, fleetCounts, speedLine, type EngineState, type FleetCounts, type TractorState } from "@/lib/telematics";
@@ -60,10 +61,10 @@ export type RadarData = {
   connected: boolean;
 };
 
-export async function getRadarData(workspaceId = currentWorkspaceId(), terminal: string | null = null, now = new Date()): Promise<RadarData> {
+export async function getRadarData(workspaceId = currentWorkspaceId(), terminal: Terminals = null, now = new Date()): Promise<RadarData> {
   const [trucks, trailers, terms, state] = await Promise.all([
     prisma.vehicle.findMany({
-      where: { workspaceId, archivedAt: null, ...(terminal ? { terminal } : {}) },
+      where: { workspaceId, archivedAt: null, ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}) },
       select: {
         id: true,
         name: true,
@@ -80,7 +81,7 @@ export async function getRadarData(workspaceId = currentWorkspaceId(), terminal:
       }
     }),
     prisma.trailer.findMany({
-      where: { workspaceId, archivedAt: null, ...(terminal ? { terminal } : {}) },
+      where: { workspaceId, archivedAt: null, ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}) },
       select: { id: true, number: true, type: true, lengthFt: true, currentVehicleId: true, lastLat: true, lastLng: true, lastLocatedAt: true, unhookedAt: true, dwellRateOverride: true, dwellDaysOverride: true, dwellWaived: true }
     }),
     getThresholds(workspaceId),

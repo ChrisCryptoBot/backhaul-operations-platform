@@ -1,3 +1,4 @@
+import { terminalFilter } from "@/lib/scope";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { driverBlocker } from "@/lib/clearance";
@@ -26,7 +27,7 @@ export async function GET(request: Request) {
   const inactive = params.get("inactive") === "1";
   const terminal = q ? null : await currentTerminal();
   const drivers = await prisma.driver.findMany({
-    where: { workspaceId: currentWorkspaceId(), ...(inactive ? {} : { active: true }), ...(terminal ? { terminal } : {}), ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" as const } }, { code: { contains: q, mode: "insensitive" as const } }] } : {}) },
+    where: { workspaceId: currentWorkspaceId(), ...(inactive ? {} : { active: true }), ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}), ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" as const } }, { code: { contains: q, mode: "insensitive" as const } }] } : {}) },
     select: { id: true, name: true, code: true, terminal: true, cdlExpiry: true, medicalCardExpiry: true, defaultPayKind: true, defaultPayRate: true },
     orderBy: { name: "asc" },
     take: 12

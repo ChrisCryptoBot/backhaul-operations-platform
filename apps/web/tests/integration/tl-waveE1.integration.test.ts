@@ -230,6 +230,6 @@ describe.skipIf(!run)("a terminal scope narrows the lists, the fits, the planner
   test("the shell lists the terminals and keeps its counts to the whole fleet", async () => {
     const shell = await getShellData(WS);
     expect(shell.terminals).toEqual(expect.arrayContaining([T.north, T.south]));
-    expect(shell.terminal).toBeNull(); // no cookie outside a request
+    expect(shell.scope).toMatchObject({ names: null, label: "All terminals" }); // no cookie outside a request: everything
   });
 });

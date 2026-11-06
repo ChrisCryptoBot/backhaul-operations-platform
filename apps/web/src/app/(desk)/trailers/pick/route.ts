@@ -1,3 +1,4 @@
+import { terminalFilter } from "@/lib/scope";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { alertThresholds } from "@/lib/thresholds";
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
       workspaceId,
       archivedAt: null,
       status: "available",
-      ...(terminal ? { terminal } : {}),
+      ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}),
       ...(q ? { OR: [{ number: { contains: q, mode: "insensitive" as const } }, { plate: { contains: q, mode: "insensitive" as const } }, { vin: { contains: q, mode: "insensitive" as const } }] } : {})
     },
     include: { loads: { where: { deletedAt: null, status: { in: ["draft", "accepted", "in_progress"] } }, select: { loadNumber: true }, take: 1 } },

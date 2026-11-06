@@ -1,3 +1,4 @@
+import { termList } from "@/lib/scope";
 import { Prisma } from "@prisma/client";
 import { deskDaysBetween, dueAt } from "@/lib/overdue";
 import { toCsv, type CsvCell } from "@/lib/csv";
@@ -366,7 +367,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
   if (kind === "leaks" || kind === "leaks-weeks" || kind === "leaks-items") {
     const p = parseKpiParams(query);
     const terminal = await currentTerminal();
-    const l = await getLeakLedger({ period: p.period, compare: false, terminals: terminal ? [terminal] : null }, now);
+    const l = await getLeakLedger({ period: p.period, compare: false, terminals: termList(terminal) }, now);
     const tag = `${p.period}-${day}`;
     if (kind === "leaks") {
       return {

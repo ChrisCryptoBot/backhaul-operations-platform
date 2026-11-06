@@ -43,7 +43,7 @@ const TABLE: Record<string, Capability[]> = {
   setMemberGrantsAction: ["admin"], removeMemberAction: ["admin"],
   // who works when and from where (a driver manager or an admin), and the terminal list itself (an admin)
   saveScheduleAction: ["roster"], applyScheduleAction: ["roster"], clearScheduleAction: ["roster"], saveTimeOffAction: ["roster"], removeTimeOffAction: ["roster"], setDriversHomeAction: ["roster"], setDriverCodeAction: ["roster"],
-  addTerminalAction: ["admin"], renameTerminalAction: ["admin"], archiveTerminalAction: ["admin"],
+  addTerminalAction: ["admin"], renameTerminalAction: ["admin"], archiveTerminalAction: ["admin"], addRegionAction: ["admin"], renameRegionAction: ["admin"], archiveRegionAction: ["admin"], setTerminalRegionAction: ["admin"], setMemberScopeAction: ["admin"],
   // the ELD fleet import (an admin), and a dropped trailer's dwell figure (a dispatcher or a billing person; either one)
   importEldFleetAction: ["admin"], adjustTrailerDwellAction: ["dispatch", "bill"], waiveTrailerDwellAction: ["dispatch", "bill"], clearTrailerDwellAction: ["dispatch", "bill"], setLaneTargetAction: ["dispatch", "bill"], saveKpiNoteAction: ["dispatch", "bill"]
 };

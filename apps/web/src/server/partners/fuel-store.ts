@@ -1,3 +1,4 @@
+import { terminalFilter, type Terminals } from "@/lib/scope";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { recordAudit } from "@/server/tl/audit";
@@ -118,10 +119,10 @@ export type FuelRow = {
 export type FuelTotals = { purchases: number; gallons: number; charged: number; discount: number; netPerGallon: number | null };
 
 /** The purchases of the last `days`, newest first, a page at a time, with the totals for the whole period and the load and driver statement each is tied to. */
-export async function listFuel(opts: { days?: number; page?: number; terminal?: string | null } = {}, now = new Date(), workspaceId = currentWorkspaceId()): Promise<{ rows: FuelRow[]; totals: FuelTotals; page: number; pageSize: number; total: number }> {
+export async function listFuel(opts: { days?: number; page?: number; terminal?: Terminals } = {}, now = new Date(), workspaceId = currentWorkspaceId()): Promise<{ rows: FuelRow[]; totals: FuelTotals; page: number; pageSize: number; total: number }> {
   const span = Math.min(Math.max(1, whole(opts.days ?? 30)), 366);
   const page = Math.max(1, whole(opts.page ?? 1));
-  const where: Prisma.FuelTransactionWhereInput = { workspaceId, postedAt: { gte: new Date(`${dayOf(new Date(now.getTime() - span * DAY))}T00:00:00Z`) }, ...(opts.terminal ? { vehicle: { terminal: opts.terminal } } : {}) };
+  const where: Prisma.FuelTransactionWhereInput = { workspaceId, postedAt: { gte: new Date(`${dayOf(new Date(now.getTime() - span * DAY))}T00:00:00Z`) }, ...(opts.terminal != null ? { vehicle: { terminal: terminalFilter(opts.terminal) } } : {}) };
   const [rows, total, sums] = await Promise.all([
     prisma.fuelTransaction.findMany({ where, include: { vehicle: { select: { name: true } }, settlement: { select: { id: true, number: true, status: true } }, load: { select: { loadNumber: true, settlement: { select: { settlement: { select: { id: true, number: true, status: true } } } } } } }, orderBy: [{ postedAt: "desc" }, { id: "asc" }], skip: (page - 1) * FUEL_PAGE, take: FUEL_PAGE }),
     prisma.fuelTransaction.count({ where }),

@@ -1,3 +1,4 @@
+import { terminalFilter, type Terminals } from "@/lib/scope";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { AuditSnapshot } from "@/lib/audit-diff";
@@ -280,7 +281,7 @@ const order = (key: TrailerSort, dir: SortDir): Prisma.TrailerOrderByWithRelatio
   }
 };
 
-export type TrailerPageQuery = { q?: string; sort?: string; page?: number; pageSize?: number; terminal?: string | null; type?: string; status?: string; ownership?: string; compliance?: string; archived?: boolean; /** Only these trailers (the ones inside a radius search). */ onlyIds?: string[] };
+export type TrailerPageQuery = { q?: string; sort?: string; page?: number; pageSize?: number; terminal?: Terminals; type?: string; status?: string; ownership?: string; compliance?: string; archived?: boolean; /** Only these trailers (the ones inside a radius search). */ onlyIds?: string[] };
 
 /** The compliance filter as a where clause: lapsed is a date in the past, soon a date within the window, ok neither. */
 function complianceWhere(kind: string | undefined, now: Date, days: number): Prisma.TrailerWhereInput {
@@ -306,7 +307,7 @@ export async function listTrailersPage(query: TrailerPageQuery = {}, now = new D
     workspaceId,
     archivedAt: query.archived ? { not: null } : null,
     ...(query.onlyIds ? { id: { in: query.onlyIds } } : {}),
-    ...(query.terminal ? { terminal: query.terminal } : {}),
+    ...(query.terminal != null ? { terminal: terminalFilter(query.terminal) } : {}),
     ...(query.type ? { type: query.type } : {}),
     ...(query.status ? { status: query.status } : {}),
     ...(query.ownership ? { ownership: query.ownership } : {}),
@@ -357,14 +358,14 @@ export async function getTrailerDetail(id: string, workspaceId = currentWorkspac
 }
 
 /** Trailers that could take a kind of load now: in service, available, with no date lapsed and not on an open load. For the Quote's "trailers available". */
-export async function countTrailersAvailable(trailerType: string | null, terminal: string | null, now = new Date(), workspaceId = currentWorkspaceId()): Promise<number> {
+export async function countTrailersAvailable(trailerType: string | null, terminal: Terminals, now = new Date(), workspaceId = currentWorkspaceId()): Promise<number> {
   return prisma.trailer.count({
     where: {
       workspaceId,
       archivedAt: null,
       status: "available",
       ...(trailerType ? { type: trailerType } : {}),
-      ...(terminal ? { terminal } : {}),
+      ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}),
       AND: [{ OR: [{ registrationExpiry: null }, { registrationExpiry: { gte: now } }] }, { OR: [{ inspectionExpiry: null }, { inspectionExpiry: { gte: now } }] }],
       loads: { none: { deletedAt: null, status: { in: OPEN_LOAD } } }
     }

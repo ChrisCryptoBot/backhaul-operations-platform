@@ -1,3 +1,4 @@
+import type { Terminals } from "@/lib/scope";
 import { prisma } from "@/lib/db";
 import { notQuote } from "@/lib/quote-status";
 import { inTerminal } from "./queries";
@@ -8,11 +9,11 @@ export const DELETED_PAGE = 100;
 
 export type DeletedRow = { id: string; loadNumber: string | null; brokerName: string | null; origin: string | null; destination: string | null; status: string; deletedAt: Date; reason: string | null; note: string | null };
 
-export async function countDeletedLoads(workspaceId = currentWorkspaceId(), terminal: string | null = null): Promise<number> {
+export async function countDeletedLoads(workspaceId = currentWorkspaceId(), terminal: Terminals = null): Promise<number> {
   return prisma.load.count({ where: { workspaceId, deletedAt: { not: null }, ...notQuote, ...inTerminal(terminal) } });
 }
 
-export async function listDeletedLoads(workspaceId = currentWorkspaceId(), terminal: string | null = null): Promise<DeletedRow[]> {
+export async function listDeletedLoads(workspaceId = currentWorkspaceId(), terminal: Terminals = null): Promise<DeletedRow[]> {
   const loads = await prisma.load.findMany({
     where: { workspaceId, deletedAt: { not: null }, ...notQuote, ...inTerminal(terminal) },
     select: { id: true, loadNumber: true, brokerName: true, originAddress: true, destinationAddress: true, status: true, deletedAt: true },

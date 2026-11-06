@@ -1,3 +1,4 @@
+import { terminalFilter } from "@/lib/scope";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { currentTerminal } from "@/server/tl/terminal";
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
   const ready = params.get("ready") === "1";
   const terminal = q ? null : await currentTerminal();
   const trucks = await prisma.vehicle.findMany({
-    where: { workspaceId: currentWorkspaceId(), archivedAt: null, ...(terminal ? { terminal } : {}), ...(ready ? { costProfile: { isNot: null } } : {}), ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}) },
+    where: { workspaceId: currentWorkspaceId(), archivedAt: null, ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}), ...(ready ? { costProfile: { isNot: null } } : {}), ...(q ? { name: { contains: q, mode: "insensitive" as const } } : {}) },
     select: { id: true, name: true, terminal: true },
     orderBy: { name: "asc" },
     take: 12

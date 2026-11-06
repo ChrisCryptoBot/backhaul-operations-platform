@@ -38,6 +38,8 @@ import { dateTime } from "@/lib/desk-format";
 import { PLANS, priceText } from "@/lib/plans";
 import { TeamCard } from "@/components/desk/team-card";
 import { TerminalsCard } from "@/components/desk/terminals-card";
+import { RegionsCard } from "@/components/desk/regions-card";
+import { regionRows } from "@/server/tl/regions";
 import { terminalRows } from "@/server/tl/terminal-list";
 import { isPlatformAdmin, requirePage } from "@/server/tl/access";
 import { listMembers } from "@/server/tl/members";
@@ -65,6 +67,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
   const integrationsOrigin = host ? `${headers().get("x-forwarded-proto") ?? "https"}://${host}` : "";
   const [row, kpi, company, plan, partners, members] = await Promise.all([getStoredThresholds(), getDeskKpi({ period: "4w", compare: false }), getCompany(), planSummary(), partnerStatus(), listMembers()]);
   const terminals = admin ? await terminalRows() : [];
+  const regionData = admin ? await regionRows() : { regions: [], unassigned: [] };
   const seats = plan.units.find((u) => u.kind === "member")!;
   const stored = Object.fromEntries(THRESHOLD_FIELDS.map((f) => [f.key, row[f.key] ?? null])) as Record<keyof Thresholds, number | null>;
 
@@ -81,7 +84,14 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
   const terminalsTab = (
     <>
       <Card title="Terminals" className="tl-card">
-        <TerminalsCard rows={terminals} canEdit={admin} />
+        <TerminalsCard rows={terminals} canEdit={admin} regions={regionData.regions.map((r) => ({ id: r.id, name: r.name }))} />
+      </Card>
+    </>
+  );
+  const regionsTab = (
+    <>
+      <Card title="Regions" className="tl-card">
+        <RegionsCard regions={regionData.regions} unassigned={regionData.unassigned} canEdit={admin} />
       </Card>
     </>
   );
@@ -131,7 +141,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
   const teamTab = (
     <>
       <Card title="Team" className="tl-card">
-        <TeamCard rows={members.map((m) => ({ id: m.id, email: m.email, name: m.name, role: m.role, grants: m.grants, signedIn: m.signedIn, you: m.email === me.email }))} canEdit={can(me.role, me.grants, "admin")} seats={{ used: seats.used, limit: seats.limit }} />
+        <TeamCard rows={members.map((m) => ({ id: m.id, email: m.email, name: m.name, role: m.role, grants: m.grants, signedIn: m.signedIn, you: m.email === me.email, scope: m.scope }))} regions={regionData.regions.map((r) => ({ id: r.id, name: r.name }))} terminals={terminals.map((t) => t.name)} canEdit={can(me.role, me.grants, "admin")} seats={{ used: seats.used, limit: seats.limit }} />
       </Card>
     </>
   );
@@ -277,7 +287,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
   );
   // The same tabs the load drawer has. The company, the plan, the team and the integrations are the admin's, so everyone else is not even shown them.
   const tabs: SettingsTab[] = [
-    ...(admin ? [{ key: "company", label: "Company", panel: companyTab }, { key: "plan", label: "Plan", panel: planTab }, { key: "team", label: "Team", panel: teamTab }, { key: "terminals", label: "Terminals", panel: terminalsTab }, { key: "integrations", label: "Integrations", panel: integrationsTab }] : []),
+    ...(admin ? [{ key: "company", label: "Company", panel: companyTab }, { key: "plan", label: "Plan", panel: planTab }, { key: "team", label: "Team", panel: teamTab }, { key: "terminals", label: "Terminals", panel: terminalsTab }, { key: "regions", label: "Regions", panel: regionsTab }, { key: "integrations", label: "Integrations", panel: integrationsTab }] : []),
     { key: "display", label: "Display", panel: displayTab },
     { key: "rules", label: "Rules", panel: rulesTab }
   ];

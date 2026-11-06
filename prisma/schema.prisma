@@ -72,6 +72,7 @@ model Workspace {
   unitStays          UnitStay[]
   trailerMoves       TrailerMove[]
   terminals          Terminal[]
+  regions            Region[]
   laneTargets        LaneTarget[]
   kpiNotes           KpiNote[]
   driverSchedules    DriverSchedule[]
@@ -815,7 +816,8 @@ model Member {
   createdAt   DateTime  @default(now()) @map("created_at")
   lastSeenAt  DateTime? @map("last_seen_at")
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  scopes    MemberScope[]
 
   @@unique([workspaceId, email])
   @@index([email])
@@ -987,13 +989,52 @@ model Terminal {
   name        String
   city        String?
   note        String?
+  /// The region this terminal belongs to, or none yet (shown as "Unassigned"). Units stay assigned to a terminal; a region only groups terminals.
+  regionId    String?   @map("region_id")
   archivedAt  DateTime? @map("archived_at")
   createdAt   DateTime  @default(now()) @map("created_at")
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  region    Region?   @relation(fields: [regionId], references: [id], onDelete: SetNull)
 
   @@index([workspaceId, archivedAt])
+  @@index([regionId])
   @@map("terminals")
+}
+
+/// A group of terminals (Texas, the Southeast): what a dispatcher, a driver manager or an admin can be pointed at, so a big fleet is read one region at a time. A region owns no trucks or drivers; they stay
+/// assigned to a terminal, and a terminal belongs to at most one region. Retiring a region leaves its terminals unassigned.
+model Region {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  name        String
+  note        String?
+  archivedAt  DateTime? @map("archived_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  workspace Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  terminals Terminal[]
+  scopes    MemberScope[]
+
+  @@index([workspaceId, archivedAt])
+  @@map("regions")
+}
+
+/// What a member may see: a region (all its terminals) or one terminal, by name. A member with no rows is not limited (and an admin never is). The server enforces it on every list; the header's scope
+/// is a choice inside what is allowed, never a way out of it.
+model MemberScope {
+  id        String   @id @default(cuid())
+  memberId  String   @map("member_id")
+  regionId  String?  @map("region_id")
+  /// A terminal's name, kept in step when the terminal is renamed.
+  terminal  String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  member Member  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  region Region? @relation(fields: [regionId], references: [id], onDelete: Cascade)
+
+  @@index([memberId])
+  @@map("member_scopes")
 }
 
 /// A driver's weekly shift template on the carrier's clock. `week` is seven entries Sunday to Saturday, each `{ "start": minutes, "end": minutes }` for a shift that starts that day (an end at or before

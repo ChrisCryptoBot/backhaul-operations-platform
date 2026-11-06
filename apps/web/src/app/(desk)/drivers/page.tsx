@@ -1,3 +1,4 @@
+import { scopeWords } from "@/lib/scope";
 import Link from "next/link";
 import React from "react";
 import { listDriversPage } from "@/server/tl/fleet-list";
@@ -127,7 +128,7 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
   const use = await unitUse("driver");
   return (
     <>
-      <PageHead title="Drivers" sub={`${terminal ? `${terminal} terminal. ` : ""}Who can take a load today. A lapsed CDL or medical card blocks the assignment. A driver on an open load cannot be taken out of service.`}>
+      <PageHead title="Drivers" sub={`${scopeWords(terminal) ? `${scopeWords(terminal)}. ` : ""}Who can take a load today. A lapsed CDL or medical card blocks the assignment. A driver on an open load cannot be taken out of service.`}>
         <Link href="/drivers/import" className="tl-btn">Import from a file</Link>
         <CanGate caps={["dispatch"]}>
           <AddDriver use={use} />

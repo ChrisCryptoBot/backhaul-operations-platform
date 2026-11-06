@@ -302,7 +302,7 @@ describe.skipIf(!run)("telematics: radar, idle, dwell, onboarding", () => {
       expect(await hookTrailer(trailerId, truck.id, NOW, W)).toEqual({ ok: true });
       const t = await prisma.trailer.findUniqueOrThrow({ where: { id: trailerId } });
       expect(t).toMatchObject({ unhookedAt: null, dwellRateOverride: null, dwellDaysOverride: null, dwellWaived: false, dwellOverrideNote: null });
-      const reset = (await listEntityAudit(trailerId, 5, W)).find((a) => a.action === "dwell_reset")!;
+      const reset = (await listEntityAudit(trailerId, 50, W)).find((a) => a.action === "dwell_reset")!;
       expect(reset.before).toMatchObject({ Rate: "90", Days: "2" });
     });
   });

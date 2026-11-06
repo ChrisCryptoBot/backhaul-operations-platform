@@ -1,3 +1,4 @@
+import { terminalFilter, type Terminals } from "@/lib/scope";
 import { prisma } from "@/lib/db";
 import type { Prisma } from "@prisma/client";
 import { addDaysKey, checkShift, conflictsIfChanged, dateKeyOf, parseWeek, shiftText, weekdayOf, type BookedLoad, type DriverSchedule, type ShiftConflict, type TimeOff, type Week } from "@/lib/shifts";
@@ -197,13 +198,13 @@ export async function removeTimeOff(driverId: string, dateKey: string, opts: { f
 export type ScheduleRow = { driverId: string; name: string; code: string | null; terminal: string | null; schedule: DriverSchedule | null; timeOff: TimeOff[] };
 
 /** One page of the roster for the Schedules screen: active drivers by name, with the template and the upcoming time off. Search matches a name or a code. */
-export async function listScheduleRows(query: { q?: string; page?: number; pageSize?: number; terminal?: string | null }, now = Date.now(), workspaceId = currentWorkspaceId()) {
+export async function listScheduleRows(query: { q?: string; page?: number; pageSize?: number; terminal?: Terminals }, now = Date.now(), workspaceId = currentWorkspaceId()) {
   const pageSize = query.pageSize ?? 50;
   const q = query.q?.trim() ?? "";
   const where: Prisma.DriverWhereInput = {
     workspaceId,
     active: true,
-    ...(query.terminal ? { terminal: query.terminal } : {}),
+    ...(query.terminal != null ? { terminal: terminalFilter(query.terminal) } : {}),
     ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" } }, { code: { contains: q, mode: "insensitive" } }] } : {})
   };
   const total = await prisma.driver.count({ where });

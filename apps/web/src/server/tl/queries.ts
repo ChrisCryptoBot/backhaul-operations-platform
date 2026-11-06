@@ -1,3 +1,4 @@
+import { terminalFilter, type Terminals } from "@/lib/scope";
 import { Prisma } from "@prisma/client";
 import { grossOf } from "@/lib/load-gross";
 import { dueAt } from "@/lib/overdue";
@@ -106,14 +107,14 @@ export const deskStatusOf = (status: string): string => (status === "scheduled" 
 /**
  * `terminal` keeps the loads placed in that terminal (on its truck or with its driver) and the loads not placed anywhere yet, which are everyone's to take.
  */
-export async function listBoardRows(workspaceId = currentWorkspaceId(), scope: "open" | "all" = "open", terminal: string | null = null) {
+export async function listBoardRows(workspaceId = currentWorkspaceId(), scope: "open" | "all" = "open", terminal: Terminals = null) {
   const loads = await prisma.load.findMany({
     where: {
       workspaceId,
       deletedAt: null,
       ...notQuote,
       ...(scope === "open" ? { status: { in: OPEN_LOAD_STATUSES } } : {}),
-      ...(terminal ? { OR: [{ vehicle: { terminal } }, { assignment: { driver: { terminal } } }, { vehicleId: null, assignment: null }] } : {})
+      ...inTerminal(terminal)
     },
     include: loadInclude,
     orderBy: [{ scheduledDate: "desc" }, { createdAt: "desc" }]
@@ -132,6 +133,7 @@ export const agingFor = agingSummary;
 
 import { pickerOptions, rankDrivers } from "./driver-rank";
 import { currentTerminal } from "./terminal";
+import { inTerminal } from "./terminal-sql";
 import { agingSummary } from "./aging";
 import { rateConTotal } from "@/lib/pay";
 import { driverFacingPay, projectLoadToSummary, type LoadSummary, type PayKind } from "./projector";
@@ -192,7 +194,7 @@ export type InvoiceScope = "ready" | "out" | "paid" | "all";
 /** What can be invoiced: a delivered load, or a TONU with a fee (a cancelled load and a saved quote cannot). */
 const INVOICEABLE = { OR: [{ status: "completed" }, { status: "tonu", tonuRevenue: { gt: 0 } }] };
 /** Loads placed in a terminal (on its truck or with its driver), and loads not placed anywhere yet, which are everyone's to take: the same rule the Loads board uses. */
-export const inTerminal = (terminal: string | null): object => (terminal ? { OR: [{ vehicle: { terminal } }, { assignment: { driver: { terminal } } }, { vehicleId: null, assignment: null }] } : {});
+export { inTerminal };
 const SCOPE_WHERE: Record<InvoiceScope, object> = { ready: { paymentStatus: null }, out: { paymentStatus: "invoiced" }, paid: { paymentStatus: "paid" }, all: {} };
 
 /** A search over the words a person has for an invoice: its number, the load's, the customer's PO, the customer. Every word must match something. */
@@ -215,7 +217,7 @@ export const asInvoiceShow = (v: string | undefined | null): InvoiceShow | null 
 export type InvoiceSort = { key: (typeof INVOICE_SORT_KEYS)[number]; dir: "asc" | "desc" } | null;
 export const INVOICE_SORT_KEYS = ["sent", "customer", "broker", "invoice", "amount", "load", "done", "due", "paid"] as const;
 
-type InvoiceFilters = { q?: string; terminal?: string | null; show?: InvoiceShow | null };
+type InvoiceFilters = { q?: string; terminal?: Terminals; show?: InvoiceShow | null };
 
 /** The loads an invoice list is made of: the scope, the search, the terminal and the filter. "Overdue" is worked out on the desk's calendar by the database and comes back as the loads it names. */
 async function invoiceWhere(scope: InvoiceScope, workspaceId: string, f: InvoiceFilters, now = new Date()) {
@@ -233,7 +235,7 @@ async function invoiceWhere(scope: InvoiceScope, workspaceId: string, f: Invoice
   return { workspaceId, deletedAt: null, ...SCOPE_WHERE[scope], AND: and };
 }
 
-export async function countInvoices(scope: InvoiceScope, workspaceId = currentWorkspaceId(), q?: string, terminal: string | null = null, show: InvoiceShow | null = null) {
+export async function countInvoices(scope: InvoiceScope, workspaceId = currentWorkspaceId(), q?: string, terminal: Terminals = null, show: InvoiceShow | null = null) {
   return prisma.load.count({ where: await invoiceWhere(scope, workspaceId, { q, terminal, show }) });
 }
 
@@ -262,7 +264,7 @@ const orderFor = (scope: InvoiceScope, sort: InvoiceSort): Prisma.LoadOrderByWit
   return [field[sort.key]!, { id: "asc" }];
 };
 
-export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: { scope?: InvoiceScope; skip?: number; take?: number; q?: string; terminal?: string | null; show?: InvoiceShow | null; sort?: InvoiceSort; lean?: boolean } = {}) {
+export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: { scope?: InvoiceScope; skip?: number; take?: number; q?: string; terminal?: Terminals; show?: InvoiceShow | null; sort?: InvoiceSort; lean?: boolean } = {}) {
   const scope = opts.scope ?? "all";
   const light = scope === "paid" || scope === "out";
   const where = await invoiceWhere(scope, workspaceId, { q: opts.q, terminal: opts.terminal, show: opts.show });

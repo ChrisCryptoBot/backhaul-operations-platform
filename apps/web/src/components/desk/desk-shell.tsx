@@ -12,7 +12,7 @@ import { TerminalNames } from "./terminal-names";
 import { VIEW_PREFIX, rememberedQuery } from "@/lib/draft";
 import { ZONE_COOKIE, activeTz } from "@/lib/tz";
 import { GlobalSearch } from "./global-search";
-import { TerminalScope } from "./terminal-scope";
+import { ScopeContext, ScopeMenuButton } from "./scope-menu";
 import { TERMINAL_LIST_ID } from "@/lib/terminal";
 import { useUnderlay } from "./underlay";
 import { perMile, pct, usd } from "@/lib/desk-format";
@@ -173,6 +173,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
     <ToastProvider>
     <DraftScope value={`${data.workspaceName}:${data.account.name}`}>
     <TerminalNames value={data.terminals}>
+    <ScopeContext.Provider value={{ label: data.scope.label, kind: data.scope.kind }}>
       <ZoneSync zone={data.timezone} />
       <div className="t-app" data-collapsed={collapsed ? "true" : "false"}>
         <a className="skip" href="#main">
@@ -183,7 +184,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
             TRUELANE <i>▸ DESK</i>
           </Link>
           <GlobalSearch />
-          <TerminalScope terminals={data.terminals} terminal={data.terminal} />
+          <ScopeMenuButton scope={data.scope} />
           <Link href="/enterprise" className="t-mid">Talk to a person</Link>
           {!data.account.on && demoLogin && data.account.role ? <span className="t-mid who" title={`Signed in to the demo as ${demoLabel(data.account.role as Role)}`}>{demoLabel(data.account.role as Role)}</span> : null}
           {data.account.on && data.account.name ? <span className="t-mid who" title={`${data.account.name}${role ? `, ${role}` : ""}`}>{data.account.name}{role ? ` · ${role}` : ""}</span> : null}
@@ -238,6 +239,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
       </datalist>
       {drawer}
       <SleepGuard minutes={sleepMinutes} />
+    </ScopeContext.Provider>
     </TerminalNames>
     </DraftScope>
     </ToastProvider>

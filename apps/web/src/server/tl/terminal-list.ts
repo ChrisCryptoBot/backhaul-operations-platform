@@ -15,7 +15,7 @@ export const MAX_TERMINAL_NAME = 40;
 /** A terminal name as kept: spaces squeezed, trimmed. Empty is "no terminal". */
 export const cleanTerminalName = (text: string | null | undefined): string => (text ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_TERMINAL_NAME);
 
-export type TerminalRow = { id: string; name: string; city: string | null; note: string | null; drivers: number; trucks: number; trailers: number };
+export type TerminalRow = { id: string; name: string; city: string | null; note: string | null; regionId: string | null; drivers: number; trucks: number; trailers: number };
 
 /** The active terminals with what is based at each. */
 export async function terminalRows(workspaceId = currentWorkspaceId()): Promise<TerminalRow[]> {
@@ -33,7 +33,7 @@ export async function terminalRows(workspaceId = currentWorkspaceId()): Promise<
   const d = by(drivers);
   const v = by(trucks);
   const t = by(trailers);
-  return terms.map((x) => ({ id: x.id, name: x.name, city: x.city, note: x.note, drivers: d.get(x.name.toLowerCase()) ?? 0, trucks: v.get(x.name.toLowerCase()) ?? 0, trailers: t.get(x.name.toLowerCase()) ?? 0 }));
+  return terms.map((x) => ({ id: x.id, name: x.name, city: x.city, note: x.note, regionId: x.regionId, drivers: d.get(x.name.toLowerCase()) ?? 0, trucks: v.get(x.name.toLowerCase()) ?? 0, trailers: t.get(x.name.toLowerCase()) ?? 0 }));
 }
 
 /** The names a person may pick, active only. */
@@ -99,6 +99,7 @@ export async function renameTerminal(id: string, nameInput: string, now = new Da
     await tx.driver.updateMany({ where: { workspaceId, terminal: old }, data: { terminal: name } });
     await tx.vehicle.updateMany({ where: { workspaceId, terminal: old }, data: { terminal: name } });
     await tx.trailer.updateMany({ where: { workspaceId, terminal: old }, data: { terminal: name } });
+    await tx.memberScope.updateMany({ where: { member: { workspaceId }, terminal: old }, data: { terminal: name } });
     await recordAudit({ entity: "fleet", entityId: id, action: "terminal_renamed", summary: `Terminal ${t.name} renamed ${name}`, before: { Terminal: t.name }, after: { Terminal: name }, at: now, workspaceId }, tx);
   });
   return { ok: true, id };
@@ -114,6 +115,8 @@ export async function archiveTerminal(id: string, now = new Date(), workspaceId 
     prisma.vehicle.count({ where: { workspaceId, archivedAt: null, terminal: same } }),
     prisma.trailer.count({ where: { workspaceId, archivedAt: null, terminal: same } })
   ]);
+  const limited = await prisma.memberScope.count({ where: { member: { workspaceId }, terminal: same } });
+  if (limited > 0) return { ok: false, error: `${limited} ${limited === 1 ? "person is" : "people are"} limited to ${t.name}. Change what they can see first (Settings, Team).` };
   if (d + v + tr > 0) {
     const bits = [d ? `${d} ${d === 1 ? "driver" : "drivers"}` : null, v ? `${v} ${v === 1 ? "truck" : "trucks"}` : null, tr ? `${tr} ${tr === 1 ? "trailer" : "trailers"}` : null].filter(Boolean).join(", ");
     return { ok: false, error: `${bits} ${d + v + tr === 1 ? "is" : "are"} still based at ${t.name}. Move ${d + v + tr === 1 ? "it" : "them"} to another terminal first.` };

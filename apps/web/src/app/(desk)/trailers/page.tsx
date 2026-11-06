@@ -1,3 +1,4 @@
+import { scopeWords } from "@/lib/scope";
 import Link from "next/link";
 import React from "react";
 import { currentTerminal } from "@/server/tl/terminal";
@@ -191,7 +192,7 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
   const showMap = radar.tractors.length > 0 || radar.trailers.length > 0;
   return (
     <>
-      <PageHead title="Trailers" sub={`${terminal ? `${terminal} terminal. ` : ""}Every trailer: its number, plate and papers, where it is, which tractor pulls it and what it is on. A trailer in the shop, out of service or with a lapsed date is kept off loads.`}>
+      <PageHead title="Trailers" sub={`${scopeWords(terminal) ? `${scopeWords(terminal)}. ` : ""}Every trailer: its number, plate and papers, where it is, which tractor pulls it and what it is on. A trailer in the shop, out of service or with a lapsed date is kept off loads.`}>
         <a className="tl-btn" href={`/export/trailers${filtered ? `?${href({}).split("?")[1] ?? ""}` : ""}`}>Export CSV</a>
         <Link href="/trailers/import" className="tl-btn">Import from a file</Link>
         <CanGate caps={["dispatch"]}>

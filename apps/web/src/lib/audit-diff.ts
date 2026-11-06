@@ -47,6 +47,11 @@ export type AuditAction =
   | "document_added"
   | "document_removed"
   | "member_added"
+  | "member_scope_changed"
+  | "region_added"
+  | "region_renamed"
+  | "region_archived"
+  | "terminal_region_set"
   | "member_role_changed"
   | "member_removed"
   | "booked"
@@ -144,6 +149,11 @@ export const ACTION_LABEL: Record<string, string> = {
   document_added: "Document kept",
   document_removed: "Document removed",
   member_added: "Person added to the desk",
+  member_scope_changed: "What a person can see changed",
+  region_added: "Region added",
+  region_renamed: "Region renamed",
+  region_archived: "Region retired",
+  terminal_region_set: "Terminal moved to a region",
   member_role_changed: "Role changed",
   member_removed: "Person removed from the desk",
   booked: "Booked from a quote",
@@ -242,6 +252,11 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   document_added: "muted",
   document_removed: "muted",
   member_added: "info",
+  member_scope_changed: "info",
+  region_added: "ok",
+  region_renamed: "info",
+  region_archived: "muted",
+  terminal_region_set: "info",
   member_role_changed: "warn",
   member_removed: "warn",
   booked: "ok",
@@ -323,8 +338,8 @@ export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[]
   { key: "dispatch", label: "Dispatch", actions: ["booked", "quote_saved", "quote_passed", "quote_discarded", "load_edited", "trip_started", "trip_undone", "delivered", "trip_reopened", "trip_corrected", "load_reopened", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled"] },
   { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "invoice_chased", "detention_waived", "invoice_voided", "paid", "payment_part", "payment_undone", "statement_started", "statement_saved", "statement_paid", "load_settled", "load_released", "statement_finalized", "statement_voided", "statement_discarded"] },
   { key: "intake", label: "Intake", actions: ["rate_con_saved", "rate_con_read", "rate_con_read_failed", "document_added", "document_removed"] },
-  { key: "team", label: "Team", actions: ["member_added", "member_role_changed", "member_removed"] },
-  { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_deactivated", "driver_reactivated", "schedule_changed", "time_off_added", "time_off_removed", "terminal_added", "terminal_renamed", "terminal_archived", "driver_home_set", "driver_code_changed", "check_call", "check_call_removed", "truck_added", "truck_changed", "truck_archived", "truck_restored", "import_completed", "cost_profile_changed", "trailer_added", "trailer_changed", "trailer_archived", "trailer_restored", "trailer_hooked", "trailer_unhooked", "trailer_assigned", "dwell_adjusted", "dwell_waived", "dwell_reset"] },
+  { key: "team", label: "Team", actions: ["member_added", "member_role_changed", "member_removed", "member_scope_changed"] },
+  { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_deactivated", "driver_reactivated", "schedule_changed", "time_off_added", "time_off_removed", "terminal_added", "terminal_renamed", "terminal_archived", "driver_home_set", "driver_code_changed", "region_added", "region_renamed", "region_archived", "terminal_region_set", "check_call", "check_call_removed", "truck_added", "truck_changed", "truck_archived", "truck_restored", "import_completed", "cost_profile_changed", "trailer_added", "trailer_changed", "trailer_archived", "trailer_restored", "trailer_hooked", "trailer_unhooked", "trailer_assigned", "dwell_adjusted", "dwell_waived", "dwell_reset"] },
   { key: "customers", label: "Customers", actions: ["customer_added", "customer_changed"] },
   { key: "partners", label: "Partners", actions: ["factoring_requested", "factoring_updated", "eld_linked", "hos_synced", "eld_fleet_imported", "fuel_imported", "carrier_vetted", "payroll_sent", "partner_connected", "partner_credentials_saved", "partner_event", "driver_link_flag"] },
   { key: "settings", label: "Settings", actions: ["thresholds_changed", "company_changed", "timezone_changed", "lane_target_set", "kpi_note_saved"] }

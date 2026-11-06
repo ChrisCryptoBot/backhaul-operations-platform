@@ -1,3 +1,4 @@
+import { scopeWords } from "@/lib/scope";
 import Link from "next/link";
 import React from "react";
 import { listTrucksPage } from "@/server/tl/fleet-list";
@@ -129,7 +130,7 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
   const showMap = radar.tractors.length > 0 || radar.connected;
   return (
     <>
-      <PageHead title="Trucks" sub={`${terminal ? `${terminal} terminal. ` : ""}Each truck's break-even floor, from its own cost profile. Every verdict on the Loads screen is measured against it. Open a truck to change its costs and see the floor move.`}>
+      <PageHead title="Trucks" sub={`${scopeWords(terminal) ? `${scopeWords(terminal)}. ` : ""}Each truck's break-even floor, from its own cost profile. Every verdict on the Loads screen is measured against it. Open a truck to change its costs and see the floor move.`}>
         <CanGate caps={["dispatch"]}>
           <SyncEldButton reason={eld.reason} />
         </CanGate>

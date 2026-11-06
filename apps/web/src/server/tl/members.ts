@@ -9,15 +9,24 @@ import { currentWorkspaceId } from "./workspace";
  * The people on a desk. An admin adds a person by email and role before they have signed in (a seat of the plan); the first verified sign-in with that email binds the
  * provider's user id to the row, and from then on the user id is what is matched. A desk always keeps one admin. A dispatcher can carry the grant "Can also bill". Every change is one transaction with its audit event.
  */
-export type MemberRow = { id: string; email: string; name: string; role: Role; grants: Grant[]; signedIn: boolean; lastSeenAt: Date | null };
+export type MemberRow = { id: string; email: string; name: string; role: Role; grants: Grant[]; signedIn: boolean; lastSeenAt: Date | null; /** What they are limited to; empty on both is not limited. */ scope: { regionIds: string[]; terminals: string[] } };
 export type MemberResult = { ok: true; id: string } | { ok: false; error: string };
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 const cleanEmail = (s: string) => s.trim().toLowerCase();
 
 export async function listMembers(workspaceId = currentWorkspaceId()): Promise<MemberRow[]> {
-  const rows = await prisma.member.findMany({ where: { workspaceId }, orderBy: [{ createdAt: "asc" }] });
-  return rows.map((m) => ({ id: m.id, email: m.email, name: m.name, role: m.role as Role, grants: cleanGrants(m.grants), signedIn: m.clerkUserId != null, lastSeenAt: m.lastSeenAt }));
+  const rows = await prisma.member.findMany({ where: { workspaceId }, orderBy: [{ createdAt: "asc" }], include: { scopes: { select: { regionId: true, terminal: true } } } });
+  return rows.map((m) => ({
+    id: m.id,
+    email: m.email,
+    name: m.name,
+    role: m.role as Role,
+    grants: cleanGrants(m.grants),
+    signedIn: m.clerkUserId != null,
+    lastSeenAt: m.lastSeenAt,
+    scope: { regionIds: m.scopes.flatMap((x) => (x.regionId ? [x.regionId] : [])), terminals: m.scopes.flatMap((x) => (x.terminal ? [x.terminal] : [])) }
+  }));
 }
 
 export async function addMember(input: { email: string; name: string; role: string; grants?: string[] }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<MemberResult> {
@@ -53,6 +62,8 @@ export async function setMemberRole(id: string, role: string, now = new Date(), 
     if (m.role === "admin" && (await adminsOf(tx, workspaceId)) <= 1) return { ok: false as const, error: "A desk keeps one admin. Make someone else an admin first." };
     // Grants only belong to a dispatcher: a person who is made something else loses them, so they cannot come back by changing the role again.
     await tx.member.update({ where: { id }, data: { role, ...(role === "dispatcher" ? {} : { grants: [] }) } });
+    // An admin is never limited to a region: promoting someone clears what they were pointed at.
+    if (role === "admin") await tx.memberScope.deleteMany({ where: { memberId: id } });
     await recordAudit({ entity: "settings", action: "member_role_changed", summary: `${m.name}: ${ROLE_LABEL[m.role as Role].toLowerCase()} to ${ROLE_LABEL[role].toLowerCase()}`, before: { Role: ROLE_LABEL[m.role as Role] }, after: { Role: ROLE_LABEL[role] }, at: now, workspaceId }, tx);
     return { ok: true as const, id };
   });

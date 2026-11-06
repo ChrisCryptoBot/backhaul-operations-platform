@@ -2,18 +2,18 @@
 
 import { useRouter } from "next/navigation";
 import React from "react";
-import { addTerminalAction, archiveTerminalAction, renameTerminalAction } from "@/app/(desk)/actions";
+import { addTerminalAction, archiveTerminalAction, renameTerminalAction, setTerminalRegionAction } from "@/app/(desk)/actions";
 import type { TerminalResult } from "@/server/tl/terminal-list";
 import { useToast } from "./kit/toast";
 import { useDraft } from "./kit/use-draft";
 
-export type TerminalCardRow = { id: string; name: string; city: string | null; note: string | null; drivers: number; trucks: number; trailers: number };
+export type TerminalCardRow = { id: string; name: string; city: string | null; note: string | null; regionId: string | null; drivers: number; trucks: number; trailers: number };
 
 /**
  * The terminals a fleet has: the list people pick from when they give a driver, truck or trailer a home base. An admin adds, renames and retires them. Renaming moves everyone based there;
  * a terminal with drivers, trucks or trailers still based at it cannot be retired until they are moved. A home terminal is a base, not a fence: any driver can still be given a load from anywhere.
  */
-export function TerminalsCard({ rows, canEdit }: { rows: TerminalCardRow[]; canEdit: boolean }) {
+export function TerminalsCard({ rows, canEdit, regions = [] }: { rows: TerminalCardRow[]; canEdit: boolean; regions?: Array<{ id: string; name: string }> }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
@@ -44,6 +44,7 @@ export function TerminalsCard({ rows, canEdit }: { rows: TerminalCardRow[]; canE
             <tr>
               <th scope="col">Terminal</th>
               <th scope="col">City</th>
+              <th scope="col">Region</th>
               <th scope="col">Drivers</th>
               <th scope="col">Trucks</th>
               <th scope="col">Trailers</th>
@@ -66,6 +67,20 @@ export function TerminalsCard({ rows, canEdit }: { rows: TerminalCardRow[]; canE
                   {r.note ? <span className="tl-sub" style={{ display: "block" }}>{r.note}</span> : null}
                 </td>
                 <td>{r.city ?? <span className="dim">{"—"}</span>}</td>
+                <td>
+                  {canEdit ? (
+                    <select value={r.regionId ?? ""} disabled={pending} aria-label={`Region of ${r.name}`} onChange={(e) => run(() => setTerminalRegionAction(r.id, e.target.value || null), e.target.value ? `${r.name} is in ${regions.find((x) => x.id === e.target.value)?.name ?? "the region"}.` : `${r.name} is not in a region.`)}>
+                      <option value="">Not in a region</option>
+                      {regions.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {g.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    (regions.find((g) => g.id === r.regionId)?.name ?? <span className="dim">{"—"}</span>)
+                  )}
+                </td>
                 <td>{r.drivers}</td>
                 <td>{r.trucks}</td>
                 <td>{r.trailers}</td>

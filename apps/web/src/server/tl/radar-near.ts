@@ -1,3 +1,4 @@
+import { terminalFilter, type Terminals } from "@/lib/scope";
 import { prisma } from "@/lib/db";
 import { boundsAround, within, type LatLng } from "@/lib/radius";
 import { lookupPlace } from "@/server/geo/place-lookup";
@@ -11,7 +12,7 @@ import { currentWorkspaceId } from "./workspace";
 export type Near = { label: string; lat: number; lng: number; radius: number; source: "census" | "mapbox"; miles: Map<string, number> } | { error: string };
 
 /** The place typed, turned into a point, and the ids of the trucks or trailers around it (the workspace's, and the chosen terminal's when one is). */
-export async function unitsNear(kind: "trucks" | "trailers", text: string, radiusGiven: number | null, workspaceId = currentWorkspaceId(), terminal: string | null = null): Promise<Near> {
+export async function unitsNear(kind: "trucks" | "trailers", text: string, radiusGiven: number | null, workspaceId = currentWorkspaceId(), terminal: Terminals = null): Promise<Near> {
   const found = await lookupPlace(text);
   if (!found) return { error: `Could not find "${text}". Try a ZIP code, or a city and state such as Dallas, TX.` };
   const radius = radiusGiven ?? found.defaultRadius ?? 50;
@@ -19,8 +20,8 @@ export async function unitsNear(kind: "trucks" | "trailers", text: string, radiu
   const range = { lastLat: { gte: b.minLat, lte: b.maxLat }, lastLng: { gte: b.minLng, lte: b.maxLng } };
   const rows =
     kind === "trucks"
-      ? await prisma.vehicle.findMany({ where: { workspaceId, archivedAt: null, ...(terminal ? { terminal } : {}), ...range }, select: { id: true, lastLat: true, lastLng: true } })
-      : await prisma.trailer.findMany({ where: { workspaceId, archivedAt: null, ...(terminal ? { terminal } : {}), ...range }, select: { id: true, lastLat: true, lastLng: true } });
+      ? await prisma.vehicle.findMany({ where: { workspaceId, archivedAt: null, ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}), ...range }, select: { id: true, lastLat: true, lastLng: true } })
+      : await prisma.trailer.findMany({ where: { workspaceId, archivedAt: null, ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}), ...range }, select: { id: true, lastLat: true, lastLng: true } });
   const points: Array<LatLng & { id: string }> = [];
   for (const r of rows) {
     const lat = numOrNull(r.lastLat);

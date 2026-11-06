@@ -43,7 +43,8 @@ $migrations = @(
   "20261127000000_driver_shifts",
   "20261128000000_telematics_radar",
   "20261130000000_kpi_targets_notes",
-  "20261201000000_asset_history"
+  "20261201000000_asset_history",
+  "20261202000000_regions_scope"
 )
 foreach ($m in $migrations) {
   npx prisma migrate resolve --applied $m --schema=./prisma/schema.prisma

@@ -1,3 +1,4 @@
+import { terminalFilter, type Terminals } from "@/lib/scope";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { asSort, pageCount, type SortDir } from "@/lib/paging";
@@ -36,13 +37,13 @@ const truckOrder = (key: TruckSort, dir: SortDir): Prisma.VehicleOrderByWithRela
 };
 
 /** `terminal`: only that terminal's trucks (null / omitted = all of them). */
-export type TruckPageQuery = { q?: string; sort?: string; page?: number; pageSize?: number; terminal?: string | null; /** Only these trucks (the ones inside a radius search). */ onlyIds?: string[] };
+export type TruckPageQuery = { q?: string; sort?: string; page?: number; pageSize?: number; terminal?: Terminals; /** Only these trucks (the ones inside a radius search). */ onlyIds?: string[] };
 
 export async function listTrucksPage(query: TruckPageQuery = {}, workspaceId = currentWorkspaceId()) {
   const sort = asSort(query.sort, TRUCK_SORTS, { key: "truck", dir: "asc" });
   const pageSize = query.pageSize ?? FLEET_PAGE_SIZE;
   const q = query.q?.trim() ?? "";
-  const where: Prisma.VehicleWhereInput = { workspaceId, ...(query.onlyIds ? { id: { in: query.onlyIds } } : {}), ...(query.terminal ? { terminal: query.terminal } : {}), ...(q ? { AND: terms(q).map((t) => ({ OR: [contains("name", t), contains("type", t), contains("make", t), contains("model", t)] })) } : {}) };
+  const where: Prisma.VehicleWhereInput = { workspaceId, ...(query.onlyIds ? { id: { in: query.onlyIds } } : {}), ...(query.terminal != null ? { terminal: terminalFilter(query.terminal) } : {}), ...(q ? { AND: terms(q).map((t) => ({ OR: [contains("name", t), contains("type", t), contains("make", t), contains("model", t)] })) } : {}) };
   const total = await prisma.vehicle.count({ where });
   const pages = pageCount(total, pageSize);
   const page = Math.min(Math.max(1, query.page ?? 1), pages);
@@ -94,7 +95,7 @@ export async function listTrucksPage(query: TruckPageQuery = {}, workspaceId = c
 export const DRIVER_SORTS = ["driver", "truck", "delivered"] as const;
 export type DriverSort = (typeof DRIVER_SORTS)[number];
 
-export type DriverPageQuery = { q?: string; sort?: string; page?: number; pageSize?: number; terminal?: string | null };
+export type DriverPageQuery = { q?: string; sort?: string; page?: number; pageSize?: number; terminal?: Terminals };
 
 export async function listDriversPage(query: DriverPageQuery = {}, workspaceId = currentWorkspaceId()) {
   const sort = asSort(query.sort, ["driver", "truck"] as const, { key: "driver", dir: "asc" });
@@ -102,7 +103,7 @@ export async function listDriversPage(query: DriverPageQuery = {}, workspaceId =
   const q = query.q?.trim() ?? "";
   const where: Prisma.DriverWhereInput = {
     workspaceId,
-    ...(query.terminal ? { terminal: query.terminal } : {}),
+    ...(query.terminal != null ? { terminal: terminalFilter(query.terminal) } : {}),
     ...(q ? { AND: terms(q).map((t) => ({ OR: [contains("name", t), contains("phone", t), contains("code", t), { assignedVehicle: { name: { contains: t, mode: "insensitive" as const } } }] })) } : {})
   };
   const total = await prisma.driver.count({ where });

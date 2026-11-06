@@ -1,3 +1,4 @@
+import { scopeWords } from "@/lib/scope";
 import React from "react";
 import { CanGate } from "@/components/desk/kit/can-gate";
 import { SyncEldButton } from "@/components/desk/partner-actions";
@@ -26,7 +27,7 @@ export default async function RadarPage({ searchParams }: { searchParams?: Recor
   const initial = await radarPoints(data, params);
   return (
     <>
-      <PageHead title="Radar map" sub={`${terminal ? `${terminal} terminal. ` : ""}Where every tractor and trailer is, and what idling and dropped trailers are costing. Positions are as of the last ELD read.`} />
+      <PageHead title="Radar map" sub={`${scopeWords(terminal) ? `${scopeWords(terminal)}. ` : ""}Where every tractor and trailer is, and what idling and dropped trailers are costing. Positions are as of the last ELD read.`} />
       <RadarView
         initial={initial}
         params={params}
