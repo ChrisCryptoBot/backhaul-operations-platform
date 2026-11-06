@@ -58,6 +58,7 @@ import { vetDriverCarrier, type VetResult } from "@/server/partners/vetting";
 import { sendToPayroll, type SendResult } from "@/server/partners/payroll";
 import { markThreadRead, sendMessage, type SendResult as SendMessageResult } from "@/server/tl/messages";
 import { commitImport, locateHomeBases, previewImport, type ImportPreview, type ImportResult, type LocateResult } from "@/server/tl/import";
+import { commitLoadImport, previewLoadImport, removeLoadImport, type LoadImportMap, type LoadImportPreview, type LoadImportResult, type RemoveImportResult } from "@/server/tl/load-import";
 import type { ImportKind } from "@/lib/import-csv";
 import { deleteLoad, restoreLoad, type RemoveResult } from "@/server/tl/remove";
 import { saveBillingDetails, type BillingResult } from "@/server/tl/billing-details";
@@ -856,6 +857,30 @@ export async function commitImportAction(kind: ImportKind, text: string, fileNam
   const k = asKind(kind);
   if (!k || typeof text !== "string") return { ok: false, error: "That is not a file the desk can read." };
   const out = await commitImport(k, text, typeof fileName === "string" ? fileName : "");
+  if (out.ok) revalidatePath("/", "layout");
+  return out;
+}
+
+/** Reads a CSV of finished loads against the column match and says what would be imported, what is already on the desk and what is wrong. Writes nothing. */
+export async function previewLoadImportAction(text: string, mapping: LoadImportMap | null): Promise<LoadImportPreview> {
+  await requireCan("dispatch");
+  if (typeof text !== "string") return { ok: false, error: "That is not a file the desk can read." };
+  return previewLoadImport(text, mapping && typeof mapping === "object" ? mapping : null);
+}
+
+/** Imports the loads that pass as finished loads marked with their batch, with one entry in the audit log. */
+export async function commitLoadImportAction(text: string, mapping: LoadImportMap | null, fileName: string): Promise<LoadImportResult> {
+  await requireCan("dispatch");
+  if (typeof text !== "string") return { ok: false, error: "That is not a file the desk can read." };
+  const out = await commitLoadImport(text, mapping && typeof mapping === "object" ? mapping : null, typeof fileName === "string" ? fileName : "");
+  if (out.ok) revalidatePath("/", "layout");
+  return out;
+}
+
+/** Takes a whole import away again (its loads are deleted, and can be restored one by one from the Deleted loads list). */
+export async function removeLoadImportAction(batchId: string): Promise<RemoveImportResult> {
+  await requireCan("dispatch");
+  const out = await removeLoadImport(typeof batchId === "string" ? batchId : "");
   if (out.ok) revalidatePath("/", "layout");
   return out;
 }

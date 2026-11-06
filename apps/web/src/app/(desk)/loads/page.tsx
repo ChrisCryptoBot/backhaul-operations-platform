@@ -130,6 +130,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   const head = (
     <PageHead title="Loads" sub={view === "open" ? "What is still moving, judged on each truck's own cost." : view === "deleted" ? "Loads taken off the desk, and the way back." : "What has finished, by month, with where the money is."}>
       {view === "deleted" ? null : <a className="tl-btn" href={exportHref}>Export CSV</a>}
+      {view === "history" ? <Link className="tl-btn" href="/loads/import">Import loads</Link> : null}
       <NewLoad />
     </PageHead>
   );

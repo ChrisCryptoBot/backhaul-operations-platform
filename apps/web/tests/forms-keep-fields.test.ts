@@ -52,6 +52,7 @@ const EXEMPT: Record<string, string> = {
   "components/desk/global-search.tsx": "a search box: a result is picked at once",
   "components/desk/kit/modal.tsx": "a confirmation's reason is typed where it is asked and sent at once",
   // A filter or a pick that goes into the address (GET): the sidebar remembers it per module (rememberedQuery).
+  "components/desk/load-import-panel.tsx": "a file import: the file cannot be kept, and the column match is read back from the file each time it is chosen",
   "components/desk/data-table-tools.tsx": "a search and filter that go into the address",
   "components/desk/live-form.tsx": "a filter form that goes into the address",
   "components/desk/kpi/choice.tsx": "a filter box that goes into the address (the filter form around it applies the chosen name)",

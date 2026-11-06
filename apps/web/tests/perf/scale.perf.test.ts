@@ -19,6 +19,7 @@ import { radarList, radarPoints } from "@/server/tl/radar-query";
 import { agingFor, countInvoices, listBoardRows, listInvoiceRows } from "@/server/tl/queries";
 import { fitQuote } from "@/server/tl/quote";
 import { kpiChoices } from "@/server/tl/kpi-choices";
+import { previewLoadImport } from "@/server/tl/load-import";
 import { clearHealthCache, getDataHealth } from "@/server/tl/data-health";
 import { listCustomerRecordsInScope } from "@/server/tl/customers";
 import { listSettlements, settlementCounts, unsettledByDriver } from "@/server/tl/settlement";
@@ -189,6 +190,16 @@ describe.runIf(run)("the desk at the size of a big fleet", () => {
     expect(await best(() => kpiChoices("lane", "", "all", t))).toBeLessThan(1_500);
     expect(await best(() => listCustomerRecordsInScope(t))).toBeLessThan(800);
   }, 120_000);
+
+  test("Load import: a 20,000-row file is read, matched against the desk's 50,000 loads and checked in seconds", async () => {
+    const header = "Load #,Broker,Pickup City,Delivery City,Delivery Date,Miles,Line Haul";
+    const day = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10);
+    const rows = Array.from({ length: 20_000 }, (_, i) => `PERF-IMP-${i},Customer 01,"Dallas, TX","Tulsa, OK",${day},260,1500`);
+    const file = [header, ...rows].join("\n");
+    expect(await best(() => previewLoadImport(file), 1)).toBeLessThan(8_000);
+    const p = await previewLoadImport(file);
+    expect(p).toMatchObject({ ok: true, total: 20_000, ready: 20_000, duplicates: 0, problemCount: 0 });
+  }, 60_000);
 
   test("Data health: the whole fleet and one terminal, built once and kept", async () => {
     clearHealthCache();
