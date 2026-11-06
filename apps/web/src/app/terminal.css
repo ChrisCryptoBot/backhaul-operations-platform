@@ -604,3 +604,13 @@ dd>.sub{display:block;color:var(--dim)}
 .kc-wide{grid-column:1/-1}
 .kc-sub{margin:0 0 6px;font:600 11px/14px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--label)}
 .tl-grid.cols-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+
+/* Truck and trailer pages: the tab strip (the load drawer's tabs, as links so each tab is an address) and the one-unit map. Flat, square, 1px rules. */
+.eq-tabs{display:flex;gap:0;margin:0 0 14px;border-bottom:1px solid var(--line-hi);background:var(--bg);overflow-x:auto;position:sticky;top:0;z-index:5}
+.eq-tab{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 14px;border-right:1px solid var(--line);background:transparent;color:var(--mid);font:500 11px/16px var(--mono);letter-spacing:.06em;text-transform:uppercase;text-decoration:none;white-space:nowrap}
+.eq-tab:hover{background:var(--hover);color:var(--ink)}
+.eq-tab[aria-selected=true]{background:var(--bar);color:var(--on-bar);font-weight:600}
+.eq-tab:focus-visible{outline:2px solid var(--label-hi);outline-offset:-2px}
+.eq-key{padding:0 4px;border:1px solid var(--line-hi);color:inherit;font:500 10px/14px var(--mono)}
+.eq-map{position:relative;height:300px;border:1px solid var(--line);background:var(--bg)}
+.eq-where{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}

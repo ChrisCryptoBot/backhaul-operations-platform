@@ -16,13 +16,28 @@ import { CanGate } from "@/components/desk/kit/can-gate";
 import { DwellAdjust, DwellLine } from "@/components/desk/dwell";
 import { dwell } from "@/lib/telematics";
 import { numOrNull } from "@/server/tl/convert";
+import { UnitTabs } from "@/components/desk/unit-tabs";
+import { UnitWherePanel } from "@/components/desk/unit-where";
+import { getTrailerWhere } from "@/server/tl/whereabouts";
+import { currentWorkspaceId } from "@/server/tl/workspace";
+
+const TABS = [
+  { key: "where", label: "Where it is" },
+  { key: "status", label: "Status & papers" },
+  { key: "loads", label: "Loads" },
+  { key: "details", label: "Details & changes" }
+] as const;
 
 export const dynamic = "force-dynamic";
 
-/** One trailer: whether it can go out, which tractor pulls it, what it is on now, its details, and every change to it (found by its id). */
-export default async function TrailerPage({ params }: { params: { id: string } }) {
+/**
+ * One trailer, in tabs: where it is (the default), whether it can go out and which tractor pulls it, what it is on, and its details with every change to it (found by its id). The address says
+ * which tab is open (`?tab=status`), and only that tab's data is read.
+ */
+export default async function TrailerPage({ params, searchParams }: { params: { id: string }; searchParams?: { tab?: string } }) {
   const t = await getTrailerDetail(params.id);
   if (!t) notFound();
+  const tab = TABS.find((x) => x.key === searchParams?.tab)?.key ?? "where";
   const now = new Date();
   const company = await getThresholds();
   const days = alertThresholds(company).clearanceDays;
@@ -32,7 +47,8 @@ export default async function TrailerPage({ params }: { params: { id: string } }
   const blocker = trailerBlocker(t, now);
   const soon = trailerClearanceSoon(t, now, days);
   const state = complianceState(t, now, days);
-  const history = await listEntityAudit(t.id, 12);
+  const history = tab === "details" ? await listEntityAudit(t.id, 12) : [];
+  const here = tab === "where" ? (await getTrailerWhere([t.id], currentWorkspaceId(), now)).get(t.id) : undefined;
   const open = t.loads.length;
   const when = (d: Date | null) => (d ? shortDate(d) : "Not set");
 
@@ -45,6 +61,14 @@ export default async function TrailerPage({ params }: { params: { id: string } }
         </CanGate>
       </PageHead>
 
+      <UnitTabs tabs={TABS} active={tab} label="Trailer" />
+
+      {tab === "where" ? (
+        here ? <UnitWherePanel u={here} /> : <p className="tl-note">Could not read where this trailer is.</p>
+      ) : null}
+
+      {tab === "status" ? (
+        <div id="panel-status" role="tabpanel" aria-labelledby="tab-status">
       <section className="tk-hero" aria-label="Can it go out">
         <div>
           <div className="tk-label">Can it go out?</div>
@@ -88,14 +112,11 @@ export default async function TrailerPage({ params }: { params: { id: string } }
         <p className="tl-note" style={{ marginTop: 10 }}>A tractor pulls one trailer at a time. Where it is: {t.location ?? "not set"}{t.terminal ? ` · ${t.terminal} terminal` : ""}.</p>
       </Card>
 
-      <details className="qt-more" open={!t.type || undefined}>
-        <summary>Details</summary>
-        <CanGate caps={["dispatch"]} banner who="A dispatcher" what="this trailer">
-          <TrailerForm inline trailer={{ id: t.id, ...valuesOf(t) }} />
-        </CanGate>
-      </details>
+        </div>
+      ) : null}
 
-      <div className="tl-grid cols-2" style={{ marginTop: 14 }}>
+      {tab === "loads" ? (
+        <div id="panel-loads" role="tabpanel" aria-labelledby="tab-loads">
         <Card title={`On this trailer now · ${open}`}>
           {open === 0 ? (
             <p className="tl-note">No open loads.</p>
@@ -114,6 +135,19 @@ export default async function TrailerPage({ params }: { params: { id: string } }
             </table>
           )}
         </Card>
+        </div>
+      ) : null}
+
+      {tab === "details" ? (
+        <div id="panel-details" role="tabpanel" aria-labelledby="tab-details">
+      <details className="qt-more" open>
+        <summary>Details</summary>
+        <CanGate caps={["dispatch"]} banner who="A dispatcher" what="this trailer">
+          <TrailerForm inline trailer={{ id: t.id, ...valuesOf(t) }} />
+        </CanGate>
+      </details>
+
+      <div style={{ marginTop: 14 }}>
         <Card title="Changes">
           {history.length === 0 ? (
             <p className="tl-note">Nothing has been changed on this trailer yet.</p>
@@ -129,6 +163,8 @@ export default async function TrailerPage({ params }: { params: { id: string } }
           )}
         </Card>
       </div>
+        </div>
+      ) : null}
     </>
   );
 }

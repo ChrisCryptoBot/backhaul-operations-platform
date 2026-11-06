@@ -15,6 +15,7 @@ import type { RadarPoints } from "@/server/tl/radar-query";
 import { RadarList } from "./radar-list";
 import { RadiusSearch } from "./radius-search";
 import { SplitPane } from "./kit/split-pane";
+import { TipPopup, type TipData } from "./kit/tooltip";
 
 /**
  * The radar: every tractor and trailer that has a position, on a map the desk draws itself. The basemap is bundled (lower-48 outlines and the twelve freight corridors, src/lib/basemap), so it
@@ -190,7 +191,8 @@ export function Canvas({
   fitKey,
   focus,
   clustered = true,
-  compact
+  compact,
+  bare = false
 }: {
   points: RadarPoint[];
   sel: Sel;
@@ -202,6 +204,8 @@ export function Canvas({
   focus?: Focus;
   clustered?: boolean;
   compact: boolean;
+  /** No region buttons: a map of a single unit has nothing to switch between. */
+  bare?: boolean;
 }) {
   const box = React.useRef<HTMLDivElement>(null);
   const mapRef = React.useRef<MapLibreMap | null>(null);
@@ -217,6 +221,8 @@ export function Canvas({
   pick.current = onSelect;
   const stack = React.useRef(onStack);
   stack.current = onStack;
+  // The hover: a unit's name at once, then where it is (read once for the unit, kept for a minute).
+  const [hover, setHover] = React.useState<{ anchor: DOMRect; tip: TipData } | null>(null);
 
   /** Hold the camera inside a region's box (a hard stop at its edge, so the land cannot be dragged out of view). */
   const hold = React.useCallback((key: RegionKey) => {
@@ -320,6 +326,41 @@ export function Canvas({
           if (map!.queryRenderedFeatures(e.point, { layers: ["units", "clusters"] }).length === 0) pick.current(null);
         });
       }
+      const tips = new Map<string, { at: number; tip: TipData }>();
+      let hoverTimer: number | undefined;
+      let hoverKey = "";
+      const clearHover = () => {
+        window.clearTimeout(hoverTimer);
+        hoverKey = "";
+        setHover(null);
+      };
+      map.on("mouseenter", "units", (e) => {
+        const p = e.features?.[0]?.properties as { id?: string; k?: string; name?: string } | undefined;
+        if (!p?.id || !box.current) return;
+        const id = p.id;
+        const key = `${p.k}:${id}`;
+        hoverKey = key;
+        const r = box.current.getBoundingClientRect();
+        const anchor = new DOMRect(r.left + e.point.x - 6, r.top + e.point.y - 6, 12, 12);
+        const cached = tips.get(key);
+        const fresh = cached != null && Date.now() - cached.at < 60_000;
+        setHover({ anchor, tip: fresh ? cached.tip : { title: p.name ?? "" } });
+        if (fresh) return;
+        window.clearTimeout(hoverTimer);
+        hoverTimer = window.setTimeout(async () => {
+          try {
+            const res = await fetch(`/fleet/map/data?mode=where&kind=${p.k === "r" ? "trailer" : "tractor"}&id=${encodeURIComponent(id)}`, { cache: "no-store" });
+            if (!res.ok) return;
+            const tip = (await res.json()) as TipData;
+            tips.set(key, { at: Date.now(), tip });
+            if (hoverKey === key) setHover({ anchor, tip });
+          } catch {
+            /* the name stays on screen */
+          }
+        }, 150);
+      });
+      map.on("mouseleave", "units", clearHover);
+      map.on("movestart", clearHover);
     });
     return () => {
       dead = true;
@@ -345,15 +386,29 @@ export function Canvas({
   return (
     <>
       <div ref={box} className="rd-canvas" role="img" aria-label={`Map of ${points.length} units`} />
-      <div className="rd-regions" role="group" aria-label="Region">
-        {REGION_KEYS.map((k) => (
-          <button key={k} type="button" className="rd-region" aria-pressed={region === k} onClick={() => goRegion(k)}>
-            {REGIONS[k].label}
-            <span>{counts[k].toLocaleString("en-US")}</span>
-          </button>
-        ))}
-      </div>
+      {hover ? <TipPopup anchor={hover.anchor} tip={hover.tip} /> : null}
+      {bare ? null : (
+        <div className="rd-regions" role="group" aria-label="Region">
+          {REGION_KEYS.map((k) => (
+            <button key={k} type="button" className="rd-region" aria-pressed={region === k} onClick={() => goRegion(k)}>
+              {REGIONS[k].label}
+              <span>{counts[k].toLocaleString("en-US")}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </>
+  );
+}
+
+/** A map of one truck or trailer, for its Where-it-is tab: the same mark the radar draws, centred on its last position. */
+export function UnitMap({ unit }: { unit: { id: string; kind: "truck" | "trailer"; name: string; lat: number; lng: number; icon: string; headingDeg: number | null } }) {
+  const theme = useTheme();
+  const point: RadarPoint = { id: unit.id, k: unit.kind === "truck" ? "t" : "r", lat: unit.lat, lng: unit.lng, icon: unit.icon, h: unit.headingDeg ?? 0, sev: 0, t: unit.kind === "truck" ? 1 : 0, r: unit.kind === "truck" ? 0 : 1, name: unit.name };
+  return (
+    <div className="eq-map" aria-label={`Map of ${unit.name}`}>
+      <Canvas key={theme} points={[point]} sel={null} onSelect={() => undefined} clustered={false} compact bare fitKey={unit.id} focus={{ lat: unit.lat, lng: unit.lng, zoom: 9, n: 1 }} />
+    </div>
   );
 }
 

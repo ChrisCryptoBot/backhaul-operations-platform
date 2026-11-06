@@ -1010,9 +1010,10 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .tip-t { font-family: var(--db-font-head); font-size: var(--db-text-base); font-weight: 600; letter-spacing: 0.02em; }
 .tip-s { color: var(--db-fg-dim); font-size: var(--db-text-xs); margin-top: 1px; }
 .tip-rows { margin: 8px 0 0; display: grid; gap: 3px; }
-.tip-r { display: flex; justify-content: space-between; gap: var(--db-4); }
-.tip-r dt { color: var(--db-fg-mid); margin: 0; }
-.tip-r dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; white-space: pre; }
+.tip-r { display: flex; flex-wrap: wrap; justify-content: space-between; column-gap: var(--db-4); row-gap: 1px; }
+.tip-r dt { color: var(--db-fg-mid); margin: 0; flex: none; }
+/* A value that does not fit beside its label drops under it and wraps inside the box, instead of running out past the edge. */
+.tip-r dd { margin: 0 0 0 auto; min-width: 0; max-width: 100%; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; white-space: pre-wrap; overflow-wrap: anywhere; }
 .tip-n { margin-top: 8px; color: var(--db-fg-dim); font-size: var(--db-text-xs); }
 .tip-t + .tip-rows { margin-top: 6px; }
 

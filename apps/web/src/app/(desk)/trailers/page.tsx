@@ -23,6 +23,9 @@ import { getRadarData } from "@/server/tl/radar";
 import { radarPoints } from "@/server/tl/radar-query";
 import { unitsNear } from "@/server/tl/radar-near";
 import { currentWorkspaceId } from "@/server/tl/workspace";
+import { getTrailerWhere } from "@/server/tl/whereabouts";
+import { Tip } from "@/components/desk/kit/tooltip";
+import { unitTip } from "@/lib/whereabouts";
 
 export const metadata = { title: "Trailers · TrueLane" };
 
@@ -60,6 +63,8 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
   const nearOk = near && !("error" in near) ? near : null;
   const data = await listTrailersPage({ onlyIds: nearOk ? [...nearOk.miles.keys()] : undefined, q: searchParams?.q, sort: searchParams?.sort, page: asPage(searchParams?.page), terminal, type, status, ownership, compliance, archived });
   const now = new Date();
+  // Where each trailer on this page is, for the hover: read for these rows only.
+  const whereOf = await getTrailerWhere(data.rows.map((t) => t.id), currentWorkspaceId(), now);
   const radar = await getRadarData(currentWorkspaceId(), terminal);
   const mapParams = readRadarParams((k) => (k === "kind" ? "trailer" : searchParams?.[k as "near" | "r"]));
   const points = await radarPoints(radar, mapParams);
@@ -90,7 +95,13 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
     cells: {
       number: (
         <>
-          <Link href={`/trailers/${t.id}`}><b>{t.number}</b></Link>
+          {whereOf.has(t.id) ? (
+            <Tip tip={unitTip(whereOf.get(t.id)!)}>
+              <Link href={`/trailers/${t.id}`}><b>{t.number}</b></Link>
+            </Tip>
+          ) : (
+            <Link href={`/trailers/${t.id}`}><b>{t.number}</b></Link>
+          )}
           {t.archived ? <span className="sub"><span className="tl-chip muted">Archived</span></span> : t.compliance !== "ok" ? <span className="sub"><span className={`tl-chip ${t.compliance === "lapsed" ? "bad" : "warn"}`}>{t.compliance === "lapsed" ? "Papers lapsed" : "Papers due soon"}</span></span> : null}
         </>
       ),

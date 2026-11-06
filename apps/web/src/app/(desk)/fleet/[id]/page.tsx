@@ -10,13 +10,30 @@ import { dateTime, miles, perGallon, perMile, shortDate } from "@/lib/desk-forma
 import { num } from "@/server/tl/convert";
 import { FuelCardForm } from "@/components/desk/partner-actions";
 import { CanGate } from "@/components/desk/kit/can-gate";
+import { UnitTabs } from "@/components/desk/unit-tabs";
+import { UnitWherePanel } from "@/components/desk/unit-where";
+import { getTruckWhere } from "@/server/tl/whereabouts";
+import { currentTerminal } from "@/server/tl/terminal";
+import { currentWorkspaceId } from "@/server/tl/workspace";
 
-/** One truck: its details, its cost profile with the floor it produces, what is on it now, and what has been changed. */
-export default async function TruckPage({ params }: { params: { id: string } }) {
+const TABS = [
+  { key: "where", label: "Where it is" },
+  { key: "cost", label: "Cost & floor" },
+  { key: "loads", label: "Loads" },
+  { key: "details", label: "Details & changes" }
+] as const;
+
+/**
+ * One truck, in tabs: where it is (the default), its cost profile with the floor it produces, what is on it now, and its details with what has been changed. The address says which tab is
+ * open (`?tab=cost`), and only that tab's data is read.
+ */
+export default async function TruckPage({ params, searchParams }: { params: { id: string }; searchParams?: { tab?: string } }) {
   const d = await getTruckDetail(params.id);
   if (!d) notFound();
   const t = d.vehicle;
-  const history = (await listAudit({ group: "fleet", q: t.name ?? "", pageSize: 8 })).rows;
+  const tab = TABS.find((x) => x.key === searchParams?.tab)?.key ?? "where";
+  const history = tab === "details" ? (await listAudit({ group: "fleet", q: t.name ?? "", pageSize: 8 })).rows : [];
+  const here = tab === "where" ? (await getTruckWhere([t.id], currentWorkspaceId(), await currentTerminal())).get(t.id) : undefined;
   const open = t.loads.length;
 
   return (
@@ -28,6 +45,14 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
         </CanGate>
       </PageHead>
 
+      <UnitTabs tabs={TABS} active={tab} label="Truck" />
+
+      {tab === "where" ? (
+        here ? <UnitWherePanel u={here} /> : <p className="tl-note">Could not read where this truck is.</p>
+      ) : null}
+
+      {tab === "cost" ? (
+        <div id="panel-cost" role="tabpanel" aria-labelledby="tab-cost">
       <section className="tk-hero" aria-label="Break-even floor">
         <div>
           <div className="tk-label">Break-even floor</div>
@@ -50,8 +75,57 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
         </dl>
       </section>
 
+
       <CanGate caps={["dispatch"]} banner who="A dispatcher" what="this truck">
-      <details className="qt-more" open={!t.type || t.mpg == null || undefined}>
+      <Card title="Cost profile" className="tl-card">
+        <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
+          What it costs to keep this truck running. The break-even floor is what every load on it is measured against; change a number and the floor on the right moves before you save.
+        </p>
+        <CostProfileForm vehicleId={t.id} vehicleType={t.type} mpg={t.mpg == null ? null : num(t.mpg)} numbers={d.numbers} choices={d.choices} base={d.base} stored={d.stored ? { breakEven: d.stored.breakEven, survival: d.stored.survival } : null} openLoads={open} fuelType={t.fuelType} homeBase={t.homeBaseAddress} />
+      </Card>
+      </CanGate>
+
+
+      {d.vehicle.costProfile ? (
+        <Card title="Fuel card" className="tl-card">
+          <p className="tl-note" style={{ marginBottom: 10, maxWidth: "72ch" }}>The card this truck buys fuel on. When a card company is connected, a trip&apos;s fuel can be filled in from the card&apos;s purchases (it only fills an empty box).</p>
+          <CanGate caps={["dispatch"]}>
+            <FuelCardForm vehicleId={t.id} provider={d.vehicle.costProfile.fuelCardProvider} accountId={d.vehicle.costProfile.fuelCardAccountId} />
+          </CanGate>
+        </Card>
+      ) : null}
+
+        </div>
+      ) : null}
+
+      {tab === "loads" ? (
+        <div id="panel-loads" role="tabpanel" aria-labelledby="tab-loads">
+        <Card title={`On this truck now · ${open}`}>
+          {open === 0 ? (
+            <p className="tl-note">No open loads.</p>
+          ) : (
+            <table className="tl-table" aria-label="Recent loads">
+              <tbody>
+                {t.loads.map((l) => (
+                  <tr key={l.id}>
+                    <td><Link href={`/loads/${l.id}`}>{l.loadNumber}</Link></td>
+                    <td>{l.originAddress?.split(",")[0]} → {l.destinationAddress?.split(",")[0]}</td>
+                    <td>{shortDate(l.scheduledDate)}</td>
+                    <td><StatusChip status={l.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {t.drivers.length > 0 ? <p className="tl-note" style={{ marginTop: 10 }}>Driven by {t.drivers.map((x) => x.name).join(", ")}.</p> : null}
+        </Card>
+        </div>
+      ) : null}
+
+      {tab === "details" ? (
+        <div id="panel-details" role="tabpanel" aria-labelledby="tab-details">
+      <CanGate caps={["dispatch"]} banner who="A dispatcher" what="this truck">
+      <details className="qt-more" open>
         <summary>Details</summary>
         <TruckForm
           inline
@@ -77,43 +151,8 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
         />
       </details>
 
-      <Card title="Cost profile" className="tl-card">
-        <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
-          What it costs to keep this truck running. The break-even floor is what every load on it is measured against; change a number and the floor on the right moves before you save.
-        </p>
-        <CostProfileForm vehicleId={t.id} vehicleType={t.type} mpg={t.mpg == null ? null : num(t.mpg)} numbers={d.numbers} choices={d.choices} base={d.base} stored={d.stored ? { breakEven: d.stored.breakEven, survival: d.stored.survival } : null} openLoads={open} fuelType={t.fuelType} homeBase={t.homeBaseAddress} />
-      </Card>
       </CanGate>
-
-      {d.vehicle.costProfile ? (
-        <Card title="Fuel card" className="tl-card">
-          <p className="tl-note" style={{ marginBottom: 10, maxWidth: "72ch" }}>The card this truck buys fuel on. When a card company is connected, a trip&apos;s fuel can be filled in from the card&apos;s purchases (it only fills an empty box).</p>
-          <CanGate caps={["dispatch"]}>
-            <FuelCardForm vehicleId={t.id} provider={d.vehicle.costProfile.fuelCardProvider} accountId={d.vehicle.costProfile.fuelCardAccountId} />
-          </CanGate>
-        </Card>
-      ) : null}
-
-      <div className="tl-grid cols-2" style={{ marginTop: 14 }}>
-        <Card title={`On this truck now · ${open}`}>
-          {open === 0 ? (
-            <p className="tl-note">No open loads.</p>
-          ) : (
-            <table className="tl-table" aria-label="Recent loads">
-              <tbody>
-                {t.loads.map((l) => (
-                  <tr key={l.id}>
-                    <td><Link href={`/loads/${l.id}`}>{l.loadNumber}</Link></td>
-                    <td>{l.originAddress?.split(",")[0]} → {l.destinationAddress?.split(",")[0]}</td>
-                    <td>{shortDate(l.scheduledDate)}</td>
-                    <td><StatusChip status={l.status} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          {t.drivers.length > 0 ? <p className="tl-note" style={{ marginTop: 10 }}>Driven by {t.drivers.map((x) => x.name).join(", ")}.</p> : null}
-        </Card>
+      <div style={{ marginTop: 14 }}>
         <Card title="Changes">
           {history.length === 0 ? (
             <p className="tl-note">Nothing has been changed on this truck yet.</p>
@@ -130,6 +169,8 @@ export default async function TruckPage({ params }: { params: { id: string } }) 
           <p className="tl-note" style={{ marginTop: 10 }}><Link href={`/audit?group=fleet&q=${encodeURIComponent(t.name ?? "")}`}>Everything in the audit log</Link></p>
         </Card>
       </div>
+        </div>
+      ) : null}
     </>
   );
 }

@@ -21,6 +21,9 @@ import { getRadarData } from "@/server/tl/radar";
 import { radarPoints } from "@/server/tl/radar-query";
 import { unitsNear } from "@/server/tl/radar-near";
 import { currentWorkspaceId } from "@/server/tl/workspace";
+import { getTruckWhere } from "@/server/tl/whereabouts";
+import { Tip } from "@/components/desk/kit/tooltip";
+import { unitTip } from "@/lib/whereabouts";
 
 export const metadata = { title: "Trucks · TrueLane" };
 
@@ -57,6 +60,8 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
   const points = await radarPoints(radar, mapParams);
   const columns: Column[] = nearOk ? [...COLUMNS.slice(0, 3), { key: "away", label: "Away", group: "Truck", align: "num" }, ...COLUMNS.slice(3)] : COLUMNS;
   const trucks = pageData.rows;
+  // Where each truck on this page is, for the hover: read for these rows only.
+  const whereOf = await getTruckWhere(trucks.map((t) => t.id), currentWorkspaceId(), terminal);
   const sortParam = searchParams?.sort ? { key: pageData.sort.key as string, dir: pageData.sort.dir } : null;
   const href = (p: { sort?: string | null; page?: number }) => {
     const q = new URLSearchParams();
@@ -75,7 +80,13 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
     cells: {
       truck: (
         <>
-          <Link href={`/fleet/${t.id}`}><b>{t.name}</b></Link>
+          {whereOf.has(t.id) ? (
+            <Tip tip={unitTip(whereOf.get(t.id)!)}>
+              <Link href={`/fleet/${t.id}`}><b>{t.name}</b></Link>
+            </Tip>
+          ) : (
+            <Link href={`/fleet/${t.id}`}><b>{t.name}</b></Link>
+          )}
           <span className="sub">
             {[t.make, t.model, t.year].filter(Boolean).join(" ")}
             {t.make || t.model ? " · " : ""}
