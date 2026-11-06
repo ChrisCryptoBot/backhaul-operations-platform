@@ -29,6 +29,7 @@ import { currentWorkspaceId } from "./workspace";
 import { lockWorkspace } from "./plan";
 import { currentTerminal } from "./terminal";
 import { currentAllowed } from "./scope";
+import { listCustomerRecordsInScope } from "./customers";
 import { inTerminal } from "./terminal-sql";
 import { currentActor } from "./identity";
 import { verdictState } from "@/lib/verdict";
@@ -527,17 +528,20 @@ export type CustomerOption = { name: string; mc: string | null; phone: string | 
  * The form's suggestions for the customer box: every customer record, then any name only the loads carry (a spelling that differs only in capitals is one customer, and the record's
  * spelling wins). Computes customer payment performance (days to pay, overdue invoices) to surface slow-pay warnings.
  */
-export async function brokerNames(workspaceId = currentWorkspaceId()): Promise<CustomerOption[]> {
+/** `terminals`: the customers of the terminals in view (and their payment record from those loads): the customers with loads there, plus the records with no loads yet (the Customers screen's rule). Null is everyone. */
+export async function brokerNames(workspaceId = currentWorkspaceId(), terminals: Terminals = null): Promise<CustomerOption[]> {
+  const here = inTerminal(terminals);
   const [records, rows, invoicedLoads] = await Promise.all([
-    prisma.customer.findMany({ where: { workspaceId }, orderBy: { name: "asc" }, take: 2000 }),
-    prisma.load.groupBy({ by: ["brokerName"], where: { workspaceId, deletedAt: null, ...notQuote, brokerName: { not: null } }, orderBy: { brokerName: "asc" } }),
+    listCustomerRecordsInScope(terminals, workspaceId),
+    prisma.load.groupBy({ by: ["brokerName"], where: { workspaceId, deletedAt: null, ...notQuote, brokerName: { not: null }, AND: [here] }, orderBy: { brokerName: "asc" } }),
     prisma.load.findMany({
       where: {
         workspaceId,
         deletedAt: null,
         ...notQuote,
         brokerName: { not: null },
-        invoicedAt: { not: null }
+        invoicedAt: { not: null },
+        AND: [here]
       },
       select: {
         brokerName: true,
@@ -594,13 +598,16 @@ export async function brokerNames(workspaceId = currentWorkspaceId()): Promise<C
 }
 
 /** Open loads in need of a driver with an initial pickup stop, for backhaul discovery on quote. */
-export async function listOpenPickups(workspaceId = currentWorkspaceId()): Promise<OpenPickupCandidate[]> {
+export async function listOpenPickups(workspaceId = currentWorkspaceId(), terminals: Terminals = null): Promise<OpenPickupCandidate[]> {
   const loads = await prisma.load.findMany({
+    // The terminals in view (a booking with no truck yet is everyone's), soonest pickup first so the hundred shown are the ones coming up.
     where: {
       workspaceId,
       deletedAt: null,
-      status: "draft"
+      status: "draft",
+      AND: [inTerminal(terminals)]
     },
+    orderBy: [{ scheduledDate: "asc" }, { createdAt: "desc" }],
     select: {
       id: true,
       loadNumber: true,
@@ -647,7 +654,7 @@ export type QuoteListFilter = { q?: string; status?: "open" | "passed" | "all"; 
 export const QUOTE_PAGE = 20;
 
 /** Saved quotes, newest first, a page at a time. `q` matches the lane, the customer, the load number or the truck; `status` keeps open ones, passed ones, or both. */
-export async function listQuotes(workspaceId = currentWorkspaceId(), filter: QuoteListFilter = {}): Promise<{ rows: QuoteListRow[]; total: number }> {
+export async function listQuotes(workspaceId = currentWorkspaceId(), filter: QuoteListFilter = {}, terminals: Terminals = null): Promise<{ rows: QuoteListRow[]; total: number }> {
   const q = (filter.q ?? "").trim();
   const words = q.split(/\s+/).filter(Boolean).slice(0, 5);
   const where: Prisma.LoadWhereInput = {
@@ -655,6 +662,7 @@ export async function listQuotes(workspaceId = currentWorkspaceId(), filter: Quo
     status: QUOTE_STATUS,
     deletedAt: null,
     AND: [
+      inTerminal(terminals),
       ...words.map((w) => ({ OR: [{ originAddress: { contains: w, mode: "insensitive" as const } }, { destinationAddress: { contains: w, mode: "insensitive" as const } }, { brokerName: { contains: w, mode: "insensitive" as const } }, { loadNumber: { contains: w, mode: "insensitive" as const } }, { vehicle: { name: { contains: w, mode: "insensitive" as const } } }] })),
       ...(filter.status === "passed" ? [{ decisions: { some: { decisionType: PASSED } } }] : filter.status === "open" ? [{ decisions: { none: { decisionType: PASSED } } }] : [])
     ]
@@ -740,7 +748,8 @@ export function quoteValuesFromLoad(l: LoadWithStops): QuoteValues {
 
 /** A saved quote as the form's values, to reopen it. */
 export async function getQuote(id: string, workspaceId = currentWorkspaceId()): Promise<{ values: QuoteValues; vehicleId: string | null; passedFor: string | null } | null> {
-  const l = await prisma.load.findFirst({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null }, include: { stops: { orderBy: { stopSequence: "asc" } }, decisions: { orderBy: { decidedAt: "desc" }, take: 1 } } });
+  // A quote on a truck outside the person's limit is not found, whatever id the address carries.
+  const l = await prisma.load.findFirst({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null, AND: [inTerminal(await currentAllowed(workspaceId))] }, include: { stops: { orderBy: { stopSequence: "asc" } }, decisions: { orderBy: { decidedAt: "desc" }, take: 1 } } });
   if (!l) return null;
   const passed = l.decisions[0]?.decisionType === PASSED ? (l.decisions[0].overrideReason ?? "Passed") : null;
   return { vehicleId: l.vehicleId, values: quoteValuesFromLoad(l), passedFor: passed };
@@ -751,7 +760,7 @@ export async function getQuote(id: string, workspaceId = currentWorkspaceId()): 
  * the load number, PO and both times do not, because they belong to that one load. Nothing is written until the new quote is saved or booked.
  */
 export async function getQuoteLike(id: string, workspaceId = currentWorkspaceId()): Promise<QuoteValues | null> {
-  const l = await prisma.load.findFirst({ where: { id, workspaceId, deletedAt: null }, include: { stops: { orderBy: { stopSequence: "asc" } } } });
+  const l = await prisma.load.findFirst({ where: { id, workspaceId, deletedAt: null, AND: [inTerminal(await currentAllowed(workspaceId))] }, include: { stops: { orderBy: { stopSequence: "asc" } } } });
   if (!l || l.stops.length < 2) return null;
   const v = quoteValuesFromLoad(l);
   return { ...v, loadNumber: "", poNumber: "", stops: v.stops.map((st) => ({ ...st, appointment: "" })) };

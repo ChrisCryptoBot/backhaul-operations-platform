@@ -25,8 +25,9 @@ export default async function PlannerPage({ searchParams }: { searchParams?: { s
   // A terminal is a home base, not a fence: with one chosen the grid shows its home drivers, and one link brings in everyone else.
   const everyone = searchParams?.else === "1";
   // "Everyone" is everyone the person may see: a limited person's link stays inside their limit.
-  const terminal = everyone ? await currentAllowed() : scope;
-  const { days, rows, tray, untimed, watchlist, balance, tz, hiddenElsewhere } = await getPlannerData(from, now, 7, undefined, terminal);
+  const reach = await currentAllowed();
+  const terminal = everyone ? reach : scope;
+  const { days, rows, tray, untimed, watchlist, balance, tz, hiddenElsewhere } = await getPlannerData(from, now, 7, undefined, terminal, reach);
   // Noon, so a day with a clock change in it cannot tip the neighbour week's key onto the wrong date.
   const key = (weeks: number) => planDays(days[0]!.start + weeks * WEEK + 12 * 3_600_000, 1, now)[0]!.key;
   const trayCount = new Set(tray.flat().map((i) => i.loadId)).size;

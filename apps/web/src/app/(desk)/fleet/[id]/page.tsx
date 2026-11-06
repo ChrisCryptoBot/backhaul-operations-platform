@@ -1,3 +1,4 @@
+import { currentAllowed } from "@/server/tl/scope";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import React from "react";
@@ -38,7 +39,7 @@ export default async function TruckPage({ params, searchParams }: { params: { id
   if (!d) notFound();
   const t = d.vehicle;
   const tab = TABS.find((x) => x.key === searchParams?.tab)?.key ?? "where";
-  const history = tab === "details" ? (await listAudit({ group: "fleet", q: t.name ?? "", pageSize: 8 })).rows : [];
+  const history = tab === "details" ? (await listAudit({ group: "fleet", q: t.name ?? "", pageSize: 8 }, undefined, await currentTerminal(), (await currentAllowed()) == null)).rows : [];
   const here = tab === "where" ? (await getTruckWhere([t.id], currentWorkspaceId(), await currentTerminal())).get(t.id) : undefined;
   const days = historyDays(searchParams?.days);
   const past = tab === "history" ? await getTruckHistory(t.id, days) : null;

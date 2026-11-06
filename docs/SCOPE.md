@@ -27,12 +27,24 @@ The effective scope is the choice **inside** the limit (`lib/scope.ts` `resolveS
 - Header: the **scope menu** (all, each region with its terminals and counts, any terminals ticked) and a **scope chip** at the head of every page.
 - The Leak Ledger already took a list of terminals; it now follows the scope.
 
-## Not yet (R2 and after)
+## R2: every screen follows the scope (built 2026-11-05)
 
-- The header's own counts (open loads, needs a driver, alerts) and the KPI, Lanes, Customers, Messages, Audit, global search and exports are not all scoped yet: some read the scope through `currentTerminal()`, the rest still read the whole fleet (the R2 list in `docs/DESK_AUDIT_2026-11.md`). Until R2 lands, a limited person's header counts and those screens can still show the whole fleet's figures.
-- Quote's nearest-25 and the chips (R3).
-- The KPI cache key does not carry the scope yet (the dashboard is unscoped).
+The terminals in view (the choice, inside the limit) narrow everything below; the limit itself (`currentAllowed()`) is what holds a typed search, a link or an id.
+
+- **KPI, Lanes, Customers:** `getDeskKpi` takes `terminals`; the kept answer is one per slice (the sorted terminals are in its key). Moved loads and offers belong to the terminal of their load. The four filter boxes are type-aheads (`/kpi/choices`, a few at a time) instead of lists of every lane, customer, driver and truck. The driver chart shows the best ten and the worst ten, "All drivers" opens the rest. Lanes and Customers are searched, sorted and paged on the server (`lib/list-page.ts`), fifty to a page. A limited person sees the customers with loads in their terminals plus the ones with no loads anywhere yet (`listCustomerRecordsInScope`).
+- **Header and sidebar:** open loads, needs a driver, sent, on the road, ready to invoice, overdue, the finished totals, the alert counts and unread messages are for the terminals in view. Alerts are read inside the scope, so the cap on delivered loads applies per scope.
+- **Messages:** conversations, the unread count and "start a conversation" (a name or code search, fifty at a time) are the scope's drivers; opening a driver by id, writing to one, marking one read and opening a message file all hold to the limit.
+- **Audit and search:** an event on a load follows the load; an event on a truck, driver or trailer follows that unit's terminal; an event about neither (settings, team, regions, customers, partners) is shown only to someone who can see every terminal. The header search finds only the scope's loads, drivers, customers and cities. The audit CSV, Fuel CSV, Trailers CSV and KPI CSVs follow the scope; the IFTA export is stored per quarter for the whole desk and stays whole-desk.
+- **Planner:** the scope is in the query that names the loads (a load is in when nobody holds it or its driver is an active driver of the scope), so other terminals' loads are never read; "N held elsewhere" counts only what the "everyone" link could show the person.
+- **Quote page:** saved quotes, open pickups, the customer box and the truck list are the scope's; a quote on a truck outside the limit is "gone" by id (open, pass, quote like it).
+- **Fences on actions:** assigning a driver outside the limit is refused ("is based outside the terminals you work"), a load outside the limit is "not found", unassign and pass follow, the typed pickers and the planner's everyone link stay inside the limit, and a limited person is only offered drivers inside their limit when ranking.
+- **A unit with no terminal is outside every limit** (a driver with no terminal cannot be assigned or messaged by a limited person until an admin gives them one). A load nobody holds yet is everyone's, so a booking waiting for a truck is seen by everyone who can assign it.
+
+## Not yet
+
+- Quote's nearest-first pricing and its chips (R3).
+- The IFTA export per scope; no manager or time zone per terminal.
 
 ## Tests
 
-`tests/scope.test.ts` (pure), `tests/integration/scope.integration.test.ts` (regions, limits, the limit holding on the board, trucks and the ledger, retire guards, rename, promotion), `tests/loads-roles.test.ts` (the five new admin actions).
+`tests/scope.test.ts` (pure), `tests/integration/scope.integration.test.ts` (regions, limits, the limit holding on the board, trucks and the ledger, retire guards, rename, promotion), `tests/loads-roles.test.ts` (the five new admin actions). R2: `tests/integration/scope-fences`, `scope-kpi`, `scope-shell`, `scope-audit` (and `tests/list-page.test.ts`); the scale budgets are in `tests/perf/scale.perf.test.ts`.

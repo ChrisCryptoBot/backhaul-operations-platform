@@ -18,6 +18,8 @@ import { unitsNear } from "@/server/tl/radar-near";
 import { radarList, radarPoints } from "@/server/tl/radar-query";
 import { agingFor, countInvoices, listBoardRows, listInvoiceRows } from "@/server/tl/queries";
 import { fitQuote } from "@/server/tl/quote";
+import { kpiChoices } from "@/server/tl/kpi-choices";
+import { listCustomerRecordsInScope } from "@/server/tl/customers";
 import { listSettlements, settlementCounts, unsettledByDriver } from "@/server/tl/settlement";
 import { getShellData } from "@/server/tl/shell";
 import { countTrailersAvailable, listTrailersPage } from "@/server/tl/trailers";
@@ -157,6 +159,23 @@ describe.runIf(run)("the desk at the size of a big fleet", () => {
     expect(await best(() => getDeskKpi({ period: "4w", compare: true }))).toBeLessThan(300);
     expect(await best(() => getDeskKpi({ period: "all", compare: false }), 1)).toBeLessThan(20_000);
     expect(await best(() => getDeskKpi({ period: "all", compare: false }))).toBeLessThan(300);
+  }, 120_000);
+
+  test("one terminal's slice: the KPI, the header, the planner, the audit trail, the filter boxes and Customers stay as fast as the whole fleet", async () => {
+    const terminal = (await prisma.vehicle.findFirst({ where: { terminal: { not: null } }, select: { terminal: true } }))?.terminal;
+    if (!terminal) throw new Error("the scale database has no terminal");
+    const t = [terminal];
+    // Built once for the slice, then kept per slice.
+    expect(await best(() => getDeskKpi({ period: "4w", compare: true, terminals: t }), 1)).toBeLessThan(12_000);
+    expect(await best(() => getDeskKpi({ period: "4w", compare: true, terminals: t }))).toBeLessThan(300);
+    const limited = { choice: { kind: "all" as const }, limit: { kind: "some" as const, regionIds: [], terminals: t } };
+    expect(await best(() => getShellData(undefined, limited), 1)).toBeLessThan(6_000);
+    expect(await best(() => getShellData(undefined, limited))).toBeLessThan(600);
+    expect(await best(() => getPlannerData(Date.now(), Date.now(), 7, undefined, t, t))).toBeLessThan(1_500);
+    expect(await best(() => listAudit({}, undefined, t, false))).toBeLessThan(1_000);
+    expect(await best(() => kpiChoices("driver", "a", "4w", t))).toBeLessThan(800);
+    expect(await best(() => kpiChoices("lane", "", "all", t))).toBeLessThan(1_500);
+    expect(await best(() => listCustomerRecordsInScope(t))).toBeLessThan(800);
   }, 120_000);
 
   test("Radar: lean points, a radius search, the list and its groups, and the radius on Trucks and Trailers, at 1,500 tractors and 5,000 trailers", async () => {

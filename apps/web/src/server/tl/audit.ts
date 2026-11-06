@@ -4,6 +4,8 @@ import { AUDIT_GROUPS, type AuditAction, type AuditSnapshot } from "@/lib/audit-
 import { auditRange } from "@/lib/audit-range";
 import { DESK_ACTOR, currentActor } from "./identity";
 import { currentWorkspaceId } from "./workspace";
+import { termList, type Terminals } from "@/lib/scope";
+import { terminalSetSql } from "./terminal-sql";
 
 /**
  * The audit trail. `recordAudit` is called from inside the same transaction as the change it describes, so an event
@@ -71,13 +73,20 @@ function toRow(e: { id: string; loadId: string | null; loadNumber: string | null
 
 export type AuditFilter = { q?: string; group?: string; from?: string; to?: string; page?: number; pageSize?: number };
 
-/** Newest first, with the filters the audit page offers (search, area, From and To day). `total` counts the matches, not just this page. */
-export async function listAudit(f: AuditFilter = {}, workspaceId = currentWorkspaceId()) {
+/**
+ * Newest first, with the filters the audit page offers (search, area, From and To day). `total` counts the matches, not just this page.
+ *
+ * `terminals` narrows it to the terminals in view: an event on a load follows the load (its truck or driver, or not placed yet), an event on a truck, driver or trailer follows that unit's terminal, and an
+ * event about neither (settings, the team, regions, customers, partners) is shown only to someone who can see every terminal (`unlimited`), since it names things outside any one terminal.
+ */
+export async function listAudit(f: AuditFilter = {}, workspaceId = currentWorkspaceId(), terminals: Terminals = null, unlimited = true) {
   const pageSize = f.pageSize ?? 50;
   const page = f.page && f.page > 0 ? f.page : 1;
   const group = AUDIT_GROUPS.find((g) => g.key === f.group);
   const q = f.q?.trim();
   const range = auditRange(f.from, f.to);
+  const list = termList(terminals);
+  if (list != null) return listAuditIn(list, unlimited, { group: group?.actions, q, range, page, pageSize }, workspaceId);
   const where: Prisma.AuditEventWhereInput = {
     workspaceId,
     ...(group ? { action: { in: group.actions } } : {}),
@@ -110,4 +119,35 @@ export async function listEntityAudit(entityId: string, limit = 25, workspaceId 
 export async function listLoadAudit(loadId: string, limit = 25, workspaceId = currentWorkspaceId()): Promise<AuditRow[]> {
   const rows = await prisma.auditEvent.findMany({ where: { loadId, workspaceId }, orderBy: { createdAt: "desc" }, take: limit });
   return rows.map(toRow);
+}
+
+/** The same list for some terminals only, read in SQL (an event has no terminal of its own: it is found through its load or its unit). */
+async function listAuditIn(list: string[], unlimited: boolean, f: { group?: string[]; q?: string; range: { gte?: Date; lt?: Date }; page: number; pageSize: number }, workspaceId: string) {
+  /** The ids of the trucks, drivers and trailers: those of the terminals in view, or every one (to tell an event about a unit from one about something else). */
+  const units = (narrow: boolean) => Prisma.sql`select v.id from vehicles v where v.workspace_id = ${workspaceId}${narrow ? Prisma.sql` and v.terminal = any(${list})` : Prisma.empty}
+    union all select d.id from drivers d where d.workspace_id = ${workspaceId}${narrow ? Prisma.sql` and d.terminal = any(${list})` : Prisma.empty}
+    union all select t.id from trailers t where t.workspace_id = ${workspaceId}${narrow ? Prisma.sql` and t.terminal = any(${list})` : Prisma.empty}`;
+  const here = Prisma.sql`(
+    (e.load_id is not null and e.load_id in (select l.id from loads l where l.workspace_id = ${workspaceId}${terminalSetSql(list, workspaceId)}))
+    or (e.entity_id is not null and e.entity_id in (${units(true)}))
+    ${unlimited ? Prisma.sql`or (e.load_id is null and (e.entity_id is null or e.entity_id not in (${units(false)})))` : Prisma.empty}
+  )`;
+  const base = [Prisma.sql`e.workspace_id = ${workspaceId}`, here];
+  const conds = [...base];
+  if (f.group) conds.push(Prisma.sql`e.action = any(${f.group})`);
+  if (f.range.gte) conds.push(Prisma.sql`e.created_at >= ${f.range.gte}`);
+  if (f.range.lt) conds.push(Prisma.sql`e.created_at < ${f.range.lt}`);
+  if (f.q) {
+    const like = `%${f.q.replace(/[\%_]/g, (c) => `\${c}`)}%`;
+    conds.push(Prisma.sql`(e.load_number ilike ${like} or e.summary ilike ${like} or e.reason ilike ${like})`);
+  }
+  const where = Prisma.join(conds, " and ");
+  const [rows, total, all] = await Promise.all([
+    prisma.$queryRaw<Array<{ id: string; loadId: string | null; loadNumber: string | null; entity: string; action: string; summary: string; reason: string | null; before: Prisma.JsonValue | null; after: Prisma.JsonValue | null; actor: string; createdAt: Date }>>`
+      select e.id, e.load_id as "loadId", e.load_number as "loadNumber", e.entity, e.action, e.summary, e.reason, e.before, e.after, e.actor, e.created_at as "createdAt"
+      from audit_events e where ${where} order by e.created_at desc offset ${(f.page - 1) * f.pageSize} limit ${f.pageSize}`,
+    prisma.$queryRaw<Array<{ n: number }>>`select count(*)::int as n from audit_events e where ${where}`,
+    prisma.$queryRaw<Array<{ n: number }>>`select count(*)::int as n from audit_events e where ${Prisma.join(base, " and ")}`
+  ]);
+  return { rows: rows.map(toRow), total: total[0]?.n ?? 0, all: all[0]?.n ?? 0, page: f.page, pageSize: f.pageSize };
 }

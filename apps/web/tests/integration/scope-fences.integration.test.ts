@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 import { assignDriver, unassignLoad } from "@/server/tl/dispatch";
 import { rankDrivers } from "@/server/tl/driver-rank";
 import { loadInclude } from "@/server/tl/queries";
-import { passQuote } from "@/server/tl/quote";
+import { listOpenPickups, listQuotes, passQuote } from "@/server/tl/quote";
 import { currentScope, limitOf } from "@/server/tl/scope";
 
 /**
@@ -33,7 +33,8 @@ describe("the pick routes and the planner hold to the person's limit (source pin
   }
   test("the planner's everyone link is held to currentAllowed", () => {
     const src = read("src/app/(desk)/planner/page.tsx");
-    expect(src).toContain("everyone ? await currentAllowed() : scope");
+    expect(src).toContain("const reach = await currentAllowed()");
+    expect(src).toContain("everyone ? reach : scope");
     expect(src).not.toMatch(/everyone \? null/);
   });
 });
@@ -55,6 +56,8 @@ describe.skipIf(!run)("the fences on what a limited person can change", () => {
     ids.loadOpen = (await load("SF-OPEN", {})).id;
     ids.quoteMemphis = (await load("SF-QM", { vehicleId: mTruck.id, status: "quote" })).id;
     ids.quoteOpen = (await load("SF-QO", { status: "quote" })).id;
+    // Each draft has a pickup, so it is a backhaul candidate on the Quote page.
+    for (const [id, city] of [[ids.loadplaced, "Dallas, TX"], [ids.loadMemphis, "Memphis, TN"], [ids.loadOpen, "Reno, NV"]] as const) await prisma.stop.create({ data: { loadId: id, stopSequence: 0, stopType: "pickup", stopRole: "pickup", addressString: city } });
   });
   afterAll(async () => {
     await wipe(W);
@@ -92,6 +95,18 @@ describe.skipIf(!run)("the fences on what a limited person can change", () => {
     const names = async (allowed: readonly string[] | null) => (await rankDrivers(load, W, null, allowed)).options.map((o) => o.name).sort();
     expect(await names(["Dallas"])).toEqual(["SF Dallas Driver"]);
     expect(await names(null)).toEqual(["SF Dallas Driver", "SF Memphis Driver", "SF Unplaced Driver"]);
+  });
+
+  test("the Quote page's reads: saved quotes and open pickups are the terminals' (a booking nobody holds yet is everyone's)", async () => {
+    const quotes = async (t: readonly string[] | null) => (await listQuotes(W, { status: "open" }, t)).rows.map((r) => r.id).sort();
+    expect(await quotes(["Dallas"])).toEqual([ids.quoteOpen]);
+    expect(await quotes(["Memphis"])).toEqual([ids.quoteMemphis, ids.quoteOpen].sort());
+    expect(await quotes(null)).toEqual([ids.quoteMemphis, ids.quoteOpen].sort());
+    const pickups = async (t: readonly string[] | null) => (await listOpenPickups(W, t)).map((p) => p.loadNumber).sort();
+    expect(await pickups(["Dallas"])).toEqual(["SF-DALLAS", "SF-OPEN"]);
+    // (SF-OPEN went to Dallas's driver in the assigning test above, so it is Dallas's now, not everyone's.)
+    expect(await pickups(["Memphis"])).toEqual(["SF-MEMPHIS"]);
+    expect(await pickups(null)).toEqual(["SF-DALLAS", "SF-MEMPHIS", "SF-OPEN"]);
   });
 
   test("passing a quote: a quote on another terminal's truck is not theirs to pass; one with no truck yet is everyone's", async () => {

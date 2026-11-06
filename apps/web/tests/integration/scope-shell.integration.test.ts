@@ -4,6 +4,7 @@ import { clearAgingCache } from "@/server/tl/aging";
 import { clearAlertCache, getAlerts, getAlertsInTerminal } from "@/server/tl/alerts";
 import { clearFinishedTotals } from "@/server/tl/finished-totals";
 import { getConversation, listThreads, markThreadRead, sendMessage, startableDrivers, unreadMessageCount } from "@/server/tl/messages";
+import { getPlannerData } from "@/server/tl/planner";
 import { getShellData } from "@/server/tl/shell";
 
 /**
@@ -106,6 +107,25 @@ describe.skipIf(!run)("the header, alerts and messages follow the scope", () => 
     expect((await startableDrivers(W, ["Dallas"])).map((d) => d.name)).toEqual(["SS New Dallas"]);
     expect((await startableDrivers(W, null, "newm")).map((d) => d.name)).toEqual(["SS New Memphis"]); // a search by code
     expect((await startableDrivers(W, ["Dallas"], "newm")).map((d) => d.name)).toEqual([]);
+  });
+
+  test("the planner reads only the scope's loads, and counts only what the person could reach as held elsewhere", async () => {
+    await prisma.assignment.create({ data: { loadId: ids.dLoadDraft, driverId: ids.dDriver, payKind: "cpm", payRate: 0.5, status: "draft" } });
+    await prisma.assignment.create({ data: { loadId: ids.mLoadDraft, driverId: ids.mDriver, payKind: "cpm", payRate: 0.5, status: "draft" } });
+    const at = NOW.getTime();
+    const unlimited = await getPlannerData(at, at, 7, W, ["Dallas"], null);
+    const names = (p: typeof unlimited) => p.rows.map((r) => r.name);
+    expect(names(unlimited)).toContain("SS Dallas Driver");
+    expect(names(unlimited).some((n) => n.includes("Memphis"))).toBe(false);
+    expect(unlimited.hiddenElsewhere).toBe(1); // Memphis's driver holds one
+    const walled = await getPlannerData(at, at, 7, W, ["Dallas"], ["Dallas"]);
+    expect(walled.hiddenElsewhere).toBe(0); // the person's limit is Dallas: nothing else to offer
+    const everyone = await getPlannerData(at, at, 7, W, null);
+    expect(names(everyone)).toEqual(expect.arrayContaining(["SS Dallas Driver", "SS Memphis Driver"]));
+    expect(everyone.hiddenElsewhere).toBe(0);
+    const memphisLoadShown = (p: typeof unlimited) => [...p.tray.flat(), ...p.rows.flatMap((r) => r.cells.flat()), ...p.untimed].some((i) => i.loadId === ids.mLoadDraft);
+    expect(memphisLoadShown(unlimited)).toBe(false);
+    expect(memphisLoadShown(everyone)).toBe(true);
   });
 
   test("messages: a driver outside the limit is not found, cannot be written to, and nothing of theirs is marked read", async () => {

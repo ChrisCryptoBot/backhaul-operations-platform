@@ -1,3 +1,5 @@
+import { currentAllowed } from "@/server/tl/scope";
+import { currentTerminal } from "@/server/tl/terminal";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import React from "react";
@@ -31,7 +33,7 @@ export default async function DriverPage({ params }: { params: { id: string } })
   if (!d) notFound();
   const me = access.ok ? access.identity : null;
   const canBill = !!me && can(me.role, me.grants, "bill");
-  const history = await listAudit({ group: "fleet", q: d.driver.name, pageSize: 8 });
+  const history = await listAudit({ group: "fleet", q: d.driver.name, pageSize: 8 }, undefined, await currentTerminal(), (await currentAllowed()) == null);
   const p = d.driver;
   const s = d.scorecard;
   const row: DriverRow = {

@@ -1,3 +1,4 @@
+import { currentAllowed } from "@/server/tl/scope";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import React from "react";
@@ -29,7 +30,7 @@ export default async function CustomerPage({ params, searchParams }: { params: {
   if (isNew && d?.record) redirect(`/customers/${d.record.id}`);
 
   const record = d?.record ?? null;
-  const history = record ? (await listAudit({ group: "customers", q: record.name, pageSize: 8 })).rows : [];
+  const history = record ? (await listAudit({ group: "customers", q: record.name, pageSize: 8 }, undefined, await currentTerminal(), (await currentAllowed()) == null)).rows : [];
   const s = d?.scorecard;
   const k = d?.kpi ?? null;
   const stored = record ? toCustomerValues(record) : { ...BLANK_CUSTOMER, name };

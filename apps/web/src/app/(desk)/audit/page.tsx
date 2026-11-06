@@ -1,3 +1,5 @@
+import { currentTerminal } from "@/server/tl/terminal";
+import { currentAllowed } from "@/server/tl/scope";
 import Link from "next/link";
 import React from "react";
 import { listAudit } from "@/server/tl/audit";
@@ -28,7 +30,7 @@ export default async function AuditPage({ searchParams }: { searchParams?: { q?:
   const from = searchParams?.from?.trim() ?? "";
   const to = searchParams?.to?.trim() ?? "";
   const page = Math.max(1, Number.parseInt(searchParams?.page ?? "1", 10) || 1);
-  const { rows: events, total, all, pageSize } = await listAudit({ q, group, from, to, page });
+  const { rows: events, total, all, pageSize } = await listAudit({ q, group, from, to, page }, undefined, await currentTerminal(), (await currentAllowed()) == null);
   const filtered = Boolean(q || group || from || to);
 
   const query = (over: { group?: string; page?: number } = {}) => {

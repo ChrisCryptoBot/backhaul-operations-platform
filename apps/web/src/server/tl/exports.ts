@@ -30,6 +30,7 @@ import { LOAD_STATUS } from "@/lib/desk-format";
 import { asInvoiceShow, INVOICE_SORT_KEYS, listBoardRows, listInvoiceRows, type BoardRow, type InvoiceScope } from "./queries";
 import { listSettlements } from "./settlement";
 import { currentTerminal } from "./terminal";
+import { currentAllowed } from "./scope";
 import { getLeakLedger } from "./leaks";
 import { LEAKS, leakMeta } from "@/lib/leaks";
 
@@ -305,8 +306,10 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
     // The Fuel screen's own period, every purchase in it, a page at a time.
     const days = Math.min(Math.max(1, parseInt(first(query.days) ?? "30", 10) || 30), 366);
     const rows: Awaited<ReturnType<typeof listFuel>>["rows"] = [];
+    // The Fuel screen's own scope: the terminals in view.
+    const terminal = await currentTerminal();
     for (let page = 1; ; page++) {
-      const got = await listFuel({ days, page }, now);
+      const got = await listFuel({ days, page, terminal }, now);
       rows.push(...got.rows);
       if (rows.length >= cap || rows.length >= got.total) break;
     }
@@ -334,7 +337,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
 
   if (kind === "trailers") {
     // The Trailers screen's own filters, every match, read a thousand at a time (a fleet has thousands of trailers).
-    const base = { q: first(query.q), sort: first(query.sort), type: first(query.type), status: first(query.status), ownership: first(query.ownership), compliance: first(query.compliance), archived: first(query.archived) === "1", pageSize: 1000 };
+    const base = { q: first(query.q), sort: first(query.sort), type: first(query.type), status: first(query.status), ownership: first(query.ownership), compliance: first(query.compliance), archived: first(query.archived) === "1", pageSize: 1000, terminal: await currentTerminal() };
     const rows: Awaited<ReturnType<typeof listTrailersPage>>["rows"] = [];
     for (let page = 1; ; page++) {
       const got = await listTrailersPage({ ...base, page }, now);
@@ -352,7 +355,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
 
   if (kind === "audit") {
     // The audit page's own filters (search, area, From and To day), every match rather than one page, newest first, capped so one click cannot build a huge file.
-    const { rows, total } = await listAudit({ q: first(query.q), group: first(query.group), from: first(query.from), to: first(query.to), page: 1, pageSize: 5000 });
+    const { rows, total } = await listAudit({ q: first(query.q), group: first(query.group), from: first(query.from), to: first(query.to), page: 1, pageSize: 5000 }, undefined, await currentTerminal(), (await currentAllowed()) == null);
     return {
       // At the cap the file is the newest 5,000 of more: its name says so, so nobody reads it as the whole log.
       filename: total > rows.length ? name(`audit-log-latest-${rows.length}`) : name("audit-log"),

@@ -1,3 +1,5 @@
+import { terminalFilter } from "@/lib/scope";
+import { currentTerminal } from "@/server/tl/terminal";
 import React from "react";
 import { QuoteDesk, type FleetTruckOption } from "@/components/desk/quote-desk";
 import { PageHead } from "@/components/desk/ui";
@@ -17,20 +19,22 @@ export default async function QuotePage({ searchParams }: { searchParams: { quot
   const me = await requirePage("read");
   const id = first(searchParams.quote);
   const likeId = id ? null : first(searchParams.like);
+  // Everything on this page is for the terminals in view (inside what the person may see).
+  const terminal = await currentTerminal();
   const [quotes, brokers, saved, like, fleetRaw, openPickups] = await Promise.all([
-    listQuotes(undefined, { status: "open" }),
-    brokerNames(),
+    listQuotes(undefined, { status: "open" }, terminal),
+    brokerNames(undefined, terminal),
     id ? getQuote(id) : null,
     likeId ? getQuoteLike(likeId) : null,
     prisma.vehicle.findMany({
-      where: { workspaceId: currentWorkspaceId(), archivedAt: null },
+      where: { workspaceId: currentWorkspaceId(), archivedAt: null, ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}) },
       include: {
         costProfile: true,
         drivers: { where: { active: true }, orderBy: { name: "asc" } }
       },
       orderBy: { name: "asc" }
     }),
-    listOpenPickups()
+    listOpenPickups(undefined, terminal)
   ]);
 
   const fleet: FleetTruckOption[] = fleetRaw.map((v) => ({
