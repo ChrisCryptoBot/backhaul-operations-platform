@@ -13,6 +13,7 @@ import { canonicalTerminals, cleanTerminalName } from "./terminal-list";
 import { dwell } from "@/lib/telematics";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
+import { currentActor } from "./identity";
 import { lockWorkspace, roomFor } from "./plan";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
@@ -185,6 +186,8 @@ export async function hookTrailer(id: string, vehicleId: string | null, now = ne
     const where = tractor?.lastLat != null && tractor.lastLng != null ? { lastLat: tractor.lastLat, lastLng: tractor.lastLng, lastLocatedAt: tractor.lastLocatedAt } : {};
     await prisma.$transaction(async (tx) => {
       await tx.trailer.update({ where: { id }, data: { currentVehicleId: null, unhookedAt: now, ...where } });
+      // The trailer's trail: dropped from this tractor, here, now (Asset history).
+      await tx.trailerMove.create({ data: { workspaceId, trailerId: id, vehicleId: t.currentVehicleId, kind: "dropped", at: now, lat: tractor?.lastLat ?? null, lng: tractor?.lastLng ?? null, byName: currentActor() } });
       await recordAudit({ entity: "trailer", entityId: id, action: "trailer_unhooked", summary: `${t.number} unhooked from ${t.currentVehicle?.name ?? "its tractor"}`, before: { Tractor: t.currentVehicle?.name ?? null }, after: { Tractor: null }, at: now, workspaceId }, tx);
     });
     return { ok: true };
@@ -199,6 +202,8 @@ export async function hookTrailer(id: string, vehicleId: string | null, now = ne
     const where = tractor?.lastLat != null && tractor.lastLng != null ? { lastLat: tractor.lastLat, lastLng: tractor.lastLng, lastLocatedAt: tractor.lastLocatedAt } : {};
     const hadDwellFigure = t.dwellWaived || t.dwellRateOverride != null || t.dwellDaysOverride != null;
     await prisma.$transaction(async (tx) => {
+      // The trailer's trail: hooked to this tractor, here, now (Asset history).
+      await tx.trailerMove.create({ data: { workspaceId, trailerId: id, vehicleId: truck.id, kind: "hooked", at: now, lat: tractor?.lastLat ?? null, lng: tractor?.lastLng ?? null, byName: currentActor() } });
       // Hooked again ends the stay: the clock stops and a typed dwell figure for it is cleared (the audit trail keeps what it was).
       await tx.trailer.update({ where: { id }, data: { currentVehicleId: truck.id, hookedAt: now, unhookedAt: null, dwellRateOverride: null, dwellDaysOverride: null, dwellWaived: false, dwellOverrideNote: null, dwellOverrideBy: null, dwellOverrideAt: null, ...where } });
       if (hadDwellFigure) await recordAudit({ entity: "trailer", entityId: id, action: "dwell_reset", summary: `${t.number}: dwell figure cleared when hooked to ${truck.name ?? "a tractor"}`, before: { Rate: t.dwellRateOverride == null ? null : String(t.dwellRateOverride), Days: t.dwellDaysOverride == null ? null : String(t.dwellDaysOverride), Waived: t.dwellWaived ? "Yes" : "No" }, after: null, at: now, workspaceId }, tx);

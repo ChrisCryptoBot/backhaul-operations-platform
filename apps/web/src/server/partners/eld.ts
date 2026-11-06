@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { recordAudit } from "@/server/tl/audit";
 import { numOrNull } from "@/server/tl/convert";
+import { applyStays } from "@/server/tl/stays";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { callPartner, providerName, type SimTrip } from "./call";
 
@@ -101,6 +102,8 @@ export async function syncEld(now = new Date(), workspaceId = currentWorkspaceId
       }
       // A re-read of the same fix writes nothing twice (unique on the tractor and the instant).
       if (pings.length > 0) await tx.vehiclePing.createMany({ data: pings, skipDuplicates: true });
+      // Where each tractor has stood and for how long, kept longer than the week of raw fixes (Asset history).
+      await applyStays(tx, pings.map((p) => ({ workspaceId: p.workspaceId, vehicleId: p.vehicleId, lat: p.lat, lng: p.lng, speedMph: p.speedMph, engine: p.engine, at: p.at })));
       // A trailer hooked to a tractor is where the tractor is: one statement for the whole fleet.
       await tx.$executeRaw`update trailers t set last_lat = v.last_lat, last_lng = v.last_lng, last_located_at = v.last_located_at from vehicles v where t.current_vehicle_id = v.id and t.workspace_id = ${workspaceId} and t.archived_at is null and v.last_located_at is not null`;
       for (const d of result.data.drivers ?? []) {

@@ -18,11 +18,17 @@ import { dwell } from "@/lib/telematics";
 import { numOrNull } from "@/server/tl/convert";
 import { UnitTabs } from "@/components/desk/unit-tabs";
 import { UnitWherePanel } from "@/components/desk/unit-where";
+import { UnitHistoryPanel } from "@/components/desk/unit-history";
+import { historyDays } from "@/lib/asset-history";
+import { zoneAbbr } from "@/lib/tz";
+import { getTrailerHistory } from "@/server/tl/asset-history";
+import { workspaceTimezone } from "@/server/tl/zone";
 import { getTrailerWhere } from "@/server/tl/whereabouts";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 
 const TABS = [
   { key: "where", label: "Where it is" },
+  { key: "history", label: "History" },
   { key: "status", label: "Status & papers" },
   { key: "loads", label: "Loads" },
   { key: "details", label: "Details & changes" }
@@ -34,7 +40,7 @@ export const dynamic = "force-dynamic";
  * One trailer, in tabs: where it is (the default), whether it can go out and which tractor pulls it, what it is on, and its details with every change to it (found by its id). The address says
  * which tab is open (`?tab=status`), and only that tab's data is read.
  */
-export default async function TrailerPage({ params, searchParams }: { params: { id: string }; searchParams?: { tab?: string } }) {
+export default async function TrailerPage({ params, searchParams }: { params: { id: string }; searchParams?: { tab?: string; days?: string } }) {
   const t = await getTrailerDetail(params.id);
   if (!t) notFound();
   const tab = TABS.find((x) => x.key === searchParams?.tab)?.key ?? "where";
@@ -49,6 +55,8 @@ export default async function TrailerPage({ params, searchParams }: { params: { 
   const state = complianceState(t, now, days);
   const history = tab === "details" ? await listEntityAudit(t.id, 12) : [];
   const here = tab === "where" ? (await getTrailerWhere([t.id], currentWorkspaceId(), now)).get(t.id) : undefined;
+  const range = historyDays(searchParams?.days);
+  const past = tab === "history" ? await getTrailerHistory(t.id, range) : null;
   const open = t.loads.length;
   const when = (d: Date | null) => (d ? shortDate(d) : "Not set");
 
@@ -66,6 +74,8 @@ export default async function TrailerPage({ params, searchParams }: { params: { 
       {tab === "where" ? (
         here ? <UnitWherePanel u={here} /> : <p className="tl-note">Could not read where this trailer is.</p>
       ) : null}
+
+      {tab === "history" && past ? <UnitHistoryPanel unit={{ kind: "trailer", id: t.id, name: t.number }} entries={past.entries} days={range} openLoads={past.openLoads} clock={zoneAbbr(await workspaceTimezone(currentWorkspaceId()))} basePath={`/trailers/${t.id}`} /> : null}
 
       {tab === "status" ? (
         <div id="panel-status" role="tabpanel" aria-labelledby="tab-status">

@@ -28,7 +28,7 @@ const TABLE: Record<string, Capability[]> = {
   rescheduleAction: ["dispatch"], readUploadedRateConAction: ["dispatch"], saveRateConAction: ["dispatch"], saveLoadDetailsAction: ["dispatch"], deleteLoadAction: ["dispatch"], restoreLoadAction: ["dispatch"],
   startTripAction: ["dispatch"], undoStartAction: ["dispatch"], reopenDeliveredAction: ["dispatch"], reopenCancelledAction: ["dispatch"], completeTripAction: ["dispatch"],
   saveDriverAction: ["dispatch"], setDriverActiveAction: ["dispatch"], saveTruckAction: ["dispatch"], setTruckArchivedAction: ["dispatch"], saveTrailerAction: ["dispatch"], setTrailerArchivedAction: ["dispatch"],
-  hookTrailerAction: ["dispatch"], assignTrailerAction: ["dispatch"], saveCostProfileAction: ["dispatch"], commitImportAction: ["dispatch"], locateHomeBasesAction: ["dispatch"],
+  hookTrailerAction: ["dispatch"], assignTrailerAction: ["dispatch"], logCheckCallAction: ["dispatch"], removeCheckCallAction: ["dispatch"], saveCostProfileAction: ["dispatch"], commitImportAction: ["dispatch"], locateHomeBasesAction: ["dispatch"],
   syncEldAction: ["dispatch"], saveFuelCardAction: ["dispatch"], vetCarrierAction: ["dispatch"],
   // shared between the offices
   saveBillingDetailsAction: ["billing_details"], saveCustomerAction: ["dispatch", "billing_details"], sendMessageAction: ["dispatch", "bill"], markThreadReadAction: ["dispatch", "bill"],

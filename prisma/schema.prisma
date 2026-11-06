@@ -68,6 +68,9 @@ model Workspace {
   iftaLines          IftaLine[]
   fuelTransactions   FuelTransaction[]
   vehiclePings       VehiclePing[]
+  checkCalls         CheckCall[]
+  unitStays          UnitStay[]
+  trailerMoves       TrailerMove[]
   terminals          Terminal[]
   laneTargets        LaneTarget[]
   kpiNotes           KpiNote[]
@@ -161,6 +164,9 @@ model Vehicle {
   drivers          Driver[]
   trailers         Trailer[]
   pings            VehiclePing[]
+  checkCalls       CheckCall[]
+  stays            UnitStay[]
+  trailerMoves     TrailerMove[]
   fuelTransactions FuelTransaction[]
 
   @@index([workspaceId, archivedAt, name])
@@ -337,6 +343,7 @@ model Load {
   payments         LoadPayment[]
   segments         TripSegment[]
   decisions        LoadDecision[]
+  checkCalls       CheckCall[]
   assignment       Assignment?
   messages         Message[]
   settlement       SettlementLoad?
@@ -652,6 +659,8 @@ model Trailer {
   workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   currentVehicle Vehicle?  @relation(fields: [currentVehicleId], references: [id], onDelete: SetNull)
   loads          Load[]
+  checkCalls     CheckCall[]
+  moves          TrailerMove[]
 
   @@index([workspaceId, archivedAt, number])
   @@index([workspaceId, terminal])
@@ -1044,6 +1053,85 @@ model VehiclePing {
   @@index([vehicleId, at(sort: Desc)])
   @@index([workspaceId, at])
   @@map("vehicle_pings")
+}
+
+/// A call to a driver, or a word from one, about where a truck or trailer is and when it will get there. A business record kept with the asset: it is how a late load or a detention claim is settled
+/// later. `at` is when the call happened (a dispatcher can back-date it); `createdAt` is when it was typed in. Nothing here is read by money, the quote or the verdict.
+model CheckCall {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  vehicleId   String?   @map("vehicle_id")
+  trailerId   String?   @map("trailer_id")
+  loadId      String?   @map("load_id")
+  at          DateTime
+  /// What the driver said about where they are: "I-40 past Amarillo", "in the yard, door 4".
+  place       String?
+  /// When the driver said they would arrive.
+  etaAt       DateTime? @map("eta_at")
+  /// on_time, late or issue; blank when not said.
+  status      String?
+  note        String?
+  spokeWith   String?   @map("spoke_with")
+  loggedBy    String    @map("logged_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  vehicle   Vehicle?  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  trailer   Trailer?  @relation(fields: [trailerId], references: [id], onDelete: Cascade)
+  load      Load?     @relation(fields: [loadId], references: [id], onDelete: SetNull)
+
+  @@index([vehicleId, at(sort: Desc)])
+  @@index([trailerId, at(sort: Desc)])
+  @@index([loadId, at])
+  @@index([workspaceId, at])
+  @@map("check_calls")
+}
+
+/// A stretch of time a tractor stood in one place (engine off or idling, at least twenty minutes), written as the ELD is read: it opens when the tractor stops, grows while it stays, and closes with
+/// `leftAt` when it moves on. Raw fixes are kept a week (VehiclePing); these are what is kept for the longer record of where a truck has been and when.
+model UnitStay {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  vehicleId   String    @map("vehicle_id")
+  lat         Decimal   @db.Decimal(9, 6)
+  lng         Decimal   @db.Decimal(9, 6)
+  arrivedAt   DateTime  @map("arrived_at")
+  /// The last fix that still put it here.
+  lastSeenAt  DateTime  @map("last_seen_at")
+  /// Set when a fix puts it somewhere else; blank while it is still there.
+  leftAt      DateTime? @map("left_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  vehicle   Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, arrivedAt(sort: Desc)])
+  @@index([workspaceId, arrivedAt])
+  @@map("unit_stays")
+}
+
+/// A trailer hooked to a tractor or dropped, with where the tractor was at that moment, so a trailer's trail (which tractor pulled it, where it was left, how long it sat) can be read back.
+model TrailerMove {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  trailerId   String   @map("trailer_id")
+  /// The tractor it was hooked to, or dropped from.
+  vehicleId   String?  @map("vehicle_id")
+  /// hooked or dropped.
+  kind        String
+  at          DateTime
+  lat         Decimal? @db.Decimal(9, 6)
+  lng         Decimal? @db.Decimal(9, 6)
+  byName      String   @map("by_name")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  trailer   Trailer   @relation(fields: [trailerId], references: [id], onDelete: Cascade)
+  vehicle   Vehicle?  @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+
+  @@index([trailerId, at(sort: Desc)])
+  @@index([vehicleId, at(sort: Desc)])
+  @@map("trailer_moves")
 }
 
 /// What a lane should pay per load, set by a person (the lane is the KPI's own key, "origin -> destination"). The Lanes scorecard compares each lane's revenue per load with it: BELOW, OK, or no target.

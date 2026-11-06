@@ -44,6 +44,7 @@ import { deleteCredential } from "@/server/partners/credentials";
 import { capabilityOf, saveKeysAndConnect, type SaveAndConnect } from "@/server/partners/setup";
 import { importEldFleet, type ImportEldResult } from "@/server/partners/eld-import";
 import { adjustTrailerDwell, clearTrailerDwell, waiveTrailerDwell, type DwellInput, type DwellResult } from "@/server/tl/dwell";
+import { logCheckCall, removeCheckCall, type CheckCallInput, type CheckCallResult } from "@/server/tl/check-calls";
 import { sendTestEvent, type TestEventResult } from "@/server/partners/test-event";
 import { shareLoadLocation, type ShareResult } from "@/server/partners/tracking";
 import { syncFuelCards, type FuelSync } from "@/server/partners/fuel-store";
@@ -404,6 +405,28 @@ export async function clearTrailerDwellAction(trailerId: string): Promise<DwellR
   await requireCan("dispatch", "bill");
   const out = await clearTrailerDwell(String(trailerId));
   if (out.ok) revalidatePath("/trailers");
+  return out;
+}
+
+// ── Check calls on a truck or a trailer: what the driver said, and when, kept with the asset (docs/ASSET_HISTORY.md). ──
+
+export async function logCheckCallAction(input: CheckCallInput): Promise<CheckCallResult> {
+  await requireCan("dispatch");
+  const out = await logCheckCall(input && typeof input === "object" ? input : ({} as CheckCallInput));
+  if (out.ok) {
+    revalidatePath("/fleet");
+    revalidatePath("/trailers");
+  }
+  return out;
+}
+
+export async function removeCheckCallAction(id: string): Promise<ActResult> {
+  await requireCan("dispatch");
+  const out = await removeCheckCall(String(id));
+  if (out.ok) {
+    revalidatePath("/fleet");
+    revalidatePath("/trailers");
+  }
   return out;
 }
 

@@ -9,7 +9,8 @@ import { describe, expect, test } from "vitest";
 const SRC = join(__dirname, "..", "src");
 const files = (dir: string): string[] => readdirSync(dir).flatMap((f) => (statSync(join(dir, f)).isDirectory() ? files(join(dir, f)) : /\.(ts|tsx)$/.test(f) ? [join(dir, f)] : []));
 const text = (p: string) => readFileSync(p, "utf8");
-const IMPORTS_WHEREABOUTS = /from\s+["'](@\/lib\/whereabouts|@\/server\/tl\/whereabouts|\.\/whereabouts|\.\.\/whereabouts)["']/;
+// Where a unit is and where it has been (the whereabouts, the history, the stays and the check calls) is for people to read; nothing that makes a figure imports any of it.
+const IMPORTS_WHEREABOUTS = /from\s+["'](@\/lib\/(whereabouts|asset-history|stays)|@\/server\/tl\/(whereabouts|asset-history|check-calls|stays)|\.\/(whereabouts|asset-history|stays|check-calls)|\.\.\/(whereabouts|asset-history|stays))["']/;
 
 describe("whereabouts stays display only", () => {
   test("no money, quote, KPI, verdict or leak code imports it", () => {

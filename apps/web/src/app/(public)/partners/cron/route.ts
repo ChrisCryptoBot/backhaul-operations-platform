@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { resealCredentials } from "@/server/partners/credentials";
-import { purgeOldEvents, purgeOldPings } from "@/server/partners/retention";
+import { purgeOldEvents, purgeOldPings, purgeOldStays } from "@/server/partners/retention";
 import { runPartnerSync } from "@/server/partners/sync";
 
 /**
@@ -25,5 +25,6 @@ export async function POST(req: NextRequest) {
   const resealed = await resealCredentials();
   const purged = await purgeOldEvents();
   const pingsPurged = await purgeOldPings();
-  return NextResponse.json({ ok: true, ran, resealed, purged, pingsPurged });
+  const staysPurged = await purgeOldStays();
+  return NextResponse.json({ ok: true, ran, resealed, purged, pingsPurged, staysPurged });
 }

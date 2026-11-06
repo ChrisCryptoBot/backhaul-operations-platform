@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { prisma } from "@/lib/db";
 import { getTrailerWhere, getTruckWhere } from "@/server/tl/whereabouts";
+import { getTruckHistory } from "@/server/tl/asset-history";
+import { applyStays } from "@/server/tl/stays";
 
 /**
  * Where a page of trucks and trailers are, on the scale database (1,500 trucks, 5,000 trailers, about 4,000 loads, seeded positions). The read is for the rows on screen only, so it must not
@@ -34,5 +36,28 @@ describe.skipIf(!run)("whereabouts at the size of a big fleet", () => {
     expect(await best(() => getTruckWhere(trucks, ws!))).toBeLessThan(1000);
     expect(await best(() => getTrailerWhere(trailers, ws!))).toBeLessThan(1000);
     expect(await best(() => getTruckWhere([trucks[0]!], ws!))).toBeLessThan(300);
+  });
+
+  test("one truck's history is read in well under a second, and a sync's stays for 1,500 tractors are written inside a few seconds", async () => {
+    const ws = (await prisma.vehicle.findFirst({ where: { lastLat: { not: null } }, select: { workspaceId: true } }))?.workspaceId!;
+    const all = await prisma.vehicle.findMany({ where: { workspaceId: ws, lastLat: { not: null } }, select: { id: true, lastLat: true, lastLng: true } });
+    expect(await best(() => getTruckHistory(all[0]!.id, 90, ws))).toBeLessThan(500);
+    const at = new Date();
+    const fixes = all.map((v) => ({ workspaceId: ws, vehicleId: v.id, lat: Number(v.lastLat), lng: Number(v.lastLng), speedMph: 0, engine: "off", at }));
+    class Rollback extends Error {}
+    const t = Date.now();
+    await prisma
+      .$transaction(
+        async (tx) => {
+          const out = await applyStays(tx, fixes);
+          expect(out.opened).toBe(all.length);
+          throw new Rollback();
+        },
+        { timeout: 60_000 }
+      )
+      .catch((e) => {
+        if (!(e instanceof Rollback)) throw e;
+      });
+    expect(Date.now() - t).toBeLessThan(8000);
   });
 });

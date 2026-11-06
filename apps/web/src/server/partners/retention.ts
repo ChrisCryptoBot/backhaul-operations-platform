@@ -15,6 +15,17 @@ export async function purgeOldPings(now = new Date()): Promise<number> {
   return (await prisma.vehiclePing.deleteMany({ where: { at: { lt: cutoff } } })).count;
 }
 
+/**
+ * A tractor's stays (where it stood and for how long) are kept thirteen months: a full year back and a month of room, enough to settle a dispute or compare a season. Only closed stays go; one still
+ * open is the tractor's current stay. Check calls and trailer hooks are business records and are not purged here.
+ */
+export const STAY_KEEP_DAYS = 400;
+
+export async function purgeOldStays(now = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - STAY_KEEP_DAYS * 86_400_000);
+  return (await prisma.unitStay.deleteMany({ where: { leftAt: { not: null, lt: cutoff } } })).count;
+}
+
 export async function purgeOldEvents(now = new Date()): Promise<number> {
   const cutoff = new Date(now.getTime() - EVENT_KEEP_DAYS * 86_400_000);
   return (await prisma.partnerEvent.deleteMany({ where: { receivedAt: { lt: cutoff } } })).count;

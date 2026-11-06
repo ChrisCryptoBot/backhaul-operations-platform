@@ -12,12 +12,18 @@ import { FuelCardForm } from "@/components/desk/partner-actions";
 import { CanGate } from "@/components/desk/kit/can-gate";
 import { UnitTabs } from "@/components/desk/unit-tabs";
 import { UnitWherePanel } from "@/components/desk/unit-where";
+import { UnitHistoryPanel } from "@/components/desk/unit-history";
+import { historyDays } from "@/lib/asset-history";
+import { zoneAbbr } from "@/lib/tz";
+import { getTruckHistory } from "@/server/tl/asset-history";
+import { workspaceTimezone } from "@/server/tl/zone";
 import { getTruckWhere } from "@/server/tl/whereabouts";
 import { currentTerminal } from "@/server/tl/terminal";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 
 const TABS = [
   { key: "where", label: "Where it is" },
+  { key: "history", label: "History" },
   { key: "cost", label: "Cost & floor" },
   { key: "loads", label: "Loads" },
   { key: "details", label: "Details & changes" }
@@ -27,13 +33,15 @@ const TABS = [
  * One truck, in tabs: where it is (the default), its cost profile with the floor it produces, what is on it now, and its details with what has been changed. The address says which tab is
  * open (`?tab=cost`), and only that tab's data is read.
  */
-export default async function TruckPage({ params, searchParams }: { params: { id: string }; searchParams?: { tab?: string } }) {
+export default async function TruckPage({ params, searchParams }: { params: { id: string }; searchParams?: { tab?: string; days?: string } }) {
   const d = await getTruckDetail(params.id);
   if (!d) notFound();
   const t = d.vehicle;
   const tab = TABS.find((x) => x.key === searchParams?.tab)?.key ?? "where";
   const history = tab === "details" ? (await listAudit({ group: "fleet", q: t.name ?? "", pageSize: 8 })).rows : [];
   const here = tab === "where" ? (await getTruckWhere([t.id], currentWorkspaceId(), await currentTerminal())).get(t.id) : undefined;
+  const days = historyDays(searchParams?.days);
+  const past = tab === "history" ? await getTruckHistory(t.id, days) : null;
   const open = t.loads.length;
 
   return (
@@ -50,6 +58,8 @@ export default async function TruckPage({ params, searchParams }: { params: { id
       {tab === "where" ? (
         here ? <UnitWherePanel u={here} /> : <p className="tl-note">Could not read where this truck is.</p>
       ) : null}
+
+      {tab === "history" && past ? <UnitHistoryPanel unit={{ kind: "truck", id: t.id, name: t.name ?? "Truck" }} entries={past.entries} days={days} openLoads={past.openLoads} clock={zoneAbbr(await workspaceTimezone(currentWorkspaceId()))} basePath={`/fleet/${t.id}`} /> : null}
 
       {tab === "cost" ? (
         <div id="panel-cost" role="tabpanel" aria-labelledby="tab-cost">
