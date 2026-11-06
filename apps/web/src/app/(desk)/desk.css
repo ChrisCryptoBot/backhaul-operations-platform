@@ -313,6 +313,10 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .tl-table tr:first-child td { border-top: 0; }
 .tl-table th { border-top: 0; font-size: var(--db-text-xs); letter-spacing: 0.08em; text-transform: uppercase; color: var(--db-fg-dim); font-weight: 700; }
 .tl-table td.num, .tl-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tl-table .sub { display: block; font-size: var(--db-text-sm); color: var(--db-fg-dim); font-weight: 400; }
+.tl-list { margin: 6px 0; padding-left: 18px; }
+.tl-list li { margin: 2px 0; }
+.km.km-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .pager { display: flex; align-items: center; gap: var(--db-3); margin-top: var(--db-4); color: var(--db-fg-dim); font-size: var(--db-text-sm); }
 
 /* ───────────────────────────── KPI dashboard ───────────────────────────── */

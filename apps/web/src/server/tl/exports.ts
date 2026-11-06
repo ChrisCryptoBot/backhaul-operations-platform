@@ -32,6 +32,7 @@ import { listSettlements } from "./settlement";
 import { currentTerminal } from "./terminal";
 import { currentAllowed } from "./scope";
 import { getLeakLedger } from "./leaks";
+import { getDataHealth } from "./data-health";
 import { LEAKS, leakMeta } from "@/lib/leaks";
 
 /** The most rows one loads, invoices or statements file holds, so a click cannot build an unbounded one. A file that stopped here says so in its name. */
@@ -41,7 +42,7 @@ export const MAX_EXPORT_ROWS = 25_000;
  * The CSV files the desk offers. Each is built from the same functions the screen uses (the Loads filter, the KPI engine),
  * so a file always matches what was on screen when it was asked for. Dates are the Central calendar date.
  */
-export const EXPORT_KINDS = ["loads", "invoices", "settlements", "settlement-lines", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "kpi-trucks", "leaks", "leaks-weeks", "leaks-items", "quote-decisions", "fuel", "ifta"] as const;
+export const EXPORT_KINDS = ["loads", "invoices", "settlements", "settlement-lines", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "kpi-trucks", "leaks", "leaks-weeks", "leaks-items", "data-health", "data-health-checks", "quote-decisions", "fuel", "ifta"] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
 type Query = Record<string, string | string[] | undefined>;
@@ -397,6 +398,43 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
         l.top.map((t): CsvCell[] => [ymd(new Date(t.at)), leakMeta(t.key).label, t.label, t.lane, t.customer, t.truck, two(t.dollars)])
       )
     };
+  }
+
+  // Data health (billing office only: the route asks for it): every check with how many items it covered and how many are missing, or the three cross-source checks as counts and dollars.
+  if (kind === "data-health" || kind === "data-health-checks") {
+    const p = parseKpiParams(query);
+    const h = await getDataHealth({ period: p.period, terminals: termList(await currentTerminal()) }, now);
+    const tag = `${p.period}-${day}`;
+    if (kind === "data-health") {
+      return {
+        filename: `truelane-desk-data-health-${tag}.csv`,
+        csv: toCsv(
+          ["Module", "Check", "Items checked", "Filled in", "Missing", "Why it matters", "Examples"],
+          h.completeness.checks.map((c): CsvCell[] => [c.module, c.label, c.checked, c.passed, c.gaps, c.why, c.examples.map((e) => e.label).join(" ")])
+        )
+      };
+    }
+    const f = h.fuel;
+    const r = h.rateCon;
+    const g = h.pings;
+    const rows: CsvCell[][] = [
+      ["Fuel card and the load's own fuel", "Loads with a card purchase", f.withCard, null],
+      ["Fuel card and the load's own fuel", "Match (within the larger of $25 and a tenth)", f.matched, null],
+      ["Fuel card and the load's own fuel", "Apart", f.off, two(f.offDollars)],
+      ["Fuel card and the load's own fuel", "Card purchase and no fuel recorded on the load", f.cardOnly, two(f.cardOnlyDollars)],
+      ["Fuel card and the load's own fuel", "Fuel recorded and no card purchase tied to the load", f.loadOnly, null],
+      ["Rate confirmation and the invoice", "Invoiced loads", r.invoiced, null],
+      ["Rate confirmation and the invoice", "With a rate confirmation on file", r.checkable, null],
+      ["Rate confirmation and the invoice", "Billed what it promised", r.matched, null],
+      ["Rate confirmation and the invoice", "Billed under it", r.under, two(r.underDollars)],
+      ["Rate confirmation and the invoice", "Billed over the rate and surcharge", r.over, two(r.overDollars)],
+      ["Rate confirmation and the invoice", "No rate confirmation to check against", r.unchecked, null],
+      ["Truck positions and billed miles (last 7 days)", "Finished loads with a truck", g.trips, null],
+      ["Truck positions and billed miles (last 7 days)", "Measured (enough pings)", g.measured, null],
+      ["Truck positions and billed miles (last 7 days)", "Agree with the billed loaded miles", g.agreed, null],
+      ["Truck positions and billed miles (last 7 days)", "Apart by more than 30%", g.apart, null]
+    ];
+    return { filename: `truelane-desk-data-health-checks-${tag}.csv`, csv: toCsv(["Check", "Measure", "Loads", "Dollars"], rows) };
   }
 
   if (kind === "kpi-drivers" || kind === "kpi-lanes" || kind === "kpi-brokers" || kind === "kpi-weeks" || kind === "kpi-trucks") {

@@ -22,7 +22,7 @@ describe("the leak ledger is the billing office's", () => {
 
   test("the page, the files and the KPI headline all ask for it", () => {
     expect(read("app/(desk)/leaks/page.tsx")).toMatch(/requirePage\("bill"\)/);
-    expect(read("app/(desk)/export/[kind]/route.ts")).toMatch(/startsWith\("leaks"\)\) \{\s+const noBill = await guardRoute\("bill"\)/);
+    expect(read("app/(desk)/export/[kind]/route.ts")).toMatch(/startsWith\("leaks"\)[^{]*\{\s+const noBill = await guardRoute\("bill"\)/);
     expect(read("app/(desk)/kpi/page.tsx")).toMatch(/checkAccess\("bill"\)/);
     expect(read("app/(desk)/kpi/page.tsx")).toMatch(/billAccess\.ok/);
   });

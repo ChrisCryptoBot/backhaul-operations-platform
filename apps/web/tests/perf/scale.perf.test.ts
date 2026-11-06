@@ -19,6 +19,7 @@ import { radarList, radarPoints } from "@/server/tl/radar-query";
 import { agingFor, countInvoices, listBoardRows, listInvoiceRows } from "@/server/tl/queries";
 import { fitQuote } from "@/server/tl/quote";
 import { kpiChoices } from "@/server/tl/kpi-choices";
+import { clearHealthCache, getDataHealth } from "@/server/tl/data-health";
 import { listCustomerRecordsInScope } from "@/server/tl/customers";
 import { listSettlements, settlementCounts, unsettledByDriver } from "@/server/tl/settlement";
 import { getShellData } from "@/server/tl/shell";
@@ -187,6 +188,15 @@ describe.runIf(run)("the desk at the size of a big fleet", () => {
     expect(await best(() => kpiChoices("driver", "a", "4w", t))).toBeLessThan(800);
     expect(await best(() => kpiChoices("lane", "", "all", t))).toBeLessThan(1_500);
     expect(await best(() => listCustomerRecordsInScope(t))).toBeLessThan(800);
+  }, 120_000);
+
+  test("Data health: the whole fleet and one terminal, built once and kept", async () => {
+    clearHealthCache();
+    const terminal = (await prisma.vehicle.findFirst({ where: { terminal: { not: null } }, select: { terminal: true } }))?.terminal;
+    expect(await best(() => getDataHealth({ period: "4w" }), 1)).toBeLessThan(15_000);
+    expect(await best(() => getDataHealth({ period: "4w" }))).toBeLessThan(300);
+    expect(await best(() => getDataHealth({ period: "all" }), 1)).toBeLessThan(25_000);
+    expect(await best(() => getDataHealth({ period: "4w", terminals: terminal ? [terminal] : null }), 1)).toBeLessThan(10_000);
   }, 120_000);
 
   test("Radar: lean points, a radius search, the list and its groups, and the radius on Trucks and Trailers, at 1,500 tractors and 5,000 trailers", async () => {

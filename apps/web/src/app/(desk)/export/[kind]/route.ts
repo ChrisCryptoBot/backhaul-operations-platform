@@ -8,7 +8,7 @@ export async function GET(req: Request, { params }: { params: { kind: string } }
   const denied = await guardRoute("read");
   if (denied) return denied;
   // The Leak Ledger prices mistakes in dollars, so its files are the billing office's, like its screen.
-  if (params.kind.startsWith("leaks")) {
+  if (params.kind.startsWith("leaks") || params.kind.startsWith("data-health")) {
     const noBill = await guardRoute("bill");
     if (noBill) return noBill;
   }
