@@ -69,6 +69,7 @@ import type { BillingDetailsValues } from "@/lib/billing-details";
 import { completeTrip, correctTrip, reopenDelivered, saveExpenses, startTrip, undoStartTrip, type TripResult } from "@/server/tl/execution";
 import { undoPaid, recordChase, voidInvoice, type InvoiceOut, type PaidOut } from "@/server/tl/invoicing";
 import { waiveDetention } from "@/server/tl/detention";
+import { confirmStopEvidence, dismissStopEvidence, type ConfirmValues, type DecisionResult } from "@/server/tl/detention-evidence";
 import { discardSettlement, finalizeSettlement, markSettlementPaid, saveDraft, startSettlement, voidSettlement, type Draft, type SettleResult } from "@/server/tl/settlement";
 import { checkAttachment } from "@/lib/attachments";
 import { readRateCon } from "@/server/ratecon/reader";
@@ -790,6 +791,31 @@ export async function chasedAction(loadId: string, how: "email" | "phone"): Prom
   await requireCan("bill");
   const out = await recordChase(loadId, how === "phone" ? "phone" : "email");
   if (out.ok) revalidatePath("/invoices");
+  return out;
+}
+
+/** A person accepts (or corrects, with why) what the truck's track showed at a stop: the stop's arrival and wait are written through the same correction every other one uses (docs/DETENTION_EVIDENCE.md). */
+export async function confirmStopEvidenceAction(evidenceId: string, values: ConfirmValues): Promise<DecisionResult> {
+  await requireCan("figures");
+  const out = await confirmStopEvidence(evidenceId, values);
+  if (out.ok) {
+    refreshLoads();
+    revalidatePath("/invoices");
+    revalidatePath("/detention", "layout");
+    revalidatePath("/audit");
+  }
+  return out;
+}
+
+/** A person says the track does not show a wait worth claiming, with why. Writes nothing to the stop. */
+export async function dismissStopEvidenceAction(evidenceId: string, reason: string): Promise<DecisionResult> {
+  await requireCan("figures");
+  const out = await dismissStopEvidence(evidenceId, reason);
+  if (out.ok) {
+    revalidatePath("/invoices");
+    revalidatePath("/detention", "layout");
+    revalidatePath("/audit");
+  }
   return out;
 }
 

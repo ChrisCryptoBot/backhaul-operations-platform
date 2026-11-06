@@ -48,6 +48,7 @@ for m in \
   20261202000000_regions_scope \
   20261203000000_imported_history \
   20261204000000_signals \
-  20261205000000_notification_subject; do
+  20261205000000_notification_subject \
+  20261206000000_stop_evidence; do
   npx prisma migrate resolve --applied "$m" --schema=./prisma/schema.prisma
 done

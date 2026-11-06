@@ -26,6 +26,7 @@ import { listSignals, signalCounts, syncSignals } from "@/server/tl/signals";
 import { runSignalsCron } from "@/server/tl/signals-cron";
 import { buildWeeklyReport } from "@/server/tl/weekly-report";
 import { clearMovesCache, getMoves } from "@/server/tl/moves";
+import { freezeRecentDeliveries, getEvidencePack, listProposed } from "@/server/tl/detention-evidence";
 import { listCustomerRecordsInScope } from "@/server/tl/customers";
 import { listSettlements, settlementCounts, unsettledByDriver } from "@/server/tl/settlement";
 import { getShellData } from "@/server/tl/shell";
@@ -284,6 +285,41 @@ describe.runIf(run)("the desk at the size of a big fleet", () => {
     expect(m.rows.length).toBeLessThanOrEqual(25);
     expect(m.desk.before.loads + m.desk.after.loads).toBeGreaterThan(0);
   }, 120_000);
+
+  test("Detention evidence: the catch-up over 200 fresh deliveries with fixes, the proposals list and one sheet", async () => {
+    const ws = await prisma.workspace.findFirstOrThrow({ orderBy: { createdAt: "asc" }, select: { id: true } });
+    const trucks = await prisma.vehicle.findMany({ where: { workspaceId: ws.id }, take: 200, select: { id: true, terminal: true } });
+    expect(trucks.length).toBeGreaterThan(100);
+    const now = Date.now();
+    const MIN = 60_000;
+    const PU = { lat: 33.0, lng: -96.0 };
+    const ids: string[] = [];
+    try {
+      for (const [i, t] of trucks.entries()) {
+        const l = await prisma.load.create({
+          data: { workspaceId: ws.id, vehicleId: t.id, loadNumber: `EVP-${i}`, status: "completed", completedAt: new Date(now - 60 * MIN), quotedRevenue: 900, snapshotDetentionRate: 75, snapshotFreeGraceMinutes: 120,
+            stops: { create: [{ stopSequence: 1, stopType: "pickup", addressString: "A", lat: PU.lat, lng: PU.lng, timeWindowEarliest: new Date(now - 600 * MIN) }, { stopSequence: 2, stopType: "delivery", addressString: "B", lat: 34.0, lng: -97.0 }] } },
+          select: { id: true }
+        });
+        ids.push(l.id);
+      }
+      const rows: Array<{ workspaceId: string; vehicleId: string; lat: number; lng: number; at: Date }> = [];
+      for (const t of trucks) for (let m = 0; m < 40; m++) rows.push({ workspaceId: ws.id, vehicleId: t.id, lat: PU.lat + (m < 2 || m > 37 ? 0.5 : 0.05) / 69.09, lng: PU.lng, at: new Date(now - (500 - m * 10) * MIN) });
+      await prisma.vehiclePing.createMany({ data: rows, skipDuplicates: true });
+      const t0 = Date.now();
+      const out = await freezeRecentDeliveries(new Date(now), ws.id);
+      const coldMs = Date.now() - t0;
+      expect(out.failed).toBe(0);
+      expect(out.created).toBeGreaterThanOrEqual(trucks.length);
+      expect(coldMs).toBeLessThan(60_000);
+      expect(await best(() => freezeRecentDeliveries(new Date(now), ws.id))).toBeLessThan(5_000);
+      expect(await best(() => listProposed(null, ws.id))).toBeLessThan(3_000);
+      expect(await best(() => getEvidencePack(ids[0]!, ws.id, null))).toBeLessThan(1_000);
+    } finally {
+      await prisma.load.deleteMany({ where: { id: { in: ids } } });
+      await prisma.vehiclePing.deleteMany({ where: { vehicleId: { in: trucks.map((t) => t.id) }, at: { gte: new Date(now - 600 * MIN) } } });
+    }
+  }, 240_000);
 
   test("Radar: lean points, a radius search, the list and its groups, and the radius on Trucks and Trailers, at 1,500 tractors and 5,000 trailers", async () => {
     const q = (o: Record<string, string>) => readRadarParams((k) => o[k]);

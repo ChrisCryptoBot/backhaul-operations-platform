@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { resealCredentials } from "@/server/partners/credentials";
 import { purgeOldEvents, purgeOldPings, purgeOldStays } from "@/server/partners/retention";
 import { runPartnerSync } from "@/server/partners/sync";
+import { freezeRecentDeliveries } from "@/server/tl/detention-evidence";
 
 /**
  * The partner schedule's heartbeat: ask the connections that are read on a clock (ELD hours, carrier checks) whose time has come. Called every few minutes by whatever runs the desk's cron, with
@@ -24,7 +25,9 @@ export async function POST(req: NextRequest) {
   const ran = await runPartnerSync();
   const resealed = await resealCredentials();
   const purged = await purgeOldEvents();
+  // Freeze what each recently delivered truck's track says about its stops BEFORE the fixes are deleted: the detention evidence pack (docs/DETENTION_EVIDENCE.md) outlives the week the fixes are kept.
+  const frozen = await freezeRecentDeliveries().catch(() => null);
   const pingsPurged = await purgeOldPings();
   const staysPurged = await purgeOldStays();
-  return NextResponse.json({ ok: true, ran, resealed, purged, pingsPurged, staysPurged });
+  return NextResponse.json({ ok: true, ran, resealed, purged, pingsPurged, staysPurged, evidenceFrozen: frozen ? frozen.created + frozen.improved : 0 });
 }

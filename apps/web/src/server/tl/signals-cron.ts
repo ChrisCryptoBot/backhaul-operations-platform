@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { configuredChannels, type Env, type Fetch } from "@/server/notify";
 import { notifyOpenSignals, type NotifyCounts } from "./signal-notify";
+import { freezeRecentDeliveries } from "./detention-evidence";
 import { syncSignals, type SyncResult } from "./signals";
 import { sendWeeklyReport, type ReportRun } from "./weekly-report";
 
@@ -18,6 +19,8 @@ export type CronCounts = {
   signals: SyncResult;
   notified: NotifyCounts;
   reports: Record<ReportRun["state"], number>;
+  /** Stops whose evidence was frozen in this run (docs/DETENTION_EVIDENCE.md). */
+  evidenceFrozen: number;
   failed: number;
 };
 
@@ -27,6 +30,7 @@ const zero = (): CronCounts => ({
   signals: { created: 0, seen: 0, reopened: 0, resolved: 0, escalated: 0 },
   notified: { channels: 0, due: 0, sent: 0, failed: 0, waiting: 0, skipped: 0 },
   reports: { off: 0, no_channel: 0, not_due: 0, already_sent: 0, sent: 0, failed: 0, waiting: 0 },
+  evidenceFrozen: 0,
   failed: 0
 });
 
@@ -59,6 +63,9 @@ export async function runSignalsCron(o: CronOptions = {}): Promise<CronCounts> {
       out.notified.skipped += n.skipped;
       const r = await sendWeeklyReport(channels, now, deskUrl, env, fetchFn, id);
       out.reports[r.state] += 1;
+      // The detention evidence pack: freeze what recently delivered trucks' tracks say about their stops while the fixes are still kept (the partner heartbeat does the same ahead of its purge).
+      const f = await freezeRecentDeliveries(now, id);
+      out.evidenceFrozen += f.created + f.improved;
     } catch {
       out.failed += 1;
     }

@@ -32,7 +32,7 @@ const TABLE: Record<string, Capability[]> = {
   syncEldAction: ["dispatch"], saveFuelCardAction: ["dispatch"], vetCarrierAction: ["dispatch"],
   // shared between the offices
   saveBillingDetailsAction: ["billing_details"], saveCustomerAction: ["dispatch", "billing_details"], sendMessageAction: ["dispatch", "bill"], markThreadReadAction: ["dispatch", "bill"],
-  correctTripAction: ["figures"], saveExpensesAction: ["figures"], importFuelAction: ["figures"], removeDocumentAction: ["documents"],
+  correctTripAction: ["figures"], confirmStopEvidenceAction: ["figures"], dismissStopEvidenceAction: ["figures"], saveExpensesAction: ["figures"], importFuelAction: ["figures"], removeDocumentAction: ["documents"],
   // billing and payroll
   invoiceLoadAction: ["bill"], paidAction: ["bill"], voidInvoiceAction: ["bill"], undoPaidAction: ["bill"], chasedAction: ["bill"], waiveDetentionAction: ["bill"], factorInvoiceAction: ["bill"], factoringUpdateAction: ["bill"],
   startSettlementAction: ["bill"], saveSettlementAction: ["bill"], finalizeSettlementAction: ["bill"], discardSettlementAction: ["bill"], sendToPayrollAction: ["payout"], markSettlementPaidAction: ["payout"],

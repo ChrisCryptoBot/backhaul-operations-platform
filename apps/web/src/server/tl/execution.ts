@@ -273,6 +273,14 @@ export async function completeTrip(loadId: string, values: CompleteValues, now =
     if (e instanceof LoadMoved) return { ok: false, error: e.message };
     throw e;
   }
+  // Freeze what the truck's track says about each stop while the position fixes are still kept (docs/DETENTION_EVIDENCE.md). Best effort: it never fails a delivery, and the catch-up that runs before the
+  // fixes are purged freezes anything missed. (Imported here, not at the top, because that module corrects trips through this one.)
+  try {
+    const { freezeEvidence } = await import("./detention-evidence");
+    await freezeEvidence(loadId, now, workspaceId);
+  } catch {
+    /* the catch-up will do it */
+  }
   return { ok: true };
 }
 

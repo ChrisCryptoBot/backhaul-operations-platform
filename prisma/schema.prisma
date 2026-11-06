@@ -82,6 +82,7 @@ model Workspace {
   kpiNotes           KpiNote[]
   importedHistory    ImportedHistory[]
   signals            Signal[]
+  stopEvidence       StopEvidence[]
   notificationLog    NotificationLog[]
   driverSchedules    DriverSchedule[]
   driverTimeOff      DriverShiftException[]
@@ -173,6 +174,7 @@ model Vehicle {
   drivers          Driver[]
   trailers         Trailer[]
   pings            VehiclePing[]
+  stopEvidence     StopEvidence[]
   checkCalls       CheckCall[]
   stays            UnitStay[]
   trailerMoves     TrailerMove[]
@@ -357,6 +359,7 @@ model Load {
   messages         Message[]
   settlement       SettlementLoad?
   signals          Signal[]
+  stopEvidence     StopEvidence[]
 
   // The lists a big fleet reads: by state, by day, by money, by customer, by number, and a truck's own loads. Trigram (search) indexes are in the
   // 20261106100000 migration only; Prisma cannot express them.
@@ -395,7 +398,8 @@ model Stop {
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  load Load @relation(fields: [loadId], references: [id], onDelete: Cascade)
+  load     Load          @relation(fields: [loadId], references: [id], onDelete: Cascade)
+  evidence StopEvidence?
 
   @@index([loadId, stopSequence])
   @@map("stops")
@@ -1314,4 +1318,55 @@ model NotificationLog {
   @@unique([workspaceId, dedupeKey])
   @@index([workspaceId, state])
   @@map("notification_log")
+}
+
+/// What the trucks own track says about one stop, frozen when the load was delivered (the position fixes themselves are deleted after a week), so a detention claim weeks later still has its proof.
+/// A proposal changes nothing; a person confirms it (src/server/tl/detention-evidence.ts). One row per stop. Kept with the load; removed only with it.
+model StopEvidence {
+  id                   String    @id @default(cuid())
+  workspaceId          String    @map("workspace_id")
+  loadId               String    @map("load_id")
+  stopId               String    @unique @map("stop_id")
+  vehicleId            String?   @map("vehicle_id")
+  /// proposed | confirmed | dismissed (checked in the migration).
+  state                String    @default("proposed")
+  /// good | thin | none (checked in the migration).
+  quality              String
+  radiusMiles          Decimal   @map("radius_miles") @db.Decimal(5, 3)
+  /// The fixes within two miles of the stop: [{at (epoch ms), lat, lng, miles}], oldest first, at most 200.
+  fixes                Json
+  fixCount             Int       @map("fix_count")
+  insideCount          Int       @map("inside_count")
+  windowStart          DateTime? @map("window_start")
+  windowEnd            DateTime? @map("window_end")
+  proposedArrivalAt    DateTime? @map("proposed_arrival_at")
+  proposedDepartureAt  DateTime? @map("proposed_departure_at")
+  beforeGapMin         Int?      @map("before_gap_min")
+  afterGapMin          Int?      @map("after_gap_min")
+  stillInside          Boolean   @default(false) @map("still_inside")
+  visitCount           Int       @default(0) @map("visit_count")
+  waitFrom             DateTime? @map("wait_from")
+  proposedWaitMinutes  Int?      @map("proposed_wait_minutes")
+  /// SHA-256 of the canonical evidence (src/lib/detention-evidence.ts canonicalEvidence), so the sheet can show it was not edited.
+  sha256               String
+  frozenAt             DateTime  @map("frozen_at")
+  decidedBy            String?   @map("decided_by")
+  decidedAt            DateTime? @map("decided_at")
+  confirmedArrivalAt   DateTime? @map("confirmed_arrival_at")
+  confirmedWaitMinutes Int?      @map("confirmed_wait_minutes")
+  /// True when the person confirmed a figure that differs from the proposal.
+  edited               Boolean   @default(false)
+  /// False when the person confirmed it as proof only (the load was already invoiced, so no stop was changed).
+  wroteToStop          Boolean   @default(false) @map("wrote_to_stop")
+  note                 String?
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  load      Load      @relation(fields: [loadId], references: [id], onDelete: Cascade)
+  stop      Stop      @relation(fields: [stopId], references: [id], onDelete: Cascade)
+  vehicle   Vehicle?  @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, state])
+  @@index([loadId])
+  @@map("stop_evidence")
 }
