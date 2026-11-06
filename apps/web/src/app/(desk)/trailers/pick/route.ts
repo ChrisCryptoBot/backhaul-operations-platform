@@ -5,6 +5,7 @@ import { alertThresholds } from "@/lib/thresholds";
 import { trailerFit } from "@/lib/trailer-fit";
 import { numOrNull } from "@/server/tl/convert";
 import { currentTerminal } from "@/server/tl/terminal";
+import { currentAllowed } from "@/server/tl/scope";
 import { getThresholds } from "@/server/tl/thresholds";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { guardRoute } from "@/server/tl/access";
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
   const q = (params.get("q") ?? "").trim().slice(0, 60);
   const loadId = params.get("load");
   const workspaceId = currentWorkspaceId();
-  const terminal = q ? null : await currentTerminal();
+  const terminal = q ? await currentAllowed() : await currentTerminal();
   const load = loadId ? await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null }, select: { trailerType: true, weightLbs: true, lengthFt: true, vehicleId: true } }) : null;
   const wanted = load?.trailerType && !load.trailerType.startsWith("other:") ? load.trailerType : null;
   const trailers = await prisma.trailer.findMany({

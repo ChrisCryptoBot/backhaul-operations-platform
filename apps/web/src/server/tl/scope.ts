@@ -83,6 +83,15 @@ export async function currentTerminals(workspaceId = currentWorkspaceId()): Prom
   return termsOf(await currentScope(workspaceId));
 }
 
+/**
+ * What the person may reach whatever they have chosen to look at: null for anyone not limited, else the terminals of their limit. The header's choice only narrows; anything that widens a view
+ * (a typed search, an "everyone" link, a driver picked by id) is held to this instead, so no link or form can go past the limit. A unit with no terminal is outside every limit.
+ */
+export async function currentAllowed(workspaceId = currentWorkspaceId()): Promise<Terminals> {
+  const a = (await currentScope(workspaceId)).allowed;
+  return a == null ? null : a.length === 1 ? a[0]! : a;
+}
+
 /** The header menu for this request: the regions and terminals the person may pick, with what is based at each. */
 export async function scopeMenu(scope: RequestScope, workspaceId = currentWorkspaceId()): Promise<ScopeMenu> {
   const [trucks, drivers] = await Promise.all([

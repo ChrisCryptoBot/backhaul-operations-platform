@@ -2,6 +2,7 @@ import Link from "next/link";
 import React from "react";
 import { getPlannerData } from "@/server/tl/planner";
 import { currentTerminal } from "@/server/tl/terminal";
+import { currentAllowed } from "@/server/tl/scope";
 import { Card, PageHead } from "@/components/desk/ui";
 import { DueNow, PlannerGrid } from "@/components/desk/planner-parts";
 import { EmptyState } from "@/components/desk/kit/states";
@@ -23,7 +24,8 @@ export default async function PlannerPage({ searchParams }: { searchParams?: { s
   const scope = await currentTerminal();
   // A terminal is a home base, not a fence: with one chosen the grid shows its home drivers, and one link brings in everyone else.
   const everyone = searchParams?.else === "1";
-  const terminal = everyone ? null : scope;
+  // "Everyone" is everyone the person may see: a limited person's link stays inside their limit.
+  const terminal = everyone ? await currentAllowed() : scope;
   const { days, rows, tray, untimed, watchlist, balance, tz, hiddenElsewhere } = await getPlannerData(from, now, 7, undefined, terminal);
   // Noon, so a day with a clock change in it cannot tip the neighbour week's key onto the wrong date.
   const key = (weeks: number) => planDays(days[0]!.start + weeks * WEEK + 12 * 3_600_000, 1, now)[0]!.key;

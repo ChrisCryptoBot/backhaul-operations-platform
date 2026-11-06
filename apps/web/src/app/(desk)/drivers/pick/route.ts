@@ -8,6 +8,7 @@ import { loadSchedules } from "@/server/tl/shifts";
 import { workspaceTimezone } from "@/server/tl/zone";
 import { numOrNull } from "@/server/tl/convert";
 import { currentTerminal } from "@/server/tl/terminal";
+import { currentAllowed } from "@/server/tl/scope";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { guardRoute } from "@/server/tl/access";
 
@@ -25,7 +26,8 @@ export async function GET(request: Request) {
   const q = (params.get("q") ?? "").trim().slice(0, 60);
   const loadId = params.get("load");
   const inactive = params.get("inactive") === "1";
-  const terminal = q ? null : await currentTerminal();
+  // A typed search reaches every terminal the person may see (all of them when they are not limited), never past their limit.
+  const terminal = q ? await currentAllowed() : await currentTerminal();
   const drivers = await prisma.driver.findMany({
     where: { workspaceId: currentWorkspaceId(), ...(inactive ? {} : { active: true }), ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}), ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" as const } }, { code: { contains: q, mode: "insensitive" as const } }] } : {}) },
     select: { id: true, name: true, code: true, terminal: true, cdlExpiry: true, medicalCardExpiry: true, defaultPayKind: true, defaultPayRate: true },

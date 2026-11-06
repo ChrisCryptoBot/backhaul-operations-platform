@@ -28,6 +28,8 @@ import { freezeLoadSnapshot } from "./snapshot";
 import { currentWorkspaceId } from "./workspace";
 import { lockWorkspace } from "./plan";
 import { currentTerminal } from "./terminal";
+import { currentAllowed } from "./scope";
+import { inTerminal } from "./terminal-sql";
 import { currentActor } from "./identity";
 import { verdictState } from "@/lib/verdict";
 import { getThresholds } from "./thresholds";
@@ -760,10 +762,11 @@ export async function getQuoteLike(id: string, workspaceId = currentWorkspaceId(
 /** A pass is a decision on the quote; the quote stays a quote, so it stays out of every list of loads. */
 export const PASSED = "passed";
 
-export async function passQuote(id: string, reason: string, notes: string, workspaceId = currentWorkspaceId(), now = new Date()): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function passQuote(id: string, reason: string, notes: string, workspaceId = currentWorkspaceId(), now = new Date(), allowed?: Terminals): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!(PASS_REASONS as readonly string[]).includes(reason)) return { ok: false, error: "Pick a reason." };
   if (reason === "Other" && notes.trim().length < 3) return { ok: false, error: "Say what the reason is when you pick Other." };
-  const l = await prisma.load.findFirst({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null }, include: { decisions: { orderBy: { decidedAt: "desc" }, take: 1 }, stops: { orderBy: { stopSequence: "asc" } } } });
+  // A quote sitting on a truck outside the person's limit is not theirs to pass (a quote with no truck yet is everyone's).
+  const l = await prisma.load.findFirst({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null, ...inTerminal(allowed !== undefined ? allowed : await currentAllowed(workspaceId)) }, include: { decisions: { orderBy: { decidedAt: "desc" }, take: 1 }, stops: { orderBy: { stopSequence: "asc" } } } });
   if (!l) return { ok: false, error: "That quote is gone." };
   if (l.decisions[0]?.decisionType === PASSED) return { ok: false, error: "That quote was already passed on." };
   // What it was worth when it was passed on: priced again as it stands, for the record. Never stops the pass.
@@ -771,7 +774,7 @@ export async function passQuote(id: string, reason: string, notes: string, works
   try {
     const check = validateQuote(quoteValuesFromLoad(l));
     if (check.ok) {
-      const [fit, laneRecord] = await Promise.all([fitQuote(check.input, workspaceId, now), laneBenchmark(check.input, workspaceId, now)]);
+      const [fit, laneRecord] = await Promise.all([fitQuote(check.input, workspaceId, now, await currentTerminal(workspaceId)), laneBenchmark(check.input, workspaceId, now)]);
       const row = fit.rows.find((r) => r.truckId === l.vehicleId && !r.blocked) ?? fit.rows.find((r) => !r.blocked) ?? fit.rows[0] ?? null;
       details = decisionDetails(check.input, row, laneRecord, extrasOf(l.quoteExtras).firstOffer ?? num(l.quotedRevenue));
     }

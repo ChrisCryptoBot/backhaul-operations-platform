@@ -14,6 +14,9 @@ import { driveHoursFor } from "./evaluate";
 import { lockWorkspace } from "./plan";
 import { claimAssignment, claimLoad, dropAssignment, LoadMoved } from "./claim";
 import { currentWorkspaceId } from "./workspace";
+import { inScope, type Terminals } from "@/lib/scope";
+import { inTerminal } from "./terminal-sql";
+import { currentAllowed } from "./scope";
 import { enqueueBridge } from "@/server/bridge/outbox";
 
 export { driverBlocker };
@@ -43,6 +46,7 @@ export class DispatchError extends Error {
       | "not_sent"
       | "not_ready"
       | "double_booked"
+      | "driver_outside_limit"
       | "reason_required"
       | "not_unassignable"
       | "not_allowed"
@@ -158,14 +162,17 @@ export function tripHoursOf(load: { pickupDeadheadMiles: unknown; loadedMiles: u
   return new Prisma.Decimal(driveHoursFor({ estimatedLoadedHours: load.estimatedLoadedHours as never, loadedMiles: load.loadedMiles as never }, total)).toDecimalPlaces(2).toNumber();
 }
 
-export async function assignDriver(input: { loadId: string; driverId: string; pay: AssignmentPay; estimatedHours?: number | null; overrideReason?: string | null }, now = new Date(), workspaceId = currentWorkspaceId()) {
+export async function assignDriver(input: { loadId: string; driverId: string; pay: AssignmentPay; estimatedHours?: number | null; overrideReason?: string | null; /** The person's limit (null: not limited); read from the request when left out. Tests and scripts stand in for a request with it. */ allowed?: Terminals }, now = new Date(), workspaceId = currentWorkspaceId()) {
   assertPay(input.pay);
+  // A person limited to some terminals reaches only the loads and drivers of those terminals (a load not placed anywhere yet is everyone's), whatever id arrives.
+  const allowed = input.allowed !== undefined ? input.allowed : await currentAllowed(workspaceId);
   // Both ids are looked up inside the workspace: another workspace's load or driver is "not found", never acted on.
-  const load = await prisma.load.findFirst({ where: { id: input.loadId, workspaceId }, include: { assignment: { include: { driver: true } }, stops: true } });
+  const load = await prisma.load.findFirst({ where: { id: input.loadId, workspaceId, ...inTerminal(allowed) }, include: { assignment: { include: { driver: true } }, stops: true } });
   if (!load || load.deletedAt) throw new DispatchError("load_not_found", "That load does not exist.");
   if (!SENDABLE_LOAD_STATUSES.includes(load.status)) throw new DispatchError("load_not_assignable", `A ${load.status} load cannot be assigned.`);
   const driver = await prisma.driver.findFirst({ where: { id: input.driverId, workspaceId } });
   if (!driver || !driver.active) throw new DispatchError("driver_not_found", "That driver is not available.");
+  if (!inScope(allowed, driver.terminal)) throw new DispatchError("driver_outside_limit", `${driver.name} is based outside the terminals you work. Ask an admin to change what you can see, or to assign them.`);
   const blocker = driverBlocker(driver, now);
   if (blocker) throw new DispatchError("driver_not_cleared", `${driver.name}: ${blocker}.`);
 
@@ -244,8 +251,8 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
  * Take the driver off a load. A load that was sent or accepted needs a reason, which goes in the audit trail.
  * An accepted load goes back to the board as a draft. A load already on the road or delivered cannot be unassigned.
  */
-export async function unassignLoad(loadId: string, reason: string | null, now = new Date(), workspaceId = currentWorkspaceId()) {
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId }, include: { assignment: { include: { driver: true } } } });
+export async function unassignLoad(loadId: string, reason: string | null, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals) {
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, ...inTerminal(allowed !== undefined ? allowed : await currentAllowed(workspaceId)) }, include: { assignment: { include: { driver: true } } } });
   if (!load || load.deletedAt) throw new DispatchError("load_not_found", "That load does not exist.");
   const a = load.assignment;
   if (!a) throw new DispatchError("not_assigned", "There is no driver on this load.");

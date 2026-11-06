@@ -1,4 +1,4 @@
-import { inScope, type Terminals } from "@/lib/scope";
+import { inScope, terminalFilter, type Terminals } from "@/lib/scope";
 import { prisma } from "@/lib/db";
 import { driverBlocker, driverClashNotes } from "./dispatch";
 import { evaluateTlLoad } from "./evaluate";
@@ -43,8 +43,9 @@ export type Suggestion = {
 type RankLoad = Prisma.LoadGetPayload<{ include: typeof loadInclude }>;
 
 /** Every active driver is listed. `terminal` is the dispatcher's slice: drivers based there come first (a home base, not a restriction), everyone else follows, each tagged with their own home. */
-export async function rankDrivers(load: RankLoad, workspaceId: string, terminal: Terminals = null): Promise<{ options: AssignDriverOption[]; fits: Suggestion[] }> {
-  const drivers = await prisma.driver.findMany({ where: { workspaceId, active: true }, include: { assignedVehicle: { include: { costProfile: true } } }, orderBy: { name: "asc" } });
+export async function rankDrivers(load: RankLoad, workspaceId: string, terminal: Terminals = null, allowed: Terminals = null): Promise<{ options: AssignDriverOption[]; fits: Suggestion[] }> {
+  // `allowed` is the person's limit (null: not limited). A base is not a fence for a dispatcher who can see everything, but a limited person is only offered drivers inside their limit.
+  const drivers = await prisma.driver.findMany({ where: { workspaceId, active: true, ...(allowed != null ? { terminal: terminalFilter(allowed) } : {}) }, include: { assignedVehicle: { include: { costProfile: true } } }, orderBy: { name: "asc" } });
   const busyBy = await driverClashNotes(drivers.map((d) => d.id), load.id, load.stops);
   // Shifts are a caution beside the clash note: one batched read of the schedules, then each driver's own checked against this load's stops on the carrier's clock.
   const tz = await workspaceTimezone(workspaceId);

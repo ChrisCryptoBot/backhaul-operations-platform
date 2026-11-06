@@ -9,6 +9,7 @@ export type { AssignDriverOption, Suggestion } from "./driver-rank";
 import type { PayKind } from "./projector";
 import { loadInclude } from "./queries";
 import { currentTerminal } from "./terminal";
+import { currentAllowed } from "./scope";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -32,7 +33,7 @@ const MAX_SUGGESTIONS = 3;
 export async function assignOptions(loadId: string, workspaceId = currentWorkspaceId(), opts: { limit?: number } = {}): Promise<AssignOptions | null> {
   const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...notQuote }, include: loadInclude });
   if (!load) return null;
-  const { options, fits } = await rankDrivers(load, workspaceId, await currentTerminal(workspaceId));
+  const { options, fits } = await rankDrivers(load, workspaceId, await currentTerminal(workspaceId), await currentAllowed(workspaceId));
 
   return {
     loadNumber: load.loadNumber,
