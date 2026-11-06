@@ -57,7 +57,7 @@ describe("every server action asks who is calling", () => {
 });
 
 describe("every route handler asks who is calling", () => {
-  const OPEN = new Set(["app/(public)/auth/enter/route.ts", "app/(public)/auth/leave/route.ts", "app/(public)/auth/demo/route.ts", "app/(public)/bridge/cron/route.ts", "app/(public)/partners/webhook/[provider]/[token]/route.ts", "app/(public)/partners/cron/route.ts"]);
+  const OPEN = new Set(["app/(public)/auth/enter/route.ts", "app/(public)/auth/leave/route.ts", "app/(public)/auth/demo/route.ts", "app/(public)/bridge/cron/route.ts", "app/(public)/partners/webhook/[provider]/[token]/route.ts", "app/(public)/partners/cron/route.ts", "app/(public)/signals/cron/route.ts"]);
   const routes = files(SRC, (f) => /[\\/]route\.ts$/.test(f));
 
   it("sees the routes", () => {

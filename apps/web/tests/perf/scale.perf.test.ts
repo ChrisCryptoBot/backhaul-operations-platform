@@ -23,6 +23,8 @@ import { previewLoadImport } from "@/server/tl/load-import";
 import { getImportedHistory, previewHistoryImport } from "@/server/tl/tracker-import";
 import { clearHealthCache, getDataHealth } from "@/server/tl/data-health";
 import { listSignals, signalCounts, syncSignals } from "@/server/tl/signals";
+import { runSignalsCron } from "@/server/tl/signals-cron";
+import { buildWeeklyReport } from "@/server/tl/weekly-report";
 import { listCustomerRecordsInScope } from "@/server/tl/customers";
 import { listSettlements, settlementCounts, unsettledByDriver } from "@/server/tl/settlement";
 import { getShellData } from "@/server/tl/shell";
@@ -238,6 +240,37 @@ describe.runIf(run)("the desk at the size of a big fleet", () => {
     expect(await best(() => listSignals({ status: "open" }, terminal ? [terminal] : null))).toBeLessThan(2_000);
     expect(await best(() => signalCounts(terminal ? [terminal] : null))).toBeLessThan(2_000);
   }, 120_000);
+
+  test("Notifications: a scheduled run tells at most 100 a time, quickly; the next run does not repeat them; the weekly report is built from the kept figures", async () => {
+    await prisma.notificationLog.deleteMany({});
+    await prisma.signal.updateMany({ data: { lastLevelSent: null } });
+    await prisma.workspace.updateMany({ data: { signalMinLevel: "info", reportEnabled: true, reportDay: 1, reportHour: 7 } });
+    clearAlertCache();
+    const sent: string[] = [];
+    const fetchFn = (async (_u: string | URL | Request, init?: RequestInit) => {
+      sent.push(String(init?.body).length > 0 ? "x" : "");
+      return new Response("ok", { status: 200 });
+    }) as typeof fetch;
+    const env = { DESK_AUTH: "on", NOTIFY_WEBHOOK_URL: "https://n8n.example.com/webhook/scale", NOTIFY_WEBHOOK_SECRET: "scale-secret" };
+    const monday = new Date("2026-11-09T14:00:00Z");
+    const t0 = Date.now();
+    const first = await runSignalsCron({ now: monday, env, fetchFn });
+    const firstMs = Date.now() - t0;
+    expect(first.notified.sent).toBeLessThanOrEqual(100);
+    expect(first.notified.sent).toBeGreaterThan(0);
+    expect(first.reports.sent).toBe(1);
+    expect(firstMs).toBeLessThan(60_000);
+    // The next run tells the next hundred at most, and never the same ones twice; the report is already told this week.
+    const before = sent.length;
+    const steady = await best(() => runSignalsCron({ now: new Date(monday.getTime() + 600_000), env, fetchFn }), 1);
+    expect(steady).toBeLessThan(30_000);
+    expect(sent.length - before).toBeLessThanOrEqual(100);
+    const again = await runSignalsCron({ now: new Date(monday.getTime() + 1_200_000), env, fetchFn });
+    expect(again.reports.already_sent).toBe(1);
+    const keys = await prisma.notificationLog.groupBy({ by: ["dedupeKey"], _count: { _all: true }, having: { dedupeKey: { _count: { gt: 1 } } } });
+    expect(keys).toEqual([]);
+    expect(await best(() => buildWeeklyReport(monday), 2)).toBeLessThan(5_000);
+  }, 180_000);
 
   test("Radar: lean points, a radius search, the list and its groups, and the radius on Trucks and Trailers, at 1,500 tractors and 5,000 trailers", async () => {
     const q = (o: Record<string, string>) => readRadarParams((k) => o[k]);

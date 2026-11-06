@@ -7,6 +7,7 @@ import { SleepNowButton } from "@/components/desk/splash";
 import { ThresholdsForm } from "@/components/desk/thresholds-form";
 import { SignalSettingsForm } from "@/components/desk/signal-settings-form";
 import { getSignalSettings } from "@/server/tl/signals";
+import { channelWords, configuredChannels } from "@/server/notify";
 import {
   DENSITIES,
   DENSITY_COOKIE,
@@ -278,7 +279,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
         <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
           Which alerts the desk tells people about, and when the weekly report goes. The signals list keeps every alert either way.
         </p>
-        <SignalSettingsForm current={signalSettings} channels={[]} />
+        <SignalSettingsForm current={signalSettings} channels={channelWords(configuredChannels().map((c) => c.name))} />
       </Card>
         </>
       ) : null}
