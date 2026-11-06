@@ -58,6 +58,7 @@ import { vetDriverCarrier, type VetResult } from "@/server/partners/vetting";
 import { sendToPayroll, type SendResult } from "@/server/partners/payroll";
 import { markThreadRead, sendMessage, type SendResult as SendMessageResult } from "@/server/tl/messages";
 import { commitImport, locateHomeBases, previewImport, type ImportPreview, type ImportResult, type LocateResult } from "@/server/tl/import";
+import { commitHistoryImport, previewHistoryImport, removeHistoryImport, type HistoryImportMap, type HistoryImportPreview, type HistoryImportResult, type RemoveHistoryResult } from "@/server/tl/tracker-import";
 import { commitLoadImport, previewLoadImport, removeLoadImport, type LoadImportMap, type LoadImportPreview, type LoadImportResult, type RemoveImportResult } from "@/server/tl/load-import";
 import type { ImportKind } from "@/lib/import-csv";
 import { deleteLoad, restoreLoad, type RemoveResult } from "@/server/tl/remove";
@@ -881,6 +882,30 @@ export async function commitLoadImportAction(text: string, mapping: LoadImportMa
 export async function removeLoadImportAction(batchId: string): Promise<RemoveImportResult> {
   await requireCan("dispatch");
   const out = await removeLoadImport(typeof batchId === "string" ? batchId : "");
+  if (out.ok) revalidatePath("/", "layout");
+  return out;
+}
+
+/** Reads a weekly-tracker CSV against the column match and says what would be imported as history, what is already there and what is wrong. Writes nothing. */
+export async function previewHistoryImportAction(text: string, mapping: HistoryImportMap | null): Promise<HistoryImportPreview> {
+  await requireCan("dispatch");
+  if (typeof text !== "string") return { ok: false, error: "That is not a file the desk can read." };
+  return previewHistoryImport(text, mapping && typeof mapping === "object" ? mapping : null);
+}
+
+/** Imports the lane-weeks that pass as imported history (never as loads), with one entry in the audit log. */
+export async function commitHistoryImportAction(text: string, mapping: HistoryImportMap | null, fileName: string): Promise<HistoryImportResult> {
+  await requireCan("dispatch");
+  if (typeof text !== "string") return { ok: false, error: "That is not a file the desk can read." };
+  const out = await commitHistoryImport(text, mapping && typeof mapping === "object" ? mapping : null, typeof fileName === "string" ? fileName : "");
+  if (out.ok) revalidatePath("/", "layout");
+  return out;
+}
+
+/** Takes a whole weekly-history import away again. */
+export async function removeHistoryImportAction(batchId: string): Promise<RemoveHistoryResult> {
+  await requireCan("dispatch");
+  const out = await removeHistoryImport(typeof batchId === "string" ? batchId : "");
   if (out.ok) revalidatePath("/", "layout");
   return out;
 }

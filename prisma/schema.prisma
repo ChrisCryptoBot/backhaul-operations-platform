@@ -75,6 +75,7 @@ model Workspace {
   regions            Region[]
   laneTargets        LaneTarget[]
   kpiNotes           KpiNote[]
+  importedHistory    ImportedHistory[]
   driverSchedules    DriverSchedule[]
   driverTimeOff      DriverShiftException[]
   members            Member[]
@@ -1217,4 +1218,27 @@ model KpiNote {
 
   @@unique([workspaceId, weekKey])
   @@map("kpi_notes")
+}
+
+/// One lane's week from a carrier's own weekly tracker (a spreadsheet of lane-per-week totals, not a list of loads). It feeds the trends only and is shown as "imported history": it is never turned into loads and
+/// never added to a figure built from loads. `weekStart` is the Monday of the week. A batch is every row of one file, so an import can be taken away whole.
+model ImportedHistory {
+  id               String   @id @default(cuid())
+  workspaceId      String   @map("workspace_id")
+  batchId          String   @map("batch_id")
+  weekStart        DateTime @map("week_start") @db.Date
+  lane             String
+  loads            Int
+  lineHaul         Decimal  @map("line_haul") @db.Decimal(12, 2)
+  fuelSurcharge    Decimal  @default(0) @map("fuel_surcharge") @db.Decimal(12, 2)
+  loadedMiles      Decimal  @map("loaded_miles") @db.Decimal(12, 1)
+  emptyMiles       Decimal  @default(0) @map("empty_miles") @db.Decimal(12, 1)
+  source           String
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, weekStart, lane])
+  @@index([workspaceId, batchId])
+  @@map("imported_history")
 }

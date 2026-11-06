@@ -18,6 +18,9 @@ import { hasFilters, kpiHref, parseKpiParams } from "@/lib/kpi-params";
 import { KPI_PERIODS, windowLabel } from "@/lib/kpi-periods";
 import { usd } from "@/lib/desk-format";
 import { getLeakLedger } from "@/server/tl/leaks";
+import { getImportedHistory } from "@/server/tl/tracker-import";
+import { ImportedHistoryCard } from "@/components/desk/kpi/imported-history";
+import { currentAllowed } from "@/server/tl/scope";
 import { currentTerminal } from "@/server/tl/terminal";
 
 export const metadata = { title: "KPI dashboard · TrueLane" };
@@ -30,6 +33,8 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
   const scope = termList(await currentTerminal());
   const [k, fuelAccess, billAccess] = await Promise.all([getDeskKpi({ period: params.period, compare: params.compare, filters: params.filters, terminals: scope }), checkAccess("quote", "figures"), checkAccess("bill")]);
   // The headline from the Leak Ledger, for the billing office only, and only on the unfiltered dashboard.
+  // The carrier's own imported weekly history belongs to no terminal, so it is shown to people who can see every terminal, on the unfiltered dashboard.
+  const history = !hasFilters(params.filters) && (await currentAllowed()) == null ? await getImportedHistory() : null;
   const leaks = billAccess.ok && !hasFilters(params.filters) ? await getLeakLedger({ period: params.period, compare: params.compare, terminals: scope }) : null;
   const href = (over: Partial<typeof params>) => kpiHref("/kpi", params, over);
   // A big fleet's driver chart shows the best and the worst ten; "All drivers" opens the rest.
@@ -156,6 +161,7 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
           The scorecards for <Link href="/lanes">each lane</Link> and <Link href="/customers">each customer</Link> are on their own pages.
         </p>
       </Card>
+      {history ? <ImportedHistoryCard h={history} /> : null}
     </>
   );
 }

@@ -100,6 +100,8 @@ export type AuditAction =
   | "import_completed"
   | "loads_import_completed"
   | "loads_import_removed"
+  | "history_import_completed"
+  | "history_import_removed"
   | "factoring_requested"
   | "factoring_updated"
   | "eld_linked"
@@ -204,6 +206,8 @@ export const ACTION_LABEL: Record<string, string> = {
   import_completed: "Fleet imported from a file",
   loads_import_completed: "Load history imported from a file",
   loads_import_removed: "Imported loads removed",
+  history_import_completed: "Weekly history imported from a file",
+  history_import_removed: "Imported weekly history removed",
   factoring_requested: "Invoice sent to a factor",
   factoring_updated: "Factoring updated",
   eld_linked: "Tractor linked to an ELD",
@@ -309,6 +313,8 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   import_completed: "info",
   loads_import_completed: "info",
   loads_import_removed: "bad",
+  history_import_completed: "info",
+  history_import_removed: "bad",
   factoring_requested: "info",
   factoring_updated: "muted",
   eld_linked: "info",
@@ -343,7 +349,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
 export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[] }> = [
   { key: "dispatch", label: "Dispatch", actions: ["booked", "quote_saved", "quote_passed", "quote_discarded", "load_edited", "trip_started", "trip_undone", "delivered", "trip_reopened", "trip_corrected", "load_reopened", "assigned", "reassigned", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled"] },
   { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "invoice_chased", "detention_waived", "invoice_voided", "paid", "payment_part", "payment_undone", "statement_started", "statement_saved", "statement_paid", "load_settled", "load_released", "statement_finalized", "statement_voided", "statement_discarded"] },
-  { key: "intake", label: "Intake", actions: ["rate_con_saved", "rate_con_read", "rate_con_read_failed", "document_added", "document_removed", "loads_import_completed", "loads_import_removed"] },
+  { key: "intake", label: "Intake", actions: ["rate_con_saved", "rate_con_read", "rate_con_read_failed", "document_added", "document_removed", "loads_import_completed", "loads_import_removed", "history_import_completed", "history_import_removed"] },
   { key: "team", label: "Team", actions: ["member_added", "member_role_changed", "member_removed", "member_scope_changed"] },
   { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_deactivated", "driver_reactivated", "schedule_changed", "time_off_added", "time_off_removed", "terminal_added", "terminal_renamed", "terminal_archived", "driver_home_set", "driver_code_changed", "region_added", "region_renamed", "region_archived", "terminal_region_set", "check_call", "check_call_removed", "truck_added", "truck_changed", "truck_archived", "truck_restored", "import_completed", "cost_profile_changed", "trailer_added", "trailer_changed", "trailer_archived", "trailer_restored", "trailer_hooked", "trailer_unhooked", "trailer_assigned", "dwell_adjusted", "dwell_waived", "dwell_reset"] },
   { key: "customers", label: "Customers", actions: ["customer_added", "customer_changed"] },

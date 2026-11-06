@@ -14,6 +14,7 @@ export default async function ImportLoadsPage() {
   return (
     <>
       <PageHead title="Import loads" sub="Bring in a carrier's history: one finished load per row, with the columns matched to the desk's fields and every row checked before anything is written. A load already on the desk (the same number from the same customer) is left out.">
+        <Link href="/loads/import/weekly" className="tl-btn">Weekly tracker instead</Link>
         <Link href="/loads" className="tl-btn">Loads</Link>
       </PageHead>
       <CanGate caps={["dispatch"]} banner who="A dispatcher" what="this page">

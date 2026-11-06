@@ -35,6 +35,14 @@ A **finished load** with `channel = "import:<batch>"`. It has **no driver** (his
 
 `lib/load-import.ts` (pure: fields, match, row checks, what a row becomes; `tests/load-import.test.ts`), `server/tl/load-import.ts` (preview, commit, list, remove; `tests/integration/load-import.integration.test.ts`), `components/desk/load-import-panel.tsx`, `app/(desk)/loads/import/page.tsx`, three actions in `app/(desk)/actions.ts` (in `tests/loads-roles.test.ts`).
 
+## A weekly tracker: imported history (built 2026-11-05)
+
+A spreadsheet of lane-per-week totals is not a list of loads, so it is **not** turned into loads. Page: `/loads/import/weekly` (linked from the loads import). Same four steps and the same safety (server-side check, one transaction with the duplicate check again under the lock, one audit event per batch, "Remove this import"), with its own fields (`lib/tracker-import.ts`): week (any day of the week; counted Monday to Sunday), lane (one "Dallas, TX to Atlanta, GA" column, or a pickup and a delivery column), loads, line haul, loaded miles, and optionally the fuel surcharge and empty miles (a total, or before pickup plus after delivery). A lane-week already imported, or twice in the file, is left out.
+
+The rows go to their own table, `imported_history` (migration `20261203000000_imported_history`, applied to the local databases; **Chris applies it by hand on the desk's own Supabase, then re-runs `supabase/lockdown_rls.sql`, which is now `20261203000001_enable_rls.sql`**). They are shown on the KPI page under the heading "Imported history" (weeks, newest first, and the biggest lanes) and are **never added to a figure built from loads**: the KPI, Lanes, Customers, the Leak ledger and Data health do not read them. Per mile is over loaded miles (a tracker has no revenue-mile basis); empty share is empty miles over every mile driven. The history belongs to no terminal, so it is shown to people who can see every terminal. Removing an import deletes its rows (they are copies of the spreadsheet).
+
+Tests: `tests/tracker-import.test.ts`, `tests/integration/tracker-import.integration.test.ts` (the KPI of the desk is unchanged by an import); the model is in the `no-legacy` list.
+
 ## Not in it yet
 
-A weekly tracker (lane-per-week aggregates) is not a per-load file; it needs its own labelled "imported history" table that feeds the trends only and never invents loads. A saved column match per carrier (today the match is guessed again on each file).
+A saved column match per carrier (today the match is guessed again on each file); a chart of the imported weeks (today a table); imported history in the Lanes page's week grid.

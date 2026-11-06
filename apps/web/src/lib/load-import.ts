@@ -57,14 +57,14 @@ const norm = (h: string) => h.toLowerCase().replace(/[^a-z0-9]/g, "");
 export type ColumnMap = Record<LoadFieldKey, number | null>;
 export const emptyMap = (): ColumnMap => Object.fromEntries(LOAD_FIELDS.map((f) => [f.key, null])) as ColumnMap;
 
-/** A first guess at the match: each file column is used for at most one field, a field takes the first column that names it, and exact names beat loose ones. */
-export function autoMap(header: readonly string[]): ColumnMap {
-  const map = emptyMap();
+/** A first guess at the match for any list of fields: each file column is used for at most one field, a field takes the first column that names it, and exact names beat loose ones. */
+export function matchHeader<K extends string>(header: readonly string[], fields: ReadonlyArray<{ key: K; label: string; aliases: readonly string[] }>): Record<K, number | null> {
+  const map = Object.fromEntries(fields.map((f) => [f.key, null])) as Record<K, number | null>;
   const taken = new Set<number>();
   const cells = header.map(norm);
   // Two passes: a column whose whole name is a field's own label first, then any alias.
   for (const exact of [true, false]) {
-    for (const f of LOAD_FIELDS) {
+    for (const f of fields) {
       if (map[f.key] != null) continue;
       const at = cells.findIndex((c, i) => !taken.has(i) && c !== "" && (exact ? c === norm(f.label) : f.aliases.includes(c)));
       if (at >= 0) {
@@ -75,6 +75,9 @@ export function autoMap(header: readonly string[]): ColumnMap {
   }
   return map;
 }
+
+/** A first guess at the match for a file of loads. */
+export const autoMap = (header: readonly string[]): ColumnMap => matchHeader(header, LOAD_FIELDS);
 
 /** The required fields that have no column. */
 export const missingFields = (map: ColumnMap): LoadField[] => LOAD_FIELDS.filter((f) => f.required && map[f.key] == null);
@@ -331,3 +334,6 @@ export function paymentOf(d: LoadDraft): { status: "paid" | "invoiced" | null; i
 /** The mark an imported load carries in its `channel`, and how to read it back. */
 export const importChannel = (batchId: string) => `import:${batchId}`;
 export const batchOfChannel = (channel: string | null | undefined): string | null => (channel?.startsWith("import:") ? channel.slice("import:".length) : null);
+
+/** The readers a weekly-tracker file shares with a file of loads. */
+export { money as readMoney, whole as readWhole };

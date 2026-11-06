@@ -15,6 +15,7 @@ const GATED: Array<{ page: string; uses: string[]; caps: Capability[] }> = [
   { page: "src/app/(desk)/drivers/[id]/page.tsx", uses: ["<DriverCodeEdit"], caps: ["roster"] },
   { page: "src/app/(desk)/drivers/import/page.tsx", uses: ["<ImportPanel"], caps: ["dispatch"] },
   { page: "src/app/(desk)/loads/import/page.tsx", uses: ["<LoadImportPanel"], caps: ["dispatch"] },
+  { page: "src/app/(desk)/loads/import/weekly/page.tsx", uses: ["<TrackerImportPanel"], caps: ["dispatch"] },
   { page: "src/app/(desk)/fleet/page.tsx", uses: ["<AddTruck", "<TruckRowActions", "<SyncEldButton"], caps: ["dispatch"] },
   { page: "src/app/(desk)/fleet/[id]/page.tsx", uses: ["<TruckRowActions", "<TruckForm", "<CostProfileForm", "<FuelCardForm"], caps: ["dispatch"] },
   { page: "src/app/(desk)/fleet/import/page.tsx", uses: ["<ImportPanel"], caps: ["dispatch"] },

@@ -20,6 +20,7 @@ import { agingFor, countInvoices, listBoardRows, listInvoiceRows } from "@/serve
 import { fitQuote } from "@/server/tl/quote";
 import { kpiChoices } from "@/server/tl/kpi-choices";
 import { previewLoadImport } from "@/server/tl/load-import";
+import { getImportedHistory, previewHistoryImport } from "@/server/tl/tracker-import";
 import { clearHealthCache, getDataHealth } from "@/server/tl/data-health";
 import { listCustomerRecordsInScope } from "@/server/tl/customers";
 import { listSettlements, settlementCounts, unsettledByDriver } from "@/server/tl/settlement";
@@ -199,6 +200,14 @@ describe.runIf(run)("the desk at the size of a big fleet", () => {
     expect(await best(() => previewLoadImport(file), 1)).toBeLessThan(8_000);
     const p = await previewLoadImport(file);
     expect(p).toMatchObject({ ok: true, total: 20_000, ready: 20_000, duplicates: 0, problemCount: 0 });
+  }, 60_000);
+
+  test("Weekly tracker import: a 20,000-row file is read and checked in seconds, and the imported history reads fast", async () => {
+    const header = "Week,Lane,Loads,Line haul,Loaded miles";
+    const rows = Array.from({ length: 20_000 }, (_, i) => `2025-${String((i % 12) + 1).padStart(2, "0")}-${String((i % 27) + 1).padStart(2, "0")},"Lane ${i % 700}, TX to Waco, TX",3,1500,500`);
+    const file = [header, ...rows].join("\n");
+    expect(await best(() => previewHistoryImport(file), 1)).toBeLessThan(8_000);
+    expect(await best(() => getImportedHistory())).toBeLessThan(800);
   }, 60_000);
 
   test("Data health: the whole fleet and one terminal, built once and kept", async () => {
