@@ -24,7 +24,7 @@ const TABLE: Record<string, Capability[]> = {
   // negotiating
   saveQuoteAction: ["quote"], bookQuoteAction: ["quote"], passQuoteAction: ["quote"], discardQuoteAction: ["quote"],
   // running loads and the fleet
-  assignAction: ["dispatch"], assignFromQueueAction: ["dispatch"], unassignAction: ["dispatch"], sendAction: ["dispatch"], respondAction: ["dispatch"], retryBridgeAction: ["dispatch"], saveTimezoneAction: ["admin"], savePartnerKeysAction: ["admin"], removePartnerKeysAction: ["admin"], retryPartnerAction: ["admin"], sendTestEventAction: ["admin"], shareLocationAction: ["dispatch"], syncFuelCardsAction: ["dispatch", "bill"], calculateIftaAction: ["bill"], cancelAction: ["dispatch"], tonuAction: ["dispatch"],
+  assignAction: ["dispatch"], acknowledgeSignalAction: ["dispatch"], assignFromQueueAction: ["dispatch"], unassignAction: ["dispatch"], sendAction: ["dispatch"], respondAction: ["dispatch"], retryBridgeAction: ["dispatch"], saveTimezoneAction: ["admin"], savePartnerKeysAction: ["admin"], removePartnerKeysAction: ["admin"], retryPartnerAction: ["admin"], sendTestEventAction: ["admin"], shareLocationAction: ["dispatch"], syncFuelCardsAction: ["dispatch", "bill"], calculateIftaAction: ["bill"], cancelAction: ["dispatch"], tonuAction: ["dispatch"],
   rescheduleAction: ["dispatch"], readUploadedRateConAction: ["dispatch"], saveRateConAction: ["dispatch"], saveLoadDetailsAction: ["dispatch"], deleteLoadAction: ["dispatch"], restoreLoadAction: ["dispatch"],
   startTripAction: ["dispatch"], undoStartAction: ["dispatch"], reopenDeliveredAction: ["dispatch"], reopenCancelledAction: ["dispatch"], completeTripAction: ["dispatch"],
   saveDriverAction: ["dispatch"], setDriverActiveAction: ["dispatch"], saveTruckAction: ["dispatch"], setTruckArchivedAction: ["dispatch"], saveTrailerAction: ["dispatch"], setTrailerArchivedAction: ["dispatch"],
@@ -39,7 +39,7 @@ const TABLE: Record<string, Capability[]> = {
   // money that is gone
   voidSettlementAction: ["writeoff"],
   // the company, the rules, the connections and the team
-  saveThresholdsAction: ["admin"], saveCompanyAction: ["admin"], connectPartnerAction: ["admin"], disconnectPartnerAction: ["admin"], addMemberAction: ["admin"], setMemberRoleAction: ["admin"],
+  saveThresholdsAction: ["admin"], saveSignalSettingsAction: ["admin"], saveCompanyAction: ["admin"], connectPartnerAction: ["admin"], disconnectPartnerAction: ["admin"], addMemberAction: ["admin"], setMemberRoleAction: ["admin"],
   setMemberGrantsAction: ["admin"], removeMemberAction: ["admin"],
   // who works when and from where (a driver manager or an admin), and the terminal list itself (an admin)
   saveScheduleAction: ["roster"], applyScheduleAction: ["roster"], clearScheduleAction: ["roster"], saveTimeOffAction: ["roster"], removeTimeOffAction: ["roster"], setDriversHomeAction: ["roster"], setDriverCodeAction: ["roster"],

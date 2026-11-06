@@ -37,6 +37,7 @@ const NAV: Array<{ label: string; items: Item[] }> = [
       { href: "/messages", label: "Messages", code: "MS", pill: (c) => (c.unreadMessages > 0 ? { n: c.unreadMessages, tone: "warn" } : null), roles: ["admin", "dispatcher", "driver_manager", "accounting"] },
       { href: "/planner", label: "Planner", code: "PL", roles: ["admin", "dispatcher", "driver_manager", "viewer"] },
       { href: "/alerts", label: "Alerts", code: "AL", pill: (c) => (c.alertsBlock > 0 ? { n: c.alertsBlock + c.alertsWarn, tone: "alert" } : c.alertsWarn > 0 ? { n: c.alertsWarn, tone: "warn" } : null) },
+      { href: "/signals", label: "Signals", code: "SG" },
       { href: "/rate-cons", label: "Rate confirmations", code: "RC", roles: ["admin", "dispatcher"] }
     ]
   },

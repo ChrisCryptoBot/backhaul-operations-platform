@@ -5,6 +5,8 @@ import { saveTimezoneAction, setAppearanceAction } from "../actions";
 import { Card, PageHead } from "@/components/desk/ui";
 import { SleepNowButton } from "@/components/desk/splash";
 import { ThresholdsForm } from "@/components/desk/thresholds-form";
+import { SignalSettingsForm } from "@/components/desk/signal-settings-form";
+import { getSignalSettings } from "@/server/tl/signals";
 import {
   DENSITIES,
   DENSITY_COOKIE,
@@ -66,6 +68,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
   const host = headers().get("x-forwarded-host") ?? headers().get("host") ?? "";
   const integrationsOrigin = host ? `${headers().get("x-forwarded-proto") ?? "https"}://${host}` : "";
   const [row, kpi, company, plan, partners, members] = await Promise.all([getStoredThresholds(), getDeskKpi({ period: "4w", compare: false }), getCompany(), planSummary(), partnerStatus(), listMembers()]);
+  const signalSettings = await getSignalSettings();
   const terminals = admin ? await terminalRows() : [];
   const regionData = admin ? await regionRows() : { regions: [], unassigned: [] };
   const seats = plan.units.find((u) => u.kind === "member")!;
@@ -270,6 +273,12 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
           The lines the dashboard, the alerts, the invoices and the verdict card judge by. They are shared by everyone using this desk, and each change is recorded in the audit log.
         </p>
         <ThresholdsForm stored={stored} fleetEmptyShare={kpi.current.emptyShare} />
+      </Card>
+      <Card title="Signals" className="tl-card">
+        <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
+          Which alerts the desk tells people about, and when the weekly report goes. The signals list keeps every alert either way.
+        </p>
+        <SignalSettingsForm current={signalSettings} channels={[]} />
       </Card>
         </>
       ) : null}

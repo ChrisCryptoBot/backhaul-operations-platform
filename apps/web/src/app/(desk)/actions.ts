@@ -20,6 +20,8 @@ import { currentWorkspaceId } from "@/server/tl/workspace";
 import { pickupClock, stopClocksOf } from "@/server/tl/stop-clock";
 import { workspaceTimezone } from "@/server/tl/zone";
 import { saveThresholds } from "@/server/tl/thresholds";
+import { acknowledgeSignal, saveSignalSettings } from "@/server/tl/signals";
+import type { SignalSettings } from "@/lib/signal-settings";
 import { saveCompany } from "@/server/tl/company";
 import { saveCustomer, type SaveCustomerResult } from "@/server/tl/customers";
 import type { CustomerValues } from "@/lib/customer";
@@ -540,6 +542,27 @@ export async function saveThresholdsAction(values: Record<string, string>): Prom
   const out = await saveThresholds(values);
   if (!out.ok) return { ok: false, errors: out.errors };
   revalidatePath("/", "layout");
+  return { ok: true, changed: out.changed ?? false };
+}
+
+/** Says someone is on a signal (docs/SIGNALS.md): it leaves the open list until it clears or gets worse. Held to the person's own scope on the server. */
+export async function acknowledgeSignalAction(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireCan("dispatch");
+  const out = await acknowledgeSignal(id);
+  if (out.ok) {
+    revalidatePath("/signals");
+    revalidatePath("/audit");
+  }
+  return out;
+}
+
+/** What the desk tells people about and when the weekly report goes (Settings, Rules). */
+export async function saveSignalSettingsAction(values: Record<string, string>): Promise<{ ok: true; changed: boolean } | { ok: false; errors: Partial<Record<keyof SignalSettings, string>> }> {
+  await requireCan("admin");
+  const out = await saveSignalSettings(values);
+  if (!out.ok) return { ok: false, errors: out.errors };
+  revalidatePath("/settings/rules");
+  revalidatePath("/signals");
   return { ok: true, changed: out.changed ?? false };
 }
 

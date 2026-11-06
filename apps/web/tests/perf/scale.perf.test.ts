@@ -22,6 +22,7 @@ import { kpiChoices } from "@/server/tl/kpi-choices";
 import { previewLoadImport } from "@/server/tl/load-import";
 import { getImportedHistory, previewHistoryImport } from "@/server/tl/tracker-import";
 import { clearHealthCache, getDataHealth } from "@/server/tl/data-health";
+import { listSignals, signalCounts, syncSignals } from "@/server/tl/signals";
 import { listCustomerRecordsInScope } from "@/server/tl/customers";
 import { listSettlements, settlementCounts, unsettledByDriver } from "@/server/tl/settlement";
 import { getShellData } from "@/server/tl/shell";
@@ -217,6 +218,25 @@ describe.runIf(run)("the desk at the size of a big fleet", () => {
     expect(await best(() => getDataHealth({ period: "4w" }))).toBeLessThan(300);
     expect(await best(() => getDataHealth({ period: "all" }), 1)).toBeLessThan(25_000);
     expect(await best(() => getDataHealth({ period: "4w", terminals: terminal ? [terminal] : null }), 1)).toBeLessThan(10_000);
+  }, 120_000);
+
+  test("Signals: the first sync creates every alert's signal, the next only moves last seen; the list, its counts and one terminal's are quick", async () => {
+    await prisma.signal.deleteMany({});
+    clearAlertCache();
+    const terminal = (await prisma.vehicle.findFirst({ where: { terminal: { not: null } }, select: { terminal: true } }))?.terminal;
+    const t0 = Date.now();
+    const first = await syncSignals();
+    const coldMs = Date.now() - t0;
+    expect(first.created).toBeGreaterThan(0);
+    expect(coldMs).toBeLessThan(30_000);
+    // Steady state: the alert answer is kept, so this is the diff and one update statement for everything still raised.
+    const steady = await best(() => syncSignals(new Date(Date.now() + 60_000)), 2);
+    expect(steady).toBeLessThan(5_000);
+    expect((await syncSignals(new Date(Date.now() + 120_000))).created).toBe(0);
+    expect(await best(() => listSignals({ status: "open" }, null))).toBeLessThan(1_000);
+    expect(await best(() => signalCounts(null))).toBeLessThan(1_000);
+    expect(await best(() => listSignals({ status: "open" }, terminal ? [terminal] : null))).toBeLessThan(2_000);
+    expect(await best(() => signalCounts(terminal ? [terminal] : null))).toBeLessThan(2_000);
   }, 120_000);
 
   test("Radar: lean points, a radius search, the list and its groups, and the radius on Trucks and Trailers, at 1,500 tractors and 5,000 trailers", async () => {

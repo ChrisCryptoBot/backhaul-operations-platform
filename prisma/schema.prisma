@@ -39,6 +39,11 @@ model Workspace {
   /// Trailer dwell: hours an unhooked trailer may sit before it is a dwell alert, and the per-day charge after that. Null = the built-in default (48 hours, $75 a day); the company's figure wins, a person's typed figure on a trailer wins over both.
   dwellFreeHours        Int?     @map("dwell_free_hours")
   dwellPerDayRate       Decimal? @map("dwell_per_day_rate") @db.Decimal(8, 2)
+  /// What the desk tells people about and when the weekly report goes (docs/SIGNALS.md). Null = the built-in default: block alerts only, report on, Monday 7 AM on the carrier clock.
+  signalMinLevel        String?  @map("signal_min_level")
+  reportDay             Int?     @map("report_day")
+  reportHour            Int?     @map("report_hour")
+  reportEnabled         Boolean? @map("report_enabled")
   /// The last statement number given out, so a discarded draft's number is never given again.
   settlementSeq         Int      @default(0) @map("settlement_seq")
 
@@ -53,14 +58,14 @@ model Workspace {
   paymentNote String? @map("payment_note")
 
   /// The plan the workspace is on (starter | growth | pro | enterprise). A missing plan is read as Starter (src/lib/plans.ts effectivePlan), never as "no limit".
-  plan               String?             @default("starter")
+  plan               String?                @default("starter")
   /// The carrier's own clock (an IANA zone such as America/New_York): where billing days, aging, weekly driver limits, statement weeks and "this month" are counted. Stops keep their own
   /// local time (an appointment at a facility is read in the facility's zone); see src/lib/tz.ts. New workspaces start on Central, as the desk always has.
-  timezone           String              @default("America/Chicago") @map("timezone")
+  timezone           String                 @default("America/Chicago") @map("timezone")
   /// The driver link (docs/DRIVER_LINK_DESIGN.md): the Clerk Organization this workspace is mapped to on the bridge (null = not bridged: the dispatcher records the driver's answers), and the
   /// last `sync_seq` of the bridge table read, so each pull continues where the last one ended.
-  bridgeOrgId        String?             @map("bridge_org_id")
-  bridgeCursor       BigInt              @default(0) @map("bridge_cursor")
+  bridgeOrgId        String?                @map("bridge_org_id")
+  bridgeCursor       BigInt                 @default(0) @map("bridge_cursor")
   partnerConnections PartnerConnection[]
   bridgeOutbox       BridgeOutbox[]
   partnerCredentials PartnerCredential[]
@@ -76,6 +81,8 @@ model Workspace {
   laneTargets        LaneTarget[]
   kpiNotes           KpiNote[]
   importedHistory    ImportedHistory[]
+  signals            Signal[]
+  notificationLog    NotificationLog[]
   driverSchedules    DriverSchedule[]
   driverTimeOff      DriverShiftException[]
   members            Member[]
@@ -349,6 +356,7 @@ model Load {
   assignment       Assignment?
   messages         Message[]
   settlement       SettlementLoad?
+  signals          Signal[]
 
   // The lists a big fleet reads: by state, by day, by money, by customer, by number, and a truck's own loads. Trigram (search) indexes are in the
   // 20261106100000 migration only; Prisma cannot express them.
@@ -479,8 +487,8 @@ model Driver {
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  workspace       Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  assignedVehicle Vehicle?              @relation(fields: [assignedVehicleId], references: [id], onDelete: SetNull)
+  workspace       Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignedVehicle Vehicle?               @relation(fields: [assignedVehicleId], references: [id], onDelete: SetNull)
   assignments     Assignment[]
   thread          Thread?
   settlements     Settlement[]
@@ -658,8 +666,8 @@ model Trailer {
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
-  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  currentVehicle Vehicle?  @relation(fields: [currentVehicleId], references: [id], onDelete: SetNull)
+  workspace      Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  currentVehicle Vehicle?      @relation(fields: [currentVehicleId], references: [id], onDelete: SetNull)
   loads          Load[]
   checkCalls     CheckCall[]
   moves          TrailerMove[]
@@ -1223,22 +1231,85 @@ model KpiNote {
 /// One lane's week from a carrier's own weekly tracker (a spreadsheet of lane-per-week totals, not a list of loads). It feeds the trends only and is shown as "imported history": it is never turned into loads and
 /// never added to a figure built from loads. `weekStart` is the Monday of the week. A batch is every row of one file, so an import can be taken away whole.
 model ImportedHistory {
-  id               String   @id @default(cuid())
-  workspaceId      String   @map("workspace_id")
-  batchId          String   @map("batch_id")
-  weekStart        DateTime @map("week_start") @db.Date
-  lane             String
-  loads            Int
-  lineHaul         Decimal  @map("line_haul") @db.Decimal(12, 2)
-  fuelSurcharge    Decimal  @default(0) @map("fuel_surcharge") @db.Decimal(12, 2)
-  loadedMiles      Decimal  @map("loaded_miles") @db.Decimal(12, 1)
-  emptyMiles       Decimal  @default(0) @map("empty_miles") @db.Decimal(12, 1)
-  source           String
-  createdAt        DateTime @default(now()) @map("created_at")
+  id            String   @id @default(cuid())
+  workspaceId   String   @map("workspace_id")
+  batchId       String   @map("batch_id")
+  weekStart     DateTime @map("week_start") @db.Date
+  lane          String
+  loads         Int
+  lineHaul      Decimal  @map("line_haul") @db.Decimal(12, 2)
+  fuelSurcharge Decimal  @default(0) @map("fuel_surcharge") @db.Decimal(12, 2)
+  loadedMiles   Decimal  @map("loaded_miles") @db.Decimal(12, 1)
+  emptyMiles    Decimal  @default(0) @map("empty_miles") @db.Decimal(12, 1)
+  source        String
+  createdAt     DateTime @default(now()) @map("created_at")
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([workspaceId, weekStart, lane])
   @@index([workspaceId, batchId])
   @@map("imported_history")
+}
+
+/// An alert the desk derives on every request (src/lib/alerts.ts), kept: when it was first seen, whether someone acknowledged it, when it cleared, what was sent about it (docs/SIGNALS.md).
+/// `key` is the alert's own key (the load and the rule), unique per desk, so a signal that clears and returns is reopened, not a second row. Written only by syncSignals under the workspace lock.
+model Signal {
+  id            String    @id @default(cuid())
+  workspaceId   String    @map("workspace_id")
+  key           String
+  code          String
+  /// block | warn | info (checked in the migration).
+  level         String
+  title         String
+  detail        String
+  loadId        String?   @map("load_id")
+  loadNumber    String?   @map("load_number")
+  /// open | acknowledged | resolved (checked in the migration).
+  status        String    @default("open")
+  firstSeenAt   DateTime  @map("first_seen_at")
+  lastSeenAt    DateTime  @map("last_seen_at")
+  resolvedAt    DateTime? @map("resolved_at")
+  reopenCount   Int       @default(0) @map("reopen_count")
+  ackedBy       String?   @map("acked_by")
+  ackedAt       DateTime? @map("acked_at")
+  /// The most severe level a notification has already gone out for, so a signal is sent once per level it reaches.
+  lastLevelSent String?   @map("last_level_sent")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  load      Load?             @relation(fields: [loadId], references: [id], onDelete: SetNull)
+  sends     NotificationLog[]
+
+  @@unique([workspaceId, key])
+  @@index([workspaceId, status, level])
+  @@index([loadId])
+  @@map("signals")
+}
+
+/// One row per thing sent and channel, per desk. The unique dedupe key is the database-level guarantee that a notification goes out once, whatever races: the second insert of the same key fails.
+model NotificationLog {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  /// signal | weekly_report (checked in the migration).
+  kind        String
+  /// What makes this send unique: the channel, the thing and the level or the ISO week.
+  dedupeKey   String    @map("dedupe_key")
+  channel     String
+  /// queued | sent | failed | skipped (checked in the migration).
+  state       String    @default("queued")
+  attempts    Int       @default(0)
+  /// A short reason only, never a body or a secret.
+  error       String?
+  signalId    String?   @map("signal_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  nextTryAt   DateTime? @map("next_try_at")
+  sentAt      DateTime? @map("sent_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  signal    Signal?   @relation(fields: [signalId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, dedupeKey])
+  @@index([workspaceId, state])
+  @@map("notification_log")
 }

@@ -46,6 +46,7 @@ for m in \
   20261130000000_kpi_targets_notes \
   20261201000000_asset_history \
   20261202000000_regions_scope \
-  20261203000000_imported_history; do
+  20261203000000_imported_history \
+  20261204000000_signals; do
   npx prisma migrate resolve --applied "$m" --schema=./prisma/schema.prisma
 done
