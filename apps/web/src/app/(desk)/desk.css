@@ -343,6 +343,7 @@ a.al:hover { background: var(--db-bg-elev-1); }
 @media (min-width: 1360px) { .km { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 /* A strip of four (the Leak Ledger's groups) fills its row at every width the desk is used at. */
 .km.km-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.km.km-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .km-cell { background: var(--db-bg); padding: var(--db-3) var(--db-4); min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .km-label { font-family: var(--db-font-head); font-size: var(--db-text-sm); letter-spacing: 0.1em; text-transform: uppercase; color: var(--db-fg-dim); font-weight: 600; }
 .km-value { font-family: var(--db-font-head); font-size: var(--db-text-3xl); font-weight: 600; line-height: 1.05; font-variant-numeric: tabular-nums; }
@@ -1208,3 +1209,27 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .qd-letter[data-grade="D"], .qd-letter[data-grade="F"] { color: var(--db-neg); }
 @media (max-width: 1100px) { .qd { grid-template-columns: 1fr; } }
 .qd .tl-table .sub { display: block; font-size: var(--db-text-sm); color: var(--db-fg-dim); font-weight: 400; }
+
+/* Why it moved: a list of lanes or customers, each opening to the effects that add back to its change. Ruled, square, tokens only. */
+.mv-pos { color: var(--db-pos); }
+.mv-neg { color: var(--db-neg); }
+.mv-list { border-top: 1px solid var(--db-border-soft); }
+.mv-head, .mv-row { display: grid; grid-template-columns: minmax(0, 1fr) 120px 120px 130px; gap: var(--db-3); align-items: baseline; padding: var(--db-2) var(--db-2); }
+.mv-head { font-family: var(--db-font-head); font-size: var(--db-text-xs); letter-spacing: 0.1em; text-transform: uppercase; color: var(--db-fg-dim); font-weight: 600; border-bottom: 1px solid var(--db-border-soft); }
+.mv-head .num, .mv-row .num { text-align: right; font-variant-numeric: tabular-nums; }
+.mv-detail { border-bottom: 1px solid var(--db-border-soft); }
+.mv-detail > summary { list-style: none; cursor: pointer; }
+.mv-detail > summary::-webkit-details-marker { display: none; }
+.mv-detail > summary:hover { background: var(--db-bg-hover, transparent); }
+.mv-detail[open] > summary { border-bottom: 1px dashed var(--db-border-soft); }
+.mv-label { display: grid; gap: 2px; min-width: 0; }
+.mv-top { color: var(--db-fg-dim); font-size: var(--db-text-sm); }
+.mv-more { color: var(--db-fg-dim); border-bottom: 1px solid var(--db-border-soft); }
+.mv-open { padding: var(--db-3) var(--db-2) var(--db-4); max-width: 640px; }
+.mv-effects { display: grid; gap: 0; }
+.mv-effect { display: grid; grid-template-columns: minmax(0, 1fr) 120px; gap: var(--db-3); align-items: baseline; padding: var(--db-2) 0; border-bottom: 1px solid var(--db-border-soft); }
+.mv-effect .mv-note { grid-column: 1 / -1; color: var(--db-fg-dim); font-size: var(--db-text-sm); }
+.mv-amt { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.mv-total { font-weight: 700; border-bottom: 0; border-top: 1px solid var(--db-border); }
+.mv-name { min-width: 0; }
+@media (max-width: 1100px) { .mv-head, .mv-row { grid-template-columns: minmax(0, 1fr) 100px 100px 110px; } }

@@ -25,6 +25,7 @@ import { clearHealthCache, getDataHealth } from "@/server/tl/data-health";
 import { listSignals, signalCounts, syncSignals } from "@/server/tl/signals";
 import { runSignalsCron } from "@/server/tl/signals-cron";
 import { buildWeeklyReport } from "@/server/tl/weekly-report";
+import { clearMovesCache, getMoves } from "@/server/tl/moves";
 import { listCustomerRecordsInScope } from "@/server/tl/customers";
 import { listSettlements, settlementCounts, unsettledByDriver } from "@/server/tl/settlement";
 import { getShellData } from "@/server/tl/shell";
@@ -271,6 +272,18 @@ describe.runIf(run)("the desk at the size of a big fleet", () => {
     expect(keys).toEqual([]);
     expect(await best(() => buildWeeklyReport(monday), 2)).toBeLessThan(5_000);
   }, 180_000);
+
+  test("Why it moved: two weeks of a big fleet by lane and by customer, built once and kept, and one terminal", async () => {
+    clearMovesCache();
+    const terminal = (await prisma.vehicle.findFirst({ where: { terminal: { not: null } }, select: { terminal: true } }))?.terminal;
+    expect(await best(() => getMoves({ by: "lane" }), 1)).toBeLessThan(15_000);
+    expect(await best(() => getMoves({ by: "lane" }))).toBeLessThan(300);
+    expect(await best(() => getMoves({ by: "customer", ago: 3 }), 1)).toBeLessThan(15_000);
+    expect(await best(() => getMoves({ by: "lane", terminals: terminal ? [terminal] : null }), 1)).toBeLessThan(10_000);
+    const m = await getMoves({ by: "lane" });
+    expect(m.rows.length).toBeLessThanOrEqual(25);
+    expect(m.desk.before.loads + m.desk.after.loads).toBeGreaterThan(0);
+  }, 120_000);
 
   test("Radar: lean points, a radius search, the list and its groups, and the radius on Trucks and Trailers, at 1,500 tractors and 5,000 trailers", async () => {
     const q = (o: Record<string, string>) => readRadarParams((k) => o[k]);

@@ -22,6 +22,7 @@ import { answerCache, clockBucket } from "./answer-cache";
 import { getKpiExtras, kpiExtrasStamp } from "./kpi-extras";
 import { terminalSetSql } from "./terminal-sql";
 import type { LeakLoad } from "@/lib/leaks";
+import type { MoveLoad } from "@/lib/moves";
 import { dieselAt, laneScore, leadDaysOf, mixLabel, mixOf, tenderStats, type KpiExtras, type LaneScore, type MixRow, type TenderStats } from "@/lib/kpi-extras";
 
 /**
@@ -349,6 +350,31 @@ export function leakLoadOf(l: KpiLoadRow): LeakLoad {
     floor: numOrNull(l.snapshotBaseFloorRpm),
     tonuRevenue: numOrNull(l.tonuRevenue) ?? 0,
     invoiced: l.paymentStatus === "invoiced" || l.paymentStatus === "paid"
+  };
+}
+
+/**
+ * A finished load as "Why it moved" reads it: the same money and mile definitions as every KPI fact (line haul is the rate without the fuel surcharge, `other` is whatever else the gross holds, a TONU fee or
+ * layover pay), so the bridge's weeks add up to the dashboard's own. The billed detention is added by the caller, which reads the invoices.
+ */
+export function moveLoadOf(l: KpiLoadRow): MoveLoad {
+  const mi = milesIn(l);
+  const isTonu = l.status === "tonu";
+  const gross = loadGross(money(l));
+  const lineHaul = isTonu ? 0 : (numOrNull(l.actualRevenue) ?? num(l.quotedRevenue));
+  const fsc = isTonu ? 0 : (numOrNull(l.fuelSurcharge) ?? 0);
+  return {
+    loadId: l.id,
+    doneAt: doneAtOf(l),
+    lane: laneOf(l),
+    customer: l.brokerName,
+    loadedMiles: isTonu ? 0 : effectiveMiles(mi).loaded,
+    drivenMiles: drivenMiles(mi),
+    lineHaul,
+    fsc,
+    other: gross - lineHaul - fsc,
+    expenses: num(l.expenseFuelActual) + num(l.expenseTolls) + num(l.expenseMisc),
+    detention: 0
   };
 }
 
