@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import React from "react";
 import { AuthSignOutButton } from "./auth-sign-out";
 import { SleepGuard } from "./splash";
+import { PinnedChrome } from "./pinned-chrome";
 import { ToastProvider } from "./kit/toast";
 import { DraftScope } from "./kit/use-draft";
 import { TerminalNames } from "./terminal-names";
@@ -219,6 +220,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
             <span className="lbl">Collapse sidebar</span>
           </button>
         </nav>
+        <PinnedChrome />
         <main className="t-main" id="main" tabIndex={-1}>
           {children}
         </main>

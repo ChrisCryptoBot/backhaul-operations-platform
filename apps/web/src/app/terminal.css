@@ -606,7 +606,7 @@ dd>.sub{display:block;color:var(--dim)}
 .tl-grid.cols-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
 
 /* Truck and trailer pages: the tab strip (the load drawer's tabs, as links so each tab is an address) and the one-unit map. Flat, square, 1px rules. */
-.eq-tabs{display:flex;gap:0;margin:0 0 14px;border-bottom:1px solid var(--line-hi);background:var(--bg);overflow-x:auto;position:sticky;top:0;z-index:5}
+.eq-tabs{display:flex;gap:0;margin:0 0 14px;border-bottom:1px solid var(--line-hi);background:var(--bg);overflow-x:auto}
 .eq-tab{display:inline-flex;align-items:center;gap:8px;height:28px;padding:0 14px;border-right:1px solid var(--line);background:transparent;color:var(--mid);font:500 11px/16px var(--mono);letter-spacing:.06em;text-transform:uppercase;text-decoration:none;white-space:nowrap}
 .eq-tab:hover{background:var(--hover);color:var(--ink)}
 .eq-tab[aria-selected=true]{background:var(--bar);color:var(--on-bar);font-weight:600}
@@ -614,3 +614,10 @@ dd>.sub{display:block;color:var(--dim)}
 .eq-key{padding:0 4px;border:1px solid var(--line-hi);color:inherit;font:500 10px/14px var(--mono)}
 .eq-map{position:relative;height:300px;border:1px solid var(--line);background:var(--bg)}
 .eq-where{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;align-items:start}
+
+/* Pinned chrome: a module's head (its title and actions) stays on screen as the page scrolls, and its tab or filter bar pins right under it. The head's height is kept in --ph-h on the main area (pinned-chrome.tsx).
+   The description line is not part of the bar, so what is pinned stays slim. Solid backgrounds, 1px rules, no shadow. */
+.t-main>.t-pagehead{position:sticky;top:0;z-index:12;margin:0 0 6px}
+.t-main>.t-pagesub{margin:0 10px 10px}
+.t-main>.t-pagesub p{margin:0;max-width:90ch;color:var(--dim);font:12px/1.45 var(--sans)}
+.t-main>.t-pagehead~:is(.kbar,.tl-tabs,.eq-tabs){position:sticky;top:var(--ph-h,49px);z-index:11;margin-left:0;margin-right:0;padding:4px 10px;background:var(--bg);border-bottom:1px solid var(--line)}

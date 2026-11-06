@@ -7,20 +7,26 @@ import { VerdictTag } from "./verdict-card";
 /** The two-letter code each module carries in the rail and on its page head. A page whose title is not here simply has no code. */
 const CODES: Record<string, string> = {
   "Quote a load": "QT", Loads: "LD", "Dispatch queue": "DQ", Messages: "MS", Planner: "PL", Alerts: "AL", "Rate confirmations": "RC", Drivers: "DR", Trucks: "TK", Trailers: "TR",
-  Customers: "CU", Lanes: "LN", Invoices: "IV", Settlements: "ST", Payroll: "PY", "KPI dashboard": "KP", "Audit log": "AU", Settings: "SE", Fuel: "FU", IFTA: "IF", Schedules: "SC", "Radar map": "MP"
+  Customers: "CU", Lanes: "LN", Invoices: "IV", Settlements: "ST", Payroll: "PY", "KPI dashboard": "KP", "Audit log": "AU", Settings: "SE", Fuel: "FU", IFTA: "IF", Schedules: "SC", "Radar map": "MP", "Leak ledger": "LK"
 };
 
+/**
+ * The head of a module: its title and its actions, which stay on screen as the page scrolls (terminal.css pins `.t-pagehead`, and each module's tab or filter bar under it). The one-line description
+ * is not part of that bar, so what stays pinned is slim; it scrolls away with the page.
+ */
 export function PageHead({ title, sub, children }: { title: string; sub?: React.ReactNode; children?: React.ReactNode }) {
   const code = CODES[title];
   return (
-    <div className="t-pagehead">
-      <h1>
-        {code ? <i>{code}</i> : null}
-        {title}
-      </h1>
-      {sub ? typeof sub === "string" ? <p>{sub}</p> : <div className="t-dim">{sub}</div> : null}
-      {children ? <div className="acts">{children}</div> : null}
-    </div>
+    <>
+      <div className="t-pagehead">
+        <h1>
+          {code ? <i>{code}</i> : null}
+          {title}
+        </h1>
+        {children ? <div className="acts">{children}</div> : null}
+      </div>
+      {sub ? <div className="t-pagesub">{typeof sub === "string" ? <p>{sub}</p> : sub}</div> : null}
+    </>
   );
 }
 
