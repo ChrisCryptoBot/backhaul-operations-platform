@@ -79,12 +79,23 @@ describe.runIf(run)("the desk at the size of a big fleet", () => {
     expect(await best(() => getAlerts(new Date(), undefined, "all"))).toBeLessThan(400);
   }, 60_000);
 
-  test("pricing an offer for 1,500 trucks shows the best 50 in about a second", async () => {
+  test("pricing an offer at 1,500 trucks prices the nearest 25 in a fraction of a second, and Show more is another 25", async () => {
     const input = offer();
-    expect(await best(() => fitQuote(input))).toBeLessThan(1_500);
-    const fit = await fitQuote(input);
-    expect(fit.rows.length).toBeLessThanOrEqual(50);
-    expect(fit.total).toBeGreaterThan(1000);
+    // Nothing measured: the first trucks by name, and it says it is not a distance ranking.
+    expect(await best(() => fitQuote(input))).toBeLessThan(900);
+    const plain = await fitQuote(input);
+    expect(plain.scope).toMatchObject({ ranked: "name", limit: 25, priced: 25 });
+    expect(plain.scope.inScope).toBeGreaterThan(1000);
+    // Forty bases measured (what the map returns): the nearest 25 are priced, nearest first, each with its own empty miles.
+    const ids = (await prisma.vehicle.findMany({ where: { costProfile: { isNot: null } }, select: { id: true }, take: 40, orderBy: { name: "asc" } })).map((v) => v.id);
+    const measured = { ...input, emptyByTruck: Object.fromEntries(ids.map((id, i) => [id, 10 + i * 5])) };
+    expect(await best(() => fitQuote(measured))).toBeLessThan(900);
+    const near = await fitQuote(measured);
+    expect(near.scope).toMatchObject({ ranked: "distance", measured: 40, priced: 25 });
+    expect(near.scope.available).toBeGreaterThanOrEqual(40); // the scale trucks have no base on file, so the ones with no measured miles can fill a longer page
+    expect(new Set(near.rows.map((r) => r.truckId)).size).toBe(25);
+    expect(near.rows.every((r) => ids.indexOf(r.truckId) < 25)).toBe(true); // never a truck outside the nearest 25
+    expect((await fitQuote(measured, undefined, undefined, null, 50)).scope.priced).toBe(50); // the forty measured, then ten with no base on file
   }, 60_000);
 
   test("the lists read a page at a time", async () => {

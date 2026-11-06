@@ -40,9 +40,19 @@ The terminals in view (the choice, inside the limit) narrow everything below; th
 - **Fences on actions:** assigning a driver outside the limit is refused ("is based outside the terminals you work"), a load outside the limit is "not found", unassign and pass follow, the typed pickers and the planner's everyone link stay inside the limit, and a limited person is only offered drivers inside their limit when ranking.
 - **A unit with no terminal is outside every limit** (a driver with no terminal cannot be assigned or messaged by a limited person until an admin gives them one). A load nobody holds yet is everyone's, so a booking waiting for a truck is seen by everyone who can assign it.
 
+## R3: Quote a load prices the nearest trucks (built 2026-11-05)
+
+A fleet has far more trucks than anyone can read, so the Quote desk prices the nearest first (`lib/quote-nearest.ts`, `server/tl/quote.ts fitQuote`):
+
+- **Which trucks:** the trucks of the terminals in view whose empty miles to the pickup are measured on the road (the map measures the forty nearest bases) or typed, nearest first; the first 25 are priced, and "Show 25 more" asks for the next 25 (up to 100, or as many as are measured). A truck with no base on file fills the page after the measured ones (priced with the typed empty miles, the page says nothing is measured for it). **A truck with a base that was not among the nearest is left out, never priced as if it were as near as the typed figure.** With nothing measured (no pickup yet, no map) the first trucks by name are priced and the line says it is not a distance ranking.
+- **Order:** the priced trucks are ranked by what each mile clears over the floor, blocked ones last. (Before, the best fifty by margin were re-sorted by distance, so "closest" meant the closest of the fifty best.)
+- **The truck a saved quote is on** is always priced, whatever its distance.
+- **Chips** over the table: **Trailer fits** (the trailer hooked to the truck against the kind and length the load needs; a longer trailer takes a shorter load, a 53 ft takes a 48 ft load, and a shorter one does not; with no trailer hooked an own-body truck is judged by its body and a tractor is unknown, never a no), **On shift** (a driver with no schedule is kept), **Available** (no other load at that time, no lapsed card, nothing over the truck's limits), and **Terminal** when the priced trucks span several. They narrow what was priced; nothing in a price reads them.
+- **The page ships fifty trucks, not the fleet;** "Nearest to the pickup" under the route is the ten nearest priced. Rows carry their own base and terminal.
+- Tests: `tests/quote-nearest.test.ts` (pure, including trailer length), `tests/integration/quote-nearest.integration.test.ts`; scale budget in `tests/perf/scale.perf.test.ts`.
+
 ## Not yet
 
-- Quote's nearest-first pricing and its chips (R3).
 - The IFTA export per scope; no manager or time zone per terminal.
 
 ## Tests

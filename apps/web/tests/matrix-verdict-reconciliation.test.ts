@@ -28,6 +28,11 @@ function mockRow(over: Partial<FitRow> = {}): FitRow {
     marginPerMile: 0.84,
     leftOver: 457.97,
     blocked: null,
+    homeBase: "Dallas, TX",
+    terminal: "Dallas",
+    trailerFits: true,
+    onShift: null,
+    available: true,
     warnings: [],
     hos: { availableHours: 11, syncedAt: null, caution: { level: "none", message: null } },
     detail: {

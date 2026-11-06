@@ -43,7 +43,7 @@ export const hasAnySpec = (s: LoadSpecs): boolean =>
  * A load that needs a trailer a straight truck or van does not pull: a note, never a stop (a pickup can haul a flatbed's worth, and the desk does not know the body). Tractors and
  * trucks with no type are not second-guessed, and a dry van is what every box truck and van is.
  */
-const OWN_BODY = new Set(["cargo_van", "passenger_van", "pickup", "sprinter", "box_truck"]);
+export const OWN_BODY = new Set(["cargo_van", "passenger_van", "pickup", "sprinter", "box_truck"]);
 export function truckBodyNote(trailer: string | null, truckType: string | null, truckName: string): string | null {
   const wanted = (trailer ?? "").trim();
   const type = (truckType ?? "").trim();

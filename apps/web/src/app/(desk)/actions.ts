@@ -1,5 +1,6 @@
 "use server";
 
+import { asLimit } from "@/lib/quote-nearest";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { DENSITY_COOKIE, SLEEP_COOKIE, THEME_COOKIE, asDensity, asSleepMinutes, asTheme } from "@/lib/appearance";
@@ -589,12 +590,12 @@ export async function setAppearanceAction(formData: FormData) {
 
 export type PricedQuote = { ok: true; fit: FitResult; context: QuoteContext; warnings: string[] } | { ok: false };
 
-/** The offer priced as you type: every truck and driver, plus what the desk already knows about the lane and the broker. Writes nothing. */
-export async function priceQuoteAction(values: QuoteValues): Promise<PricedQuote> {
+/** The offer priced as you type: the nearest trucks in the terminals in view (`limit` of them, 25 to start, 25 more at a time), each with the driver who runs it, plus what the desk already knows about the lane and the broker. Writes nothing. */
+export async function priceQuoteAction(values: QuoteValues, limit?: number, keepTruckId?: string | null): Promise<PricedQuote> {
   await requireCan("read");
   const input = readQuote(values);
   if (!input) return { ok: false };
-  const [fit, context] = await Promise.all([fitQuote(input, undefined, undefined, await currentTerminal()), quoteContext(input)]);
+  const [fit, context] = await Promise.all([fitQuote(input, undefined, undefined, await currentTerminal(), asLimit(limit), keepTruckId ? [String(keepTruckId)] : []), quoteContext(input)]);
   return { ok: true, fit, context, warnings: quoteWarnings(input) };
 }
 

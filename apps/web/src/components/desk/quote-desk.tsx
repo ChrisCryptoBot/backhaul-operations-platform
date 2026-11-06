@@ -44,6 +44,9 @@ type QuoteAsk = { reason: string; notes: string; passReason: string; passNotes: 
 const BLANK_ASK: QuoteAsk = { reason: "", notes: "", passReason: "", passNotes: "", pasteText: "", selected: null };
 
 /** How the person has the module set up: which tab, how the fleet matrix is sorted and whether it is open, and the saved-quotes search. Kept for the person, not per quote. */
+/** How many trucks the table shows when nothing is priced yet. */
+const UNPRICED_SHOWN = 25;
+
 type QuoteView = { viewMode: "terminal" | "saved"; matrixSort: "margin" | "deadhead"; matrixOpen: boolean; listQuery: string; listStatus: "open" | "passed" | "all" };
 const BLANK_VIEW: QuoteView = { viewMode: "terminal", matrixSort: "deadhead", matrixOpen: true, listQuery: "", listStatus: "open" };
 
@@ -151,6 +154,9 @@ export function QuoteDesk({
   const [pricing, setPricing] = React.useState(false);
   const [priceFailed, setPriceFailed] = React.useState(false);
   const [priceAgain, setPriceAgain] = React.useState(0);
+  // How many of the nearest trucks are priced (25 to start, 25 more at a time), and the chips that narrow the table (a view of what was priced, never an input to a price).
+  const [fitLimit, setFitLimit] = React.useState(25);
+  const [chips, setChips] = React.useState<{ trailer: boolean; shift: boolean; ready: boolean; terminal: string }>({ trailer: false, shift: false, ready: false, terminal: "" });
   const [tried, setTried] = React.useState(false);
   const [serverErrors, setServerErrors] = React.useState<Record<string, string>>({});
   const [message, setMessage] = React.useState<string | null>(null);
@@ -297,7 +303,7 @@ export function QuoteDesk({
     const timer = window.setTimeout(async () => {
       setPricing(true);
       try {
-        const out = await priceQuoteAction(values);
+        const out = await priceQuoteAction(values, fitLimit, initial?.vehicleId ?? null);
         if (mine === seq.current) {
           setPriced(out);
           setPriceFailed(false);
@@ -312,7 +318,7 @@ export function QuoteDesk({
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [values, priceAgain]);
+  }, [values, priceAgain, fitLimit, initial?.vehicleId]);
 
   // Measure on the road
   const routeNow = routeKey(values.stops);
@@ -380,11 +386,13 @@ export function QuoteDesk({
 
   const rows: FitRow[] = React.useMemo(() => (priced?.ok ? priced.fit.rows : []), [priced]);
   const fitTotal = priced?.ok ? priced.fit.total : 0;
+  const fitScope = priced?.ok ? priced.fit.scope : null;
 
   // Sorted rows based on user preference: closest deadhead vs best margin
   const displayRows = React.useMemo(() => {
     if (rows.length === 0) return [];
-    const list = [...rows];
+    // The chips narrow what was priced: equipment that suits the load, a driver on shift, nothing in the way, one terminal. An unknown (no trailer hooked, no schedule) is not a "no".
+    const list = rows.filter((r) => (!chips.trailer || r.trailerFits !== false) && (!chips.shift || r.onShift !== false) && (!chips.ready || r.available) && (!chips.terminal || r.terminal === chips.terminal));
     if (matrixSort === "deadhead") {
       return list.sort((a, b) => {
         const aEmpty = Number(values.emptyByTruck[a.truckId] ?? a.emptyToPickup ?? 0);
@@ -393,17 +401,30 @@ export function QuoteDesk({
       });
     }
     return list;
-  }, [rows, matrixSort, values.emptyByTruck]);
+  }, [rows, matrixSort, values.emptyByTruck, chips]);
 
   // Unpriced fleet options (shown when offer/loaded miles are not yet priced)
   const unpricedFleet = React.useMemo(() => {
     if (fleet.length === 0) return [];
-    return [...fleet].sort((a, b) => {
-      const aEmpty = Number(values.emptyByTruck[a.id] ?? (values.emptyToPickup || 9999));
-      const bEmpty = Number(values.emptyByTruck[b.id] ?? (values.emptyToPickup || 9999));
-      return aEmpty - bEmpty;
-    });
+    return [...fleet]
+      .sort((a, b) => {
+        const aEmpty = Number(values.emptyByTruck[a.id] ?? (values.emptyToPickup || 9999));
+        const bEmpty = Number(values.emptyByTruck[b.id] ?? (values.emptyToPickup || 9999));
+        return aEmpty - bEmpty;
+      })
+      .slice(0, UNPRICED_SHOWN);
   }, [fleet, values.emptyByTruck, values.emptyToPickup]);
+
+  // The ten nearest trucks to the pickup for the strip under the route: from what was priced when there is a price, else from the trucks the page brought.
+  const nearestTen = React.useMemo(() => {
+    if (rows.length > 0) {
+      const seen = new Map<string, { id: string; name: string; homeBaseAddress: string | null; miles: number }>();
+      for (const r of rows) if (!seen.has(r.truckId)) seen.set(r.truckId, { id: r.truckId, name: r.truckName, homeBaseAddress: r.homeBase, miles: r.emptyToPickup });
+      return [...seen.values()].sort((a, b) => a.miles - b.miles).slice(0, 10);
+    }
+    return unpricedFleet.slice(0, 10).map((t) => ({ id: t.id, name: t.name, homeBaseAddress: t.homeBaseAddress, miles: Number(values.emptyByTruck[t.id] ?? (values.emptyToPickup || NaN)) }));
+  }, [rows, unpricedFleet, values.emptyByTruck, values.emptyToPickup]);
+  const termsPriced = React.useMemo(() => [...new Set(rows.map((r) => r.terminal).filter((t): t is string => !!t))].sort(), [rows]);
 
   const row =
     displayRows.find((r) => r.key === selected) ??
@@ -1330,18 +1351,18 @@ export function QuoteDesk({
               </div>
 
               {/* Quick Deadhead by Base chips */}
-              {fleet.length > 0 ? (
+              {nearestTen.length > 0 ? (
                 <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--db-border-soft)" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--db-fg-dim)" }}>
-                      Fleet Deadhead to Pickup
+                      Nearest to the pickup
                     </span>
                     <span style={{ fontSize: 11, color: "var(--db-accent-fg)", fontWeight: 500 }}>
                       {values.stops[0]?.address ? `Pickup: ${values.stops[0].address}` : "Enter pickup address"}
                     </span>
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {fleet.map((t) => {
+                    {nearestTen.map((t) => {
                       const deadhead = values.emptyByTruck[t.id] ?? (values.emptyToPickup || null);
                       const isSelected = row?.truckId === t.id || (selected ? selected.startsWith(t.id) : initial?.vehicleId === t.id);
                       return (
@@ -1471,7 +1492,7 @@ export function QuoteDesk({
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span className="tl-sub">
-                    {pricing ? "Pricing…" : rows.length > 0 ? (matrixSort === "deadhead" ? `${displayRows.length} ranked by deadhead` : `${displayRows.length} ranked by margin`) : `${unpricedFleet.length} in fleet, closest first`}
+                    {pricing ? "Pricing…" : rows.length > 0 ? (matrixSort === "deadhead" ? `${displayRows.length} ranked by deadhead` : `${displayRows.length} ranked by margin`) : `${unpricedFleet.length} of ${fitScope?.inScope ?? fleet.length} trucks, closest first`}
                   </span>
                   <button
                     type="button"
@@ -1483,6 +1504,41 @@ export function QuoteDesk({
                   </button>
                 </div>
               </div>
+              {priced?.ok && rows.length > 0 && fitScope ? (
+                <div className="qt-chips" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "6px 0 8px" }}>
+                  <div className="t-seg" role="group" aria-label="Narrow the trucks">
+                    <button type="button" aria-pressed={chips.trailer} onClick={() => setChips((c) => ({ ...c, trailer: !c.trailer }))} title="Only trucks whose trailer or body suits the load. A longer trailer takes a shorter load.">
+                      Trailer fits
+                    </button>
+                    <button type="button" aria-pressed={chips.shift} onClick={() => setChips((c) => ({ ...c, shift: !c.shift }))} title="Only drivers on shift for the pickup (a driver with no schedule is kept).">
+                      On shift
+                    </button>
+                    <button type="button" aria-pressed={chips.ready} onClick={() => setChips((c) => ({ ...c, ready: !c.ready }))} title="Only trucks with nothing in the way: no other load at that time, no lapsed card, nothing over the truck's limits.">
+                      Available
+                    </button>
+                  </div>
+                  {termsPriced.length > 1 ? (
+                    <select aria-label="Terminal" value={chips.terminal} onChange={(e) => setChips((c) => ({ ...c, terminal: e.target.value }))}>
+                      <option value="">All terminals</option>
+                      {termsPriced.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+                  <span className="tl-sub">
+                    {fitScope.priced} of {fitScope.available} trucks priced{fitScope.inScope > fitScope.available ? ` (${fitScope.inScope} in view)` : ""} ·{" "}
+                    {fitScope.ranked === "distance" ? "the nearest to the pickup" : "the first by name: add the pickup address to rank by distance"}
+                    {displayRows.length !== rows.length ? ` · ${displayRows.length} shown` : ""}
+                  </span>
+                  {fitScope.priced < fitScope.available && fitScope.limit < 100 ? (
+                    <button type="button" className="tl-btn ghost sm" onClick={() => setFitLimit((l) => (l + 25 > 100 ? 100 : l + 25))}>
+                      Show 25 more
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               {!matrixOpen ? (
                 <div className="qt-matrix-collapsed-strip" role="group" aria-label="Quick truck picker">
                   {(rows.length > 0 ? displayRows : unpricedFleet).map((item, idx) => {
@@ -1612,7 +1668,7 @@ export function QuoteDesk({
                           const driverIdx = truckRows.findIndex((x) => x.key === r.key);
                           const driverSuffix = truckRows.length > 1 ? ` (driver ${driverIdx + 1} of ${truckRows.length})` : "";
                           const on = row?.key === r.key;
-                          const truckInfo = fleet.find((f) => f.id === r.truckId);
+                          const truckInfo = { homeBaseAddress: r.homeBase };
                           // A note beside the verdict, never an input to it: the server's own hours check says "short", this words how far.
                           const deficit = hosDeficit({ level: r.hos.caution.level, availableHours: r.hos.availableHours, tripHours: r.detail.metrics.tripHours });
                           return (
@@ -1714,7 +1770,7 @@ export function QuoteDesk({
                 {priced?.ok && displayRows.length > 0 ? (() => {
                   const activeInspection = displayRows.find((r) => r.key === inspectedKey) || row;
                   if (!activeInspection) return null;
-                  const truckInfo = fleet.find((f) => f.id === activeInspection.truckId);
+                  const truckInfo = { homeBaseAddress: activeInspection.homeBase };
                   const deficit = hosDeficit({
                     level: activeInspection.hos.caution.level,
                     availableHours: activeInspection.hos.availableHours,

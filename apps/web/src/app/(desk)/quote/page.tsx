@@ -14,6 +14,9 @@ export const metadata = { title: "Quote a load · TrueLane" };
 /** A query value that may arrive as a list (`?quote=a&quote=b`): the first. */
 const first = (v: string | string[] | undefined): string | null => (Array.isArray(v) ? (v[0] ?? null) : (v ?? null));
 
+/** How many trucks the page brings along before the offer is priced. */
+const FLEET_SHIPPED = 50;
+
 export default async function QuotePage({ searchParams }: { searchParams: { quote?: string | string[]; like?: string | string[] } }) {
   // A viewer can price a quote but not save, book or pass on it: the page says so instead of failing when they try.
   const me = await requirePage("read");
@@ -32,7 +35,9 @@ export default async function QuotePage({ searchParams }: { searchParams: { quot
         costProfile: true,
         drivers: { where: { active: true }, orderBy: { name: "asc" } }
       },
-      orderBy: { name: "asc" }
+      orderBy: { name: "asc" },
+      // A fleet has far more trucks than a page can use: the first few by name (and the saved quote's own truck), enough for the strip and the table before anything is priced. Pricing reads the nearest itself.
+      take: FLEET_SHIPPED
     }),
     listOpenPickups(undefined, terminal)
   ]);

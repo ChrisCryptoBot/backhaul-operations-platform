@@ -7,7 +7,10 @@ import { fuelKindOf } from "@/lib/eia";
 import { prisma } from "@/lib/db";
 import { driverBlocker } from "@/lib/clearance";
 import { truckBodyNote } from "@/lib/load-fit";
-import { truckFit, type TruckLimits } from "@/lib/load-fit";
+import { OWN_BODY, truckFit, type TruckLimits } from "@/lib/load-fit";
+import { trailerFit } from "@/lib/trailer-fit";
+import { alertThresholds } from "@/lib/thresholds";
+import { asLimit, nearestTrucks, NEAREST_DEFAULT } from "@/lib/quote-nearest";
 import { missingTimes, OVERRIDE_REASONS, PASS_REASONS, surchargeDollars, validateQuote, type QuoteErrors, type QuoteInput, type QuoteValues } from "@/lib/quote";
 import { notQuote, QUOTE_STATUS } from "@/lib/quote-status";
 import { loadWindow } from "@/lib/schedule";
@@ -97,13 +100,25 @@ export type FitRow = {
   /** When the driver works, and a caution when the typed appointments fall outside it. Beside the hours-left note; nothing in the verdict, the ranking or booking reads it. */
   shift?: QuoteShift;
   detail: FitDetail;
+  /** For the chips above the table: where the truck is based, its terminal, and whether it suits this load. `trailerFits` is null when it cannot be told (a tractor with no trailer hooked); `onShift` is null when the driver has no schedule. */
+  homeBase: string | null;
+  terminal: string | null;
+  trailerFits: boolean | null;
+  onShift: boolean | null;
+  /** Nothing stops it: no clash, no lapsed card, nothing over the truck's limits. */
+  available: boolean;
 };
 
-/** `rows` are the best ways to run it (at most MAX_FIT_ROWS); `total` is how many there are in all. */
+/**
+ * `rows` are the nearest trucks priced, best way to run it first; `total` is how many rows that is. `scope` says how many trucks the terminals in view hold, how many could be priced, how many were, and what the
+ * order is (by empty miles to the pickup, or by name when nothing was measured).
+ */
 /** `trailersAvailable`: trailers of the kind the offer needs (any kind when none is stated) that are in service, available, with no date lapsed and not on an open load; null when the desk keeps no trailers. */
 /** `lane`: the desk's own record, when it stood in for a market rate nobody typed. */
-export type FitResult = { rows: FitRow[]; total: number; skipped: Array<{ truck: string; why: string }>; trailersAvailable: number | null; lane: LaneBenchmark | null };
-export const MAX_FIT_ROWS = 50;
+export type FitScope = { inScope: number; available: number; priced: number; limit: number; ranked: "distance" | "name"; measured: number };
+export type FitResult = { rows: FitRow[]; total: number; scope: FitScope; skipped: Array<{ truck: string; why: string }>; /** How many trucks have no cost profile (the list above shows only a few). */ skippedTotal: number; trailersAvailable: number | null; lane: LaneBenchmark | null };
+/** How many trucks without a cost profile are named in the answer (the rest are counted). */
+const SKIPPED_NAMED = 10;
 
 const D = 86_400_000;
 /** Minutes at the dock as a whole number, for the load's integer column. */
@@ -168,7 +183,7 @@ const windowOf = (input: QuoteInput) => {
   return loadWindow([{ timeWindowEarliest: new Date(first - (input.emptyToPickup / 50) * HOUR), timeWindowLatest: new Date(Math.max(last, first + driveMs)) }]);
 };
 
-type TruckForFit = Prisma.VehicleGetPayload<{ include: { costProfile: true; drivers: true } }>;
+type TruckForFit = Prisma.VehicleGetPayload<{ include: { costProfile: true; drivers: true; trailers: true } }>;
 
 /** What a truck holds and carries, as the load check reads it. */
 export const truckLimits = (t: { payloadLbs: number | null; maxLengthFt: Prisma.Decimal | null; maxWidthFt: Prisma.Decimal | null; maxHeightIn: Prisma.Decimal | null; hasLiftgate: boolean; hasRamp: boolean; hasPalletJack: boolean }): TruckLimits => ({
@@ -181,7 +196,7 @@ export const truckLimits = (t: { payloadLbs: number | null; maxLengthFt: Prisma.
   hasPalletJack: t.hasPalletJack
 });
 
-function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["drivers"][number] | null, blocked: string | null, shift: QuoteShift = NO_QUOTE_SHIFT): FitRow | null {
+function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["drivers"][number] | null, blocked: string | null, shift: QuoteShift = NO_QUOTE_SHIFT, now: Date = new Date(), soonDays = 30): FitRow | null {
   const profile = truck.costProfile;
   if (!profile) return null;
   const emptyToPickup = input.emptyByTruck[truck.id] ?? input.emptyToPickup;
@@ -202,6 +217,18 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
   const soon = pickupAt == null || pickupAt - Date.now() < 24 * 3_600_000;
   const hos = { availableHours: available, syncedAt: truck.hosSyncedAt ? truck.hosSyncedAt.toISOString() : null, caution: soon ? hosCaution(e.tripHours, available) : hosCaution(null, null) };
   const body = truckBodyNote(input.trailer, truck.type, truck.name ?? "Truck");
+  // Does the equipment suit the load: the trailer hooked to the truck against the kind and length the load needs (a longer trailer takes a shorter load), else the truck's own body. Unknown is not "no".
+  const hooked = truck.trailers.find((t) => t.status === "available") ?? truck.trailers[0] ?? null;
+  const trailerFits: boolean | null = hooked
+    ? trailerFit(
+        { trailerType: input.trailer, weightLbs: input.specs.weightLbs, lengthFt: input.specs.lengthFt, vehicleId: truck.id },
+        { number: hooked.number, type: hooked.type, maxPayloadLbs: hooked.maxPayloadLbs, lengthFt: numOrNull(hooked.lengthFt), currentVehicleId: hooked.currentVehicleId, status: hooked.status, registrationExpiry: hooked.registrationExpiry, inspectionExpiry: hooked.inspectionExpiry },
+        now,
+        soonDays
+      ).blocker == null
+    : OWN_BODY.has((truck.type ?? "").trim())
+      ? body == null
+      : null;
   return {
     key: `${truck.id}:${driver?.id ?? "none"}`,
     truckId: truck.id,
@@ -220,6 +247,11 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
     marginPerMile: margin,
     leftOver: margin == null ? null : margin * e.totalMiles,
     blocked: blocked ?? forLoad.blocker,
+    homeBase: truck.homeBaseAddress,
+    terminal: truck.terminal,
+    trailerFits,
+    onShift: shift.tag == null ? null : shift.tag !== "Off duty" && shift.warn == null,
+    available: (blocked ?? forLoad.blocker) == null,
     warnings: [...forLoad.warnings, ...(body ? [body] : []), ...(hos.caution.message ? [hos.caution.message] : [])],
     hos,
     shift,
@@ -255,20 +287,39 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
   };
 }
 
-/** The offer priced for each truck and each driver who runs it, best first. A truck with no cost profile has no floor and is listed apart. */
-/** `terminal`: price only that terminal's trucks (the dispatcher's slice); null prices the whole fleet. */
-export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspaceId(), now = new Date(), terminal: Terminals = null): Promise<FitResult> {
+/**
+ * The offer priced for the nearest trucks and each driver who runs them, best first. A big fleet has far more trucks than anyone can read, so the desk prices the `limit` nearest to the pickup (lib/quote-nearest.ts:
+ * the ones whose empty miles are measured or typed, nearest first), each with its own empty miles, and ranks those by what each mile clears over the floor. A truck with a cost profile missing has no floor and is
+ * counted apart. `terminal` is the scope in view: only its trucks are priced; null is the whole fleet. `keep` names trucks that are priced whatever their distance (the truck a saved quote is on).
+ */
+export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspaceId(), now = new Date(), terminal: Terminals = null, limit: number = NEAREST_DEFAULT, keep: readonly string[] = []): Promise<FitResult> {
   const lane = await laneBenchmark(input, workspaceId, now);
   const judged = judgedBy(input, lane);
-  const trucks = await prisma.vehicle.findMany({
-    where: { workspaceId, archivedAt: null, ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}) },
-    include: { costProfile: true, drivers: { where: { active: true }, orderBy: { name: "asc" } } },
-    orderBy: { name: "asc" }
-  });
+  const here = { workspaceId, archivedAt: null, ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}) };
+  // A light read of every truck in the scope (a name and whether it has a base), so the nearest can be chosen before anything is priced; only those are read in full.
+  const [inScope, priceable, unpriced, soonDays] = await Promise.all([
+    prisma.vehicle.count({ where: here }),
+    prisma.vehicle.findMany({ where: { ...here, costProfile: { isNot: null } }, select: { id: true, name: true, homeBaseLat: true } }),
+    prisma.vehicle.findMany({ where: { ...here, costProfile: null }, select: { name: true }, orderBy: { name: "asc" }, take: SKIPPED_NAMED }),
+    getThresholds(workspaceId).then((t) => alertThresholds(t).clearanceDays)
+  ]);
+  const pick = nearestTrucks(priceable.map((v) => ({ id: v.id, name: v.name, located: v.homeBaseLat != null })), input.emptyByTruck, asLimit(limit));
+  const priceableIds = new Set(priceable.map((v) => v.id));
+  const ids = [...pick.ids, ...keep.filter((id) => priceableIds.has(id) && !pick.ids.includes(id))];
+  const byId = new Map(
+    (ids.length === 0
+      ? []
+      : await prisma.vehicle.findMany({
+          where: { id: { in: ids }, ...here },
+          include: { costProfile: true, drivers: { where: { active: true }, orderBy: { name: "asc" } }, trailers: { orderBy: { number: "asc" }, take: 3 } }
+        })
+    ).map((t) => [t.id, t] as const)
+  );
+  const trucks = ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
   const win = windowOf(input);
   const rows: FitRow[] = [];
-  const skipped: FitResult["skipped"] = [];
-  // Who is already on another load at that time, for every driver at once (one query), not one query per driver.
+  const skipped: FitResult["skipped"] = unpriced.map((v) => ({ truck: v.name ?? "Truck", why: "No cost profile, so no floor to price against." }));
+  // Who is already on another load at that time, for the drivers of the trucks priced (one query), not one query per driver.
   const clashes = await driverClashesIn(trucks.flatMap((t) => t.drivers.map((d) => d.id)), "", win);
   const truckClashes = await truckClashesIn(trucks.map((t) => t.id), "", win, workspaceId);
   // A card that lapses before the pickup is as good as lapsed for this load.
@@ -280,10 +331,7 @@ export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspace
   const schedules = await loadSchedules(workspaceId, trucks.flatMap((t) => t.drivers.map((d) => d.id)), dateKeyOf(Math.min(...anchor), tz), dateKeyOf(Math.max(...anchor), tz));
   const shiftOf = (driverId: string | undefined) => (driverId ? quoteShift(schedules.get(driverId) ?? null, input.stops, now.getTime(), tz) : NO_QUOTE_SHIFT);
   for (const t of trucks) {
-    if (!t.costProfile) {
-      skipped.push({ truck: t.name ?? "Truck", why: "No cost profile, so no floor to price against." });
-      continue;
-    }
+    if (!t.costProfile) continue;
     const drivers: Array<TruckForFit["drivers"][number] | null> = t.drivers.length > 0 ? t.drivers : [null];
     const truckBusy = truckClashes.has(t.id) ? `${t.name ?? "The truck"} is already on ${truckClashes.get(t.id) ?? "another load"} at that time` : null;
     let driversAllBlocked = t.drivers.length > 0;
@@ -296,12 +344,12 @@ export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspace
         blocked = blocked ?? ownBlock;
       }
       if (!ownBlock) driversAllBlocked = false;
-      const r = fitFor(judged, t, d, blocked, shiftOf(d?.id));
+      const r = fitFor(judged, t, d, blocked, shiftOf(d?.id), now, soonDays);
       if (r) rows.push(r);
     }
     // Every driver of this truck is out (a lapsed card, another load): the truck can still be booked now and a driver put on it from the load.
     if (driversAllBlocked) {
-      const r = fitFor(judged, t, null, truckBusy);
+      const r = fitFor(judged, t, null, truckBusy, NO_QUOTE_SHIFT, now, soonDays);
       if (r) {
         r.warnings = [`No driver of ${t.name ?? "this truck"} can take it at that time. Book the truck and assign a driver from the load.`, ...r.warnings];
         rows.push(r);
@@ -311,7 +359,8 @@ export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspace
   rows.sort((a, b) => (a.blocked ? 1 : 0) - (b.blocked ? 1 : 0) || (b.marginPerMile ?? -Infinity) - (a.marginPerMile ?? -Infinity));
   const kept = await prisma.trailer.count({ where: { workspaceId, archivedAt: null } });
   const trailersAvailable = kept === 0 ? null : await countTrailersAvailable(input.trailer, terminal, now, workspaceId);
-  return { rows: rows.slice(0, MAX_FIT_ROWS), total: rows.length, skipped, trailersAvailable, lane };
+  const noProfile = inScope - priceable.length;
+  return { rows, total: rows.length, scope: { inScope, available: pick.available, priced: trucks.length, limit: asLimit(limit), ranked: pick.ranked, measured: pick.measured }, skipped, skippedTotal: noProfile > 0 ? noProfile : 0, trailersAvailable, lane };
 }
 
 // ── What the desk already knows about this lane and this broker ───────────────────────────────
@@ -905,7 +954,7 @@ export async function bookQuote(
   const missing = missingTimes(input.stops);
   if (Object.keys(missing).length > 0) return { ok: false, errors: missing };
 
-  const truck = await prisma.vehicle.findFirst({ where: { id: pick.vehicleId, workspaceId, archivedAt: null }, include: { costProfile: true, drivers: { where: { active: true } } } });
+  const truck = await prisma.vehicle.findFirst({ where: { id: pick.vehicleId, workspaceId, archivedAt: null }, include: { costProfile: true, drivers: { where: { active: true } }, trailers: { take: 3 } } });
   if (!truck) return { ok: false, error: "That truck is not available." };
   if (!truck.costProfile) return { ok: false, error: `${truck.name} has no cost profile yet. Set it up on the truck's page, then book.` };
   // The truck is in the terminal being worked, and the driver runs that truck: the browser's word is not taken for either.
