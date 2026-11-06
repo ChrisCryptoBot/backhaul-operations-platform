@@ -97,7 +97,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   const histSort = asHistorySort(searchParams?.sort);
   const [openAll, { byLoad }, hist] = await Promise.all([
     listBoardRows(currentWorkspaceId(), "open", terminal),
-    getAlerts(new Date(), currentWorkspaceId(), "open"),
+    getAlerts(new Date(), currentWorkspaceId(), "open", undefined, terminal),
     view === "history" ? listHistory({ filter: histFilter, sort: histSort, q, page: Number(searchParams?.page) || 1, terminal }) : Promise.resolve(null)
   ]);
   const openCount = searchBoard(openAll, q).length;

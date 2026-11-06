@@ -8,11 +8,15 @@ import { PageHead } from "@/components/desk/ui";
 import { SAVED_ONLY, SAVED_ONLY_NOTE, groupByDay, snippet, stamp, timeLabel } from "@/lib/messages";
 import { getConversation, listThreads, startableDrivers } from "@/server/tl/messages";
 import { CanGate } from "@/components/desk/kit/can-gate";
+import { currentTerminal } from "@/server/tl/terminal";
 
 export const metadata: Metadata = { title: "Messages · TrueLane" };
 
-export default async function MessagesPage({ searchParams }: { searchParams?: { driver?: string } }) {
-  const [threads, starters] = await Promise.all([listThreads(), startableDrivers()]);
+export default async function MessagesPage({ searchParams }: { searchParams?: { driver?: string; find?: string } }) {
+  // Conversations and who to start one with are the drivers of the terminals in view; a driver outside what the person may see is not found, whatever the address says.
+  const terminal = await currentTerminal();
+  const find = (searchParams?.find ?? "").trim().slice(0, 60);
+  const [threads, starters] = await Promise.all([listThreads(undefined, terminal), startableDrivers(undefined, terminal, find)]);
   const wanted = searchParams?.driver ?? threads[0]?.driverId ?? null;
   const convo = wanted ? await getConversation(wanted) : null;
   const unread = threads.find((t) => t.driverId === wanted)?.unread ?? 0;
@@ -23,6 +27,15 @@ export default async function MessagesPage({ searchParams }: { searchParams?: { 
       <PageHead title="Messages" sub="Your conversations with drivers. They are saved on the desk; nothing carries them to a driver's phone yet." />
       <div className="ms">
         <aside className="ms-list" aria-label="Conversations">
+          <form action="/messages" className="ms-start" role="search" aria-label="Find a driver to message">
+            <label>
+              <span>Find a driver</span>
+              <input type="search" name="find" defaultValue={find} placeholder="Name or code" maxLength={60} />
+            </label>
+            <button type="submit" className="tl-btn sm">
+              Find
+            </button>
+          </form>
           {starters.length > 0 ? (
             <form action="/messages" className="ms-start">
               <label>

@@ -55,7 +55,7 @@ const soonest = (a: BoardRow, b: BoardRow) => (a.scheduledDate?.getTime() ?? Inf
 const COLUMN_STEP = 30;
 
 export default async function DispatchPage({ searchParams }: { searchParams?: { needs?: string; sent?: string; road?: string } }) {
-  const [rows, { alerts, byLoad }, dispatchAccess] = await Promise.all([listBoardRows(currentWorkspaceId(), "open", await currentTerminal()), getAlerts(new Date(), currentWorkspaceId(), "shell"), checkAccess("dispatch")]);
+  const [rows, { alerts, byLoad }, dispatchAccess] = await Promise.all([listBoardRows(currentWorkspaceId(), "open", await currentTerminal()), getAlerts(new Date(), currentWorkspaceId(), "shell", undefined, await currentTerminal()), checkAccess("dispatch")]);
   // A viewer or the accounting office reads this page; the button that changes a driver is only for someone the server would let do it.
   const mayAssign = dispatchAccess.ok;
   const needs = rows.filter((r) => r.status === "draft" && (!r.assignmentStatus || r.assignmentStatus === "draft" || r.assignmentStatus === "declined")).sort(soonest);

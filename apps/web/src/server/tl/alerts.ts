@@ -9,6 +9,7 @@ import { getThresholds } from "./thresholds";
 import { numOrNull } from "./convert";
 import { deskStatusOf, inTerminal, loadInclude } from "./queries";
 import { currentWorkspaceId } from "./workspace";
+import { termList } from "@/lib/scope";
 import { podStopsMissing } from "./documents";
 import { answerCache, clockBucket } from "./answer-cache";
 
@@ -29,19 +30,14 @@ export type AlertScope = "shell" | "open" | "all";
 
 /** Reads the loads that can raise an alert and applies the rules (src/lib/alerts.ts). Nothing is stored: the alerts are as fresh as the rows. */
 /**
- * The alerts for the loads in a terminal (and the loads not placed anywhere yet): the same alerts, narrowed. Which of the alerted loads are in the terminal is asked of the database
- * for just those loads, so a fleet's thousands of loads are not read to draw a screen.
+ * The alerts for the loads in a scope (and the loads not placed anywhere yet): the same alerts, narrowed. The narrowing is part of the read, so the cap on delivered loads applies inside the scope
+ * (a small terminal does not lose its own older deliveries to a bigger one's).
  */
 export async function getAlertsInTerminal(terminal: Terminals, now = new Date(), workspaceId = currentWorkspaceId()) {
-  const all = await getAlerts(now, workspaceId, "all");
-  if (!terminal) return all;
-  const ids = [...new Set(all.alerts.map((a) => a.loadId))];
-  const mine = new Set((await prisma.load.findMany({ where: { id: { in: ids }, workspaceId, ...inTerminal(terminal) }, select: { id: true } })).map((l) => l.id));
-  const alerts = all.alerts.filter((a) => mine.has(a.loadId));
-  return { alerts, byLoad: alertsByLoad(alerts), counts: countAlerts(alerts), capped: all.capped, cap: all.cap };
+  return getAlerts(now, workspaceId, "all", undefined, terminal);
 }
 
-const answers = answerCache<Awaited<ReturnType<typeof buildAlerts>>>(60);
+const answers = answerCache<Awaited<ReturnType<typeof buildAlerts>>>(200);
 /** Tests clear it between cases. */
 export const clearAlertCache = () => answers.clear();
 
@@ -49,13 +45,16 @@ export const clearAlertCache = () => answers.clear();
  * The alerts as of now. They are worked out from every load that can raise one, which every screen's header needs, so the answer is kept until the data moves or
  * the minute turns (the rules read the clock in hours and days; answer-cache.ts).
  */
-export async function getAlerts(now = new Date(), workspaceId = currentWorkspaceId(), scope: AlertScope = "all", extraId?: string) {
+export async function getAlerts(now = new Date(), workspaceId = currentWorkspaceId(), scope: AlertScope = "all", extraId?: string, terminal: Terminals = null) {
   const t = await getThresholds(workspaceId);
-  return answers.remember([workspaceId, scope, extraId ?? null, clockBucket(now.getTime(), 60_000), t], workspaceId, () => buildAlerts(now, workspaceId, scope, extraId));
+  // The terminals in view are part of the kept answer's key (sorted: the same terminals in another order are one answer).
+  const here = termList(terminal)?.slice().sort() ?? null;
+  return answers.remember([workspaceId, scope, extraId ?? null, clockBucket(now.getTime(), 60_000), t, here], workspaceId, () => buildAlerts(now, workspaceId, scope, extraId, terminal));
 }
 
-async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, extraId?: string) {
-  const base = { workspaceId, deletedAt: null, ...notQuote };
+async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, extraId?: string, terminal: Terminals = null) {
+  // Loads on a truck or with a driver of the scope, and loads not placed anywhere yet (queries.ts inTerminal); an AND so it never collides with a where that has its own OR.
+  const base = { workspaceId, deletedAt: null, ...notQuote, AND: [inTerminal(terminal)] };
   const full = (where: object, take?: number) => prisma.load.findMany({ where: { ...base, ...where }, include: loadInclude, ...(take ? { orderBy: { completedAt: "desc" as const }, take } : {}) });
 
   const [open, delivered, uninvoiced, extra, outOwed, t] = await Promise.all([

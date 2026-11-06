@@ -1,9 +1,11 @@
 import { prisma } from "@/lib/db";
+import { inScope, terminalFilter, type Terminals } from "@/lib/scope";
 import { cleanBody } from "@/lib/messages";
 import { ATTACHMENTS_PER_MESSAGE, summaryOf, type Checked } from "@/lib/attachments";
 import { removeFiles, storeFile } from "./message-files";
 import { storageRefusal } from "./storage";
 import { currentWorkspaceId } from "./workspace";
+import { currentAllowed } from "./scope";
 
 /**
  * The desk's messages: one thread per driver. Everything here is the desk's own record. Nothing carries a message to a driver's phone yet
@@ -11,14 +13,16 @@ import { currentWorkspaceId } from "./workspace";
  */
 export type ThreadSummary = { driverId: string; driverName: string; truck: string | null; lastBody: string; lastDirection: string; lastAt: Date; unread: number };
 
-export async function listThreads(workspaceId = currentWorkspaceId()): Promise<ThreadSummary[]> {
+/** `terminals` is the scope in view: only the conversations with drivers based there (a driver with no terminal belongs to none). Null is every driver. */
+export async function listThreads(workspaceId = currentWorkspaceId(), terminals: Terminals = null): Promise<ThreadSummary[]> {
+  const mine = terminals == null ? {} : { driver: { terminal: terminalFilter(terminals) } };
   const [threads, unread] = await Promise.all([
     prisma.thread.findMany({
-      where: { workspaceId },
+      where: { workspaceId, ...mine },
       orderBy: { lastMessageAt: "desc" },
       include: { driver: { select: { name: true, assignedVehicle: { select: { name: true } } } }, messages: { orderBy: { sentAt: "desc" }, take: 1, include: { attachments: { select: { kind: true, name: true, mime: true } } } } }
     }),
-    prisma.message.groupBy({ by: ["threadId"], where: { direction: "in", readAt: null, thread: { workspaceId } }, _count: { _all: true } })
+    prisma.message.groupBy({ by: ["threadId"], where: { direction: "in", readAt: null, thread: { workspaceId, ...mine } }, _count: { _all: true } })
   ]);
   const unreadBy = new Map(unread.map((u) => [u.threadId, u._count._all]));
   return threads.map((t) => ({
@@ -33,8 +37,8 @@ export async function listThreads(workspaceId = currentWorkspaceId()): Promise<T
 }
 
 /** The number on the sidebar: messages from drivers the dispatcher has not opened. */
-export async function unreadMessageCount(workspaceId = currentWorkspaceId()): Promise<number> {
-  return prisma.message.count({ where: { direction: "in", readAt: null, thread: { workspaceId } } });
+export async function unreadMessageCount(workspaceId = currentWorkspaceId(), terminals: Terminals = null): Promise<number> {
+  return prisma.message.count({ where: { direction: "in", readAt: null, thread: { workspaceId, ...(terminals == null ? {} : { driver: { terminal: terminalFilter(terminals) } }) } } });
 }
 
 export type AttachmentView = { id: string; kind: string; name: string | null; mime: string; bytes: number };
@@ -46,9 +50,11 @@ export type Conversation = {
   loads: Array<{ id: string; loadNumber: string | null; customer: string | null }>;
 };
 
-export async function getConversation(driverId: string, workspaceId = currentWorkspaceId()): Promise<Conversation | null> {
+/** A driver outside the terminals the person may see is "not found", whatever id the address carries (`allowed` is the person's limit; read from the request when left out). */
+export async function getConversation(driverId: string, workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<Conversation | null> {
+  const limit = allowed !== undefined ? allowed : await currentAllowed(workspaceId);
   const driver = await prisma.driver.findFirst({
-    where: { id: driverId, workspaceId },
+    where: { id: driverId, workspaceId, ...(limit == null ? {} : { terminal: terminalFilter(limit) }) },
     select: { id: true, name: true, phone: true, terminal: true, assignedVehicle: { select: { name: true } } }
   });
   if (!driver) return null;
@@ -70,13 +76,20 @@ export async function getConversation(driverId: string, workspaceId = currentWor
 }
 
 /** Active drivers who have no thread yet: who a conversation can be started with. */
-export async function startableDrivers(workspaceId = currentWorkspaceId()) {
-  return prisma.driver.findMany({ where: { workspaceId, active: true, thread: null }, orderBy: { name: "asc" }, select: { id: true, name: true }, take: 200 });
+/** Only the drivers in the scope in view (and inside the person's limit), by name; `q` narrows by name or code. A few at a time: a fleet has thousands. */
+export async function startableDrivers(workspaceId = currentWorkspaceId(), terminals: Terminals = null, q = "") {
+  const text = q.trim().slice(0, 60);
+  return prisma.driver.findMany({
+    where: { workspaceId, active: true, thread: null, ...(terminals == null ? {} : { terminal: terminalFilter(terminals) }), ...(text ? { OR: [{ name: { contains: text, mode: "insensitive" as const } }, { code: { contains: text, mode: "insensitive" as const } }] } : {}) },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true },
+    take: 50
+  });
 }
 
 /** A file that has already passed `checkAttachment` (its bytes are the cleaned ones). */
 export type CheckedFile = Extract<Checked, { ok: true }>;
-export type SendInput = { driverId: string; body: string; loadId?: string | null; clientId?: string | null; files?: CheckedFile[] };
+export type SendInput = { driverId: string; body: string; loadId?: string | null; clientId?: string | null; files?: CheckedFile[]; /** The person's limit (null: not limited); read from the request when left out. */ allowed?: Terminals };
 export type SendResult = { ok: true; id: string; repeat: boolean } | { ok: false; error: string };
 
 /**
@@ -88,8 +101,10 @@ export async function sendMessage(input: SendInput, workspaceId = currentWorkspa
   if (files.length > ATTACHMENTS_PER_MESSAGE) return { ok: false, error: `A message can carry up to ${ATTACHMENTS_PER_MESSAGE} files.` };
   const clean = cleanBody(input.body, { allowEmpty: files.length > 0 });
   if (!clean.ok) return clean;
-  const driver = await prisma.driver.findFirst({ where: { id: input.driverId, workspaceId }, select: { id: true } });
-  if (!driver) return { ok: false, error: "That driver is not on this desk." };
+  const limit = input.allowed !== undefined ? input.allowed : await currentAllowed(workspaceId);
+  const driver = await prisma.driver.findFirst({ where: { id: input.driverId, workspaceId }, select: { id: true, terminal: true } });
+  // A driver outside the terminals the person may see is the same answer as one that is not on the desk: nothing says they exist.
+  if (!driver || !inScope(limit, driver.terminal)) return { ok: false, error: "That driver is not on this desk." };
   let loadId: string | null = null;
   if (input.loadId) {
     const load = await prisma.load.findFirst({ where: { id: input.loadId, workspaceId, deletedAt: null }, select: { id: true } });
@@ -134,7 +149,8 @@ export async function sendMessage(input: SendInput, workspaceId = currentWorkspa
 }
 
 /** The dispatcher opened the conversation: everything the driver wrote in it counts as read. */
-export async function markThreadRead(driverId: string, workspaceId = currentWorkspaceId()): Promise<number> {
-  const res = await prisma.message.updateMany({ where: { direction: "in", readAt: null, thread: { driverId, workspaceId } }, data: { readAt: new Date() } });
+export async function markThreadRead(driverId: string, workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<number> {
+  const limit = allowed !== undefined ? allowed : await currentAllowed(workspaceId);
+  const res = await prisma.message.updateMany({ where: { direction: "in", readAt: null, thread: { driverId, workspaceId, ...(limit == null ? {} : { driver: { terminal: terminalFilter(limit) } }) } }, data: { readAt: new Date() } });
   return res.count;
 }

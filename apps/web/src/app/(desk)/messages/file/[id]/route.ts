@@ -2,6 +2,8 @@ import { prisma } from "@/lib/db";
 import { isAllowedMime } from "@/lib/attachments";
 import { readFile } from "@/server/tl/message-files";
 import { currentWorkspaceId } from "@/server/tl/workspace";
+import { currentAllowed } from "@/server/tl/scope";
+import { terminalFilter } from "@/lib/scope";
 import { guardRoute } from "@/server/tl/access";
 
 /**
@@ -16,8 +18,10 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   const denied = await guardRoute("read");
   if (denied) return denied;
   if (!ID.test(params.id)) return new Response("Not found", { status: 404 });
+  // Only a conversation with a driver of a terminal the person may see.
+  const limit = await currentAllowed();
   const att = await prisma.messageAttachment.findFirst({
-    where: { id: params.id, message: { thread: { workspaceId: currentWorkspaceId() } } },
+    where: { id: params.id, message: { thread: { workspaceId: currentWorkspaceId(), ...(limit == null ? {} : { driver: { terminal: terminalFilter(limit) } }) } } },
     select: { kind: true, name: true, mime: true, storageKey: true }
   });
   if (!att || !isAllowedMime(att.mime)) return new Response("Not found", { status: 404 });

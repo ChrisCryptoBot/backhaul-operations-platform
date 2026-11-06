@@ -11,7 +11,8 @@ import { getAlerts } from "./alerts";
 import { finishedTotals } from "./finished-totals";
 import { listTerminals } from "./terminals-in-use";
 import { currentScope, scopeMenu } from "./scope";
-import type { ScopeMenu } from "@/lib/scope";
+import { termsOf, type ScopeMenu } from "@/lib/scope";
+import { inTerminal } from "./terminal-sql";
 import { agingSummary } from "./aging";
 import { currentWorkspaceId } from "./workspace";
 import { asZone } from "@/lib/tz";
@@ -92,23 +93,26 @@ const OPEN = ["draft", "accepted", "in_progress"];
  * finished-load totals are kept until a finished load changes (finished-totals.ts), and the alert counts read only the loads that can raise a counted alert.
  * No screen reads every load to draw the shell.
  */
-export async function getShellData(workspaceId = currentWorkspaceId()): Promise<ShellData> {
+export async function getShellData(workspaceId = currentWorkspaceId(), stand?: Parameters<typeof currentScope>[1]): Promise<ShellData> {
   const now = Date.now();
-  const base = { workspaceId, deletedAt: null };
+  // Every number is for the terminals in view (and inside what the person may see): a limited person's header never carries the whole fleet's figures. A load is in a scope when its truck or
+  // driver is, or when it is not placed anywhere yet (the same rule as every list). An AND, so it never collides with a where that has its own OR.
+  const scope = await currentScope(workspaceId, stand);
+  const terminal = termsOf(scope);
+  const base = { workspaceId, deletedAt: null, AND: [inTerminal(terminal)] };
   const [open, needsDriver, sentWaiting, onTheRoad, readyToInvoice, owed, alerts, totals, terminals, unreadMessages, workspace] = await Promise.all([
     prisma.load.count({ where: { ...base, status: { in: OPEN } } }),
     prisma.load.count({ where: { ...base, status: "draft", OR: [{ assignment: null }, { assignment: { status: { in: ["draft", "declined"] } } }] } }),
     prisma.load.count({ where: { ...base, ...notQuote, assignment: { status: "dispatched" } } }),
     prisma.load.count({ where: { ...base, status: "in_progress" } }),
     prisma.load.count({ where: { ...base, paymentStatus: null, OR: [{ status: "completed" }, { status: "tonu", tonuRevenue: { gt: 0 } }] } }),
-    agingSummary(now, workspaceId),
-    getAlerts(new Date(now), workspaceId, "shell"),
-    finishedTotals(workspaceId, new Date(now)),
+    agingSummary(now, workspaceId, terminal),
+    getAlerts(new Date(now), workspaceId, "shell", undefined, terminal),
+    finishedTotals(workspaceId, new Date(now), terminal),
     listTerminals(workspaceId),
-    unreadMessageCount(workspaceId),
+    unreadMessageCount(workspaceId, terminal),
     prisma.workspace.findUnique({ where: { id: workspaceId }, select: { name: true, timezone: true } })
   ]);
-  const scope = await currentScope(workspaceId);
   const menu = await scopeMenu(scope, workspaceId);
   const who = sessionIdentity();
   const demo = demoIdentity();
