@@ -3,7 +3,7 @@ import { centralInstant, centralMidnight, centralParts, parseCentralLocal, toCen
 import { asKpiPeriod, DAY_MS, inWindow, periodWindow, previousWindow, weekBuckets, WEEK_MS, windowLabel } from "../src/lib/kpi-periods";
 import { emptyZone, resolveThresholds, THRESHOLD_DEFAULTS, validateThresholds, alertThresholds } from "../src/lib/thresholds";
 import { csvCell, toCsv } from "../src/lib/csv";
-import { binVariances, changeFraction, combineWeeks, deltaOf, growthOf, sparkPath, sparkPoints, VARIANCE_BINS } from "../src/lib/kpi-view";
+import { binVariances, changeFraction, combineWeeks, deltaOf, growthOf, sparkCurve, sparkPath, sparkPoints, VARIANCE_BINS } from "../src/lib/kpi-view";
 import { hasFilters, kpiHref, kpiQuery, parseKpiParams } from "../src/lib/kpi-params";
 import { filterBoard, isBelowCost, searchBoard } from "../src/lib/board-filter";
 
@@ -237,6 +237,78 @@ describe("chart helpers", () => {
     // the last point is the one sparkPath draws its end dot on
     expect(pts[pts.length - 1]).toEqual(sparkPath(vals, 100, 40, 0).last);
     expect(sparkPoints([null, null], 100, 40)).toEqual([null, null]);
+  });
+});
+
+describe("the smooth weekly line", () => {
+  /** Every cubic segment of a path as its four points, read back from the text. */
+  const segments = (d: string) => {
+    const out: Array<Array<[number, number]>> = [];
+    let cur: [number, number] = [0, 0];
+    for (const m of d.matchAll(/([MCLZ])([^MCLZ]*)/g)) {
+      const nums = (m[2] ?? "").trim().split(/[\s]+/).filter(Boolean).map(Number);
+      if (m[1] === "M" || m[1] === "L") cur = [nums[0]!, nums[1]!];
+      if (m[1] === "C") {
+        out.push([cur, [nums[0]!, nums[1]!], [nums[2]!, nums[3]!], [nums[4]!, nums[5]!]]);
+        cur = [nums[4]!, nums[5]!];
+      }
+    }
+    return out;
+  };
+  const at = (seg: Array<[number, number]>, t: number): [number, number] => {
+    const u = 1 - t;
+    const c = (i: 0 | 1) => u * u * u * seg[0]![i] + 3 * u * u * t * seg[1]![i] + 3 * u * t * t * seg[2]![i] + t * t * t * seg[3]![i];
+    return [c(0), c(1)];
+  };
+
+  test("it passes through every real week and ends where the straight line ends", () => {
+    const vals = [3, 9, 4, 5, 8, 2, 6];
+    const c = sparkCurve(vals, 220, 56);
+    const pts = sparkPoints(vals, 220, 56);
+    const segs = segments(c.d);
+    expect(segs).toHaveLength(vals.length - 1);
+    segs.forEach((s, i) => {
+      expect(s[0]![0]).toBeCloseTo(pts[i]!.x, 0);
+      expect(s[0]![1]).toBeCloseTo(pts[i]!.y, 0);
+      expect(s[3]![0]).toBeCloseTo(pts[i + 1]!.x, 0);
+      expect(s[3]![1]).toBeCloseTo(pts[i + 1]!.y, 0);
+    });
+    expect(c.last).toEqual(sparkPath(vals, 220, 56).last);
+    expect([c.min, c.max]).toEqual([2, 9]);
+  });
+
+  test("it never swings past a real value: between two weeks it stays between them, so no invented peak or dip", () => {
+    for (const vals of [[3, 9, 4, 5, 8, 2, 6], [1, 1, 1, 8, 8, 1], [5, 4, 3, 2, 1, 9, 0, 9], [2, 10, 2, 10, 2, 10]]) {
+      const segs = segments(sparkCurve(vals, 220, 56).d);
+      segs.forEach((s) => {
+        const lo = Math.min(s[0]![1], s[3]![1]) - 0.15;
+        const hi = Math.max(s[0]![1], s[3]![1]) + 0.15;
+        for (let t = 0; t <= 1; t += 0.05) {
+          const y = at(s, t)[1];
+          expect(y, `${vals}`).toBeGreaterThanOrEqual(lo);
+          expect(y, `${vals}`).toBeLessThanOrEqual(hi);
+        }
+      });
+    }
+  });
+
+  test("a week with nothing breaks the line into runs, each curved alone, and a lone week is not drawn", () => {
+    const c = sparkCurve([1, 4, 2, null, 5, 3, null, 7], 220, 56);
+    expect((c.d.match(/M/g) ?? []).length).toBe(2);
+    expect((c.area.match(/Z/g) ?? []).length).toBe(2);
+    expect(sparkCurve([null, 6, null], 220, 56).d).toBe("");
+    expect(sparkCurve([null, null], 220, 56)).toEqual({ d: "", area: "", last: null, min: null, max: null });
+    expect(sparkCurve([4], 220, 56).last).toEqual({ x: 110, y: 28 });
+  });
+
+  test("the area closes down to the baseline under the first and last point of each run", () => {
+    const c = sparkCurve([2, 8, 5], 220, 56);
+    expect(c.area).toMatch(/L220\.0 55\.0 L3\.0 55\.0 Z$|L217\.0 55\.0 L3\.0 55\.0 Z$/);
+  });
+
+  test("a flat series is a flat line, not a wobble", () => {
+    const segs = segments(sparkCurve([5, 5, 5, 5], 220, 56).d);
+    for (const s of segs) for (const p of s) expect(p[1]).toBeCloseTo(28, 1);
   });
 });
 

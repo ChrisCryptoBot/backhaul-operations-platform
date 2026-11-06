@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { sparkPath, sparkPoints } from "@/lib/kpi-view";
+import { sparkCurve, sparkPoints } from "@/lib/kpi-view";
 import { TipPopup, type TipData } from "../kit/tooltip";
 
 export type TrendPanel = {
@@ -51,7 +51,7 @@ export function TrendGrid({ panels, weeks }: { panels: TrendPanel[]; weeks: Tren
   return (
     <div className="sm-grid">
       {panels.map((p) => {
-        const s = sparkPath(p.values, W, H);
+        const s = sparkCurve(p.values, W, H);
         const pts = sparkPoints(p.values, W, H);
         const lastVal = [...p.texts].reverse().find((t) => t != null) ?? null;
         const i = active?.i ?? null;
@@ -72,7 +72,9 @@ export function TrendGrid({ panels, weeks }: { panels: TrendPanel[]; weeks: Tren
               onBlur={() => setActive(null)}
               onKeyDown={(e) => onKey(e, p)}>
               <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+                <line x1="0" x2={W} y1={H / 2} y2={H / 2} className="sm-mid" />
                 <line x1="0" x2={W} y1={H - 1} y2={H - 1} className="sm-base" />
+                {s.area ? <path d={s.area} className="sm-area" /> : null}
                 {s.d ? <path d={s.d} className="sm-line" /> : null}
               </svg>
               {i == null && s.last ? <i className="sm-end" style={{ left: `${(s.last.x / W) * 100}%`, top: `${(s.last.y / H) * 100}%` }} /> : null}

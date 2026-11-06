@@ -96,6 +96,84 @@ export function sparkPath(values: Array<number | null>, w: number, h: number, pa
   return { d: d.trim(), last, min, max };
 }
 
+export type Curve = { d: string; area: string; last: { x: number; y: number } | null; min: number | null; max: number | null };
+
+const f1 = (n: number) => n.toFixed(1);
+
+/**
+ * One unbroken run of points as a smooth curve through every one of them. Monotone cubic (Fritsch and Carlson): the curve rises and falls only where the data does, so it never swings past a real week's
+ * value to draw a peak or a dip that is not in the numbers. Two points are a straight line; a run of one is not drawn (the caller marks it).
+ */
+export function monotonePath(pts: ReadonlyArray<{ x: number; y: number }>): string {
+  const n = pts.length;
+  if (n < 2) return "";
+  const dx: number[] = [];
+  const s: number[] = [];
+  for (let k = 0; k < n - 1; k++) {
+    dx.push(pts[k + 1]!.x - pts[k]!.x);
+    s.push((pts[k + 1]!.y - pts[k]!.y) / (dx[k]! || 1));
+  }
+  const m: number[] = new Array(n).fill(0);
+  m[0] = s[0]!;
+  m[n - 1] = s[n - 2]!;
+  for (let k = 1; k < n - 1; k++) m[k] = s[k - 1]! * s[k]! <= 0 ? 0 : (s[k - 1]! + s[k]!) / 2;
+  for (let k = 0; k < n - 1; k++) {
+    if (s[k] === 0) {
+      m[k] = 0;
+      m[k + 1] = 0;
+      continue;
+    }
+    const a = m[k]! / s[k]!;
+    const b = m[k + 1]! / s[k]!;
+    const h = Math.hypot(a, b);
+    if (h > 3) {
+      const t = 3 / h;
+      m[k] = t * a * s[k]!;
+      m[k + 1] = t * b * s[k]!;
+    }
+  }
+  let d = `M${f1(pts[0]!.x)} ${f1(pts[0]!.y)}`;
+  for (let k = 0; k < n - 1; k++) {
+    const a = pts[k]!;
+    const b = pts[k + 1]!;
+    const w = dx[k]! / 3;
+    d += ` C${f1(a.x + w)} ${f1(a.y + m[k]! * w)} ${f1(b.x - w)} ${f1(b.y - m[k + 1]! * w)} ${f1(b.x)} ${f1(b.y)}`;
+  }
+  return d;
+}
+
+/**
+ * A weekly chart as a smooth line with a flat area under it. A week with nothing breaks the line into separate runs (never a zero), each curved on its own; `area` closes every run down to the baseline so one
+ * fill colour at low strength can sit under it. `last` and the extremes are exactly the straight sparkline's, so the end marker and the hover land on the data.
+ */
+export function sparkCurve(values: Array<number | null>, w: number, h: number, pad = 3): Curve {
+  const sc = sparkScale(values, w, h, pad);
+  if (!sc) return { d: "", area: "", last: null, min: null, max: null };
+  const runs: Array<Array<{ x: number; y: number }>> = [];
+  let run: Array<{ x: number; y: number }> = [];
+  let last: Curve["last"] = null;
+  values.forEach((v, i) => {
+    if (v == null || !Number.isFinite(v)) {
+      if (run.length) runs.push(run);
+      run = [];
+      return;
+    }
+    const p = { x: sc.x(i), y: sc.y(v) };
+    run.push(p);
+    last = p;
+  });
+  if (run.length) runs.push(run);
+  const drawn = runs.filter((r) => r.length >= 2);
+  const base = h - 1;
+  return {
+    d: drawn.map(monotonePath).join(" "),
+    area: drawn.map((r) => `${monotonePath(r)} L${f1(r[r.length - 1]!.x)} ${f1(base)} L${f1(r[0]!.x)} ${f1(base)} Z`).join(" "),
+    last,
+    min: sc.min,
+    max: sc.max
+  };
+}
+
 /** Where every point of the same sparkline sits (null for a gap), so a hover can land a marker on the week under the pointer. */
 export function sparkPoints(values: Array<number | null>, w: number, h: number, pad = 3): Array<{ x: number; y: number } | null> {
   const sc = sparkScale(values, w, h, pad);

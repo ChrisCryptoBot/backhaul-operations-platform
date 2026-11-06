@@ -48,7 +48,7 @@ export function SmallMultiples({ k }: { k: DeskKpi }) {
       title="Twelve weeks"
       unit="trailing seven-day weeks ending now · each chart has its own scale"
       empty={any ? undefined : "No finished loads in the last twelve weeks."}
-      caption="Read the shape, not the height: each chart is stretched to its own range. A week with no finished loads leaves a gap rather than a zero."
+      caption="Read the shape, not the height: each chart is stretched to its own range. A week with no finished loads leaves a gap rather than a zero. The line is smoothed between weeks but never goes past a real week's value."
       formula="Weeks are the seven days ending now, counted back twelve times; a load belongs to the week it finished in. Per mile and empty miles are ratios of that week's sums."
       table={table}>
       <TrendGrid panels={panels.map((p) => ({ title: p.title, unit: p.unit, values: p.values, texts: p.values.map((v) => (v == null ? null : p.fmt(v))) }))} weeks={weeks} />
