@@ -11,6 +11,8 @@ import { AlertList } from "@/components/desk/alert-bits";
 import { AssignButton } from "@/components/desk/assign-modal";
 import { EmptyState } from "@/components/desk/kit/states";
 import { miles, shortDate, stopTime, usd } from "@/lib/desk-format";
+import { recalledLoads, type RecalledLoad } from "@/server/tl/assignment-events";
+import { RECALL_LABELS, recallDeliveryText } from "@/lib/recall-reasons";
 
 export const metadata = { title: "Dispatch queue · TrueLane" };
 
@@ -26,7 +28,7 @@ function Signal({ r, alerts }: { r: BoardRow; alerts: Alert[] | undefined }) {
   return null;
 }
 
-function Row({ r, alerts, assign }: { r: BoardRow; alerts: Alert[] | undefined; assign?: boolean }) {
+function Row({ r, alerts, assign, recall }: { r: BoardRow; alerts: Alert[] | undefined; assign?: boolean; recall?: RecalledLoad }) {
   return (
     <li className="dq-row">
       <div className="dq-top">
@@ -38,6 +40,13 @@ function Row({ r, alerts, assign }: { r: BoardRow; alerts: Alert[] | undefined; 
       <div className="tl-sub">
         {r.origin} → {r.destination} · {miles(r.totalMiles)}
       </div>
+      {recall ? (
+        <div className="tl-sub" style={{ marginTop: 4 }}>
+          <span className="dq-sig warn">Recalled{recall.code ? ` · ${RECALL_LABELS[recall.code]}` : ""}{recall.driverName ? ` · was ${recall.driverName}` : ""}</span>
+          <div>{recallDeliveryText(recall.delivery)}</div>
+          {recall.note ? <div>“{recall.note}”</div> : null}
+        </div>
+      ) : null}
       <div className="dq-foot">
         <span className="dq-who">
           <Signal r={r} alerts={alerts} />
@@ -58,7 +67,10 @@ export default async function DispatchPage({ searchParams }: { searchParams?: { 
   const [rows, { alerts, byLoad }, dispatchAccess] = await Promise.all([listBoardRows(currentWorkspaceId(), "open", await currentTerminal()), getAlerts(new Date(), currentWorkspaceId(), "shell", undefined, await currentTerminal()), checkAccess("dispatch")]);
   // A viewer or the accounting office reads this page; the button that changes a driver is only for someone the server would let do it.
   const mayAssign = dispatchAccess.ok;
-  const needs = rows.filter((r) => r.status === "draft" && (!r.assignmentStatus || r.assignmentStatus === "draft" || r.assignmentStatus === "declined")).sort(soonest);
+  const needsAll = rows.filter((r) => r.status === "draft" && (!r.assignmentStatus || r.assignmentStatus === "draft" || r.assignmentStatus === "declined"));
+  // A load whose last move was a recall is pinned first: someone was taken off it, and it should not sit quietly among the rest.
+  const recalls = await recalledLoads(needsAll.map((r) => r.id), currentWorkspaceId());
+  const needs = needsAll.sort((x, y) => Number(recalls.has(y.id)) - Number(recalls.has(x.id)) || soonest(x, y));
   const sent = rows.filter((r) => r.assignmentStatus === "dispatched").sort(soonest);
   const road = rows.filter((r) => r.status === "accepted" || r.status === "in_progress").filter((r) => r.assignmentStatus !== "dispatched").sort(soonest);
   const urgent = alerts.filter((a) => a.level !== "info");
@@ -100,7 +112,7 @@ export default async function DispatchPage({ searchParams }: { searchParams?: { 
           ) : (
             <ul className="dq">
               {needs.slice(0, limits.needs).map((r) => (
-                <Row key={r.id} r={r} alerts={byLoad.get(r.id)} assign={mayAssign} />
+                <Row key={r.id} r={r} alerts={byLoad.get(r.id)} assign={mayAssign} recall={recalls.get(r.id)} />
               ))}
             </ul>
           )}

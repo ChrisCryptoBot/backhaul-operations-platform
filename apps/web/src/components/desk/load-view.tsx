@@ -22,6 +22,9 @@ import { AssignTrailer } from "./trailer-forms";
 import { trailerBlocker } from "@/lib/trailer-clearance";
 import { assignAction, reopenCancelledAction, reopenDeliveredAction, respondAction, retryBridgeAction, sendAction, unassignAction, undoPaidAction, undoStartAction, voidInvoiceAction } from "@/app/(desk)/actions";
 import { InvoiceDialog, LoadEditDialog, PaidDialog, TripEntry } from "./load-actions";
+import { RecallForm } from "./recall-form";
+import { holderTrail } from "@/server/tl/assignment-events";
+import { RECALL_LABELS } from "@/lib/recall-reasons";
 import { billedOf } from "@/lib/billed";
 import { moneyState } from "@/lib/money-state";
 import { daysPastDue } from "@/lib/overdue";
@@ -83,14 +86,16 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     <p className="tl-note" role="note">You can read this load but not change it. A dispatcher or the accounting office can.</p>
   );
 
-  const [{ byLoad }, feed, settled, waivedMap, tracking, evidence] = await Promise.all([
+  const [{ byLoad }, feed, settled, waivedMap, tracking, evidence, holders] = await Promise.all([
     getAlerts(new Date(), currentWorkspaceId(), "open", id),
     listLoadAudit(id),
     settlementOfLoad(id),
     waivedDetentionLoads([id]),
     getLoadTracking(id),
     // Whether the truck's track was frozen for this load's stops (docs/DETENTION_EVIDENCE.md): one line and a link.
-    evidenceSummary(id)
+    evidenceSummary(id),
+    // Who held this load, in order, and why it changed hands (docs/RELAY_DESIGN.md).
+    holderTrail(id)
   ]);
   const waivedReason = waivedMap.get(id) ?? null;
   const { load, evaluation, flipped, driverView, drivers } = detail;
@@ -444,7 +449,15 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           </form>
         ) : null}
 
-        {canUnassign && a ? (
+        {a && load.status === "in_progress" && may("dispatch") ? (
+          <p className="tl-note" style={{ marginTop: 8 }}>This load is on the road, so the driver cannot be taken off here. Call them. A handoff to another driver is needed, and it is not built yet.</p>
+        ) : null}
+
+        {canUnassign && a && (a.status === "dispatched" || a.status === "accepted") ? (
+          <RecallForm action={unassignAction} loadId={load.id} driverName={a.driver.name} loadNumber={load.loadNumber ?? "this load"} accepted={a.status === "accepted"} />
+        ) : null}
+
+        {canUnassign && a && !(a.status === "dispatched" || a.status === "accepted") ? (
           <ConfirmForm
             action={unassignAction}
             fields={{ loadId: load.id }}
@@ -899,6 +912,27 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     </section>
   );
 
+  const HOLDER_VERB: Record<string, string> = { assigned: "Assigned to", reassigned: "Changed to", sent: "Sent to", accepted: "Accepted by", declined: "Declined by", recalled: "Recalled from", removed: "Taken off" };
+  const holderSec = holders.length === 0 ? null : (
+    <section className="sec">
+      <h3>Who Held It · {holders.length}</h3>
+      <div className="sec-box">
+        <ul className="feed">
+          {holders.map((h) => (
+            <li key={h.id}>
+              <div>
+                <b>{HOLDER_VERB[h.kind] ?? h.kind}</b> {h.driverName ?? "a driver"}
+                {h.reasonCode ? ` · ${RECALL_LABELS[h.reasonCode]}` : ""}
+              </div>
+              {h.reasonNote ? <div className="r">“{h.reasonNote}”</div> : null}
+              <div className="t">{dateTime(h.at)} · {h.via === "phone" ? "on their phone" : h.actor}</div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+
   const activitySec = (
     <section className="sec">
       <h3>Activity Trail · {feed.length >= 25 ? "latest 25" : feed.length}</h3>
@@ -1002,6 +1036,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
       {gate(invoiceSec, "bill")}
       {decisionSec}
       {whereSec}
+      {holderSec}
       {activitySec}
       {gate(moreSec, "dispatch")}
     </>

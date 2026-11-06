@@ -55,6 +55,7 @@ describe.skipIf(!run)("audit trail, unassign and the double-booking guard", () =
   });
 
   afterAll(async () => {
+    await prisma.assignmentEvent.deleteMany({ where: { loadId: { in: loadIds } } });
     await prisma.auditEvent.deleteMany({ where: { loadId: { in: loadIds } } });
     await prisma.load.deleteMany({ where: { id: { in: loadIds } } }); // assignments cascade
     await prisma.driver.delete({ where: { id: driverId } });
@@ -68,14 +69,14 @@ describe.skipIf(!run)("audit trail, unassign and the double-booking guard", () =
     await expect(unassignLoad(l.id, "")).rejects.toMatchObject({ code: "reason_required" });
     expect(await prisma.assignment.count({ where: { loadId: l.id } })).toBe(1);
 
-    await unassignLoad(l.id, "Driver called out sick");
+    await unassignLoad(l.id, "Driver called out sick", undefined, undefined, undefined, "HOS_TIMEOUT");
     expect(await prisma.assignment.count({ where: { loadId: l.id } })).toBe(0);
     expect((await prisma.load.findUniqueOrThrow({ where: { id: l.id } })).status).toBe("draft");
 
     const feed = (await listLoadAudit(l.id)).reverse();
     expect(feed.map((e) => e.action)).toEqual(["assigned", "sent", "unassigned"]);
     expect(feed[0]!.after).toMatchObject({ Driver: "Audit Test Driver", Pay: "$0.65/mi" });
-    expect(feed[2]).toMatchObject({ reason: "Driver called out sick", before: { Driver: "Audit Test Driver", Status: "Sent, waiting" }, after: { Status: "Needs a driver" } });
+    expect(feed[2]).toMatchObject({ reason: "Out of hours: Driver called out sick", before: { Driver: "Audit Test Driver", Status: "Sent, waiting" }, after: { Status: "Needs a driver" } });
   });
 
   test("changing the driver or pay is recorded as a before and after", async () => {

@@ -131,7 +131,7 @@ describe.skipIf(!run)("the driver link, desk half", () => {
     await reset();
     await assignAndSend();
     await flushBridgeOutbox(t);
-    await unassignLoad(loadId, "Driver called in sick");
+    await unassignLoad(loadId, "Driver called in sick", undefined, undefined, undefined, "HOS_TIMEOUT");
     expect(await prisma.bridgeOutbox.count({ where: { loadId, kind: "cancel", status: "pending" } })).toBe(1);
     await flushBridgeOutbox(t);
     expect(t.table).toHaveLength(1);

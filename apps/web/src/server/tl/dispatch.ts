@@ -18,6 +18,8 @@ import { inScope, type Terminals } from "@/lib/scope";
 import { inTerminal } from "./terminal-sql";
 import { currentAllowed } from "./scope";
 import { enqueueBridge } from "@/server/bridge/outbox";
+import { recordAssignmentEvent } from "./assignment-events";
+import { isOfferedRecallCode, isRecallCode, recallReasonText, type RecallCode } from "@/lib/recall-reasons";
 
 export { driverBlocker };
 
@@ -243,25 +245,30 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
       },
       tx
     );
+    await recordAssignmentEvent(tx, { workspaceId, loadId: load.id, loadNumber: load.loadNumber, kind: prev ? "reassigned" : "assigned", driverId: driver.id, driverName: driver.name, reasonNote: override ?? (replacing ? changeWhy : null), assignmentVersion: saved.assignmentVersion, at: now });
     return saved;
   });
 }
 
 /**
- * Take the driver off a load. A load that was sent or accepted needs a reason, which goes in the audit trail.
- * An accepted load goes back to the board as a draft. A load already on the road or delivered cannot be unassigned.
+ * Take the driver off a load (a recall). A load that was sent or accepted needs a reason CODE (src/lib/recall-reasons.ts), with an optional note; the code and the note go in the audit trail
+ * and in the holder trail (AssignmentEvent), and the driver's phone is told through the driver link. An accepted load goes back to the board as a draft. A driver who was never sent the
+ * load comes off with no reason (a correction, not a recall). A load already on the road or delivered cannot be unassigned here: on the road it needs a handoff (docs/RELAY_DESIGN.md, phase 2).
  */
-export async function unassignLoad(loadId: string, reason: string | null, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals) {
+export async function unassignLoad(loadId: string, reason: string | null, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals, code?: RecallCode | null) {
   const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, ...inTerminal(allowed !== undefined ? allowed : await currentAllowed(workspaceId)) }, include: { assignment: { include: { driver: true } } } });
   if (!load || load.deletedAt) throw new DispatchError("load_not_found", "That load does not exist.");
   const a = load.assignment;
   if (!a) throw new DispatchError("not_assigned", "There is no driver on this load.");
   if (!["draft", "accepted"].includes(load.status) || ["in_progress", "completed"].includes(a.status)) {
-    throw new DispatchError("not_unassignable", "A load that is on the road or delivered cannot be unassigned.");
+    throw new DispatchError("not_unassignable", "A load that is on the road or delivered cannot be unassigned here. On the road it needs a handoff, which is not built yet: call the driver.");
   }
-  const why = (reason ?? "").trim();
+  const note = (reason ?? "").trim();
   const needsReason = a.status === "dispatched" || a.status === "accepted";
-  if (needsReason && why.length < 3) throw new DispatchError("reason_required", "Say why the driver is coming off a load that was already sent.");
+  if (needsReason && !code) throw new DispatchError("reason_required", "Say why the driver is coming off a load that was already sent: pick a reason.");
+  if (code && !isRecallCode(code)) throw new DispatchError("bad_reason", "That is not a reason a load can be recalled for.");
+  if (code && !isOfferedRecallCode(code)) throw new DispatchError("bad_reason", "A scheduled relay is a handoff, not a recall. Handoffs are not built yet.");
+  const why = code ? recallReasonText(code, note) : note;
 
   await prisma.$transaction(async (tx) => {
     // The driver's phone is told the load is off them (the row is closed, never deleted: that is the phone's signal).
@@ -280,7 +287,7 @@ export async function unassignLoad(loadId: string, reason: string | null, now = 
         action: "unassigned",
         loadId,
         loadNumber: load.loadNumber,
-        summary: `${a.driver.name} taken off the load`,
+        summary: needsReason ? `${a.driver.name} recalled from the load` : `${a.driver.name} taken off the load`,
         reason: why || null,
         before: { Driver: a.driver.name, Pay: describePay(a.payKind, num(a.payRate)), Status: a.status === "dispatched" ? "Sent, waiting" : a.status === "accepted" ? "Driver accepted" : a.status === "declined" ? "Driver declined" : "Assigned, not sent" },
         after: { Driver: null, Pay: null, Status: "Needs a driver" },
@@ -288,6 +295,7 @@ export async function unassignLoad(loadId: string, reason: string | null, now = 
       },
       tx
     );
+    await recordAssignmentEvent(tx, { workspaceId, loadId, loadNumber: load.loadNumber, kind: needsReason ? "recalled" : "removed", driverId: a.driverId, driverName: a.driver.name, reasonCode: code ?? null, reasonNote: note || null, assignmentVersion: a.assignmentVersion, at: now });
   });
 }
 
@@ -361,6 +369,7 @@ export async function dispatchLoad(loadId: string, now = new Date(), opts: { sen
       },
       tx
     );
+    await recordAssignmentEvent(tx, { workspaceId, loadId, loadNumber: a.load.loadNumber, kind: "sent", driverId: a.driverId, driverName: a.driver.name, assignmentVersion: next.assignmentVersion, at: now });
     // A driver with a phone account is told through the driver link, in this same transaction (docs/DRIVER_LINK_DESIGN.md); any other driver is answered for by the dispatcher.
     await enqueueBridge(tx, { workspaceId, loadId, kind: "dispatch", driverId: a.driverId, now });
     return next;
@@ -403,6 +412,7 @@ export async function recordDriverResponse(loadId: string, response: "accepted" 
       },
       tx
     );
+    await recordAssignmentEvent(tx, { workspaceId, loadId, loadNumber: a.load.loadNumber, kind: response, driverId: a.driverId, driverName: a.driver.name, reasonNote: note ?? null, via, assignmentVersion: assignment.assignmentVersion, at: now });
     return assignment;
   });
 }

@@ -93,6 +93,7 @@ model Workspace {
   loads              Load[]
   drivers            Driver[]
   auditEvents        AuditEvent[]
+  assignmentEvents   AssignmentEvent[]
   settlements        Settlement[]
   customers          Customer[]
 
@@ -536,6 +537,34 @@ model Assignment {
   @@index([driverId, status])
   @@index([status])
   @@map("assignments")
+}
+
+/// Who held a load, when, and why it changed hands (docs/RELAY_DESIGN.md). One row per move of the assignment: assigned, reassigned, sent, accepted, declined, recalled.
+/// The audit trail says it in words; this says it in fields, so "who had this load" and "which loads were recalled, and why" are queries, not text searches.
+/// `loadId` is a plain column (no foreign key) and `loadNumber` and `driverName` are copied in, so the trail outlives a deleted load or driver.
+/// reasonCode is set on a recall (ASSIGNED_IN_ERROR | HOS_TIMEOUT | MECHANICAL_BREAKDOWN | DRIVER_UNRESPONSIVE | SCHEDULED_RELAY).
+model AssignmentEvent {
+  id                String   @id @default(cuid())
+  workspaceId       String   @map("workspace_id")
+  loadId            String   @map("load_id")
+  loadNumber        String?  @map("load_number")
+  /// assigned | reassigned | sent | accepted | declined | recalled | removed (taken off before it was ever sent)
+  kind              String
+  driverId          String?  @map("driver_id")
+  driverName        String?  @map("driver_name")
+  reasonCode        String?  @map("reason_code")
+  reasonNote        String?  @map("reason_note")
+  actor             String   @default("Dispatcher")
+  /// dispatcher | phone
+  via               String   @default("dispatcher")
+  assignmentVersion Int?     @map("assignment_version")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([loadId, createdAt])
+  @@index([workspaceId, kind, createdAt])
+  @@map("assignment_events")
 }
 
 /// What the desk did and why: assignments, sends, driver answers, unassignments, invoices, payments and rate-confirmation

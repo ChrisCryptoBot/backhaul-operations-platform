@@ -10,6 +10,7 @@ import { requireCan } from "@/server/tl/access";
 import { removeLoadDocument, type DocResult } from "@/server/tl/documents";
 import { addMember, setMemberGrants, removeMember, setMemberRole, type MemberResult } from "@/server/tl/members";
 import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
+import { isRecallCode } from "@/lib/recall-reasons";
 import { retryBridgeDelivery } from "@/server/bridge/retry";
 import { setWorkspaceTimezone } from "@/server/tl/zone-setting";
 import { ZONE_COOKIE } from "@/lib/tz";
@@ -139,9 +140,12 @@ export async function assignFromQueueAction(input: { loadId: string; driverId: s
 export async function unassignAction(formData: FormData) {
   await requireCan("dispatch");
   const loadId = String(formData.get("loadId"));
+  // A recall (the driver was already sent the load) carries a reason code and an optional note; a driver who was never sent it comes off with neither.
+  const code = String(formData.get("reasonCode") ?? "");
+  const note = String(formData.get("reasonNote") ?? formData.get("reason") ?? "");
   await attempt(loadId, async () => {
-    await unassignLoad(loadId, String(formData.get("reason") ?? ""));
-    return "Driver removed. The load is back on the board.";
+    await unassignLoad(loadId, note, undefined, undefined, undefined, isRecallCode(code) ? code : null);
+    return code ? "Driver recalled. The load is back in Needs a driver." : "Driver removed. The load is back on the board.";
   });
 }
 

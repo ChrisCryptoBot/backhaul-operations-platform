@@ -103,7 +103,7 @@ describe.skipIf(!run)("Part C: integrity of loads, money and documents", () => {
     await recordDriverResponse(l.id, "accepted", new Date(), undefined, W);
     expect((await agree(l.id)).status).toBe("accepted");
 
-    await unassignLoad(l.id, "Driver is sick", new Date(), W);
+    await unassignLoad(l.id, "Driver is sick", new Date(), W, undefined, "HOS_TIMEOUT");
     const bare = await agree(l.id);
     expect([bare.status, bare.assignment]).toEqual(["draft", null]);
   });
