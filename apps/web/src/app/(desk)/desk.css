@@ -1233,3 +1233,24 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .mv-total { font-weight: 700; border-bottom: 0; border-top: 1px solid var(--db-border); }
 .mv-name { min-width: 0; }
 @media (max-width: 1100px) { .mv-head, .mv-row { grid-template-columns: minmax(0, 1fr) 100px 100px 110px; } }
+
+/* Detention evidence sheet: paper-white like every sheet, with the decision form drawn to match and hidden in print. */
+.ev-stop { margin-top: 6px; }
+.ev-notes { margin: 6px 0 10px 18px; padding: 0; color: #5d534b; font-size: 12px; }
+.ev-fixes { margin-top: 8px; font-size: 12px; }
+.ev-fixes th, .ev-fixes td { padding: 3px 6px; border-bottom: 1px solid #e5dccd; text-align: left; }
+.ev-fixes th.num, .ev-fixes td.num { text-align: right; }
+.ev-decision { margin: 10px 0; padding: 8px 0; border-top: 1px solid #d6c8b6; }
+.ev-hash { margin-top: 8px; }
+.ev-decide { border: 1px solid #d6c8b6; padding: 12px; margin: 12px 0; }
+.ev-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+.ev-form { display: grid; gap: 10px; max-width: 560px; }
+.ev-field { display: grid; gap: 4px; font-size: 12px; color: #1b1712; }
+.rp .ev-field input, .rp .ev-field textarea { border: 1px solid #b9a98f; border-radius: 0; padding: 6px 8px; background: #fff; color: #1b1712; -webkit-text-fill-color: #1b1712; opacity: 1; font: inherit; }
+.ev-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.rp .ev-decide .tl-btn { background: #fff; color: #1b1712; border: 1px solid #1b1712; }
+.rp .ev-decide .tl-btn.primary { background: #1b1712; color: #fff; }
+.rp .ev-decide .tl-btn[aria-selected="true"] { font-weight: 700; border-bottom: 3px solid #1b1712; }
+.rp .ev-decide .tl-btn:disabled { opacity: 0.45; }
+.rp .ev-decide .tl-note { color: #5d534b; }
+.rp .ev-decide .th-err { color: #a3262a; font-size: 12px; }

@@ -13,6 +13,7 @@ import { checkAccess } from "@/server/tl/access";
 import { can, whoCan } from "@/lib/roles";
 import { Pager } from "@/components/desk/pager";
 import { getDetentionRecovery } from "@/server/tl/detention";
+import { listProposed } from "@/server/tl/detention-evidence";
 import { factoringLabel } from "@/server/partners/factoring";
 import { InvoiceDialog, PaidDialog } from "@/components/desk/load-actions";
 import { Card, PageHead, Stat, Tabs } from "@/components/desk/ui";
@@ -96,12 +97,14 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
   const readyPage = pageOf(searchParams?.ready, readyTotal, READY_PAGE);
   const outPage = pageOf(searchParams?.out, outTotal, OUT_PAGE);
   const paidPage = pageOf(searchParams?.paid, paidTotal, PAID_PAGE);
-  const [toInvoice, open, paid, aging, detention, history] = await Promise.all([
+  const [toInvoice, open, paid, aging, detention, proposed, history] = await Promise.all([
     listInvoiceRows(undefined, { scope: "ready", q, terminal, sort: readySort, skip: (readyPage - 1) * READY_PAGE, take: READY_PAGE }),
     listInvoiceRows(undefined, { scope: "out", q, terminal, show, sort: outSort, skip: (outPage - 1) * OUT_PAGE, take: OUT_PAGE }),
     listInvoiceRows(undefined, { scope: "paid", q, terminal, sort: paidSort, skip: (paidPage - 1) * PAID_PAGE, take: PAID_PAGE }),
     agingFor(Date.now(), undefined, terminal),
     getDetentionRecovery(undefined, new Date(), terminal),
+    // What the trucks' own tracks show at a stop that nobody has recorded or confirmed (docs/DETENTION_EVIDENCE.md): not counted anywhere until a person confirms it.
+    listProposed(terminal),
     // How this customer has treated the desk, when the search narrows to one (the Loads History computes it from the loads' own money columns).
     q ? listHistory({ q, pageSize: 1, terminal }) : Promise.resolve(null)
   ]);
@@ -299,6 +302,47 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
         {detentionOwed.length > detentionRows.length ? <p className="tl-note" style={{ marginTop: 8 }}>The {detentionRows.length} largest of {detentionOwed.length} loads are shown.</p> : null}
         {detention.totalBilled > 0 ? <p className="tl-note" style={{ marginTop: 8 }}>{usd(detention.totalBilled, 2)} of detention has already gone out on invoices.</p> : null}
       </Card>
+      {proposed.length > 0 ? (
+        <Card title={`Detention the truck's track shows, not yet confirmed · ${proposed.length} ${proposed.length === 1 ? "stop" : "stops"} · ${usd(proposed.reduce((s, r) => s + Math.round(r.amount * 100), 0) / 100, 2)}`}>
+          <table className="tl-table" aria-label="Detention seen by the truck, not yet confirmed">
+            <thead>
+              <tr>
+                <th>Load</th>
+                <th>Stop</th>
+                <th className="num">The track shows</th>
+                <th className="num">Entered</th>
+                <th>Track</th>
+                <th className="num">Worth</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {proposed.map((r) => (
+                <tr key={r.evidenceId}>
+                  <td>
+                    <Link href={`/loads/${r.loadId}`}>{r.loadNumber ?? "A load"}</Link>
+                    <span className="sub">{r.customer ?? "No customer"}</span>
+                  </td>
+                  <td>
+                    {r.role === "pickup" ? "Pickup" : r.role === "delivery" ? "Delivery" : "Stop"} {r.stop}
+                    <span className="sub">{r.label}</span>
+                  </td>
+                  <td className="num">{spanText(r.proposedWaitMinutes)}</td>
+                  <td className="num">{r.enteredWaitMinutes == null ? <span className="dim">none</span> : spanText(r.enteredWaitMinutes)}</td>
+                  <td>{r.quality === "good" ? <span className="tl-chip ok">Good</span> : <span className="tl-chip warn">Thin</span>}</td>
+                  <td className="num">{usd(r.amount, 2)}</td>
+                  <td>
+                    <Link href={`/detention/${r.loadId}`} className="tl-btn sm">
+                      Review
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="tl-note" style={{ marginTop: 8 }}>Read from the trucks&apos; position fixes, frozen when each load was delivered. Nothing here is on any invoice, in the alerts or in the Leak Ledger until a person confirms it on the evidence sheet.</p>
+        </Card>
+      ) : null}
       <DataTableTools tableId="inv-out" total={outTotal} placeholder="Search invoice, load, PO or customer, in all three lists…" server={{ path: "/invoices", q, keep: { ...(show ? { show } : {}), ...(searchParams?.readySort ? { readySort: searchParams.readySort } : {}), ...(searchParams?.outSort ? { outSort: searchParams.outSort } : {}), ...(searchParams?.paidSort ? { paidSort: searchParams.paidSort } : {}) } }} />
       {history?.record ? (
         <p className="tl-note" style={{ margin: "0 0 12px" }}>

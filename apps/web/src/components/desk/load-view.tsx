@@ -11,6 +11,7 @@ import { canAny, type Capability } from "@/lib/roles";
 import { listLoadAudit } from "@/server/tl/audit";
 import { num, numOrNull } from "@/server/tl/convert";
 import { detentionOfLoad, waivedDetentionLoads } from "@/server/tl/detention";
+import { evidenceSummary } from "@/server/tl/detention-evidence";
 import { ReadOnlyGate } from "./kit/read-only";
 import { WaiveDetentionButton } from "./waive-detention";
 import { getThresholds } from "@/server/tl/thresholds";
@@ -82,12 +83,14 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     <p className="tl-note" role="note">You can read this load but not change it. A dispatcher or the accounting office can.</p>
   );
 
-  const [{ byLoad }, feed, settled, waivedMap, tracking] = await Promise.all([
+  const [{ byLoad }, feed, settled, waivedMap, tracking, evidence] = await Promise.all([
     getAlerts(new Date(), currentWorkspaceId(), "open", id),
     listLoadAudit(id),
     settlementOfLoad(id),
     waivedDetentionLoads([id]),
-    getLoadTracking(id)
+    getLoadTracking(id),
+    // Whether the truck's track was frozen for this load's stops (docs/DETENTION_EVIDENCE.md): one line and a link.
+    evidenceSummary(id)
   ]);
   const waivedReason = waivedMap.get(id) ?? null;
   const { load, evaluation, flipped, driverView, drivers } = detail;
@@ -567,6 +570,12 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   const docksSec = (
     <section className="sec">
       <h3>Dock Waiting & Detention</h3>
+      {evidence.total > 0 && may("dispatch", "bill", "figures") ? (
+        <p className="tl-note" style={{ margin: "0 0 8px" }}>
+          The truck&apos;s track was kept for {evidence.total} {evidence.total === 1 ? "stop" : "stops"}
+          {evidence.proposed > 0 ? `, ${evidence.proposed} still to confirm` : ", all decided"}. <Link href={`/detention/${load.id}`}>Open the evidence</Link>
+        </p>
+      ) : null}
       <div className={`cp-detention-box ${dt.billable > 0 ? "billable-wait" : dt.totalWaitMinutes > 0 ? "active-wait" : ""}`}>
         <div>
           <div className="cp-clock">

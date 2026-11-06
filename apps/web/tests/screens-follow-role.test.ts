@@ -29,7 +29,8 @@ const GATED: Array<{ page: string; uses: string[]; caps: Capability[] }> = [
   { page: "src/app/(desk)/messages/page.tsx", uses: ["<Composer"], caps: ["dispatch", "bill"] },
   { page: "src/app/(desk)/customers/[id]/page.tsx", uses: ["<CustomerForm"], caps: ["dispatch", "billing_details"] },
   { page: "src/app/(desk)/loads/page.tsx", uses: ["<RestoreLoadButton"], caps: ["dispatch"] },
-  { page: "src/app/(desk)/signals/page.tsx", uses: ["<AcknowledgeSignalButton"], caps: ["dispatch"] }
+  { page: "src/app/(desk)/signals/page.tsx", uses: ["<AcknowledgeSignalButton"], caps: ["dispatch"] },
+  { page: "src/app/(desk)/detention/[loadId]/page.tsx", uses: ["<EvidenceDecide"], caps: ["figures"] }
 ];
 
 describe("screens switch off the controls a role cannot use", () => {

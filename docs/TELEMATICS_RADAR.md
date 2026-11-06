@@ -50,3 +50,7 @@ For a fleet of hundreds or thousands the map is no longer one glyph per unit.
 ## Alaska, Hawaii and the pan limit
 
 The basemap now draws all fifty states and DC (the territories are left out; the few Near Islands rocks east of the 180th meridian are too, since a flat world map ends there). The camera is held to one of three regions (`src/lib/radar-regions.ts`): Lower 48, Alaska or Hawaii. Each has a box; MapLibre's `maxBounds` makes it a hard stop, so the land cannot be dragged out of view however far you pull. Three buttons in the map's corner switch region and show the units in each (`Lower 48 5,993 · Alaska 4 · Hawaii 3`). A radius search, a clicked list row or a stack in another region switches the region by itself, and the map opens on the region with the most units, so one truck in Anchorage does not stretch the first view across the world. The boxes are deliberately generous in height: a box smaller than the view makes the map zoom in until it fits and would hide land.
+
+## Geofence radii
+
+The Where-it-is tab reads a truck inside **one mile** of a stop as at the facility (`GEOFENCE_MILES`): a progress line for a dispatcher, which changes nothing. The detention evidence pack (docs/DETENTION_EVIDENCE.md) uses **0.25 mile**, because a claim for money must not be built on a truck waiting at the next exit or a fuel stop. The two are different on purpose and neither changes the other.
