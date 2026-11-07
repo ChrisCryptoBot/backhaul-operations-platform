@@ -639,3 +639,32 @@ dd>.sub{display:block;color:var(--dim)}
 .t-scope-row:not(.region){padding-left:20px;grid-template-columns:16px 1fr auto}
 .t-scope-foot{display:flex;gap:10px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
 .t-scope-chip{display:inline-block;padding:0 6px;border:1px solid var(--line-hi);color:var(--label);font:500 11px/16px var(--mono);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+
+/* ============================================================================================================================
+   INTERFACE STYLE: "TrueLane app" (Settings > Appearance > Interface). The phone app's tokens on the desk: its charcoal and gold (constants/Colors.ts in the phone repo) and
+   its Barlow / Barlow Condensed type (constants/Typography.ts). Dark only: layout.tsx draws it with data-theme="night", so every night rule below it still applies and this block
+   only overrides tokens and type. Shape stays the desk's (square, dense, flat). Delete this block and the cockpit is untouched.
+   Where the phone's value fails the desk's contrast test it is nudged: --dim (#7E8794 is 4.3:1 on a hovered row), --typed (AtMarketBlue #5980A6 is 4.2:1 on the panel), --neg-fill
+   (WarningRed #DC2626 under black ink is 4.3:1), --line-hi (the phone's hairlines are too faint to rule a table).
+   ============================================================================================================================ */
+[data-ui="app"] {
+  color-scheme: dark;
+  --bg:#0E1117; --panel:#161B24; --head:#0A0D12; --sunk:#0B0F17; --hover:#1B2230;
+  --line:#262D38; --line-hi:#64748A;
+  --ink:#E8EDF2; --mid:#9AA7B4; --dim:#8592A0; --faint:#4A5361;
+  --label:#E8A020; --label-hi:#F2B642; --typed:#7FB0DE; --bar:#E8A020; --bar-hi:#F2B642; --on-bar:#000;
+  --pos:#22C55E; --neg:#F87171; --warn:#F97316;
+  --pos-fill:#22C55E; --neg-fill:#EF4444; --warn-fill:#F97316; --on-fill:#000; --on-label:#000; --prompt:#1f2937;
+  --scrim:rgba(5,7,10,.75);
+  --glass:rgba(14,17,23,.9);
+  --glass-edge:rgba(232,237,242,.16);
+  --glass-lit:rgba(255,255,255,.14);
+  --glass-light:rgba(232,160,32,.07);
+  --mono:var(--font-barlow),"Barlow",system-ui,"Segoe UI",sans-serif;
+  --sans:var(--font-barlow),"Barlow",system-ui,"Segoe UI",sans-serif;
+  --display:var(--font-barlow-condensed),"Barlow Condensed","Arial Narrow",sans-serif;
+}
+/* Barlow sets smaller than Plex Mono at the same size: a step up, and figures stay tabular so columns still line up. */
+[data-ui="app"] body{font-size:13px;line-height:17px;font-variant-numeric:tabular-nums}
+/* Headings, column heads and labels in the phone's display face (Barlow Condensed, tracked, uppercase where the cockpit already is). */
+[data-ui="app"] :is(.t-rail h2,.t-pagehead h1,.t-tbl th,.dr .dr-head h2,.dr .sec>h3,.lv-page .sec>h3,.dr .cp-metric-lbl,.dr .cp-ledger-card h4,.t-banner b,.vc-word,.st-tab,.dr .cp-tab-btn,.th-label,.t-scope-chip,.t-hero){font-family:var(--display)}

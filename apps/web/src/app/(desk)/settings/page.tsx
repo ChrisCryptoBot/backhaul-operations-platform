@@ -18,9 +18,13 @@ import {
   THEMES,
   THEME_COOKIE,
   THEME_LABEL,
+  UIS,
+  UI_COOKIE,
+  UI_LABEL,
   asDensity,
   asSleepMinutes,
   asTheme,
+  asUi,
   sleepBlurb,
   sleepPresetLabel
 } from "@/lib/appearance";
@@ -57,6 +61,7 @@ export const metadata = { title: "Settings · TrueLane" };
 /** Settings: appearance (theme, row density, idle sleep mode) and the thresholds the desk judges by. Appearance buttons save straight away. */
 export default async function SettingsPage({ searchParams }: { searchParams?: { tab?: string } }) {
   const jar = cookies();
+  const ui = asUi(jar.get(UI_COOKIE)?.value);
   const theme = asTheme(jar.get(THEME_COOKIE)?.value);
   const density = asDensity(jar.get(DENSITY_COOKIE)?.value);
   const sleepMinutes = asSleepMinutes(jar.get(SLEEP_COOKIE)?.value);
@@ -185,15 +190,26 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
     <>
       <Card title="Appearance" className="tl-card">
         <div className="st-row">
+          <span className="th-label" id="st-ui">Interface</span>
+          <form action={setAppearanceAction} className="t-seg" role="group" aria-labelledby="st-ui">
+            {UIS.map((u) => (
+              <button key={u} type="submit" name="ui" value={u} aria-pressed={ui === u}>
+                {UI_LABEL[u].label}
+              </button>
+            ))}
+          </form>
+          <span className="tl-sub">{UI_LABEL[ui].blurb}</span>
+        </div>
+        <div className="st-row">
           <span className="th-label" id="st-theme">Theme</span>
           <form action={setAppearanceAction} className="t-seg" role="group" aria-labelledby="st-theme">
             {THEMES.map((t) => (
-              <button key={t} type="submit" name="theme" value={t} aria-pressed={theme === t}>
+              <button key={t} type="submit" name="theme" value={t} aria-pressed={(ui === "app" ? "night" : theme) === t} disabled={ui === "app" && t === "day"}>
                 {THEME_LABEL[t].label}
               </button>
             ))}
           </form>
-          <span className="tl-sub">{THEME_LABEL[theme].blurb}</span>
+          <span className="tl-sub">{ui === "app" ? "Dark only in the TrueLane app style. Your Night or Day choice comes back with the Cockpit." : THEME_LABEL[theme].blurb}</span>
         </div>
         <div className="st-row">
           <span className="th-label" id="st-density">Row density</span>

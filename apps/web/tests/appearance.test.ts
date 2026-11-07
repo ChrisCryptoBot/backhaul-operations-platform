@@ -2,9 +2,13 @@ import { describe, expect, test } from "vitest";
 import {
   DEFAULT_SLEEP_MINUTES,
   MAX_SLEEP_MINUTES,
+  UIS,
+  UI_LABEL,
   asDensity,
   asSleepMinutes,
   asTheme,
+  asUi,
+  effectiveTheme,
   sleepBlurb,
   sleepPresetLabel
 } from "@/lib/appearance";
@@ -19,6 +23,17 @@ describe("appearance and sleep mode settings", () => {
     expect(asDensity("comfortable")).toBe("comfortable");
     expect(asDensity("compact")).toBe("dense"); // the old name, from a cookie set before the redesign
     expect(asDensity("bogus")).toBe("dense");
+  });
+
+  test("the interface style defaults to the cockpit, rejects junk, and the app style is always drawn in night", () => {
+    expect(asUi(undefined)).toBe("cockpit");
+    expect(asUi("cockpit")).toBe("cockpit");
+    expect(asUi("app")).toBe("app");
+    expect(asUi("bogus")).toBe("cockpit");
+    expect(UIS).toEqual(["cockpit", "app"]);
+    expect(UI_LABEL.app.label).toBe("TrueLane app");
+    expect(effectiveTheme("cockpit", "day")).toBe("day");
+    expect(effectiveTheme("app", "day")).toBe("night"); // dark only; the saved Day choice is untouched and returns with the cockpit
   });
 
   test("asSleepMinutes parses off, valid minutes, clamps at MAX_SLEEP_MINUTES, and defaults cleanly", () => {

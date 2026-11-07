@@ -3,7 +3,7 @@
 import { asLimit } from "@/lib/quote-nearest";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { DENSITY_COOKIE, SLEEP_COOKIE, THEME_COOKIE, asDensity, asSleepMinutes, asTheme } from "@/lib/appearance";
+import { DENSITY_COOKIE, SLEEP_COOKIE, THEME_COOKIE, UI_COOKIE, asDensity, asSleepMinutes, asTheme, asUi } from "@/lib/appearance";
 import { redirect, RedirectType } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireCan } from "@/server/tl/access";
@@ -696,7 +696,9 @@ export async function deleteLoadAction(loadId: string, reason: string, note: str
   const out = await deleteLoad({ loadId, reason, note });
   if (out.ok) refreshLoads();
   return out;
+  const ui = formData.get("ui");
 }
+  if (typeof ui === "string") jar.set(UI_COOKIE, asUi(ui), { path: "/", maxAge: year, sameSite: "lax" });
 
 export async function restoreLoadAction(loadId: string): Promise<RemoveResult> {
   await requireCan("dispatch");

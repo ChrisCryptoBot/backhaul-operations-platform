@@ -37,7 +37,10 @@ function ratio(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-const THEMES = { night, day } as const;
+// The "TrueLane app" interface style (the phone app's tokens, dark only): its block overrides night, so it is read over night, the way the page draws it.
+const app = { ...night, ...block(/\[data-ui="app"\]/) };
+
+const THEMES = { night, day, app } as const;
 /** Every surface text can sit on. */
 const SURFACES = ["--bg", "--panel", "--head", "--sunk", "--hover"];
 /** Ink that carries words. `--faint` is for disabled controls and rules only and is not tested. */
@@ -84,6 +87,17 @@ describe.each(Object.entries(THEMES))("%s theme contrast", (_name, t) => {
   });
 });
 
+describe("the app style keeps the phone's identity", () => {
+  it("gold is the phone's BrandRed, the ground is its charcoal, and it never goes light", () => {
+    expect(app["--label"]!.toLowerCase()).toBe("#e8a020");
+    expect(app["--bg"]!.toLowerCase()).toBe("#0e1117");
+    expect(app["--panel"]!.toLowerCase()).toBe("#161b24");
+    expect(app["--ink"]!.toLowerCase()).toBe("#e8edf2");
+    expect(block(/\[data-ui="app"\]/)["--bg"]).toBeDefined();
+    expect(css).toMatch(/\[data-ui="app"\]\s*\{\s*color-scheme:\s*dark;/);
+  });
+});
+
 describe("the day theme keeps the parchment ground", () => {
   it("panel is the ledger tone #f5f2eb, not white", () => {
     expect(day["--panel"]!.toLowerCase()).toBe("#f5f2eb");
@@ -94,8 +108,13 @@ describe("the day theme keeps the parchment ground", () => {
  * Glass (docs/TERMINAL_MIGRATION.md): the wash over the blur is the strong part. Text on glass must hold 4.5:1 over the WORST backdrop the blur can put behind it:
  * the brightest thing on the desk for a dark wash, the darkest for a light one.
  */
-describe.each([["night", night, "#ffffff"], ["day", day, "#000000"]] as const)("%s glass holds text over the worst backdrop", (_name, t, worst) => {
-  const m = (_name === "night" ? css.match(/:root,\[data-theme="night"\]\{\s*--glass:rgba\(([^)]*)\)/) : css.match(/\[data-theme="day"\]\{\s*--glass:rgba\(([^)]*)\)/));
+describe.each([["night", night, "#ffffff"], ["day", day, "#000000"], ["app", app, "#ffffff"]] as const)("%s glass holds text over the worst backdrop", (_name, t, worst) => {
+  const m =
+    _name === "night"
+      ? css.match(/:root,\[data-theme="night"\]\{\s*--glass:rgba\(([^)]*)\)/)
+      : _name === "app"
+        ? css.match(/\[data-ui="app"\]\s*\{[^}]*?--glass:rgba\(([^)]*)\)/)
+        : css.match(/\[data-theme="day"\]\{\s*--glass:rgba\(([^)]*)\)/);
   it("--glass is a translucent wash", () => {
     expect(m, "--glass not found").not.toBeNull();
   });
