@@ -4,12 +4,13 @@ import { prisma } from "@/lib/db";
 import { invoicePdf } from "@/server/tl/invoice-pdf";
 import { readFile } from "@/server/tl/message-files";
 import { currentWorkspaceId } from "@/server/tl/workspace";
+import { isPacketImage, normalizePacketImage } from "./packet-image";
 
 /**
  * The factoring packet for one invoice (docs/MONEY_PLAN.md, rule B; what counts as on file is server/tl/documents.ts packetFiles, shared with the factoring view and the schedule): one PDF holding the invoice, then each load's rate confirmation and proof of delivery, in that order, ready for a
  * factor to take by email or SFTP. It is refused unless every load on the invoice has a rate confirmation and a proof of delivery on file as an actual file (a delivery photo sent
- * from the driver's phone that was never kept as a document does not count), and unless the result is within the size a factor's mailbox takes. Pictures are placed as they were kept:
- * the desk has no image encoder, so a photograph is not resampled and a very large one shows up as a packet over the limit, which is refused with the file named.
+ * from the driver's phone that was never kept as a document does not count), and unless the result is within the size a factor's mailbox takes. Every picture is fitted inside
+ * 1600 pixels on its longest side and saved as a JPEG at quality 75 first (packet-image.ts), so phone photos do not push a packet over the limit.
  */
 export const PACKET_LIMIT_BYTES = 15 * 1024 * 1024;
 
@@ -50,8 +51,10 @@ export async function buildPacket(loadId: string, workspaceId = currentWorkspace
         for (const p of await out.copyPages(src, src.getPageIndices())) out.addPage(p);
         return null;
       }
-      if (mime !== "image/jpeg" && mime !== "image/png") return `${label} is a ${mime || "file"} the packet cannot carry. Keep it as a PDF, JPEG or PNG.`;
-      const img = mime === "image/png" ? await out.embedPng(bytes) : await out.embedJpg(bytes);
+      if (!isPacketImage(mime)) return `${label} is a ${mime || "file"} the packet cannot carry. Keep it as a PDF or a picture (JPEG, PNG, WebP, GIF, TIFF or AVIF); an iPhone HEIC photo needs saving as JPEG first.`;
+      // Rule B: fitted inside the longest side and re-saved as JPEG, so a phone photo is a few hundred kilobytes, not several megabytes.
+      const { jpeg } = await normalizePacketImage(bytes);
+      const img = await out.embedJpg(jpeg);
       const page = out.addPage([PAGE_W, PAGE_H]);
       const scale = Math.min((PAGE_W - 2 * MARGIN) / img.width, (PAGE_H - 2 * MARGIN) / img.height, 1);
       const w = img.width * scale;

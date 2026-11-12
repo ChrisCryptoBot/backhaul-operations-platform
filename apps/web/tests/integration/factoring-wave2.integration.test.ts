@@ -1,4 +1,5 @@
 import { PDFDocument } from "pdf-lib";
+import sharp from "sharp";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { prisma } from "@/lib/db";
 import { invoiceLoads, issueCreditMemo, markLoadPaid, undoPaid } from "@/server/tl/invoicing";
@@ -106,6 +107,28 @@ describe.skipIf(!run)("factoring terms, a factored invoice of several loads, the
     expect(invoicePages).toBeGreaterThanOrEqual(1);
     expect(got.pages).toBe(doc.getPageCount());
   });
+
+  test("a full-size phone photo kept as a proof of delivery goes in the packet fitted to 1600 px, so the packet stays small", async () => {
+    const w = 4032;
+    const h = 3024;
+    const raw = Buffer.alloc(w * h * 3);
+    let x = 7;
+    for (let i = 0; i < raw.length; i++) {
+      x = (x * 1103515245 + 12345) & 0x7fffffff;
+      raw[i] = x & 0xff;
+    }
+    const photo = await sharp(raw, { raw: { width: w, height: h, channels: 3 } }).jpeg({ quality: 95 }).toBuffer();
+    const stored = await storeFile(W, { ok: true, name: "pod-photo.jpg", data: photo, type: { kind: "image", mime: "image/jpeg" } } as never);
+    keys.push(stored.storageKey);
+    await prisma.loadDocument.create({ data: { id: stored.id, workspaceId: W, loadId: ids[0]!, kind: "pod", name: stored.name, mime: stored.mime, bytes: stored.bytes, sha256: stored.sha256, storageKey: stored.storageKey, addedBy: "t" } });
+    const got = await buildPacket(ids[0]!, W);
+    expect(got.ok).toBe(true);
+    if (!got.ok) return;
+    expect(got.included).toContain("F-1: pod-photo.jpg");
+    // The photo alone was several megabytes; in the packet it is a fraction of that.
+    expect(photo.length).toBeGreaterThan(5 * 1024 * 1024);
+    expect(got.bytes.length).toBeLessThan(photo.length / 3);
+  }, 60_000);
 
   test("the schedule lists the invoice once, with its documents on file", async () => {
     const { rows } = await scheduleRows(W, null);

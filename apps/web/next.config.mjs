@@ -11,9 +11,9 @@ const nextConfig = {
     ];
   },
   // Prisma must not be bundled: webpack would pull the stub PrismaClient and throw
-  // "@prisma/client did not initialize yet" at runtime.
+  // "@prisma/client did not initialize yet" at runtime. sharp (factoring packet pictures) loads native .node bindings, which webpack cannot bundle either.
   experimental: {
-    serverComponentsExternalPackages: ["@prisma/client"],
+    serverComponentsExternalPackages: ["@prisma/client", "sharp"],
     // A rate confirmation chosen on the Rate confirmations page travels as a server-action upload; the default cap is 1 MB.
     serverActions: { bodySizeLimit: "10mb" }
   }
