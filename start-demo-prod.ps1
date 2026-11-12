@@ -33,7 +33,10 @@ if (-not $NoStart) {
     if ($LASTEXITCODE -ne 0) { throw "next build failed" }
   }
   Write-Host "Starting the desk on http://localhost:$Port ..."
-  Start-Process -FilePath "npx" -ArgumentList @("next", "start", "-p", "$Port") -WorkingDirectory $web -WindowStyle Minimized
+  # node + next's own script (as start-dev.ps1 does), because Start-Process cannot launch the npx shim on Windows; the server's output goes to a log beside the build
+  $nextBin = Join-Path $root "node_modules\next\dist\bin\next"
+  $log = Join-Path $web ".next-prod\server.log"
+  Start-Process -FilePath "node" -ArgumentList @($nextBin, "start", "-p", "$Port") -WorkingDirectory $web -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError ($log + ".err")
   Pop-Location
 }
 
