@@ -224,14 +224,15 @@ export type ChargebackResult = { ok: true; amount: number } | { ok: false; error
  * The factor charges an invoice back (recourse: the customer did not pay it): the advance is owed back, the factor releases no reserve, and the invoice is the carrier's to collect again.
  * Only an invoice that was funded and not yet paid can be charged back. The invoice goes back to "rejected" (it can be sent to a factor again), and the amount is kept on its record.
  */
-export async function recordChargeback(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<ChargebackResult> {
+export async function recordChargeback(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId(), /** What the factor says it charged back (its status file); the advance when not said. */ reported?: number): Promise<ChargebackResult> {
   const why = reason.trim();
   if (why.length < 3) return { ok: false, error: "Say why the factor charged it back." };
   const { rec, loadIds } = await scopeOf(loadId, workspaceId);
   if (!rec) return { ok: false, error: "This invoice has no record to charge back." };
   if (rec.factoringStatus !== "funded") return { ok: false, error: "Only an invoice the factor has funded, and the customer has not paid, can be charged back." };
-  if (!rec.factoringAdvance) return { ok: false, error: "No advance is recorded on this invoice, so there is nothing to charge back. Save the factoring terms and fund it again, or fix it with the factor." };
-  const amount = chargebackOf(rec.factoringAdvance);
+  if (reported != null && (!Number.isFinite(reported) || !(reported > 0) || new Prisma.Decimal(reported).gt(rec.total))) return { ok: false, error: "The amount charged back has to be above zero and no more than the invoice." };
+  if (reported == null && !rec.factoringAdvance) return { ok: false, error: "No advance is recorded on this invoice, so there is nothing to charge back. Save the factoring terms and fund it again, or fix it with the factor." };
+  const amount = reported != null ? new Prisma.Decimal(reported).toDecimalPlaces(2).toNumber() : chargebackOf(rec.factoringAdvance!);
   const done = await prisma.$transaction(async (tx) => {
     const claimed = await tx.invoice.updateMany({ where: { id: rec.id, factoringStatus: "funded" }, data: { factoringStatus: "rejected", factoringChargeback: new Prisma.Decimal(amount), factoringReserve: null, factoringFee: null, factoringReserveReleased: null, factoringUpdatedAt: now } });
     if (claimed.count !== 1) return false;

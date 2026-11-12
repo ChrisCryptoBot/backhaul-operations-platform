@@ -76,6 +76,7 @@ import { waiveDetention } from "@/server/tl/detention";
 import { saveFactoringTerms, type SaveTermsResult } from "@/server/partners/factoring-terms";
 import { recordChargeback, type ChargebackResult } from "@/server/partners/factoring";
 import { cancelFactoringBatch, retryFactoringBatch, sendFactoringBatch, type BatchResult, type RetryResult } from "@/server/partners/factoring-batch";
+import { importFactorStatus, type ImportResult as FactorStatusResult } from "@/server/partners/factor-status-import";
 import type { TermsForm } from "@/lib/factoring-terms";
 import { confirmStopEvidence, dismissStopEvidence, type ConfirmValues, type DecisionResult } from "@/server/tl/detention-evidence";
 import { discardSettlement, finalizeSettlement, markSettlementPaid, saveDraft, startSettlement, voidSettlement, type Draft, type SettleResult } from "@/server/tl/settlement";
@@ -922,6 +923,23 @@ export async function cancelFactoringBatchAction(batchId: string, reason: string
   await requireCan("bill");
   const out = await cancelFactoringBatch(batchId, reason.slice(0, 200));
   if (out.ok) refreshLoads();
+  return out;
+}
+
+/** Read a factor's status file and say what each line would do, writing nothing. */
+export async function checkFactorStatusAction(text: string): Promise<FactorStatusResult> {
+  await requireCan("bill");
+  return importFactorStatus(text, { apply: false });
+}
+
+/** Apply a factor's status file: each line through the same steps a webhook takes; lines already true do nothing, so the same file twice changes nothing. */
+export async function applyFactorStatusAction(text: string): Promise<FactorStatusResult> {
+  await requireCan("bill");
+  const out = await importFactorStatus(text, { apply: true });
+  if (out.ok && out.counts.apply > 0) {
+    refreshLoads();
+    revalidatePath("/invoices/factoring");
+  }
   return out;
 }
 

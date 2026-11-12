@@ -300,6 +300,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
     <>
       <PageHead title="Invoices" sub="Delivered loads that still need an invoice, what is out, and what has been paid.">
         <a className="tl-btn" href={exportHref("all")}>Export CSV</a>
+        <Link className="tl-btn ghost" href="/invoices/factoring">Factoring</Link>
         {canBill ? <a className="tl-btn ghost" href="/invoices/schedule">Schedule of accounts (CSV)</a> : null}
       </PageHead>
       {!canBill ? <ReadOnlyBanner who={whoCan("bill")} what="invoices" /> : null}
