@@ -51,6 +51,9 @@ export function DrawerFrame({
   const [deckHeight, setDeckHeight] = React.useState<number | null>(null);
   const [isDragging, setIsDragging] = React.useState(false);
   const [showShortcuts, setShowShortcuts] = React.useState(false);
+  // The key handler below is set up once, so it reads this ref: Esc closes the shortcuts sheet first, and only the next Esc closes the drawer.
+  const shortcutsOpen = React.useRef(false);
+  shortcutsOpen.current = showShortcuts;
 
   // Measure bounds: min = Route Ribbon container height, max = natural full deck height
   const getDeckBounds = React.useCallback(() => {
@@ -145,7 +148,8 @@ export function DrawerFrame({
 
       if (e.key === "Escape") {
         e.preventDefault();
-        close();
+        if (shortcutsOpen.current) setShowShortcuts(false);
+        else close();
         return;
       }
 
@@ -313,7 +317,7 @@ export function DrawerFrame({
         <div className="cp-kbd-modal" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts" onClick={() => setShowShortcuts(false)}>
           <div className="cp-kbd-dialog" onClick={(e) => e.stopPropagation()}>
             <div className="cp-kbd-head">
-              <h3>Cockpit Hotkeys & Navigation</h3>
+              <h3>Shortcuts</h3>
               <button type="button" className="dr-close" onClick={() => setShowShortcuts(false)} aria-label="Close shortcuts">
                 <Icon name="close" size={16} />
               </button>
@@ -324,8 +328,8 @@ export function DrawerFrame({
                 <span className="cp-kbd">J / K (or ↓ / ↑)</span>
               </div>
               <div className="cp-kbd-row">
-                <span>Switch Workbench Tabs (1–4)</span>
-                <span className="cp-kbd">1, 2, 3, 4</span>
+                <span>Switch tabs (1–5)</span>
+                <span className="cp-kbd">1, 2, 3, 4, 5</span>
               </div>
               <div className="cp-kbd-row">
                 <span>Toggle Drawer Dock Width</span>

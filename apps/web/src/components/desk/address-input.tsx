@@ -10,6 +10,7 @@ import { addressReady, type Place } from "@/lib/geo";
  * /geo/suggest (the token stays on the server); a request that a newer keystroke has overtaken is cancelled, and nothing is asked
  * until there is enough to look up. With no key or no answer the box is a plain input.
  */
+import { uiZoom } from "@/lib/ui-zoom";
 export function AddressInput({ value, onChange, placeholder, label, invalid, disabled, autoFocus, onEnter }: { value: string; onChange: (text: string) => void; placeholder?: string; label: string; invalid?: boolean; disabled?: boolean; autoFocus?: boolean; onEnter?: () => void }) {
   const id = React.useId();
   const [places, setPlaces] = React.useState<Place[]>([]);
@@ -27,10 +28,14 @@ export function AddressInput({ value, onChange, placeholder, label, invalid, dis
     const measure = () => {
       const r = field.current?.getBoundingClientRect();
       if (!r) return;
-      const below = window.innerHeight - r.bottom - 12;
-      const above = r.top - 12;
+      const z = uiZoom();
+      const vh = window.innerHeight / z;
+      const rTop = r.top / z;
+      const rBottom = r.bottom / z;
+      const below = vh - rBottom - 12;
+      const above = rTop - 12;
       const up = below < 180 && above > below;
-      setPlace({ left: r.left, width: r.width, maxHeight: Math.max(96, Math.min(260, up ? above : below)), ...(up ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }) });
+      setPlace({ left: r.left / z, width: r.width / z, maxHeight: Math.max(96, Math.min(260, up ? above : below)), ...(up ? { bottom: vh - rTop + 4 } : { top: rBottom + 4 }) });
     };
     measure();
     window.addEventListener("resize", measure);
@@ -50,7 +55,8 @@ export function AddressInput({ value, onChange, placeholder, label, invalid, dis
     const ctl = new AbortController();
     const timer = window.setTimeout(async () => {
       try {
-        const res = await fetch(`/geo/suggest?q=${encodeURIComponent(value.trim())}`, { signal: ctl.signal });
+        // Lower case: the lookup does not care, so "dallas" and "Dallas" are one request, one cached answer and one count against the allowance.
+        const res = await fetch(`/geo/suggest?q=${encodeURIComponent(value.trim().toLowerCase())}`, { signal: ctl.signal });
         if (!res.ok) return;
         const body = (await res.json()) as { places?: Place[] };
         // The answer can land after the box was left, or after Escape. A list opened then has nothing to close it: it sits over the next field and takes its clicks, and changes the address.

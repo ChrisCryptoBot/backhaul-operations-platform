@@ -4,7 +4,7 @@ import React from "react";
 /**
  * The desk's table. Server-rendered: banded column groups over a sticky header, sticky leading columns with a shadow seam,
  * tabular right-aligned figures, one row-state variable (zebra, hover, selected, flagged) and a link in the first cell as the single tab stop per row.
- * Search, row clicks and the density control are added by <DataTableTools> (a small client component) pointing at the same id.
+ * Search and row clicks are added by <DataTableTools> (a small client component) pointing at the same id.
  */
 export type Column = {
   key: string;
@@ -21,6 +21,8 @@ export type Column = {
   accentBand?: boolean;
   /** The header becomes a button that sorts the rows (ascending, descending, then back to the page's own order). A "num" column sorts by the number in its text. */
   sortable?: boolean;
+  /** 1 always shows. 3 folds away (display:none, see terminal.css) when the table's room is short, so a board fits its screen without a sideways scroll; the Columns toggle can bring it back. Default 1. */
+  priority?: 1 | 2 | 3;
 };
 
 export type Row = {
@@ -56,12 +58,14 @@ export function DataTable({ id, columns, rows, empty, label, sortHref }: { id: s
   }
 
   // Bands: runs of consecutive columns that share a group label.
-  const bands: Array<{ label: string; span: number; accent?: boolean }> = [];
+  const bands: Array<{ label: string; span: number; accent?: boolean; pr?: number }> = [];
   for (const c of columns) {
     const g = c.group ?? "";
     const prev = bands[bands.length - 1];
-    if (prev && prev.label === g) prev.span += 1;
-    else bands.push({ label: g, span: 1, accent: c.accentBand });
+    if (prev && prev.label === g) {
+      prev.span += 1;
+      if (prev.pr !== (c.priority ?? 1)) prev.pr = undefined;
+    } else bands.push({ label: g, span: 1, accent: c.accentBand, pr: c.priority ?? 1 });
   }
   const hasBands = bands.some((b) => b.label !== "");
 
@@ -83,7 +87,7 @@ export function DataTable({ id, columns, rows, empty, label, sortHref }: { id: s
           {hasBands ? (
             <tr className="dt-band">
               {bands.map((b, i) => (
-                <th key={i} colSpan={b.span} className={b.accent ? "dt-band-accent" : undefined} scope="colgroup">
+                <th key={i} colSpan={b.span} className={b.accent ? "dt-band-accent" : undefined} data-pr={b.pr && b.pr > 1 ? b.pr : undefined} scope="colgroup">
                   {b.label}
                 </th>
               ))}
@@ -91,7 +95,7 @@ export function DataTable({ id, columns, rows, empty, label, sortHref }: { id: s
           ) : null}
           <tr className="dt-cols">
             {columns.map((c) => (
-              <th key={c.key} className={cls(c)} style={{ ...style(c), ...(hasBands ? {} : { top: 0 }) }} scope="col" aria-sort={c.sortable ? (sortHref ? (({ asc: "ascending", desc: "descending", none: "none" }) as const)[sortHref(c.key).dir] : "none") : undefined}>
+              <th key={c.key} className={cls(c)} data-col={c.key} data-pr={c.priority && c.priority > 1 ? c.priority : undefined} style={{ ...style(c), ...(hasBands ? {} : { top: 0 }) }} scope="col" aria-sort={c.sortable ? (sortHref ? (({ asc: "ascending", desc: "descending", none: "none" }) as const)[sortHref(c.key).dir] : "none") : undefined}>
                 {c.sortable && sortHref ? (
                   <Link className="dt-sortbtn" href={sortHref(c.key).href} replace scroll={false}>
                     {c.label}
@@ -116,7 +120,7 @@ export function DataTable({ id, columns, rows, empty, label, sortHref }: { id: s
             rows.map((r, i) => (
               <tr key={r.id} data-i={i} data-href={r.href} data-flag={r.flag} data-search={(r.search ?? "").toLowerCase()} aria-selected={r.selected ? "true" : undefined}>
                 {columns.map((c) => (
-                  <td key={c.key} className={cls(c)} style={style(c)} data-v={c.sortable && r.sort?.[c.key] != null ? String(r.sort[c.key]) : undefined}>
+                  <td key={c.key} className={cls(c)} data-col={c.key} data-pr={c.priority && c.priority > 1 ? c.priority : undefined} style={style(c)} data-v={c.sortable && r.sort?.[c.key] != null ? String(r.sort[c.key]) : undefined}>
                     {r.cells[c.key]}
                   </td>
                 ))}

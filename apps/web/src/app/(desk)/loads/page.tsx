@@ -48,14 +48,14 @@ const COLUMNS: Column[] = [
   { key: "status", label: "Status", group: "Load", sticky: true, width: 150 },
   { key: "lane", sortable: true, label: "Lane", group: "Route" },
   { key: "pickup", sortable: true, label: "Pickup", group: "Route" },
-  { key: "truck", label: "Truck", group: "Route" },
+  { key: "truck", label: "Truck", group: "Route", priority: 3 },
   { key: "miles", sortable: true, label: "Miles", group: "Route", align: "num" },
   { key: "pay", sortable: true, label: "Pay", group: "Money", accentBand: true, align: "num" },
   { key: "perMile", sortable: true, label: "$/mi", group: "Money", accentBand: true, align: "num" },
   { key: "floor", sortable: true, label: "Floor", group: "Money", accentBand: true, align: "num" },
   { key: "verdict", label: "Verdict", group: "Money", accentBand: true },
-  { key: "driver", sortable: true, label: "Driver", group: "Dispatch" },
-  { key: "assignment", label: "Answer", group: "Dispatch" }
+  { key: "driver", sortable: true, label: "Driver", group: "Dispatch", priority: 3 },
+  { key: "assignment", label: "Answer", group: "Dispatch", priority: 3 }
 ];
 
 const HISTORY_COLUMNS: Column[] = [
@@ -366,14 +366,17 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
           <>
             <Link href={`/loads/${r.id}`}>{r.loadNumber ?? "—"}</Link>
             <AlertDot alerts={byLoad.get(r.id)?.filter((a) => a.code !== "BELOW_COST_UNASSIGNED")} />
-            <span className="sub">{r.brokerName}</span>
+            <span className="sub">
+              {r.brokerName}
+              <span className="fold-only">{`${r.driverName ?? "no driver"}${r.vehicleName ? ` · ${r.vehicleName}` : ""}`}</span>
+            </span>
           </>
         ),
         status: (
           <>
             <StatusChip status={r.status} />
             {r.status !== "in_progress" && r.pickupClosesAt && r.pickupClosesAt.getTime() < now ? (
-              <span className="tl-chip bad" title="The pickup window has closed and the load has not been picked up">Pickup passed</span>
+              <span className="t-sq" data-tone="bad" role="img" title="Pickup passed: the pickup window has closed and the load has not been picked up" aria-label="Pickup passed" />
             ) : null}
           </>
         ),

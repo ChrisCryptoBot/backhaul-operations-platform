@@ -25,9 +25,10 @@ function ExplainTip({ title, body, cx, top, bottom }: Say & { cx: number; top: n
     const gap = 8;
     const w = el.offsetWidth;
     const h = el.offsetHeight;
-    const left = Math.max(gap, Math.min(cx - w / 2, window.innerWidth - w - gap));
-    const below = bottom + 10;
-    setAt({ left, top: below + h + gap <= window.innerHeight ? below : Math.max(gap, top - 10 - h) });
+    const z = uiZoom();
+    const left = Math.max(gap, Math.min(cx / z - w / 2, window.innerWidth / z - w - gap));
+    const below = bottom / z + 10;
+    setAt({ left, top: below + h + gap <= window.innerHeight / z ? below : Math.max(gap, top / z - 10 - h) });
   }, [title, body, cx, top, bottom]);
   return (
     <div ref={ref} className="vc-tip" role="tooltip" style={{ left: at?.left ?? 0, top: at?.top ?? 0, visibility: at ? "visible" : "hidden" }}>
@@ -55,6 +56,7 @@ function useTip() {
  * The card teaches its own logic, two ways at once. Hover or Tab to any part and a tooltip sits beside it; the strip at the foot of the card keeps the last thing said, so it can be read
  * without holding the pointer still (and by a screen reader, as a status). Outside a card (a table row) a part has the tooltip alone.
  */
+import { uiZoom } from "@/lib/ui-zoom";
 export function ExplainScope({ children }: { children: React.ReactNode }) {
   const [said, setSaid] = React.useState<Say | null>(null);
   const { on: tipOn, tip } = useTip();

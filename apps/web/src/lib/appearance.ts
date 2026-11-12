@@ -1,15 +1,12 @@
-/** The desk's appearance and idle-sleep settings. They live in cookies so the server can read them before first paint. */
+/** The desk's appearance and idle-sleep settings. They live in cookies so the server can read them before first paint. Rows are always the comfortable height (30px): there is no density setting. */
 export const THEMES = ["night", "day"] as const;
-export const DENSITIES = ["dense", "comfortable"] as const;
 /** The interface style: the look of the whole desk. "cockpit" is the terminal system (Plex type, black and gold, Night or Day); "app" is the phone app's tokens (its charcoal and gold, Barlow type), dark only. */
 export const UIS = ["cockpit", "app"] as const;
 export type Theme = (typeof THEMES)[number];
-export type Density = (typeof DENSITIES)[number];
 export type Ui = (typeof UIS)[number];
 
 export const UI_COOKIE = "desk-ui";
 export const THEME_COOKIE = "desk-theme";
-export const DENSITY_COOKIE = "desk-density";
 export const SLEEP_COOKIE = "desk-sleep";
 
 export const DEFAULT_SLEEP_MINUTES = 15;
@@ -24,17 +21,13 @@ export const THEME_LABEL: Record<Theme, { label: string; blurb: string }> = {
   night: { label: "Night", blurb: "Black ground, gold labels, white figures. The default." },
   day: { label: "Day", blurb: "The same system on warm paper, for a bright office." }
 };
-export const DENSITY_LABEL: Record<Density, { label: string; blurb: string }> = {
-  dense: { label: "Dense", blurb: "24px rows. The default: the most book on one screen." },
-  comfortable: { label: "Comfortable", blurb: "30px rows, a little more air." }
-};
 
-export const asUi = (v: string | null | undefined): Ui => ((UIS as readonly string[]).includes(v ?? "") ? (v as Ui) : "cockpit");
+/** A desk with no saved choice opens in the TrueLane app style (the more presentable first look); a saved "cockpit" keeps the cockpit. */
+export const DEFAULT_UI: Ui = "app";
+export const asUi = (v: string | null | undefined): Ui => ((UIS as readonly string[]).includes(v ?? "") ? (v as Ui) : DEFAULT_UI);
 /** The theme the page is drawn in: the app style is dark only, so it is always night; the saved Day choice stays in its cookie and comes back with the cockpit. */
 export const effectiveTheme = (ui: Ui, theme: Theme): Theme => (ui === "app" ? "night" : theme);
 export const asTheme =(v: string | null | undefined): Theme => (THEMES as readonly string[]).includes(v ?? "") ? (v as Theme) : "night";
-/** "compact" is what the density was called before the terminal redesign: a cookie that still says it means dense. */
-export const asDensity = (v: string | null | undefined): Density => (v === "compact" ? "dense" : (DENSITIES as readonly string[]).includes(v ?? "") ? (v as Density) : "dense");
 
 /** Minutes of inactivity before the TrueLane curtain covers the desk (0 = Off, 1..240 = minutes). */
 export function asSleepMinutes(v: string | number | null | undefined): number {

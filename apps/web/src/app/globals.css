@@ -1,3 +1,4 @@
+@layer legacy {
 /* The desk's old token names, kept as aliases of the terminal system (terminal.css) while screens are moved over to the t-* classes.
    Nothing here defines a colour: every --db-* below points at a terminal token, so night and day, and every contrast pairing, live in terminal.css.
    This file goes when no stylesheet or component reads a --db-* token any more (see docs/TERMINAL_MIGRATION.md). */
@@ -159,4 +160,5 @@ html {
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
+}
 }

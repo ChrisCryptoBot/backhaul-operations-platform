@@ -60,7 +60,7 @@ describe("the map's three regions", () => {
     expect(b[3] - b[1]).toBeGreaterThanOrEqual(3);
     expect(boxAround([])).toBeNull();
     const clamped = within([-200, 10, -100, 80], "alaska");
-    expect(clamped).toEqual([-180, 47, -123, 75]);
+    expect(clamped).toEqual([-179.9, 47, -123, 75]); // -179.9, not -180: MapLibre refuses every sideways pan on a box that starts exactly on the antimeridian
   });
 });
 

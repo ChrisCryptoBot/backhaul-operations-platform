@@ -1,4 +1,23 @@
-/* TrueLane desk: terminal system. One file: tokens (night, day), density, resets, primitives.
+/* Cascade layers (Wave 0). Order is fixed here, in the first stylesheet the root layout loads: base < vendor < legacy < terminal < app. A later layer beats an earlier one whatever the selector specificity or import order,
+   so terminal.css wins over desk.css, cockpit.css, quote-terminal.css and globals.css without being edited. Anything NOT in a layer (public.css, splash.css, maplibre, inline styles, legacy-flat.css) beats every layer:
+   keep new rules out of unlayered files. */
+@layer base, vendor, legacy, terminal, app;
+
+@layer base {
+/* Element resets only (no classes): the lowest layer, so any class rule in legacy, terminal or app beats them as it always did by specificity. In the terminal layer they beat every legacy class rule (a p margin, a button's own colour). */
+*,*::before,*::after{box-sizing:border-box;border-radius:0}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--ink);font:12px/16px var(--mono);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+h1,h2,h3,p,ul,ol,dl,dd{margin:0;padding:0}
+ul,ol{list-style:none}
+a{color:var(--ink);text-decoration:underline;text-decoration-color:var(--line-hi);text-underline-offset:2px}
+button,input,select,textarea{font:inherit;color:inherit}
+kbd{font:inherit;font-size:11px;border:1px solid var(--line-hi);padding:0 4px;color:var(--mid);background:var(--sunk)}
+table{border-collapse:collapse;border-spacing:0}
+}
+
+@layer terminal {
+/* TrueLane desk: terminal system. One file: tokens (night, day), row height, resets, primitives.
    Replaces globals.css tokens + desk.css/cockpit.css/quote-terminal.css/splash.css chrome. See INTEGRATION.md for the old-to-new map.
    Rules: radius 0. No blur, no shadow, no decorative gradient. One hatch pattern (functional, left of the floor).
    Ink has jobs. LABEL (gold) = what a thing is. INK (white) = a value measured or on record. TYPED (blue) = a value a person typed. POS/NEG/WARN = verdicts and deltas only. */
@@ -23,23 +42,57 @@
   --pos-fill:#0a6a31; --neg-fill:#b00020; --warn-fill:#b25a00; --on-fill:#fff; --on-label:#fff; --prompt:#1f2937;
   --scrim:rgba(30,28,22,.55);
 }
-:root { --mono:var(--font-plex-mono),"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace; --sans:var(--font-plex-sans),"IBM Plex Sans",system-ui,"Segoe UI",sans-serif; --rh:24px; --pad:8px; }
-[data-density="comfortable"] { --rh:30px; --pad:10px; }
+:root { --mono:var(--font-plex-mono),"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace; --sans:var(--font-plex-sans),"IBM Plex Sans",system-ui,"Segoe UI",sans-serif; --rh:30px; --pad:10px; }
 
-*,*::before,*::after{box-sizing:border-box;border-radius:0}
-html,body{margin:0;height:100%}
-body{background:var(--bg);color:var(--ink);font:12px/16px var(--mono);font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
-h1,h2,h3,p,ul,ol,dl,dd{margin:0;padding:0}
-ul,ol{list-style:none}
-a{color:var(--ink);text-decoration:underline;text-decoration-color:var(--line-hi);text-underline-offset:2px}
+/* ---- Wave 0: one type scale, one button, one focus ring, a hover you can see. Reopens the terminal layer so it sits above every legacy rule. ---- */
+  /* Seven sizes, named by job. Prose is sans at --fs-text; figures and codes stay mono. */
+  :root{--fs-code:11px;--fs-row:12px;--fs-text:13px;--fs-head:14px;--fs-figure:20px;--fs-hero:34px;--fs-display:46px}
+  /* The old --db-text-* names now read the scale (they had drifted: base 12 and 2xl 20 against the brief's 13 and 26). */
+  :root{--db-text-xs:var(--fs-code);--db-text-sm:var(--fs-row);--db-text-base:var(--fs-text);--db-text-md:var(--fs-text);--db-text-lg:var(--fs-head);--db-text-xl:var(--fs-figure);--db-text-2xl:26px;--db-text-3xl:var(--fs-hero);--db-text-hero:var(--fs-display)}
+  /* Hover has to be seen: night #1a1a1a (was #141414 on #0a0a0a, about 1.3:1), day #e3ddcd. */
+  :root,[data-theme="night"]{--hover:#1a1a1a}
+  [data-theme="day"]{--hover:#e3ddcd}
+  /* .tl-btn is the .t-btn in every screen not yet moved over: same height, type and weight. Variants keep their meaning. */
+  .tl-btn{min-height:24px;height:24px;padding:0 10px;gap:6px;font-size:var(--fs-code);letter-spacing:.06em;text-transform:uppercase;line-height:16px}
+  .tl-btn.sm{min-height:20px;height:20px;padding:0 6px;font-size:var(--fs-code)}
+  .tl-btn:active{transform:none}
+  /* A button never shrinks below its label: in a flex row with a long neighbour ("Change driver" beside a wrapping name) it was squeezed under its own text and the label spilled past the border. */
+  .t-btn,.tl-btn{flex-shrink:0}
+  .tl-btn.primary{font-weight:600}
+  /* Tables fit their room (Wave 1): a board folds its priority-3 columns away when the wrap is under 1400px wide, so the money and the verdict stay on screen with no sideways scroll. */
+.dt-wrap{container-type:inline-size}
+.dt .fold-only{display:none}
+@container (max-width:1400px){.dt [data-pr="3"]{display:none}.dt .fold-only{display:inline;margin-left:6px}.dt .fold-only::before{content:"\00b7";margin-right:6px;color:var(--dim)}}
+/* A second status on a row is a square with a word in its tooltip, not a second chip (the Status column was 247px wide for two). */
+.t-sq{display:inline-block;width:7px;height:7px;margin-left:6px;vertical-align:middle;background:var(--dim)}
+.t-sq[data-tone="bad"]{background:var(--neg-fill)}
+.t-sq[data-tone="warn"]{background:var(--warn-fill)}
+.t-sq[data-tone="ok"]{background:var(--pos-fill)}
+/* The rail: a hovered link takes the row tint and keeps its ink. The plain-link rule (a:not([class]):hover, black ink on amber, !important) was catching the rail's classless links and leaving dark text on the dark tint. The open page stays black on amber. */
+.t-rail a[href]:hover{background:var(--hover);color:var(--ink)!important}
+.t-rail a[href][aria-current=page]:hover{background:var(--bar);color:var(--on-bar)!important}
+.t-rail a:hover i{color:var(--label-hi)}
+.t-rail a[aria-current=page]:hover i{color:var(--on-bar)}
+/* Calendar days: hover is the quiet row tint with an outline, never the amber fill (that is the selected day, black ink on amber). The old rule painted every hovered day gold under white text. */
+.dp-day:hover:not(:disabled){background:var(--hover);border-color:var(--line-hi);color:var(--ink)}
+.dp-day.sel,.dp-day.sel:hover{background:var(--bar);border-color:var(--bar);color:var(--on-bar);font-weight:600}
+.dp-day.today:not(.sel){border-color:var(--label)}
+/* The calendar button in the field, the month arrows and the Today/Clear links: the same quiet hover. The old rule filled them gold, which hid the gold icon on its own fill. */
+.dp-open:hover:not(:disabled),.dp-nav:hover,.dp-link:hover{background:var(--hover);color:var(--label-hi);box-shadow:inset 0 0 0 1px var(--line-hi)}
+.dp-open[aria-expanded="true"]{color:var(--label-hi)}
+.dp-open:focus-visible,.dp-nav:focus-visible{outline:2px solid var(--label-hi);outline-offset:-2px}
+.dp-day:focus-visible{outline:2px solid var(--label-hi);outline-offset:-2px;box-shadow:none}
+/* A lane reads to its ellipsis rather than stretching the board. */
+.dt td[data-col="lane"]{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* One focus ring: the outline above. Legacy fields drew a second one as a box-shadow. */
+  :is(input,select,textarea,button,a,summary,[tabindex]):focus-visible{box-shadow:none}
+
+
 /* A plain text link (no class of its own) lights as an amber bar with black ink. Anything with a class (the brand mark, buttons, rail, tabs, menus) keeps the look it was given: lighting a logo or a
    multi-part link turned part of its text the colour of its own ground. */
 a:not([class]):hover,table.dt a:hover{background:var(--bar);color:var(--on-bar)!important;text-decoration:none}
-button,input,select,textarea{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--label-hi);outline-offset:-2px}
-kbd{font:inherit;font-size:11px;border:1px solid var(--line-hi);padding:0 4px;color:var(--mid);background:var(--sunk)}
 ::selection{background:var(--bar);color:var(--on-bar)}
-table{border-collapse:collapse;border-spacing:0}
 .skip{position:absolute;left:-999px;top:0;background:var(--bar);color:var(--on-bar);padding:4px 8px;z-index:99}
 .skip:focus{left:0}
 
@@ -331,6 +384,17 @@ input::placeholder,textarea::placeholder{color:var(--dim);opacity:1}
 .dr .cp-metric-val.ok::before{background:var(--pos-fill)}.dr .cp-metric-val.warn::before{background:var(--warn-fill)}.dr .cp-metric-val.bad::before{background:var(--neg-fill)}
 .dr .cp-metric-lbl{color:var(--label);font:500 11px/16px var(--mono);letter-spacing:.06em;text-transform:uppercase}
 .dr .cp-metric-sub{color:var(--dim);font:11px/14px var(--mono)}
+/* The slim deck (Wave 2): one hero, one summary line, only the gates that are not clear. Same markup in the drawer and on the full load page. */
+:is(.dr,.lv-page,.cp-deck) .cp-deck-hero{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:6px var(--pad) 0}
+:is(.dr,.lv-page,.cp-deck) .cp-hero-fig{font:500 var(--fs-hero)/36px var(--mono);letter-spacing:-.02em;color:var(--ink)}
+:is(.dr,.lv-page,.cp-deck) .cp-hero-fig::before{content:"";display:inline-block;width:10px;height:10px;margin-right:10px;vertical-align:middle;background:var(--dim)}
+:is(.dr,.lv-page,.cp-deck) .cp-hero-fig.ok::before{background:var(--pos-fill)}
+:is(.dr,.lv-page,.cp-deck) .cp-hero-fig.warn::before{background:var(--warn-fill)}
+:is(.dr,.lv-page,.cp-deck) .cp-hero-fig.bad::before{background:var(--neg-fill)}
+:is(.dr,.lv-page,.cp-deck) .cp-hero-lbl{color:var(--label);font:500 var(--fs-code)/16px var(--mono);letter-spacing:.06em;text-transform:uppercase}
+:is(.dr,.lv-page,.cp-deck) .cp-deck-line{display:flex;flex-wrap:wrap;gap:0 8px;padding:2px var(--pad) 6px;color:var(--mid);font:var(--fs-row)/16px var(--mono)}
+:is(.dr,.lv-page,.cp-deck) .cp-deck-line>span+span::before{content:"\00b7";margin-right:8px;color:var(--dim)}
+:is(.dr,.lv-page,.cp-deck) .cp-deck-line b{font-weight:500;color:var(--ink)}
 .dr .cp-gate{border:1px solid var(--line-hi);background:transparent;color:var(--ink);height:22px;padding:0 6px;font:500 11px/16px var(--mono);letter-spacing:.05em;white-space:nowrap}
 .dr .cp-gate::before{content:"";width:7px;height:7px;background:var(--dim)}
 .dr .cp-gate.ok::before{background:var(--pos-fill)}.dr .cp-gate.warn::before{background:var(--warn-fill)}.dr .cp-gate.bad::before{background:var(--neg-fill)}
@@ -640,6 +704,24 @@ dd>.sub{display:block;color:var(--dim)}
 .t-scope-foot{display:flex;gap:10px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
 .t-scope-chip{display:inline-block;padding:0 6px;border:1px solid var(--line-hi);color:var(--label);font:500 11px/16px var(--mono);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
 
+}
+
+@layer app {
+/* ---- Big screens: the desk is drawn dense, for a laptop. At 100% browser zoom on a 1700px+ monitor it reads small, so the whole page is scaled the way 125% browser zoom would be (CSS zoom on the root, so type, spacing,
+   tables, dialogs and pop-ups grow together). 1500 to 1699px gets 112%, 1700px and up 125%; below 1500px nothing changes. If a browser is already zoomed past 100% the width in CSS px shrinks and the step drops by itself.
+   Anything sized from the viewport must divide by the zoom, hence --vh and --vw. Printing is never scaled. ---- */
+:root{--ui-zoom:1}
+@media (min-width:1500px){:root{--ui-zoom:1.12}}
+@media (min-width:1700px){:root{--ui-zoom:1.25}}
+:root{--vh:calc(100vh / var(--ui-zoom));--vw:calc(100vw / var(--ui-zoom))}
+html{zoom:var(--ui-zoom)}
+.t-app{height:var(--vh)}
+.rd{height:calc(var(--vh) - 190px)}
+.dt-wrap{max-height:calc(var(--vh) - 250px)}
+.k-modal,.k-modal.wide{max-height:calc(var(--vh) - 48px)}
+.cp-doc-modal{width:var(--vw);height:var(--vh)}
+@media print{html{zoom:1}.t-app{height:auto}}
+
 /* ============================================================================================================================
    INTERFACE STYLE: "TrueLane app" (Settings > Appearance > Interface). The phone app's tokens on the desk: its charcoal and gold (constants/Colors.ts in the phone repo) and
    its Barlow / Barlow Condensed type (constants/Typography.ts). Dark only: layout.tsx draws it with data-theme="night", so every night rule below it still applies and this block
@@ -668,3 +750,4 @@ dd>.sub{display:block;color:var(--dim)}
 [data-ui="app"] body{font-size:13px;line-height:17px;font-variant-numeric:tabular-nums}
 /* Headings, column heads and labels in the phone's display face (Barlow Condensed, tracked, uppercase where the cockpit already is). */
 [data-ui="app"] :is(.t-rail h2,.t-pagehead h1,.t-tbl th,.dr .dr-head h2,.dr .sec>h3,.lv-page .sec>h3,.dr .cp-metric-lbl,.dr .cp-ledger-card h4,.t-banner b,.vc-word,.st-tab,.dr .cp-tab-btn,.th-label,.t-scope-chip,.t-hero){font-family:var(--display)}
+}

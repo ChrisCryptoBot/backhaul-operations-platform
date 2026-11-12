@@ -1,6 +1,6 @@
 "use client";
 
-import "maplibre-gl/dist/maplibre-gl.css";
+import "./maplibre-vendor.css";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React from "react";

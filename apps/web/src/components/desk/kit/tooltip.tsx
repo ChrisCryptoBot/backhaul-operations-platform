@@ -4,6 +4,7 @@ import React from "react";
 import { createPortal } from "react-dom";
 
 /** What a tooltip says: a heading and label/value rows. Plain data in, so a server component can build it and hand it over. */
+import { uiZoom } from "@/lib/ui-zoom";
 export type TipData = { title?: string; sub?: string; rows?: Array<[string, string]>; note?: string };
 
 /** The body of a tooltip. Exported so a chart can also print the same figures in its expanded table. */
@@ -36,9 +37,10 @@ export function TipPopup({ anchor, tip, id }: { anchor: DOMRect; tip: TipData; i
     const w = el.offsetWidth;
     const h = el.offsetHeight;
     const gap = 10;
-    const above = anchor.top - h - gap;
-    const top = above >= 8 ? above : Math.min(window.innerHeight - h - 8, anchor.bottom + gap);
-    const left = Math.max(8, Math.min(window.innerWidth - w - 8, anchor.left + anchor.width / 2 - w / 2));
+    const z = uiZoom();
+    const above = anchor.top / z - h - gap;
+    const top = above >= 8 ? above : Math.min(window.innerHeight / z - h - 8, anchor.bottom / z + gap);
+    const left = Math.max(8, Math.min(window.innerWidth / z - w - 8, (anchor.left + anchor.width / 2) / z - w / 2));
     el.style.top = `${top}px`;
     el.style.left = `${left}px`;
     el.style.visibility = "visible";

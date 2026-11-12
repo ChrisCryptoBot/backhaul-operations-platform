@@ -8,8 +8,8 @@ export type Box = [number, number, number, number];
 
 export const REGIONS: Record<RegionKey, { label: string; clamp: Box; fit: Box }> = {
   lower48: { label: "Lower 48", clamp: [-132, 12, -60, 62], fit: [-125, 24, -66.5, 49.8] },
-  // Alaska's box starts at the 180th meridian, the edge of a flat world map (the few Aleutian rocks east of it are not drawn: scripts/build-basemap.mjs). The boxes are deliberately generous in height: a tall map holds more latitude than the region itself, and a box smaller than the view makes MapLibre zoom in until it fits, which would hide part of the land.
-  alaska: { label: "Alaska", clamp: [-180, 47, -123, 75], fit: [-170, 51, -129, 71.5] },
+  // Alaska's box starts a tenth of a degree inside the 180th meridian, the edge of a flat world map. It cannot start exactly on it: MapLibre then refuses every sideways pan once the person zooms in (measured: east pan blocked with a west bound of -180, free with -179.9) (the few Aleutian rocks east of it are not drawn: scripts/build-basemap.mjs). The boxes are deliberately generous in height: a tall map holds more latitude than the region itself, and a box smaller than the view makes MapLibre zoom in until it fits, which would hide part of the land.
+  alaska: { label: "Alaska", clamp: [-179.9, 47, -123, 75], fit: [-170, 51, -129, 71.5] },
   hawaii: { label: "Hawaii", clamp: [-165, 16, -152, 25], fit: [-160.5, 18.7, -154.5, 22.4] }
 };
 export const REGION_KEYS: RegionKey[] = ["lower48", "alaska", "hawaii"];

@@ -9,9 +9,6 @@ import { SignalSettingsForm } from "@/components/desk/signal-settings-form";
 import { getSignalSettings } from "@/server/tl/signals";
 import { channelWords, configuredChannels } from "@/server/notify";
 import {
-  DENSITIES,
-  DENSITY_COOKIE,
-  DENSITY_LABEL,
   MAX_SLEEP_MINUTES,
   SLEEP_COOKIE,
   SLEEP_PRESETS,
@@ -21,7 +18,6 @@ import {
   UIS,
   UI_COOKIE,
   UI_LABEL,
-  asDensity,
   asSleepMinutes,
   asTheme,
   asUi,
@@ -58,12 +54,11 @@ import { currentWorkspaceId } from "@/server/tl/workspace";
 
 export const metadata = { title: "Settings · TrueLane" };
 
-/** Settings: appearance (theme, row density, idle sleep mode) and the thresholds the desk judges by. Appearance buttons save straight away. */
+/** Settings: appearance (interface, theme, idle sleep mode) and the thresholds the desk judges by. Appearance buttons save straight away. */
 export default async function SettingsPage({ searchParams }: { searchParams?: { tab?: string } }) {
   const jar = cookies();
   const ui = asUi(jar.get(UI_COOKIE)?.value);
   const theme = asTheme(jar.get(THEME_COOKIE)?.value);
-  const density = asDensity(jar.get(DENSITY_COOKIE)?.value);
   const sleepMinutes = asSleepMinutes(jar.get(SLEEP_COOKIE)?.value);
   const isCustomSleep = !(SLEEP_PRESETS as readonly number[]).includes(sleepMinutes);
   const me = await requirePage("read");
@@ -200,28 +195,20 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
           </form>
           <span className="tl-sub">{UI_LABEL[ui].blurb}</span>
         </div>
-        <div className="st-row">
-          <span className="th-label" id="st-theme">Theme</span>
-          <form action={setAppearanceAction} className="t-seg" role="group" aria-labelledby="st-theme">
-            {THEMES.map((t) => (
-              <button key={t} type="submit" name="theme" value={t} aria-pressed={(ui === "app" ? "night" : theme) === t} disabled={ui === "app" && t === "day"}>
-                {THEME_LABEL[t].label}
-              </button>
-            ))}
-          </form>
-          <span className="tl-sub">{ui === "app" ? "Dark only in the TrueLane app style. Your Night or Day choice comes back with the Cockpit." : THEME_LABEL[theme].blurb}</span>
-        </div>
-        <div className="st-row">
-          <span className="th-label" id="st-density">Row density</span>
-          <form action={setAppearanceAction} className="t-seg" role="group" aria-labelledby="st-density">
-            {DENSITIES.map((d) => (
-              <button key={d} type="submit" name="density" value={d} aria-pressed={density === d}>
-                {DENSITY_LABEL[d].label}
-              </button>
-            ))}
-          </form>
-          <span className="tl-sub">{DENSITY_LABEL[density].blurb}</span>
-        </div>
+        {/* The TrueLane app style is dark only, so there is nothing to choose: the row is shown only in the Cockpit, where Night and Day both work. The saved choice waits in its cookie. */}
+        {ui === "app" ? null : (
+          <div className="st-row">
+            <span className="th-label" id="st-theme">Theme</span>
+            <form action={setAppearanceAction} className="t-seg" role="group" aria-labelledby="st-theme">
+              {THEMES.map((t) => (
+                <button key={t} type="submit" name="theme" value={t} aria-pressed={theme === t}>
+                  {THEME_LABEL[t].label}
+                </button>
+              ))}
+            </form>
+            <span className="tl-sub">{THEME_LABEL[theme].blurb}</span>
+          </div>
+        )}
         <div className="st-row">
           <span className="th-label" id="st-sleep">Sleep mode</span>
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>

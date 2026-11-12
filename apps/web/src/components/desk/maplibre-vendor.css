@@ -1,0 +1,2 @@
+/* The map library's own stylesheet, put in the lowest layer (vendor) so the desk's rules in terminal.css win over it. Unlayered CSS beats every layer, so importing it bare from the component breaks the map. */
+@import "maplibre-gl/dist/maplibre-gl.css" layer(vendor);

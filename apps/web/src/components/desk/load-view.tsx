@@ -1,3 +1,4 @@
+import { deckHero } from "@/lib/deck-hero";
 import Link from "next/link";
 import { grossOf } from "@/lib/load-gross";
 import { dueAt as dueAtOf } from "@/lib/overdue";
@@ -20,9 +21,12 @@ import { AssignFields } from "./assign-fields";
 import { DeclineNote } from "./load-view-fields";
 import { AssignTrailer } from "./trailer-forms";
 import { trailerBlocker } from "@/lib/trailer-clearance";
-import { assignAction, reopenCancelledAction, reopenDeliveredAction, respondAction, retryBridgeAction, sendAction, unassignAction, undoPaidAction, undoStartAction, voidInvoiceAction } from "@/app/(desk)/actions";
+import { acknowledgeDiscrepancyAction, assignAction, discrepancyAction, dropAction, receiveAction, reopenCancelledAction, reopenDeliveredAction, respondAction, retryBridgeAction, sendAction, unassignAction, undoPaidAction, undoStartAction, voidInvoiceAction } from "@/app/(desk)/actions";
 import { InvoiceDialog, LoadEditDialog, PaidDialog, TripEntry } from "./load-actions";
 import { RecallForm } from "./recall-form";
+import { DiscrepancyForm, DropForm, ReceiveForm } from "./relay-forms";
+import { handoffsOfLoad, legsOfLoad, receiveOptions } from "@/server/tl/relay";
+import { HANDOFF_REASON_LABEL, HANDOFF_STATE_LABEL, HANDOFF_TYPE_LABEL, OUTGOING_NEXT_LABEL, handoffLevel, waitMinutes, waitWords, type HandoffReason, type HandoffState, type HandoffType, type OutgoingNext } from "@/lib/relay";
 import { holderTrail } from "@/server/tl/assignment-events";
 import { RECALL_LABELS } from "@/lib/recall-reasons";
 import { billedOf } from "@/lib/billed";
@@ -86,7 +90,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     <p className="tl-note" role="note">You can read this load but not change it. A dispatcher or the accounting office can.</p>
   );
 
-  const [{ byLoad }, feed, settled, waivedMap, tracking, evidence, holders] = await Promise.all([
+  const [{ byLoad }, feed, settled, waivedMap, tracking, evidence, holders, legs, batons] = await Promise.all([
     getAlerts(new Date(), currentWorkspaceId(), "open", id),
     listLoadAudit(id),
     settlementOfLoad(id),
@@ -95,9 +99,13 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     // Whether the truck's track was frozen for this load's stops (docs/DETENTION_EVIDENCE.md): one line and a link.
     evidenceSummary(id),
     // Who held this load, in order, and why it changed hands (docs/RELAY_DESIGN.md).
-    holderTrail(id)
+    holderTrail(id),
+    // The legs and batons of a relay (docs/RELAY_DESIGN.md): none for a load that never changed hands.
+    legsOfLoad(id),
+    handoffsOfLoad(id)
   ]);
   const waivedReason = waivedMap.get(id) ?? null;
+  const openBaton = batons.find((b) => b.state === "dropped" || b.state === "disputed") ?? null;
   const { load, evaluation, flipped, driverView, drivers } = detail;
   const a = load.assignment;
   const alerts = byLoad.get(id) ?? [];
@@ -260,7 +268,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   const weightVal = numOrNull(load.weightLbs);
   const weightOk = weightVal == null || weightVal <= 45000;
   const trailerOk = !!load.trailer || !!load.trailerType;
-  const driverOk = !!a && (a.status === "accepted" || a.status === "dispatched");
+  const driverOk = !!a && (a.status === "accepted" || a.status === "dispatched" || a.status === "in_progress");
   const refsOk = gaps.length === 0;
   const floorThreshold = delivered && frozenFloor != null ? frozenFloor : (evaluation?.verdictFloorRpm ?? 0);
   const floorOk = allIn != null && floorThreshold > 0 && allIn >= floorThreshold;
@@ -283,6 +291,22 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   const netProfit = totalRev - totalExp;
   const netMarginPct = totalRev > 0 ? (netProfit / totalRev) * 100 : 0;
   const netProfitPerMile = totalMiles > 0 ? netProfit / totalMiles : 0;
+
+  // Deck figures. One hero: the margin against the floor when the load has a floor, else what it pays (a load not judged yet must never leave the header blank).
+  const deckTonu = load.status === "tonu";
+  const deckLead = deckHero({ tonu: deckTonu, allIn, floor: floorThreshold, verdictTone: tone });
+  const deckHasFloor = deckLead.hasFloor;
+  const deckMargin = deckLead.margin;
+  const deckGross = usd(heroGross, Number.isInteger(heroGross) ? 0 : 2);
+  const deckHeroTone = deckLead.tone;
+  const deckHeroText = deckTonu ? usd(earned, 2) : deckMargin != null ? `${deckMargin >= 0 ? "+" : "−"}${usd(Math.abs(deckMargin), 2)}/mi` : deckGross;
+  const deckHeroLabel = deckTonu ? "TONU fee" : deckMargin != null ? (deckMargin >= 0 ? "over your floor" : "under your floor") : allIn != null ? `gross pay, ${perMile(allIn)} every mile` : "gross pay";
+  // Only what is not clear shows: a healthy gate says nothing.
+  const deckGates: { cls: string; title: string; text: string }[] = [];
+  if (!weightOk) deckGates.push({ cls: "warn", title: "Weight validation", text: `WEIGHT: ${weightVal ? `${(weightVal / 1000).toFixed(1)}k lbs` : "NOT SET"}` });
+  if (!trailerOk) deckGates.push({ cls: "bad", title: "Trailer clearance", text: `TRAILER: ${load.trailer ? load.trailer.number : load.trailerType ? load.trailerType.replace(/_/g, " ") : "NO TRAILER"}` });
+  if (!driverOk) deckGates.push({ cls: a ? "warn" : "bad", title: "Driver assignment & HOS clearance", text: `DRIVER: ${a ? `${a.driver.name} (${a.status})` : "UNASSIGNED"}` });
+  if (!refsOk) deckGates.push({ cls: "warn", title: "Documentation & reference numbers", text: `PAPERS: MISSING ${gapsPhrase(gaps).toUpperCase()}` });
 
   // ── Tier 1: Pinned Console Deck Strip ────────────────────────────────────────────────────────
   const deck = (
@@ -322,54 +346,26 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         </div>
       </div>
 
-      {/* Metrics Deck Trio */}
-      <div className="cp-metrics-bar">
-        <div className="cp-metric">
-          <div className={`cp-metric-val ${tone}`}>
-            {load.status === "tonu" ? usd(earned, 2) : perMile(allIn)}
-          </div>
-          <div className="cp-metric-lbl">
-            {load.status === "tonu" ? "TONU Fee" : "Per Mile, Every Mile"}
-          </div>
-          <div className="cp-metric-sub">
-            {usd(heroGross, 2)} on {miles(totalMiles)} · {wayHome.toLowerCase()}
-            {paidDiffers ? ` · paid ${usd(paidLine!, 2)} vs ${usd(num(load.quotedRevenue), 2)} agreed` : ""}
-          </div>
-        </div>
-
-        <div className="cp-metric">
-          <div className="cp-metric-val">{perMile(perLoaded)}</div>
-          <div className="cp-metric-lbl">Per Loaded Mile</div>
-          <div className="cp-metric-sub">on {miles(loadedMiles)}</div>
-        </div>
-
-        <div className="cp-metric">
-          <div className="cp-metric-val">{perMile(floorThreshold)}</div>
-          <div className="cp-metric-lbl">Your Floor</div>
-          <div className="cp-metric-sub">
-            {load.vehicle ? `${load.vehicle.name}, ${load.vehicle.type?.replace("_", " ")}` : "Fleet base floor"}
-          </div>
-        </div>
+      {/* Deck: one hero and one summary line (gross pay stays on it), then only the gates that are not clear. */}
+      <div className="cp-deck-hero">
+        <div className={`cp-hero-fig ${deckHeroTone}`}>{deckHeroText}</div>
+        <div className="cp-hero-lbl">{deckHeroLabel}</div>
       </div>
-
-      {/* Compliance & Operational Gates */}
-      <div className="cp-gates">
-        <span className={`cp-gate ${weightOk ? "ok" : "warn"}`} title="Weight validation">
-          WEIGHT: {weightVal ? `${(weightVal / 1000).toFixed(1)}k lbs` : "NOT SET"}
-        </span>
-        <span className={`cp-gate ${trailerOk ? "ok" : "bad"}`} title="Trailer clearance">
-          TRAILER: {load.trailer ? load.trailer.number : load.trailerType ? load.trailerType.replace(/_/g, " ") : "NO TRAILER"}
-        </span>
-        <span className={`cp-gate ${driverOk ? "ok" : a ? "warn" : "bad"}`} title="Driver assignment & HOS clearance">
-          DRIVER: {a ? `${a.driver.name} (${a.status})` : "UNASSIGNED"}
-        </span>
-        <span className={`cp-gate ${refsOk ? "ok" : "warn"}`} title="Documentation & reference numbers">
-          PAPERS: {refsOk ? "REFS & APPT VERIFIED" : `MISSING ${gapsPhrase(gaps).toUpperCase()}`}
-        </span>
-        <span className={`cp-gate ${floorOk ? "ok" : "bad"}`} title="Floor rate comparison">
-          MARGIN: {allIn != null && floorThreshold > 0 ? (allIn >= floorThreshold ? `+${usd(allIn - floorThreshold, 2)}/MI CLEAR` : `\u2212${usd(floorThreshold - allIn, 2)}/MI SHORT`) : "NO FLOOR"}
-        </span>
+      <div className="cp-deck-line" title={load.vehicle ? `${load.vehicle.name}, ${load.vehicle.type?.replace("_", " ")}` : "Fleet base floor"}>
+        {deckLead.grossInLine ? <span><b>{deckGross}</b> {delivered ? "paid" : "gross"}</span> : null}
+        {deckTonu ? <span><b>{miles(totalMiles)}</b> {wayHome.toLowerCase()}</span> : null}
+        {deckLead.grossInLine && allIn != null ? <span><b>{perMile(allIn)}</b> every mile</span> : null}
+        {!deckTonu && perLoaded != null ? <span><b>{perMile(perLoaded)}</b> loaded</span> : null}
+        {!deckTonu ? (deckHasFloor || floorThreshold > 0 ? <span>floor <b>{perMile(floorThreshold)}</b></span> : <span>no floor yet</span>) : null}
+        {paidDiffers ? <span>paid <b>{usd(paidLine!, 2)}</b> vs {usd(num(load.quotedRevenue), 2)} agreed</span> : null}
       </div>
+      {deckGates.length > 0 ? (
+        <div className="cp-gates">
+          {deckGates.map((g) => (
+            <span key={g.title} className={`cp-gate ${g.cls}`} title={g.title}>{g.text}</span>
+          ))}
+        </div>
+      ) : null}
 
       {readOnlyNote}
 
@@ -391,6 +387,80 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
 
   // ── Tab 1: Route & Stops Workbench ─────────────────────────────────────────────────────────
   const trailerOpen = load.status === "draft" || load.status === "accepted" || load.status === "in_progress";
+  const relayWho = !!me && may("dispatch");
+  const relayOptions = openBaton && relayWho ? await receiveOptions(id) : null;
+  const canHandOff = relayWho && load.status === "in_progress" && !!a && a.status === "in_progress" && !openBaton;
+  const relaySec = legs.length === 0 && batons.length === 0 && !canHandOff ? null : (
+    <section className="sec">
+      <h3>Relay{legs.length > 0 ? ` · ${legs.length} leg${legs.length === 1 ? "" : "s"}` : ""}</h3>
+      <div className="sec-box">
+        {legs.length > 0 ? (
+          <ul className="feed">
+            {legs.map((l) => (
+              <li key={l.id}>
+                <div>
+                  <b>Leg {l.seq}</b> · {l.driverName ?? "No driver"}{l.vehicleName ? ` · ${l.vehicleName}` : ""}{l.trailerNumber ? ` · ${l.trailerNumber}` : ""}{l.kind === "positioning" ? " · positioning only (no freight)" : ""}
+                  {" · "}{l.status === "active" ? "rolling" : "closed"}
+                </div>
+                <div className="t">
+                  {l.fromName ? `From ${l.fromName}` : ""}{l.toName ? ` to ${l.toName}` : ""}
+                  {l.milesDriven != null ? ` · ${num(l.milesDriven).toLocaleString("en-US")} mi (${l.milesSource === "eld" ? "ELD" : l.milesSource === "driver" ? "from the driver" : "worked out by dispatch"})` : l.status === "closed" ? " · miles not recorded" : ""}
+                  {l.payEstimate != null ? ` · pay as it stood ${usd(num(l.payEstimate), 2)}` : ""}
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {batons.map((b) => {
+          const waiting = b.state === "dropped" || b.state === "disputed";
+          const lvl = handoffLevel(b, new Date());
+          return (
+            <div key={b.id} className="tl-note" style={{ marginTop: 12 }}>
+              <b>{HANDOFF_TYPE_LABEL[b.type as HandoffType] ?? b.type}</b> · {HANDOFF_STATE_LABEL[b.state as HandoffState] ?? b.state} · {HANDOFF_REASON_LABEL[b.reason as HandoffReason] ?? b.reason}
+              <div>
+                {b.outDriverName ?? "The driver"} left it at {b.locationName ?? "a pin"}{b.locationSlot ? `, spot ${b.locationSlot}` : ""} {dateTime(b.droppedAt)}
+                {b.droppedSource === "dispatcher" ? " (entered by dispatch for the driver)" : ""}
+                {b.trailerNumber ? ` · trailer ${b.trailerNumber}` : ""}{b.sealNumber ? ` · seal ${b.sealNumber}` : ""}
+                {b.outgoingNext ? ` · they ${OUTGOING_NEXT_LABEL[b.outgoingNext as OutgoingNext]?.toLowerCase() ?? b.outgoingNext}` : ""}
+              </div>
+              {b.state === "received" ? (
+                <div>
+                  {b.inDriverName} took it {b.receivedAt ? dateTime(b.receivedAt) : ""}{b.tractorInName ? ` in ${b.tractorInName}` : ""}
+                  {b.sealMatches === true ? " · seal matched" : b.sealMatches === false ? " · seal did NOT match" : ""}
+                  {b.frozenSha256 ? ` · frozen ${b.frozenSha256.slice(0, 10)}` : ""}
+                </div>
+              ) : null}
+              {b.discrepancyFlagged ? (
+                <div className={b.ackAt ? "" : "tl-note warn"}>
+                  Reported by {b.discrepancyBy ?? "someone"}: “{b.discrepancyNotes}”{b.ackAt ? ` · acknowledged by ${b.ackBy ?? "dispatch"} ${dateTime(b.ackAt)}` : " · not acknowledged yet"}
+                </div>
+              ) : null}
+              {waiting ? <div>Waiting {waitWords(waitMinutes(b.droppedAt, new Date()))}{lvl ? ` · ${lvl === "block" ? "needs attention" : "getting long"}` : ""}</div> : null}
+              {waiting && relayWho && relayOptions ? (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                  {b.state === "disputed" ? (
+                    <ConfirmForm action={acknowledgeDiscrepancyAction} fields={{ loadId: load.id, handoffId: b.id }} label="Acknowledge the problem" title="Acknowledge the reported problem?" eyebrow="Handoff" confirmLabel="Acknowledge">
+                      <p className="tl-note">This says dispatch has seen it. The next driver can then take the load, and the report stays on it.</p>
+                    </ConfirmForm>
+                  ) : null}
+                  <ReceiveForm action={receiveAction} loadId={load.id} handoff={{ id: b.id, type: b.type, locationName: b.locationName, tractorOutName: b.tractorOutName, sealNumber: b.sealNumber }} drivers={relayOptions.drivers} trucks={relayOptions.trucks} rateConTotal={rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge))} blockedByDiscrepancy={b.state === "disputed"} />
+                  {b.state === "dropped" ? <DiscrepancyForm action={discrepancyAction} loadId={load.id} handoffId={b.id} location={b.locationName ?? "the handoff"} /> : null}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+        {canHandOff && a ? (
+          <div style={{ marginTop: 12 }}>
+            <DropForm action={dropAction} loadId={load.id} loadNumber={load.loadNumber ?? "this load"} driverName={a.driver.name} />
+            <p className="tl-note" style={{ marginTop: 6 }}>For a planned relay, a driver who ran out of hours, or a breakdown. If the driver was recalled while rolling, this is how the load moves on.</p>
+          </div>
+        ) : null}
+        {legs.length > 0 || batons.length > 0 ? <p className="tl-note" style={{ marginTop: 10 }}>What each leg is paid is not split yet: a closed leg keeps its driver&rsquo;s pay as it stood, and the next driver&rsquo;s assignment carries no estimate. Pay the legs by hand for now.</p> : null}
+      </div>
+    </section>
+  );
+
   const trailerSec = (
     <section className="sec">
       <h3>Trailer Clearance</h3>
@@ -450,7 +520,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         ) : null}
 
         {a && load.status === "in_progress" && may("dispatch") ? (
-          <p className="tl-note" style={{ marginTop: 8 }}>This load is on the road, so the driver cannot be taken off here. Call them. A handoff to another driver is needed, and it is not built yet.</p>
+          <p className="tl-note" style={{ marginTop: 8 }}>This load is on the road, so the driver cannot be recalled. To move it to another driver, use Hand off under Relay.</p>
         ) : null}
 
         {canUnassign && a && (a.status === "dispatched" || a.status === "accepted") ? (
@@ -647,6 +717,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
       {gate(stopsSec, "dispatch", "billing_details")}
       {docksSec}
       {gate(driverSec, "dispatch")}
+      {gate(relaySec, "dispatch")}
       {gate(trailerSec, "dispatch")}
       {gate(tripSec, "dispatch", "figures")}
       <DriverCabSheet

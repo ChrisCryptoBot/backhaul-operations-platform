@@ -31,6 +31,7 @@ export type DateInputProps = {
 
 const START_TIME: Hm = { h: 8, min: 0 };
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] as const;
+import { uiZoom } from "@/lib/ui-zoom";
 const POP_W = 296;
 
 function todayLocal(): Ymd {
@@ -95,10 +96,15 @@ export function DateInput({ type = "date", value, defaultValue, onChange, name, 
       const r = field.current?.parentElement?.getBoundingClientRect();
       if (!r) return;
       const height = pop.current?.offsetHeight ?? (withTime ? 400 : 340);
-      const below = window.innerHeight - r.bottom - 8;
-      const up = below < height && r.top - 8 > below;
-      const left = Math.max(8, Math.min(r.left, window.innerWidth - POP_W - 8));
-      setPlace({ left, ...(up ? { bottom: window.innerHeight - r.top + 6 } : { top: r.bottom + 6 }) });
+      const z = uiZoom();
+      const vh = window.innerHeight / z;
+      const vw = window.innerWidth / z;
+      const rTop = r.top / z;
+      const rBottom = r.bottom / z;
+      const below = vh - rBottom - 8;
+      const up = below < height && rTop - 8 > below;
+      const left = Math.max(8, Math.min(r.left / z, vw - POP_W - 8));
+      setPlace({ left, ...(up ? { bottom: vh - rTop + 6 } : { top: rBottom + 6 }) });
     };
     measure();
     window.addEventListener("resize", measure);

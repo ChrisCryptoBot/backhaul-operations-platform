@@ -1,3 +1,4 @@
+@layer legacy {
 /* ─────────────────────────────────────────────────────────────────────────────
    TrueLane Dispatch Cockpit (Operational Inspection & Execution Console)
    Function-first, high-density industrial interface.
@@ -918,4 +919,5 @@
   background: var(--db-bg-inset);
   border-radius: 4px;
   border-left: 2px solid var(--db-accent);
+}
 }

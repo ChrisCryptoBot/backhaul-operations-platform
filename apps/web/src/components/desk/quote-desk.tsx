@@ -1,5 +1,6 @@
 "use client";
 
+import { uiZoom } from "@/lib/ui-zoom";
 import { findBackhauls, type OpenPickupCandidate } from "@/lib/backhaul-detect";
 
 import Link from "next/link";
@@ -213,7 +214,8 @@ export function QuoteDesk({
       const container = document.getElementById("qt-workspace");
       if (!container) return;
       const rect = container.getBoundingClientRect();
-      const newWidth = Math.max(380, Math.min(rect.width - 420, e.clientX - rect.left));
+      const z = uiZoom();
+      const newWidth = Math.max(380, Math.min(rect.width / z - 420, (e.clientX - rect.left) / z));
       setEntryWidth(newWidth);
     };
     const handleUp = () => {

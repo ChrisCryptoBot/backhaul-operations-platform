@@ -16,5 +16,6 @@ export async function GET(request: Request) {
   if (over) return over;
   const q = new URL(request.url).searchParams.get("q") ?? "";
   const places = await suggestPlaces(q.slice(0, 120));
-  return NextResponse.json({ places }, { headers: { "Cache-Control": "private, max-age=60" } });
+  // Only an answer with places is kept for the next keystroke. An empty one (the lookup was refused, timed out, or the allowance was spent for a moment) must never be remembered: the same words would show nothing for a minute.
+  return NextResponse.json({ places }, { headers: { "Cache-Control": places.length > 0 ? "private, max-age=60" : "no-store" } });
 }

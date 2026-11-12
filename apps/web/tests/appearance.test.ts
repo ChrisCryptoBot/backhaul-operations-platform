@@ -4,7 +4,6 @@ import {
   MAX_SLEEP_MINUTES,
   UIS,
   UI_LABEL,
-  asDensity,
   asSleepMinutes,
   asTheme,
   asUi,
@@ -14,22 +13,17 @@ import {
 } from "@/lib/appearance";
 
 describe("appearance and sleep mode settings", () => {
-  test("theme and density fall back to night and dense", () => {
+  test("the theme falls back to night, and rows have no density setting", () => {
     expect(asTheme(undefined)).toBe("night");
     expect(asTheme("day")).toBe("day");
     expect(asTheme("bogus")).toBe("night");
-    expect(asDensity(undefined)).toBe("dense");
-    expect(asDensity("dense")).toBe("dense");
-    expect(asDensity("comfortable")).toBe("comfortable");
-    expect(asDensity("compact")).toBe("dense"); // the old name, from a cookie set before the redesign
-    expect(asDensity("bogus")).toBe("dense");
   });
 
-  test("the interface style defaults to the cockpit, rejects junk, and the app style is always drawn in night", () => {
-    expect(asUi(undefined)).toBe("cockpit");
+  test("the interface style defaults to the TrueLane app, keeps a saved cockpit, rejects junk, and the app style is always drawn in night", () => {
+    expect(asUi(undefined)).toBe("app");
     expect(asUi("cockpit")).toBe("cockpit");
     expect(asUi("app")).toBe("app");
-    expect(asUi("bogus")).toBe("cockpit");
+    expect(asUi("bogus")).toBe("app");
     expect(UIS).toEqual(["cockpit", "app"]);
     expect(UI_LABEL.app.label).toBe("TrueLane app");
     expect(effectiveTheme("cockpit", "day")).toBe("day");

@@ -1,3 +1,4 @@
+@layer legacy {
 /* The dispatcher desk: layout and components. Tokens (colors, type, spacing, density) live in app/globals.css for both themes.
    Sections: shell, page, card and stat, chips and pills, buttons and forms, data table, queue and meters, kit (skeleton, empty, toast, modal). */
 
@@ -1254,3 +1255,4 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .rp .ev-decide .tl-btn:disabled { opacity: 0.45; }
 .rp .ev-decide .tl-note { color: #5d534b; }
 .rp .ev-decide .th-err { color: #a3262a; font-size: 12px; }
+}

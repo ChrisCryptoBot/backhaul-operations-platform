@@ -1,3 +1,4 @@
+@layer legacy {
 /* ─────────────────────────────────────────────────────────────────────────────
    TrueLane Quote Terminal (High-Density Quoting & Negotiation Console)
    Function-first, high-density industrial terminal for dispatchers on the phone.
@@ -593,4 +594,5 @@
     max-height: none;
     overflow-y: visible;
   }
+}
 }

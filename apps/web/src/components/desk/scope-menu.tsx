@@ -11,6 +11,7 @@ import type { ShellScope } from "@/server/tl/shell";
  * trucks and drivers based there. The choice is kept in a cookie and applied by refreshing the page's data; a person who is limited sees only what they may see, and the server holds them to it
  * whatever the cookie says. An admin who has not chosen yet is shown a region, and this says so until they pick. The pop-over is drawn on the page body (the header clips and traps what is inside it).
  */
+import { uiZoom } from "@/lib/ui-zoom";
 export function ScopeMenuButton({ scope }: { scope: ShellScope }) {
   const router = useRouter();
   const [pending, start] = React.useTransition();
@@ -27,7 +28,10 @@ export function ScopeMenuButton({ scope }: { scope: ShellScope }) {
   React.useEffect(() => {
     if (!open) return;
     const r = button.current?.getBoundingClientRect();
-    if (r) setAt({ top: r.bottom + 4, left: Math.max(8, Math.min(r.left, window.innerWidth - 396)) });
+    if (r) {
+      const z = uiZoom();
+      setAt({ top: r.bottom / z + 4, left: Math.max(8, Math.min(r.left / z, window.innerWidth / z - 396)) });
+    }
     const away = (e: MouseEvent) => {
       const t = e.target as Node;
       if (!pop.current?.contains(t) && !button.current?.contains(t)) setOpen(false);

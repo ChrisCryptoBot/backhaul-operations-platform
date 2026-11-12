@@ -5,26 +5,20 @@ import React from "react";
 import { compareKeys, nextSort, sortKey, type SortDir, type SortKind } from "@/lib/table-sort";
 import { Icon } from "./kit/icons";
 
-type Density = "dense" | "comfortable";
 
 /** The table with this id, and any table whose id continues it with "--" (a long list split into month tables shares one toolbar). */
 const tablesOf = (tableId: string) => Array.from(document.querySelectorAll<HTMLElement>(`[id="${tableId}"], [id^="${tableId}--"]`));
 
 /**
- * The toolbar above a <DataTable>: search, the filter chips passed in as children, a row count and the density control.
+ * The toolbar above a <DataTable>: search, the filter chips passed in as children, and a row count.
  * It also makes whole rows clickable (any row with a data-href) without making them focusable: the link in the first cell stays the one tab stop.
  */
 export function DataTableTools({ tableId, placeholder = "Search…", children, total, server }: { tableId: string; placeholder?: string; children?: React.ReactNode; total: number; server?: { path: string; q: string; keep?: Record<string, string> } }) {
   const router = useRouter();
   const serverMode = server != null;
   const [q, setQ] = React.useState(server?.q ?? "");
-  const [density, setDensity] = React.useState<Density>("dense");
   const [shown, setShown] = React.useState(total);
   const [sortNote, setSortNote] = React.useState("");
-
-  React.useEffect(() => {
-    setDensity(document.documentElement.dataset.density === "comfortable" ? "comfortable" : "dense");
-  }, []);
 
   // Search: hide rows whose text does not match. Done on the DOM so the table stays server-rendered.
   // A server-read list searches on the server: typing swaps the address (a moment after you stop), keeping the sort and filters but starting at page one.
@@ -105,12 +99,6 @@ export function DataTableTools({ tableId, placeholder = "Search…", children, t
     };
   }, [tableId]);
 
-  const pick = (d: Density) => {
-    setDensity(d);
-    document.documentElement.dataset.density = d;
-    document.cookie = `desk-density=${d}; path=/; max-age=31536000; samesite=lax`;
-  };
-
   return (
     <div className="dt-toolbar">
       <label className="dt-search">
@@ -122,10 +110,6 @@ export function DataTableTools({ tableId, placeholder = "Search…", children, t
       <span className="dt-spacer" />
       <span className="dt-count" aria-live="polite">{server || q.trim() === "" ? `${total} rows` : `${shown} of ${total}`}</span>
       <span className="db-sr-only" role="status">{sortNote}</span>
-      <div className="t-seg" role="group" aria-label="Row density">
-        <button type="button" aria-pressed={density === "dense"} onClick={() => pick("dense")}>Dense</button>
-        <button type="button" aria-pressed={density === "comfortable"} onClick={() => pick("comfortable")}>Comfortable</button>
-      </div>
     </div>
   );
 }
