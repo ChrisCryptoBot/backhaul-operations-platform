@@ -22,6 +22,7 @@ import { answerCache, clockBucket } from "./answer-cache";
 import { getKpiExtras, kpiExtrasStamp } from "./kpi-extras";
 import { terminalSetSql } from "./terminal-sql";
 import type { LeakLoad } from "@/lib/leaks";
+import { batchOfChannel } from "@/lib/load-import";
 import type { MoveLoad } from "@/lib/moves";
 import { dieselAt, laneScore, leadDaysOf, mixLabel, mixOf, tenderStats, type KpiExtras, type LaneScore, type MixRow, type TenderStats } from "@/lib/kpi-extras";
 
@@ -42,6 +43,8 @@ export type KpiLoadRow = LoadRow & {
   /** The truck's break-even floor ($/mi, before fuel) frozen when the load was accepted. */
   snapshotBaseFloorRpm: Prisma.Decimal | number | string | null;
   vehicleName: string | null;
+  /** Where the load came from (`import:<batch>` for one imported from a file). */
+  channel?: string | null;
   /** Verdict on the truck's own floor, for loads that are not finished yet. */
   verdict: Verdict | null;
   /** The kind of equipment the load needs, and what it carries (for the load mix). */
@@ -349,7 +352,8 @@ export function leakLoadOf(l: KpiLoadRow): LeakLoad {
     expenses: num(l.expenseFuelActual) + num(l.expenseTolls) + num(l.expenseMisc),
     floor: numOrNull(l.snapshotBaseFloorRpm),
     tonuRevenue: numOrNull(l.tonuRevenue) ?? 0,
-    invoiced: l.paymentStatus === "invoiced" || l.paymentStatus === "paid"
+    invoiced: l.paymentStatus === "invoiced" || l.paymentStatus === "paid",
+    imported: batchOfChannel(l.channel) != null
   };
 }
 
@@ -750,7 +754,7 @@ export async function getKpiRows(workspaceId = currentWorkspaceId(), opts: { sin
       l.expense_fuel_actual::float8 as "expenseFuelActual", l.expense_tolls::float8 as "expenseTolls", l.expense_misc::float8 as "expenseMisc",
       l.pickup_deadhead_miles::float8 as "pickupDeadheadMiles", l.loaded_miles::float8 as "loadedMiles", l.return_deadhead_miles::float8 as "returnDeadheadMiles",
       l.quoted_pickup_dh_miles::float8 as "quotedPickupDhMiles", l.quoted_loaded_miles::float8 as "quotedLoadedMiles", l.quoted_return_dh_miles::float8 as "quotedReturnDhMiles", l.is_backhaul as "isBackhaul",
-      l.trailer_type as "trailerType", l.load_type as "loadType",
+      l.trailer_type as "trailerType", l.load_type as "loadType", l.channel as "channel",
       l.broker_name as "brokerName", l.origin_address as "originAddress", l.destination_address as "destinationAddress", l.market_benchmark::float8 as "marketBenchmark",
       l.payment_status as "paymentStatus", l.invoiced_at as "invoicedAt", l.pay_terms_days as "payTermsDays", l.invoiced_amount::float8 as "invoicedAmount", l.paid_amount::float8 as "paidAmount",
       v.name as "vehicleName", a.status as "asStatus", a.pay_kind as "asPayKind", a.pay_estimate::float8 as "asPayEstimate", d.name as "asDriver"

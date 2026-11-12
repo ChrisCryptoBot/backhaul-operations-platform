@@ -1,6 +1,16 @@
 # Relays, recall and the digital baton: design
 
-Status: Phase 0 (design). Approved by Chris 2026-11-06. Phase 1 (recall + holder history) is the only code approved so far; Phases 2 to 4 each wait for a separate go.
+Status (2026-11-06): Phase 0 (this design) and Phase 1 (recall + holder history) are committed. **Phase 2 (legs, the baton, recall-while-rolling) is built on the Desk and uncommitted**; Phases 3 and 4 each wait for a separate go.
+
+## As built in Phase 2 (Desk only, dispatcher records for the driver)
+- **Tables** (`20261209000000_relay_legs_handoffs`): `load_legs` (one custody span: who, in what, from where to where, miles with their source, the pay as it stood when the leg closed) and `handoffs` (the baton). A load that never relays has no leg rows.
+- **Drop** (`server/tl/relay.ts` `recordDrop`): only a load on the road with a driver. Closes the leg, **takes the assignment off** (nobody holds the load in the yard; the load stays `in_progress`), unhooks the trailer unless it is a driver swap (planned drops waive the dwell stay, so no false leak), writes a holder-trail row, an audit entry and the baton (`dropped`). Requires what the outgoing driver does now.
+- **Receive** (`receiveHandoff`): the next driver's tap alone transfers custody. A hook or a rescue is a different truck, a swap keeps the truck; never the driver who dropped it. Another open load for the driver or truck needs a reason. Writes leg N+1, a new in-progress assignment (**no pay estimate**: phase 3), moves the load to the new truck, hooks the trailer to it, and freezes the baton with a SHA-256.
+- **Discrepancy** (`flagDiscrepancy` / `acknowledgeDiscrepancy`): freezes the baton as found, blocks custody until dispatch acknowledges, then the driver can take it with the report on record.
+- **Rolling empty** (`unassignLoad(..., positioning)`): a driver recalled after accepting, while rolling empty to the pickup, keeps a closed `positioning` leg with the miles and their source, at their own cents a mile (sign-off 1). No baton: there was no freight.
+- **Screens:** an "Awaiting handoff" lane on `/dispatch`, a Relay section on the load page (legs, batons, Hand off / Next driver takes the load / Report a problem / Acknowledge), the rolling-empty option in the Recall dialog.
+- **Alerts:** `HANDOFF_WAITING` (warn at 1 h, block at 4 h) and `HANDOFF_DISCREPANCY` (block). A load dropped by a hook or rescue no longer counts against its old truck for double-booking (alerts and the assign/receive clash checks); a swap keeps the truck on the load.
+- **Not built yet:** per-leg pay and settlement (phase 3: until then the closed leg keeps its pay as it stood and the next driver's assignment has no estimate, so legs are paid by hand), photos and documents on the baton, the planner's per-leg blocks, the bridge/phone (phase 4), hours-of-service checks for the incoming driver beyond the cleared-card and double-booking checks, the Leak Ledger per leg (it still prices on the load's one frozen floor).
 Source of truth for the plan: `~/.claude/plans/im-a-bit-worried-jiggly-cherny.md`. This page is the copy that lives with the code.
 
 ## Why

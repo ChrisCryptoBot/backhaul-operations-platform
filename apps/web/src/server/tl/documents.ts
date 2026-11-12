@@ -79,11 +79,15 @@ export async function removeLoadDocument(id: string, now = new Date(), workspace
 export async function podStopsMissing(loadIds: string[], workspaceId = currentWorkspaceId()): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (loadIds.length === 0) return out;
-  const [docs, stops] = await Promise.all([
+  const [docs, stops, imported] = await Promise.all([
     prisma.loadDocument.findMany({ where: { workspaceId, loadId: { in: loadIds }, kind: "pod" }, select: { loadId: true, stopId: true } }),
-    prisma.stop.findMany({ where: { loadId: { in: loadIds } }, select: { id: true, loadId: true, stopType: true, stopRole: true } })
+    prisma.stop.findMany({ where: { loadId: { in: loadIds } }, select: { id: true, loadId: true, stopType: true, stopRole: true } }),
+    prisma.load.findMany({ where: { workspaceId, id: { in: loadIds }, channel: { startsWith: "import:" } }, select: { id: true } })
   ]);
+  // A load imported from a file is history: the stops it may carry hold the times its file gave, and no proof of delivery was ever the desk's to ask for.
+  const history = new Set(imported.map((l) => l.id));
   for (const id of loadIds) {
+    if (history.has(id)) continue;
     const mine = docs.filter((d) => d.loadId === id);
     const deliveries = stops.filter((s) => s.loadId === id && (s.stopRole ?? s.stopType) === "delivery");
     if (deliveries.length === 0) continue;

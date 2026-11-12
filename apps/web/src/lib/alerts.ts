@@ -3,6 +3,7 @@ import { clearanceSoon, driverBlocker } from "./clearance";
 import { trailerBlocker, trailerClearanceSoon } from "./trailer-clearance";
 import { loadWindow, windowsOverlap, type Window } from "./schedule";
 import { activeTz } from "./tz";
+import { handoffLevel, waitMinutes, waitWords } from "./relay";
 
 /**
  * Per-load alerts, derived from the rows on every request (nothing is stored). Three levels:
@@ -28,7 +29,9 @@ export type AlertCode =
   | "MISSING_REFERENCE"
   | "READY_TO_INVOICE"
   | "MISSING_POD"
-  | "DETENTION_UNBILLED";
+  | "DETENTION_UNBILLED"
+  | "HANDOFF_WAITING"
+  | "HANDOFF_DISCREPANCY";
 
 /** The thresholds the rules use. Fixed for now; the settings screen will own them. */
 export type AlertThresholds = { pickupHours: number; sentNoAnswerHours: number; clearanceDays: number };
@@ -37,6 +40,20 @@ export const ALERT_DEFAULTS: AlertThresholds = { pickupHours: 24, sentNoAnswerHo
 export type RuleDef = { code: AlertCode; level: AlertLevel; title: string; appliesTo: string; trigger: (t: AlertThresholds) => string };
 
 export const RULES: RuleDef[] = [
+  {
+    code: "HANDOFF_DISCREPANCY",
+    level: "block",
+    title: "Something was reported wrong at a handoff",
+    appliesTo: "Loads waiting for the next driver at a relay point",
+    trigger: () => "A driver or dispatch reported a broken seal, damage or another discrepancy at the handoff, and dispatch has not acknowledged it. Nobody can take the load until it does."
+  },
+  {
+    code: "HANDOFF_WAITING",
+    level: "warn",
+    title: "A load is waiting in a yard for its next driver",
+    appliesTo: "Loads waiting for the next driver at a relay point",
+    trigger: () => "A driver dropped the load at a relay point and no next driver has taken it: a warning after an hour, a block after four."
+  },
   {
     code: "DRIVER_CLEARANCE",
     level: "block",
@@ -179,6 +196,8 @@ export type AlertLoad = {
   closedWithoutPod?: boolean | null;
   /** The trailer unit on the load, when one is set. */
   trailer?: { number: string; status: string; registrationExpiry: Date | null; inspectionExpiry: Date | null } | null;
+  /** A baton waiting for the next driver (src/server/tl/relay.ts): the load is on the road with nobody holding it. */
+  handoff?: { type?: string; state: string; locationName: string | null; droppedAt: Date; discrepancyFlagged: boolean; ackAt: Date | null; outDriverName: string | null } | null;
   stops: Array<{ timeWindowEarliest: Date | null; timeWindowLatest: Date | null; referenceNumbers: unknown }>;
   assignment: null | {
     status: string;
@@ -210,6 +229,17 @@ export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds =
     const a = l.assignment;
     const holding = a != null && a.status !== "declined";
     const unsent = !a || a.status === "draft" || a.status === "declined";
+
+    // A load dropped at a relay point waits for its next driver: loud when something was reported, then louder the longer it sits.
+    if (open && l.handoff) {
+      const hf = l.handoff;
+      const where = hf.locationName ? ` at ${hf.locationName}` : "";
+      if (hf.discrepancyFlagged && !hf.ackAt) add(l, "HANDOFF_DISCREPANCY", "block", `Something was reported wrong at the handoff${where}. Acknowledge it before the next driver takes the load.`);
+      else {
+        const lvl = handoffLevel(hf, now);
+        if (lvl) add(l, "HANDOFF_WAITING", lvl, `${hf.outDriverName ?? "The driver"} dropped the load${where} ${waitWords(waitMinutes(hf.droppedAt, now))} ago and no one has taken it.`);
+      }
+    }
 
     if (open && l.hasTruck === false) add(l, "NO_TRUCK", "warn", "No truck is set, so this load has no cost floor and no verdict. Pick one under Edit details.");
 
@@ -302,6 +332,8 @@ export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds =
   const byTruck = new Map<string, Array<{ load: AlertLoad; win: Window }>>();
   for (const l of loads) {
     if (!OPEN.includes(l.status) || !l.vehicle) continue;
+    // A load dropped at a relay point (a hook or a rescue) has left its truck: that truck is free for another load. A driver swap keeps the truck on it.
+    if (l.handoff && l.handoff.type !== "slip_seat") continue;
     const win = loadWindow(l.stops);
     if (!win) continue;
     const list = byTruck.get(l.vehicle.id) ?? [];

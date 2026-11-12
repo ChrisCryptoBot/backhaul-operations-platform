@@ -19,6 +19,8 @@ import { inTerminal } from "./terminal-sql";
 import { currentAllowed } from "./scope";
 import { enqueueBridge } from "@/server/bridge/outbox";
 import { recordAssignmentEvent } from "./assignment-events";
+import { writePositioningLeg } from "./relay-legs";
+import { MILES_SOURCES, type MilesSource } from "@/lib/relay";
 import { isOfferedRecallCode, isRecallCode, recallReasonText, type RecallCode } from "@/lib/recall-reasons";
 
 export { driverBlocker };
@@ -34,6 +36,8 @@ const PAY_KINDS: readonly PayKind[] = PAY_KIND_KEYS;
 const SENDABLE_LOAD_STATUSES = ["draft", "accepted"];
 const OPEN_ASSIGNMENT = ["draft", "dispatched", "accepted", "in_progress"];
 const OPEN_LOAD = ["draft", "accepted", "in_progress"];
+/** A load dropped at a relay point by a hook or a rescue has left its truck, so the truck is not on it any more (a driver swap keeps the truck on the load). */
+const LEFT_ITS_TRUCK: Prisma.LoadWhereInput = { NOT: { handoffs: { some: { state: { in: ["dropped", "disputed"] }, type: { not: "slip_seat" } } } } };
 
 export class DispatchError extends Error {
   constructor(
@@ -99,7 +103,7 @@ export async function findDriverClash(driverId: string, exceptLoadId: string, wi
  */
 export async function findTruckClash(vehicleId: string, exceptLoadId: string, win: Window | null, workspaceId = currentWorkspaceId()): Promise<{ loadNumber: string | null; window: Window } | null> {
   if (!win) return null;
-  const others = await prisma.load.findMany({ where: { workspaceId, vehicleId, ...(exceptLoadId ? { id: { not: exceptLoadId } } : {}), deletedAt: null, status: { in: OPEN_LOAD } }, include: { stops: true } });
+  const others = await prisma.load.findMany({ where: { workspaceId, vehicleId, ...(exceptLoadId ? { id: { not: exceptLoadId } } : {}), deletedAt: null, status: { in: OPEN_LOAD }, ...LEFT_ITS_TRUCK }, include: { stops: true } });
   for (const o of others) {
     const w = loadWindow(o.stops);
     if (w && windowsOverlap(win, w)) return { loadNumber: o.loadNumber, window: w };
@@ -142,7 +146,7 @@ export async function driverClashesIn(driverIds: string[], exceptLoadId: string,
 export async function truckClashesIn(vehicleIds: string[], exceptLoadId: string, win: Window | null, workspaceId = currentWorkspaceId()): Promise<Map<string, string | null>> {
   const out = new Map<string, string | null>();
   if (!win || vehicleIds.length === 0) return out;
-  const others = await prisma.load.findMany({ where: { workspaceId, vehicleId: { in: vehicleIds }, ...(exceptLoadId ? { id: { not: exceptLoadId } } : {}), deletedAt: null, status: { in: OPEN_LOAD } }, select: { vehicleId: true, loadNumber: true, stops: { select: { timeWindowEarliest: true, timeWindowLatest: true } } } });
+  const others = await prisma.load.findMany({ where: { workspaceId, vehicleId: { in: vehicleIds }, ...(exceptLoadId ? { id: { not: exceptLoadId } } : {}), deletedAt: null, status: { in: OPEN_LOAD }, ...LEFT_ITS_TRUCK }, select: { vehicleId: true, loadNumber: true, stops: { select: { timeWindowEarliest: true, timeWindowLatest: true } } } });
   for (const o of others) {
     if (!o.vehicleId || out.has(o.vehicleId)) continue;
     const w = loadWindow(o.stops);
@@ -253,10 +257,12 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
 /**
  * Take the driver off a load (a recall). A load that was sent or accepted needs a reason CODE (src/lib/recall-reasons.ts), with an optional note; the code and the note go in the audit trail
  * and in the holder trail (AssignmentEvent), and the driver's phone is told through the driver link. An accepted load goes back to the board as a draft. A driver who was never sent the
- * load comes off with no reason (a correction, not a recall). A load already on the road or delivered cannot be unassigned here: on the road it needs a handoff (docs/RELAY_DESIGN.md, phase 2).
+ * load comes off with no reason (a correction, not a recall). A load already on the road or delivered cannot be unassigned here: on the road it is a handoff (src/server/tl/relay.ts).
+ * `positioning` is for a driver who accepted and was already rolling empty to the pickup when they were recalled: the miles they drove are kept on a closed positioning leg, with where the figure
+ * came from, so they are paid for them (docs/RELAY_DESIGN.md, sign-off 1). It needs a recall reason, and an accepted load.
  */
-export async function unassignLoad(loadId: string, reason: string | null, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals, code?: RecallCode | null) {
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, ...inTerminal(allowed !== undefined ? allowed : await currentAllowed(workspaceId)) }, include: { assignment: { include: { driver: true } } } });
+export async function unassignLoad(loadId: string, reason: string | null, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals, code?: RecallCode | null, positioning?: { milesDriven: number | null; milesSource: MilesSource | null }) {
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, ...inTerminal(allowed !== undefined ? allowed : await currentAllowed(workspaceId)) }, include: { assignment: { include: { driver: true } }, stops: { orderBy: { stopSequence: "asc" } }, vehicle: { select: { name: true } }, trailer: { select: { number: true } } } });
   if (!load || load.deletedAt) throw new DispatchError("load_not_found", "That load does not exist.");
   const a = load.assignment;
   if (!a) throw new DispatchError("not_assigned", "There is no driver on this load.");
@@ -269,6 +275,12 @@ export async function unassignLoad(loadId: string, reason: string | null, now = 
   if (code && !isRecallCode(code)) throw new DispatchError("bad_reason", "That is not a reason a load can be recalled for.");
   if (code && !isOfferedRecallCode(code)) throw new DispatchError("bad_reason", "A scheduled relay is a handoff, not a recall. Handoffs are not built yet.");
   const why = code ? recallReasonText(code, note) : note;
+  if (positioning) {
+    if (!needsReason || a.status !== "accepted") throw new DispatchError("bad_reason", "Miles driven are kept only when a driver who accepted the load is recalled while rolling empty to the pickup.");
+    const m = positioning.milesDriven;
+    if (m != null && (!Number.isFinite(m) || m < 0 || m > 5000)) throw new DispatchError("bad_reason", "Miles driven must be between 0 and 5,000.");
+    if (m != null && !(MILES_SOURCES as readonly string[]).includes(positioning.milesSource ?? "")) throw new DispatchError("bad_reason", "Say where the miles came from: the ELD, the driver, or you.");
+  }
 
   await prisma.$transaction(async (tx) => {
     // The driver's phone is told the load is off them (the row is closed, never deleted: that is the phone's signal).
@@ -276,6 +288,7 @@ export async function unassignLoad(loadId: string, reason: string | null, now = 
     try {
       // The load has to still be the state it was read in (not picked up, cancelled or deleted since), and the assignment is taken off once.
       await claimLoad(tx, loadId, workspaceId, ["draft", "accepted"], load.status === "accepted" ? { status: "draft" } : {});
+      if (positioning) await writePositioningLeg(tx, load, a, { milesDriven: positioning.milesDriven, milesSource: positioning.milesSource, now });
       await dropAssignment(tx, loadId);
     } catch (e) {
       if (e instanceof LoadMoved) throw new DispatchError("not_unassignable", e.message);

@@ -3,7 +3,7 @@
 import { asLimit } from "@/lib/quote-nearest";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { DENSITY_COOKIE, SLEEP_COOKIE, THEME_COOKIE, UI_COOKIE, asDensity, asSleepMinutes, asTheme, asUi } from "@/lib/appearance";
+import { SLEEP_COOKIE, THEME_COOKIE, UI_COOKIE, asSleepMinutes, asTheme, asUi } from "@/lib/appearance";
 import { redirect, RedirectType } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { requireCan } from "@/server/tl/access";
@@ -11,6 +11,8 @@ import { removeLoadDocument, type DocResult } from "@/server/tl/documents";
 import { addMember, setMemberGrants, removeMember, setMemberRole, type MemberResult } from "@/server/tl/members";
 import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
 import { isRecallCode } from "@/lib/recall-reasons";
+import { RelayError, acknowledgeDiscrepancy, flagDiscrepancy, receiveHandoff, recordDrop } from "@/server/tl/relay";
+import type { MilesSource } from "@/lib/relay";
 import { retryBridgeDelivery } from "@/server/bridge/retry";
 import { setWorkspaceTimezone } from "@/server/tl/zone-setting";
 import { ZONE_COOKIE } from "@/lib/tz";
@@ -21,6 +23,7 @@ import { currentWorkspaceId } from "@/server/tl/workspace";
 import { pickupClock, stopClocksOf } from "@/server/tl/stop-clock";
 import { workspaceTimezone } from "@/server/tl/zone";
 import { saveThresholds } from "@/server/tl/thresholds";
+import { saveLeakIntake, type IntakeSave } from "@/server/tl/leak-intake";
 import { acknowledgeSignal, saveSignalSettings } from "@/server/tl/signals";
 import type { SignalSettings } from "@/lib/signal-settings";
 import { saveCompany } from "@/server/tl/company";
@@ -96,7 +99,7 @@ async function attempt(loadId: string, fn: () => Promise<string>): Promise<never
   try {
     note = await fn();
   } catch (e) {
-    if (e instanceof DispatchError) return back(loadId, "error", e.message);
+    if (e instanceof DispatchError || e instanceof RelayError) return back(loadId, "error", e.message);
     throw e;
   }
   revalidatePath("/loads");
@@ -144,8 +147,83 @@ export async function unassignAction(formData: FormData) {
   const code = String(formData.get("reasonCode") ?? "");
   const note = String(formData.get("reasonNote") ?? formData.get("reason") ?? "");
   await attempt(loadId, async () => {
-    await unassignLoad(loadId, note, undefined, undefined, undefined, isRecallCode(code) ? code : null);
+    // A driver who was already rolling empty to the pickup keeps the miles they drove, with where the figure came from (a closed positioning leg, paid at their own cents a mile).
+    const rolling = formData.get("rolling") === "1";
+    const miles = String(formData.get("milesDriven") ?? "").trim();
+    const positioning = rolling ? { milesDriven: miles === "" ? null : Number(miles), milesSource: (String(formData.get("milesSource") ?? "") || null) as MilesSource | null } : undefined;
+    await unassignLoad(loadId, note, undefined, undefined, undefined, isRecallCode(code) ? code : null, positioning);
     return code ? "Driver recalled. The load is back in Needs a driver." : "Driver removed. The load is back on the board.";
+  });
+}
+
+const field = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
+const numField = (f: FormData, k: string): number | null => {
+  const v = field(f, k);
+  return v === "" ? null : Number(v);
+};
+const yesNo = (f: FormData, k: string): boolean | null => (field(f, k) === "yes" ? true : field(f, k) === "no" ? false : null);
+
+/** The driver left the load at a place (docs/RELAY_DESIGN.md): recorded by the dispatcher for the driver until the phone can do it. The load waits in the yard for the next driver. */
+export async function dropAction(formData: FormData) {
+  await requireCan("dispatch");
+  const loadId = String(formData.get("loadId"));
+  await attempt(loadId, async () => {
+    await recordDrop(loadId, {
+      type: field(formData, "type"),
+      reason: field(formData, "reason"),
+      locationName: field(formData, "locationName") || null,
+      lat: numField(formData, "lat"),
+      lng: numField(formData, "lng"),
+      slot: field(formData, "slot") || null,
+      locationSetBy: field(formData, "lat") !== "" ? "emergency_pin" : "dispatcher_typed",
+      outgoingNext: field(formData, "outgoingNext"),
+      sealNumber: field(formData, "sealNumber") || null,
+      reeferSetTemp: numField(formData, "reeferSetTemp"),
+      reeferActualTemp: numField(formData, "reeferActualTemp"),
+      reeferFuelPct: numField(formData, "reeferFuelPct"),
+      conditionOk: yesNo(formData, "conditionOk"),
+      conditionNotes: field(formData, "conditionNotes") || null,
+      milesDriven: numField(formData, "milesDriven"),
+      milesSource: field(formData, "milesSource") || null
+    });
+    return "Handoff recorded. The load is waiting in the yard for its next driver.";
+  });
+}
+
+/** The next driver took the load (their tap, entered by the dispatcher for them until the phone can). */
+export async function receiveAction(formData: FormData) {
+  await requireCan("dispatch");
+  const loadId = String(formData.get("loadId"));
+  await attempt(loadId, async () => {
+    await receiveHandoff(field(formData, "handoffId"), {
+      driverId: field(formData, "driverId"),
+      vehicleId: field(formData, "vehicleId") || null,
+      pay: { kind: field(formData, "payKind") as PayKind, rate: Number(field(formData, "rate")) },
+      sealMatches: yesNo(formData, "sealMatches"),
+      conditionOk: yesNo(formData, "conditionOk"),
+      conditionNotes: field(formData, "conditionNotes") || null,
+      overrideReason: field(formData, "overrideReason") || null
+    });
+    return "Handoff received. The next driver has the load.";
+  });
+}
+
+/** Something is wrong at the handoff: the baton is frozen as found and custody waits for dispatch. */
+export async function discrepancyAction(formData: FormData) {
+  await requireCan("dispatch");
+  const loadId = String(formData.get("loadId"));
+  await attempt(loadId, async () => {
+    await flagDiscrepancy(field(formData, "handoffId"), { notes: field(formData, "notes"), raisedBy: field(formData, "raisedBy") === "incoming_driver" ? "incoming_driver" : "dispatcher" });
+    return "Discrepancy recorded. The handoff is frozen as found until it is acknowledged.";
+  });
+}
+
+export async function acknowledgeDiscrepancyAction(formData: FormData) {
+  await requireCan("dispatch");
+  const loadId = String(formData.get("loadId"));
+  await attempt(loadId, async () => {
+    await acknowledgeDiscrepancy(field(formData, "handoffId"));
+    return "Discrepancy acknowledged. The next driver can take the load.";
   });
 }
 
@@ -550,6 +628,17 @@ export async function saveThresholdsAction(values: Record<string, string>): Prom
   return { ok: true, changed: out.changed ?? false };
 }
 
+/**
+ * Saves the Leak Read intake (docs/LEAK_LEDGER.md): what a mile costs and the detention terms that price imported history in the Leak ledger. For the billing office, the same people who read the ledger,
+ * because it decides the dollars on it. Saving what is already stored writes nothing.
+ */
+export async function saveLeakIntakeAction(values: unknown): Promise<IntakeSave> {
+  await requireCan("bill");
+  const out = await saveLeakIntake(values);
+  if (out.ok) revalidatePath("/", "layout");
+  return out;
+}
+
 /** Says someone is on a signal (docs/SIGNALS.md): it leaves the open list until it clears or gets worse. Held to the person's own scope on the server. */
 export async function acknowledgeSignalAction(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
   await requireCan("dispatch");
@@ -590,7 +679,6 @@ export async function saveCustomerAction(values: CustomerValues, id: string | nu
 
 // ── Appearance (Settings) ──────────────────────────────────────────────────────────────────────
 
-/** Saves the theme and/or density in cookies (read by the root layout) and returns to Settings with a note. */
 /** The carrier's own clock. Admin only: it moves where days, weeks and months are counted for everyone on the desk. */
 export async function saveTimezoneAction(formData: FormData) {
   await requireCan("admin");
@@ -606,10 +694,10 @@ export async function setAppearanceAction(formData: FormData) {
   await requireCan("read");
   const jar = cookies();
   const theme = formData.get("theme");
-  const density = formData.get("density");
+  const ui = formData.get("ui");
   const year = 60 * 60 * 24 * 365;
+  if (typeof ui === "string") jar.set(UI_COOKIE, asUi(ui), { path: "/", maxAge: year, sameSite: "lax" });
   if (typeof theme === "string") jar.set(THEME_COOKIE, asTheme(theme), { path: "/", maxAge: year, sameSite: "lax" });
-  if (typeof density === "string") jar.set(DENSITY_COOKIE, asDensity(density), { path: "/", maxAge: year, sameSite: "lax" });
   const sleep = formData.get("sleep");
   if (typeof sleep === "string") jar.set(SLEEP_COOKIE, String(asSleepMinutes(sleep)), { path: "/", maxAge: year, sameSite: "lax" });
   revalidatePath("/", "layout");
@@ -696,9 +784,7 @@ export async function deleteLoadAction(loadId: string, reason: string, note: str
   const out = await deleteLoad({ loadId, reason, note });
   if (out.ok) refreshLoads();
   return out;
-  const ui = formData.get("ui");
 }
-  if (typeof ui === "string") jar.set(UI_COOKIE, asUi(ui), { path: "/", maxAge: year, sameSite: "lax" });
 
 export async function restoreLoadAction(loadId: string): Promise<RemoveResult> {
   await requireCan("dispatch");

@@ -377,8 +377,8 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
       return {
         filename: `truelane-desk-leaks-${tag}.csv`,
         csv: toCsv(
-          ["Leak", "Dollars", "Items", "Items not priced", "Empty miles not priced", "Counted in the total", "Basis"],
-          l.current.lines.map((x): CsvCell[] => [x.label, two(x.dollars), x.items, x.unpriced, two(x.unpricedMiles), x.counted ? "yes" : "no", x.basis])
+          ["Leak", "Dollars", "Items", "Items not priced", "Empty miles not priced", "Counted in the total", "Priced from", "Basis"],
+          l.current.lines.map((x): CsvCell[] => [x.label, two(x.dollars), x.items, x.unpriced, two(x.unpricedMiles), x.counted ? "yes" : "no", x.intake ? "the carrier's intake, not frozen at booking" : "a figure frozen on the load or recorded on it", x.basis])
         )
       };
     }
@@ -394,8 +394,8 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
     return {
       filename: `truelane-desk-leaks-items-${tag}.csv`,
       csv: toCsv(
-        ["Date", "Leak", "Load or trailer", "Lane", "Customer", "Truck", "Dollars"],
-        l.top.map((t): CsvCell[] => [ymd(new Date(t.at)), leakMeta(t.key).label, t.label, t.lane, t.customer, t.truck, two(t.dollars)])
+        ["Date", "Leak", "Load or trailer", "Lane", "Customer", "Truck", "Priced from", "Intake figure used", "Dollars"],
+        l.top.map((t): CsvCell[] => [ymd(new Date(t.at)), leakMeta(t.key).label, t.label, t.lane, t.customer, t.truck, t.intake ? "the carrier's intake, not frozen at booking" : "a figure frozen on the load or recorded on it", t.basisNote, two(t.dollars)])
       )
     };
   }

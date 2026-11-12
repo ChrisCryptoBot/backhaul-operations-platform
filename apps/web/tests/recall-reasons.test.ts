@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { RECALL_CODES, RECALL_LABELS, RECALL_NOTE_MAX, RECALL_OFFERED, isOfferedRecallCode, isRecallCode, recallDeliveryText, recallReasonText } from "@/lib/recall-reasons";
+import { RECALL_CODES, RECALL_LABELS, RECALL_NOTE_MAX, RECALL_OFFERED, isOfferedRecallCode, isRecallCode, recallDeliveryText, recallReasonText, type RecallDelivery } from "@/lib/recall-reasons";
 import { readFileSync } from "node:fs";
 
 describe("recall reasons (docs/RELAY_DESIGN.md)", () => {

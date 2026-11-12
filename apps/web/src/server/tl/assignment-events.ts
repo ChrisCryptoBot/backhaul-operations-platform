@@ -10,7 +10,7 @@ import { isRecallCode, type RecallCode, type RecallDelivery } from "@/lib/recall
  */
 type Tx = Prisma.TransactionClient;
 
-export type AssignmentEventKind = "assigned" | "reassigned" | "sent" | "accepted" | "declined" | "recalled" | "removed";
+export type AssignmentEventKind = "assigned" | "reassigned" | "sent" | "accepted" | "declined" | "recalled" | "removed" | "dropped" | "received";
 
 export async function recordAssignmentEvent(
   tx: Tx,

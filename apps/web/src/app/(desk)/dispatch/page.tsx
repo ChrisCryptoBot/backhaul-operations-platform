@@ -2,6 +2,7 @@ import Link from "next/link";
 import React from "react";
 import { listBoardRows, type BoardRow } from "@/server/tl/queries";
 import { currentTerminal } from "@/server/tl/terminal";
+import { currentAllowed } from "@/server/tl/scope";
 import { getAlerts } from "@/server/tl/alerts";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { checkAccess } from "@/server/tl/access";
@@ -13,6 +14,8 @@ import { EmptyState } from "@/components/desk/kit/states";
 import { miles, shortDate, stopTime, usd } from "@/lib/desk-format";
 import { recalledLoads, type RecalledLoad } from "@/server/tl/assignment-events";
 import { RECALL_LABELS, recallDeliveryText } from "@/lib/recall-reasons";
+import { openHandoffs, type OpenHandoff } from "@/server/tl/relay";
+import { HANDOFF_STATE_LABEL, OUTGOING_NEXT_LABEL, handoffLevel, waitWords, type HandoffState, type OutgoingNext } from "@/lib/relay";
 
 export const metadata = { title: "Dispatch queue · TrueLane" };
 
@@ -58,13 +61,37 @@ function Row({ r, alerts, assign, recall }: { r: BoardRow; alerts: Alert[] | und
   );
 }
 
+/** A load a driver dropped at a relay point, waiting in the yard for its next driver. The next driver is entered on the load's page, where the drivers and trucks are. */
+function HandoffRow({ h, may }: { h: OpenHandoff; may: boolean }) {
+  const level = handoffLevel(h, new Date());
+  return (
+    <li className="dq-row">
+      <div className="dq-top">
+        <Link href={`/loads/${h.load.id}`}>{h.load.loadNumber ?? "Load"}</Link>
+        <span className="tl-sub">{waitWords(h.waitedMinutes)} waiting</span>
+      </div>
+      <div className="tl-sub">{h.badge}</div>
+      <div className="tl-sub">
+        {h.outDriverName ?? "The driver"} left it{h.locationSlot ? ` at spot ${h.locationSlot}` : ""}{h.trailerNumber ? ` · trailer ${h.trailerNumber}` : ""}
+        {h.outgoingNext ? ` · they ${OUTGOING_NEXT_LABEL[h.outgoingNext as OutgoingNext]?.toLowerCase() ?? h.outgoingNext}` : ""}
+      </div>
+      <div className="dq-foot">
+        <span className="dq-who">
+          {h.discrepancyFlagged && !h.ackAt ? <span className="dq-sig block">Something was reported wrong</span> : level ? <span className={`dq-sig ${level}`}>{HANDOFF_STATE_LABEL[h.state as HandoffState]}, getting long</span> : <span className="tl-sub">{HANDOFF_STATE_LABEL[h.state as HandoffState]}</span>}
+        </span>
+        {may ? <Link href={`/loads/${h.load.id}`} className="tl-btn sm">Open to hand over</Link> : null}
+      </div>
+    </li>
+  );
+}
+
 const soonest = (a: BoardRow, b: BoardRow) => (a.scheduledDate?.getTime() ?? Infinity) - (b.scheduledDate?.getTime() ?? Infinity);
 
 /** Loads shown in each column at a time; a big fleet has hundreds waiting. "Show more" adds this many (the soonest pickups are first, so what matters is on top). */
 const COLUMN_STEP = 30;
 
 export default async function DispatchPage({ searchParams }: { searchParams?: { needs?: string; sent?: string; road?: string } }) {
-  const [rows, { alerts, byLoad }, dispatchAccess] = await Promise.all([listBoardRows(currentWorkspaceId(), "open", await currentTerminal()), getAlerts(new Date(), currentWorkspaceId(), "shell", undefined, await currentTerminal()), checkAccess("dispatch")]);
+  const [rows, { alerts, byLoad }, dispatchAccess, waiting] = await Promise.all([listBoardRows(currentWorkspaceId(), "open", await currentTerminal()), getAlerts(new Date(), currentWorkspaceId(), "shell", undefined, await currentTerminal()), checkAccess("dispatch"), openHandoffs(currentWorkspaceId(), await currentAllowed())]);
   // A viewer or the accounting office reads this page; the button that changes a driver is only for someone the server would let do it.
   const mayAssign = dispatchAccess.ok;
   const needsAll = rows.filter((r) => r.status === "draft" && (!r.assignmentStatus || r.assignmentStatus === "draft" || r.assignmentStatus === "declined"));
@@ -72,7 +99,8 @@ export default async function DispatchPage({ searchParams }: { searchParams?: { 
   const recalls = await recalledLoads(needsAll.map((r) => r.id), currentWorkspaceId());
   const needs = needsAll.sort((x, y) => Number(recalls.has(y.id)) - Number(recalls.has(x.id)) || soonest(x, y));
   const sent = rows.filter((r) => r.assignmentStatus === "dispatched").sort(soonest);
-  const road = rows.filter((r) => r.status === "accepted" || r.status === "in_progress").filter((r) => r.assignmentStatus !== "dispatched").sort(soonest);
+  const inYard = new Set(waiting.map((h) => h.loadId));
+  const road = rows.filter((r) => r.status === "accepted" || r.status === "in_progress").filter((r) => r.assignmentStatus !== "dispatched" && !inYard.has(r.id)).sort(soonest);
   const urgent = alerts.filter((a) => a.level !== "info");
   const shownOf = (param: string | undefined) => Math.max(COLUMN_STEP, Math.min(Number.parseInt(param ?? "", 10) || COLUMN_STEP, 5_000));
   const limits = { needs: shownOf(searchParams?.needs), sent: shownOf(searchParams?.sent), road: shownOf(searchParams?.road) };
@@ -105,7 +133,17 @@ export default async function DispatchPage({ searchParams }: { searchParams?: { 
         </Card>
       ) : null}
 
-      <div className="tl-cols" style={{ marginTop: urgent.length > 0 ? 16 : 0 }}>
+      {waiting.length > 0 ? (
+        <Card title={`Awaiting handoff · ${waiting.length}`} className="tl-card">
+          <ul className="dq">
+            {waiting.map((h) => (
+              <HandoffRow key={h.id} h={h} may={mayAssign} />
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
+      <div className="tl-cols" style={{ marginTop: urgent.length > 0 || waiting.length > 0 ? 16 : 0 }}>
         <Card title={`Needs a driver · ${needs.length}`}>
           {needs.length === 0 ? (
             <EmptyState icon="check" title="Nothing waiting">Every load has a driver.</EmptyState>
