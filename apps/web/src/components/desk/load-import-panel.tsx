@@ -207,6 +207,11 @@ export function LoadImportPanel({ recent }: { recent: LoadImportBatch[] }) {
                       {preview.summary.notBilled > 0 ? " (recent ones will show as ready to invoice)" : ""}.
                       {preview.summary.truckNames > 0 ? ` ${n(preview.summary.truckNames)} truck ${preview.summary.truckNames === 1 ? "name is" : "names are"} not on the desk: those loads are imported with no truck.` : ""}
                     </p>
+                    <p className="tl-sub" data-testid="stop-times-note">
+                      {preview.readsStopTimes
+                        ? `${n(preview.summary.withWaits)} of ${n(preview.ready)} ${preview.ready === 1 ? "load carries" : "loads carry"} an arrival and a departure at a stop, so the Leak ledger can price detention on ${preview.summary.withWaits === 1 ? "it" : "them"}.${preview.summary.arrivalOnly > 0 ? ` ${n(preview.summary.arrivalOnly)} ${preview.summary.arrivalOnly === 1 ? "has" : "have"} an arrival and no departure: that wait is not estimated.` : ""}${preview.ready - preview.summary.withWaits - preview.summary.arrivalOnly > 0 ? ` ${n(preview.ready - preview.summary.withWaits - preview.summary.arrivalOnly)} ${preview.ready - preview.summary.withWaits - preview.summary.arrivalOnly === 1 ? "has" : "have"} no stop times and will be counted, not priced.` : ""}`
+                        : "No stop-time column is matched, so detention cannot be checked on any of these loads: the Leak ledger will count them and price none. Match the pickup and delivery arrival and departure columns above if your export has them."}
+                    </p>
                     <div className="dt-wrap" style={{ maxHeight: "none" }}>
                       <table className="dt" aria-label="The first loads, as they will land">
                         <thead>
@@ -290,8 +295,9 @@ export function LoadImportPanel({ recent }: { recent: LoadImportBatch[] }) {
           <section className="tl-card">
             <h2>4. Import</h2>
             <p className="tl-sub" style={{ marginTop: 0 }}>
-              Each row becomes a <b>finished load</b> marked as imported, with its customer, lane, miles, rate and, when the file has them, its truck, invoice and payment. It has <b>no driver</b> (so it never lands on a driver&apos;s pay statement), <b>no stops</b>,
-              and <b>no frozen floor</b>, because today&apos;s cost profile is not what the truck cost on that day: the Leak ledger counts its empty miles and says they are not priced. Nothing is looked up on the map. The whole import can be removed again from the list below.
+              Each row becomes a <b>finished load</b> marked as imported, with its customer, lane, miles, rate and, when the file has them, its truck, invoice and payment. It has <b>no driver</b> (so it never lands on a driver&apos;s pay statement),
+              <b>stops only where the file has stop times</b> (up to two, with the wait between arrival and departure), and <b>no frozen floor or detention terms</b>, because today&apos;s cost profile is not what the truck cost on that day: the Leak ledger prices its empty miles and its detention
+              from the figures you give at the <Link href="/leaks/intake">Leak Read intake</Link>, and labels every such line &quot;intake, not frozen at booking&quot;. Nothing is looked up on the map. The whole import can be removed again from the list below.
             </p>
             <div className="tl-form-row">
               <button type="button" className="tl-btn primary" disabled={blocked || preview.ready === 0 || busy != null} aria-busy={busy === "importing" || undefined} onClick={() => void importNow()}>
@@ -319,7 +325,13 @@ export function LoadImportPanel({ recent }: { recent: LoadImportBatch[] }) {
             {done.withoutTruck > 0 ? `; ${n(done.withoutTruck)} with a truck name the desk does not have` : ""}. One entry in the audit log records it.
           </p>
           <div className="tl-form-row">
-            <Link className="tl-btn primary" href="/loads?view=history">
+            <Link className="tl-btn primary" href="/leaks/intake">
+              Set the Leak Read intake
+            </Link>
+            <Link className="tl-btn" href="/leaks?period=all">
+              Leak ledger
+            </Link>
+            <Link className="tl-btn" href="/loads?view=history">
               Go to the loads
             </Link>
             <Link className="tl-btn" href="/kpi?period=all">

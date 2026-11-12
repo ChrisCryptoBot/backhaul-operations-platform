@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { clearKpiCache, getDeskKpi } from "@/server/tl/kpi";
 import { getLeakLedger } from "@/server/tl/leaks";
 import { commitLoadImport, listLoadImports, previewLoadImport, removeLoadImport } from "@/server/tl/load-import";
+import { podStopsMissing } from "@/server/tl/documents";
+import { getIntakeRoster } from "@/server/tl/leak-intake";
 
 /**
  * Loading a carrier's history from a file, against the demo database in a workspace of its own: the preview and the import read the same file the same way, a load already on the desk is left out, an
@@ -120,17 +122,18 @@ describe.skipIf(!run)("load history import", () => {
     await removeLoadImport((created[0] as { batchId: string }).batchId, NOW, W);
   });
 
-  test("imported loads count in the KPI and the ledger: their revenue and miles, and their empty miles counted and left unpriced", async () => {
+  test("imported loads count in the KPI and the ledger: their revenue and miles, and their empty miles counted and left unpriced until the intake gives a cost a mile", async () => {
     clearKpiCache();
     const k = await getDeskKpi({ period: "all", compare: false }, NOW, W);
     // The one load already on the desk had no miles; the imports add 2,150 + 180 + 600.
     expect(k.current.loads).toBeGreaterThanOrEqual(2);
     expect(k.lanes.map((l) => l.key)).toEqual(expect.arrayContaining(["Dallas, TX → Atlanta, GA", "Tulsa, OK → Joplin, MO"]));
     const ledger = await getLeakLedger({ period: "all", compare: false, terminals: null }, NOW, W);
-    const empty = ledger.current.lines.find((l) => l.key === "empty_miles")!;
-    expect(empty.dollars).toBe(0);
-    expect(empty.unpriced).toBeGreaterThanOrEqual(1);
-    expect(empty.unpricedMiles).toBeGreaterThanOrEqual(52);
+    // An imported load has no frozen floor, so its empty miles are on the intake's own line (here the intake is empty: counted, none priced), never on the frozen one.
+    const frozen = ledger.current.lines.find((l) => l.key === "empty_miles")!;
+    expect(frozen).toMatchObject({ dollars: 0, items: 0 });
+    const empty = ledger.current.lines.find((l) => l.key === "empty_miles_intake")!;
+    expect(empty).toMatchObject({ dollars: 0, items: 1, unpriced: 1, unpricedMiles: 52, intake: true });
   });
 
   test("the imports are listed with how many loads are still on the desk, and a whole batch is taken away and can be told apart from another desk's", async () => {
@@ -151,5 +154,69 @@ describe.skipIf(!run)("load history import", () => {
   test("after a removal the same file can be imported again", async () => {
     const out = await commitLoadImport(FILE, null, "again.csv", NOW, W);
     expect(out).toMatchObject({ ok: true, created: 2 });
+  });
+});
+
+const S = "li-stops";
+const STOP_HEADER = `${HEADER},Pickup Arrival,Pickup Departure,Delivery Arrival,Delivery Departure`;
+const at = (daysAgo: number, hhmm: string) => `${ymd(daysAgo)} ${hhmm}`;
+const STOP_FILE = [
+  STOP_HEADER,
+  `S-1,Acme,"Dallas, TX","Atlanta, GA",${ymd(14)},${ymd(12)},781,100,20,2000,,,,,,,${at(14, "08:00")},${at(14, "13:00")},${at(12, "07:50")},${at(12, "08:20")}`, // two stops, waits of 300 and 30
+  `S-2,Globex,"Tulsa, OK","Joplin, MO",${ymd(10)},${ymd(9)},400,50,0,500,,,,,,,${at(10, "08:00")},${at(10, "11:00")},,`, // a pickup stop only
+  `S-3,Initech,"Waco, TX","Austin, TX",${ymd(8)},${ymd(7)},200,0,0,1000,,,,,,,${at(8, "08:00")},,,`, // an arrival, no departure
+  `S-4,Initech,"Waco, TX","Tulsa, OK",${ymd(6)},${ymd(5)},300,40,0,900,,,,,,,,,,`, // no times at all
+  `S-5,Initech,"Waco, TX","Tulsa, OK",${ymd(6)},${ymd(5)},300,40,0,900,,,,,,,${at(6, "09:00")},${at(6, "08:00")},,` // departs before it arrives: left out
+].join("\n");
+
+describe.skipIf(!run)("load history import: stop times", () => {
+  beforeAll(async () => {
+    await wipe(S);
+    await prisma.workspace.create({ data: { id: S, name: "LI stops", plan: "enterprise" } });
+  });
+  afterAll(async () => {
+    await wipe(S);
+  });
+
+  test("the preview says how many loads carry a wait, which have an arrival and no departure, and names the row with a departure before its arrival", async () => {
+    const p = await previewLoadImport(STOP_FILE, null, S);
+    expect(p).toMatchObject({ ok: true, ready: 4, problemCount: 1, readsStopTimes: true });
+    if (!p.ok) return;
+    expect(p.summary).toMatchObject({ withWaits: 2, arrivalOnly: 1 });
+    expect(p.problems[0]!.errors.join(" ")).toMatch(/Pickup departure is before the arrival/);
+    expect(p.map.pickupArrival).toBe(16);
+    // The same file with no stop-time column matched reads no times.
+    const without = await previewLoadImport(STOP_FILE, { ...p.map, pickupArrival: null, pickupDeparture: null, deliveryArrival: null, deliveryDeparture: null }, S);
+    expect(without).toMatchObject({ ok: true, ready: 5, readsStopTimes: false });
+  });
+
+  test("the import writes a pickup stop and a delivery stop where the file has times, with the wait, and no coordinates", async () => {
+    const out = await commitLoadImport(STOP_FILE, null, "stops.csv", NOW, S);
+    expect(out).toMatchObject({ ok: true, created: 4, skipped: 1 });
+    if (!out.ok) return;
+    const loads = await prisma.load.findMany({ where: { workspaceId: S, channel: `import:${out.batchId}` }, include: { stops: { orderBy: { stopSequence: "asc" } } }, orderBy: { loadNumber: "asc" } });
+    const by = Object.fromEntries(loads.map((l) => [l.loadNumber!, l.stops]));
+    expect(by["S-1"]!.map((s) => [s.stopSequence, s.stopType, s.stopRole, s.addressString, s.waitMinutes])).toEqual([[1, "pickup", "pickup", "Dallas, TX", 300], [2, "delivery", "delivery", "Atlanta, GA", 30]]);
+    expect(by["S-1"]!.every((s) => s.arrivedAt != null && s.lat == null && s.lng == null && s.timeWindowLatest == null)).toBe(true);
+    expect(by["S-2"]!.map((s) => [s.stopType, s.waitMinutes])).toEqual([["pickup", 180]]);
+    expect(by["S-3"]!.map((s) => [s.stopType, s.waitMinutes])).toEqual([["pickup", null]]); // an arrival with no departure: no wait is made up
+    expect(by["S-4"]).toEqual([]);
+    expect(by["S-1"]![0]!.arrivedAt!.getTime()).toBeLessThan(by["S-1"]![1]!.arrivedAt!.getTime());
+    const audit = await prisma.auditEvent.findFirstOrThrow({ where: { workspaceId: S, action: "loads_import_completed" } });
+    expect(audit.after).toMatchObject({ Imported: "4", "With a wait at a stop": "2" });
+  });
+
+  test("history is not asked for a proof of delivery just because it now has a delivery stop; a load booked on the desk still is", async () => {
+    const imported = await prisma.load.findFirstOrThrow({ where: { workspaceId: S, loadNumber: "S-1" } });
+    const native = await prisma.load.create({ data: { workspaceId: S, loadNumber: "NAT-1", status: "completed", quotedRevenue: 500, completedAt: NOW, stops: { create: [{ stopSequence: 1, stopType: "delivery", stopRole: "delivery", addressString: "Waco, TX" }] } } });
+    const missing = await podStopsMissing([imported.id, native.id], S);
+    expect(missing.has(imported.id)).toBe(false);
+    expect(missing.get(native.id)).toBe(1);
+  });
+
+  test("the roster offers the intake form the trucks and customers on the imported loads, and says how many carry a wait", async () => {
+    const r = await getIntakeRoster(S);
+    expect(r).toMatchObject({ importedLoads: 4, withStopTimes: 2 });
+    expect(r.customers).toEqual([{ name: "Initech", loads: 2 }, { name: "Acme", loads: 1 }, { name: "Globex", loads: 1 }]);
   });
 });

@@ -1,5 +1,7 @@
 import { toCsv } from "./csv";
 import { IMPORT_MAX_PROBLEMS, IMPORT_MAX_ROWS, asYmd, type ProblemRow } from "./import-csv";
+import { DEFAULT_TZ } from "./tz";
+import { parseCentralLocal } from "./zoned";
 
 /**
  * Loading a carrier's history from a spreadsheet or a TMS export: one row per finished load. The file's columns are matched to the desk's fields (a person can change any match), each row is checked, a
@@ -7,8 +9,10 @@ import { IMPORT_MAX_PROBLEMS, IMPORT_MAX_ROWS, asYmd, type ProblemRow } from "./
  * what a file means.
  *
  * What an imported row becomes is fixed, and the screen says it before anything is written: a finished load with its lane, customer, miles, rate, truck (by name) and, when the file carries them, its invoice and
- * payment. It has no driver (that would put history on driver pay statements), no stops, no geocoding, and no frozen floor: the cost profile today is not the cost of that day, so the Leak ledger counts its empty
- * miles and leaves them unpriced.
+ * payment. It has no driver (that would put history on driver pay statements), no geocoding, and no frozen floor or detention terms: the cost profile today is not the cost of that day, so the Leak ledger
+ * prices its empty miles and its detention from the carrier's intake (lib/leak-intake.ts) and says so on every line. It has no stops unless the file carries stop times: arrival and departure (and, if the file has
+ * it, the appointment) at the pickup and the delivery become up to two stops with the wait between them, which is what detention is priced from. A file with no stop times leaves the load with no stops, and
+ * the ledger counts it as one it could not check for detention.
  */
 export type LoadFieldKey =
   | "loadNumber"
@@ -26,7 +30,13 @@ export type LoadFieldKey =
   | "invoicedDate"
   | "invoicedAmount"
   | "paidDate"
-  | "paidAmount";
+  | "paidAmount"
+  | "pickupArrival"
+  | "pickupDeparture"
+  | "pickupAppointment"
+  | "deliveryArrival"
+  | "deliveryDeparture"
+  | "deliveryAppointment";
 
 export type LoadField = { key: LoadFieldKey; label: string; required: boolean; aliases: string[]; example: string; hint?: string };
 
@@ -46,8 +56,17 @@ export const LOAD_FIELDS: readonly LoadField[] = [
   { key: "invoicedDate", label: "Invoice date", required: false, aliases: ["invoicedate", "invoicedon", "billeddate", "dateinvoiced"], example: "2026-09-17" },
   { key: "invoicedAmount", label: "Invoiced amount", required: false, aliases: ["invoiceamount", "invoiced", "billed", "billedamount", "invoicetotal"], example: "2330.00" },
   { key: "paidDate", label: "Paid date", required: false, aliases: ["paiddate", "paidon", "datepaid", "paymentdate", "datereceived"], example: "2026-10-12" },
-  { key: "paidAmount", label: "Paid amount", required: false, aliases: ["paidamount", "paid", "amountpaid", "payment", "received", "amountreceived"], example: "2330.00" }
+  { key: "paidAmount", label: "Paid amount", required: false, aliases: ["paidamount", "paid", "amountpaid", "payment", "received", "amountreceived"], example: "2330.00" },
+  { key: "pickupArrival", label: "Pickup arrival", required: false, aliases: ["pickuparrival", "pickuparrive", "pickuparrived", "pickuparrivaltime", "pickuparrivaldatetime", "pickupcheckin", "pickupin", "pickupintime", "puarrival", "pucheckin", "arrivalatpickup", "shipperarrival", "shipperin", "originarrival"], example: "2026-09-14 08:05", hint: "Date and time the truck got to the shipper. Detention is priced from arrival to departure." },
+  { key: "pickupDeparture", label: "Pickup departure", required: false, aliases: ["pickupdeparture", "pickupdepart", "pickupdeparted", "pickupdeparturetime", "pickupdeparturedatetime", "pickupcheckout", "pickupout", "pickupouttime", "pudeparture", "pucheckout", "departureatpickup", "shipperdeparture", "shipperout", "origindeparture"], example: "2026-09-14 11:40" },
+  { key: "pickupAppointment", label: "Pickup appointment", required: false, aliases: ["pickupappointment", "pickupappt", "pickupappttime", "puappointment", "puappt", "appointmentatpickup", "shipperappointment", "shipperappt"], example: "2026-09-14 09:00", hint: "When the pickup was booked for. Free time starts at the later of the arrival and this, so an early arrival is not billed." },
+  { key: "deliveryArrival", label: "Delivery arrival", required: false, aliases: ["deliveryarrival", "deliveryarrive", "deliveryarrived", "deliveryarrivaltime", "deliveryarrivaldatetime", "deliverycheckin", "deliveryin", "deliveryintime", "delarrival", "delcheckin", "arrivalatdelivery", "consigneearrival", "consigneein", "destinationarrival"], example: "2026-09-16 07:50" },
+  { key: "deliveryDeparture", label: "Delivery departure", required: false, aliases: ["deliverydeparture", "deliverydepart", "deliverydeparted", "deliverydeparturetime", "deliverydeparturedatetime", "deliverycheckout", "deliveryout", "deliveryouttime", "deldeparture", "delcheckout", "departureatdelivery", "consigneedeparture", "consigneeout", "destinationdeparture"], example: "2026-09-16 09:15" },
+  { key: "deliveryAppointment", label: "Delivery appointment", required: false, aliases: ["deliveryappointment", "deliveryappt", "deliveryappttime", "delappointment", "delappt", "appointmentatdelivery", "consigneeappointment", "consigneeappt"], example: "2026-09-16 08:00" }
 ];
+
+/** The columns that carry a time at a stop. A match that reads none of them leaves every imported load with no wait, so detention cannot be checked on it. */
+export const STOP_TIME_FIELDS: readonly LoadFieldKey[] = ["pickupArrival", "pickupDeparture", "pickupAppointment", "deliveryArrival", "deliveryDeparture", "deliveryAppointment"];
 
 export const FIELD_OF: Readonly<Record<LoadFieldKey, LoadField>> = Object.fromEntries(LOAD_FIELDS.map((f) => [f.key, f])) as Record<LoadFieldKey, LoadField>;
 
@@ -124,7 +143,15 @@ export type LoadDraft = {
   invoicedAmount: number | null;
   paidAt: Date | null;
   paidAmount: number | null;
+  /** Up to two stops (pickup, delivery) when the file carried times for them; none otherwise. */
+  stops: DraftStop[];
 };
+
+/**
+ * A stop the file carried times for. `waitMinutes` is the time between the later of the arrival and the appointment (free time starts there) and the departure, in whole minutes; null when the file has an
+ * arrival but no departure, because a wait nobody recorded is not estimated.
+ */
+export type DraftStop = { role: "pickup" | "delivery"; address: string; arrivedAt: Date | null; waitMinutes: number | null };
 
 /** The most miles one load can plausibly carry, and the most dollars: a cell past these is a typo, not a load. */
 export const MAX_MILES = 6_000;
@@ -138,6 +165,53 @@ function money(raw: string): number | null | "bad" {
   if (!/^\d+(\.\d{1,4})?$/.test(s)) return "bad";
   const n = Number(s);
   return Number.isFinite(n) ? (neg ? -n : n) : "bad";
+}
+
+/** A wait longer than this is a typo in a date, not a wait. */
+export const MAX_WAIT_MINUTES = 7 * 24 * 60;
+
+/**
+ * A date and time from a TMS export as the instant it is on the carrier's clock (`zone`): "2026-09-14 08:05", "2026-09-14T08:05:30", "9/14/2026 8:05 AM", "9-14-2026 17:05", or with an explicit
+ * offset ("2026-09-14T08:05:00-05:00", "...Z"). A day with no time is "bad": a wait cannot be read from it. Null when blank.
+ */
+export function readDateTime(raw: string, zone: string = DEFAULT_TZ): Date | null | "bad" {
+  const t = raw.trim();
+  if (t === "") return null;
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})[T ](\d{1,2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i.exec(t);
+  const us = iso ? null : /^(\d{1,2})[/-](\d{1,2})[/-](\d{2}|\d{4}),?\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i.exec(t);
+  if (!iso && !us) return "bad";
+  let y: number, mo: number, d: number, h: number, mi: number;
+  let offset: string | undefined;
+  if (iso) {
+    [y, mo, d, h, mi] = [Number(iso[1]), Number(iso[2]), Number(iso[3]), Number(iso[4]), Number(iso[5])] as [number, number, number, number, number];
+    offset = iso[7];
+  } else {
+    const m = us!;
+    y = Number(m[3]);
+    if (m[3]!.length === 2) y += 2000;
+    mo = Number(m[1]);
+    d = Number(m[2]);
+    h = Number(m[4]);
+    mi = Number(m[5]);
+    const ap = m[7]?.toUpperCase();
+    if (ap) {
+      if (h < 1 || h > 12) return "bad";
+      h = (h % 12) + (ap === "PM" ? 12 : 0);
+    }
+  }
+  if (y < 1990 || y > 2100 || mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) return "bad";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  if (offset) {
+    const at = new Date(Date.UTC(y, mo - 1, d, h, mi));
+    if (at.getUTCMonth() !== mo - 1 || at.getUTCDate() !== d) return "bad";
+    if (offset.toUpperCase() === "Z") return at;
+    const sign = offset.startsWith("-") ? -1 : 1;
+    const digits = offset.slice(1).replace(":", "");
+    const minutes = Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2));
+    return new Date(at.getTime() - sign * minutes * 60_000);
+  }
+  const ms = parseCentralLocal(`${y}-${pad(mo)}-${pad(d)}T${pad(h)}:${pad(mi)}`, zone);
+  return ms == null ? "bad" : new Date(ms);
 }
 
 function whole(raw: string): number | null | "bad" {
@@ -195,7 +269,7 @@ export type LoadCheck = {
   duplicates: number;
   tooMany: boolean;
   /** What the good rows carry, for the screen's "what you are importing". */
-  summary: { revenue: number; miles: number; first: Date | null; last: Date | null; invoiced: number; paid: number; withTruck: number; truckNames: number };
+  summary: { revenue: number; miles: number; first: Date | null; last: Date | null; invoiced: number; paid: number; withTruck: number; truckNames: number; /** Good rows with a wait recorded at one stop or more: detention can be priced on these. */ withWaits: number; /** Good rows with an arrival but no departure at a stop: counted, because that wait is not estimated. */ arrivalOnly: number };
 };
 
 export type CheckContext = {
@@ -203,6 +277,8 @@ export type CheckContext = {
   existing: ReadonlyMap<string, ReadonlySet<string>>;
   /** Trucks on the desk by lower-cased name. */
   trucks: ReadonlySet<string>;
+  /** The carrier's clock, which the times in a file are read on (the workspace's zone). Central when left out. */
+  zone?: string;
 };
 
 const cell = (row: string[], at: number | null) => (at == null ? "" : (row[at] ?? "").trim());
@@ -210,7 +286,8 @@ const cell = (row: string[], at: number | null) => (at == null ? "" : (row[at] ?
 /** Check every row of the file against the match. Rows are numbered as they are in the file (the header is line 1). */
 export function checkLoadRows(table: string[][], map: ColumnMap, ctx: CheckContext): LoadCheck {
   const body = table.slice(1);
-  const out: LoadCheck = { total: 0, good: [], problems: [], problemCount: 0, duplicates: 0, tooMany: body.length > IMPORT_MAX_ROWS + 1000, summary: { revenue: 0, miles: 0, first: null, last: null, invoiced: 0, paid: 0, withTruck: 0, truckNames: 0 } };
+  const out: LoadCheck = { total: 0, good: [], problems: [], problemCount: 0, duplicates: 0, tooMany: body.length > IMPORT_MAX_ROWS + 1000, summary: { revenue: 0, miles: 0, first: null, last: null, invoiced: 0, paid: 0, withTruck: 0, truckNames: 0, withWaits: 0, arrivalOnly: 0 } };
+  const zone = ctx.zone ?? DEFAULT_TZ;
   if (out.tooMany) return out;
   const seen = new Map<string, Set<string>>();
   const unknownTrucks = new Set<string>();
@@ -270,6 +347,40 @@ export function checkLoadRows(table: string[][], map: ColumnMap, ctx: CheckConte
     else if (paidAmount != null && (paidAmount < 0 || paidAmount > MAX_DOLLARS)) fail("Paid amount is out of range.");
     if (paidAt instanceof Date && invoicedAt instanceof Date && paidAt.getTime() < invoicedAt.getTime()) fail("Paid date is before the invoice date.");
 
+    // Stop times: each side is read when the file has columns for it. A time that is not a date and time, a departure before the arrival, or a wait of more than a week is a mistake in the row.
+    const stops: DraftStop[] = [];
+    for (const [role, place, labels, arrivalKey, departureKey, appointmentKey] of [
+      ["pickup", origin, "Pickup", "pickupArrival", "pickupDeparture", "pickupAppointment"],
+      ["delivery", destination, "Delivery", "deliveryArrival", "deliveryDeparture", "deliveryAppointment"]
+    ] as const) {
+      const arrival = readDateTime(get(arrivalKey), zone);
+      const departure = readDateTime(get(departureKey), zone);
+      const appointment = readDateTime(get(appointmentKey), zone);
+      let bad = false;
+      for (const [v, what] of [[arrival, "arrival"], [departure, "departure"], [appointment, "appointment"]] as const) {
+        if (v === "bad") {
+          fail(`${labels} ${what} is not a date and time (use 2026-09-14 08:05 or 9/14/2026 8:05 AM).`);
+          bad = true;
+        }
+      }
+      if (bad || !(arrival instanceof Date)) continue;
+      if (departure instanceof Date && departure.getTime() < arrival.getTime()) {
+        fail(`${labels} departure is before the arrival.`);
+        continue;
+      }
+      let wait: number | null = null;
+      if (departure instanceof Date) {
+        // Free time starts at the later of the arrival and the appointment: a truck that came early is not owed for the hours before it.
+        const from = appointment instanceof Date && appointment.getTime() > arrival.getTime() ? appointment : arrival;
+        wait = Math.max(0, Math.floor((departure.getTime() - from.getTime()) / 60_000));
+        if (wait > MAX_WAIT_MINUTES) {
+          fail(`${labels} wait is longer than 7 days: check the arrival and departure.`);
+          continue;
+        }
+      }
+      stops.push({ role, address: place, arrivedAt: arrival, waitMinutes: wait });
+    }
+
     if (errors.length > 0) {
       out.problemCount += 1;
       if (out.problems.length < IMPORT_MAX_PROBLEMS) out.problems.push({ line, errors, cells: row });
@@ -302,7 +413,8 @@ export function checkLoadRows(table: string[][], map: ColumnMap, ctx: CheckConte
       invoicedAt: invoicedAt instanceof Date ? invoicedAt : null,
       invoicedAmount: typeof invoicedAmount === "number" ? invoicedAmount : null,
       paidAt: paidAt instanceof Date ? paidAt : null,
-      paidAmount: typeof paidAmount === "number" ? paidAmount : null
+      paidAmount: typeof paidAmount === "number" ? paidAmount : null,
+      stops
     };
     if (truckName != null) {
       if (ctx.trucks.has(truckName.toLowerCase())) out.summary.withTruck += 1;
@@ -318,6 +430,8 @@ export function checkLoadRows(table: string[][], map: ColumnMap, ctx: CheckConte
     if (!s.last || g.item.completedAt > s.last) s.last = g.item.completedAt;
     if (g.item.invoicedAt || g.item.invoicedAmount != null || g.item.paidAt) s.invoiced += 1;
     if (g.item.paidAt) s.paid += 1;
+    if (g.item.stops.some((st) => st.waitMinutes != null)) s.withWaits += 1;
+    else if (g.item.stops.length > 0) s.arrivalOnly += 1;
   }
   out.summary.truckNames = unknownTrucks.size;
   return out;

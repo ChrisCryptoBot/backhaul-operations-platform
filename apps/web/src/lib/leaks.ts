@@ -1,3 +1,4 @@
+import { floorFor, type LeakIntake } from "./leak-intake";
 import { inWindow, periodWindow, previousWindow, weekBuckets, type KpiPeriod, type TimeWindow } from "./kpi-periods";
 import { activeTz } from "./tz";
 
@@ -10,17 +11,41 @@ import { activeTz } from "./tz";
  *  - choice: money a person decided not to bill (waived detention, trailer dwell waived or lowered).
  *  - cost: money burned running empty, priced at the floor frozen on each load when it was accepted.
  *  - lens: a second way of looking at the same dollars (what a load paid under the truck's own floor already contains its empty miles), shown but never added to the total.
+ *
+ * Two bases, never mixed. A load booked on the desk carries the floor and the detention terms frozen on it at booking. A load imported from a carrier's TMS export carries neither, so it is priced from the
+ * figures the carrier gave at intake (lib/leak-intake.ts) and every such line is its own line, labelled "intake, not frozen at booking": its dollars are added to the total (they are real, and say what they
+ * rest on) but never folded into a line that rests on a frozen figure.
  */
-export type LeakKey = "empty_miles" | "below_floor" | "detention_unbilled" | "tonu_uninvoiced" | "detention_waived" | "dwell_forgone";
+export type LeakKey =
+  | "empty_miles"
+  | "empty_miles_intake"
+  | "below_floor"
+  | "below_floor_intake"
+  | "detention_unbilled"
+  | "detention_unbilled_intake"
+  | "tonu_uninvoiced"
+  | "detention_waived"
+  | "detention_waived_intake"
+  | "dwell_forgone";
 export type LeakGroup = "billed_miss" | "choice" | "cost" | "lens";
 
-export const LEAKS: ReadonlyArray<{ key: LeakKey; label: string; group: LeakGroup; counted: boolean; basis: string; unpricedWhy: string }> = [
-  { key: "detention_unbilled", label: "Detention not billed", group: "billed_miss", counted: true, basis: "Waiting past the free time at the truck's detention rate, on loads finished that week, and not on any invoice (as of now).", unpricedWhy: "waited past the free time but the truck has no detention rate" },
-  { key: "tonu_uninvoiced", label: "TONU fees not invoiced", group: "billed_miss", counted: true, basis: "TONU fees recorded on a load that has no invoice yet (as of now), by the week the TONU was recorded.", unpricedWhy: "" },
-  { key: "detention_waived", label: "Detention waived", group: "choice", counted: true, basis: "Detention a person marked as not billed, with their reason in the audit log, by the week the load finished.", unpricedWhy: "" },
-  { key: "dwell_forgone", label: "Trailer dwell waived or lowered", group: "choice", counted: true, basis: "The drop from the dwell owed to the figure a person set, read from the audit trail. History starts the day the audit began recording it.", unpricedWhy: "" },
-  { key: "empty_miles", label: "Empty-mile cost", group: "cost", counted: true, basis: "Empty miles (before pickup and after delivery) times the truck's own break-even floor, frozen on the load when it was accepted. Before fuel.", unpricedWhy: "the load has no frozen floor, so its empty miles are counted but not priced" },
-  { key: "below_floor", label: "Paid under the floor", group: "lens", counted: false, basis: "What a load paid after fuel, tolls and other costs, short of the truck's own floor times the miles driven. Its empty miles are already inside this, so it is not added to the total.", unpricedWhy: "" }
+/** What every intake-priced line says it is, so a reader can never take it for a frozen figure. */
+export const INTAKE_FLOOR_TAG = "intake floor, not frozen at booking";
+export const INTAKE_TERMS_TAG = "intake terms, not frozen at booking";
+
+type LeakMeta = { key: LeakKey; label: string; group: LeakGroup; counted: boolean; /** Priced from the carrier's intake (an imported load), not from a figure frozen at booking. */ intake: boolean; basis: string; unpricedWhy: string };
+
+export const LEAKS: ReadonlyArray<LeakMeta> = [
+  { key: "detention_unbilled", label: "Detention not billed", group: "billed_miss", counted: true, intake: false, basis: "Waiting past the free time at the truck's detention rate, on loads finished that week, and not on any invoice (as of now).", unpricedWhy: "waited past the free time but the truck has no detention rate" },
+  { key: "detention_unbilled_intake", label: `Detention not billed, imported loads (${INTAKE_TERMS_TAG})`, group: "billed_miss", counted: true, intake: true, basis: "Waiting past the free time, from the stop times in the imported file, at the customer's detention terms given at intake (else the fleet's), less what the file's invoice carried above the rate. The terms were not frozen on the load at booking.", unpricedWhy: "waited past the free time but the intake gives no detention rate for this customer or for the fleet" },
+  { key: "tonu_uninvoiced", label: "TONU fees not invoiced", group: "billed_miss", counted: true, intake: false, basis: "TONU fees recorded on a load that has no invoice yet (as of now), by the week the TONU was recorded.", unpricedWhy: "" },
+  { key: "detention_waived", label: "Detention waived", group: "choice", counted: true, intake: false, basis: "Detention a person marked as not billed, with their reason in the audit log, by the week the load finished.", unpricedWhy: "" },
+  { key: "detention_waived_intake", label: `Detention waived, imported loads (${INTAKE_TERMS_TAG})`, group: "choice", counted: true, intake: true, basis: "Detention a person marked as not billed on an imported load, with their reason in the audit log, worked out at the intake detention terms.", unpricedWhy: "" },
+  { key: "dwell_forgone", label: "Trailer dwell waived or lowered", group: "choice", counted: true, intake: false, basis: "The drop from the dwell owed to the figure a person set, read from the audit trail. History starts the day the audit began recording it.", unpricedWhy: "" },
+  { key: "empty_miles", label: "Empty-mile cost", group: "cost", counted: true, intake: false, basis: "Empty miles (before pickup and after delivery) times the truck's own break-even floor, frozen on the load when it was accepted. Before fuel.", unpricedWhy: "the load has no frozen floor, so its empty miles are counted but not priced" },
+  { key: "empty_miles_intake", label: `Empty-mile cost, imported loads (${INTAKE_FLOOR_TAG})`, group: "cost", counted: true, intake: true, basis: "Empty miles (before pickup and after delivery) times the cost a mile the carrier gave at intake, the truck's own else the fleet's, before fuel. An imported load has no floor frozen at booking, so this is not the truck's frozen floor.", unpricedWhy: "the intake gives no cost a mile for this truck and no fleet figure, so the empty miles are counted but not priced" },
+  { key: "below_floor", label: "Paid under the floor", group: "lens", counted: false, intake: false, basis: "What a load paid after fuel, tolls and other costs, short of the truck's own floor times the miles driven. Its empty miles are already inside this, so it is not added to the total.", unpricedWhy: "" },
+  { key: "below_floor_intake", label: `Paid under the floor, imported loads (${INTAKE_FLOOR_TAG})`, group: "lens", counted: false, intake: true, basis: "What an imported load paid, short of the intake cost a mile times the miles driven. A file carries no fuel, tolls or other costs, so nothing is taken off the pay and the shortfall can only be understated. Its empty miles are already inside this, so it is not added to the total.", unpricedWhy: "" }
 ];
 
 const META = new Map(LEAKS.map((l) => [l.key, l]));
@@ -44,6 +69,8 @@ export type LeakLoad = {
   floor: number | null;
   tonuRevenue: number;
   invoiced: boolean;
+  /** Imported from a file (channel "import:<batch>"): it carries no frozen floor and no frozen detention terms, so it is priced from the carrier's intake. */
+  imported?: boolean;
 };
 
 /** One thing that leaked: a load, or a trailer's stay. `dollars` is null when it cannot be priced. */
@@ -58,25 +85,43 @@ export type LeakItem = {
   lane: string | null;
   customer: string | null;
   truck: string | null;
+  /** What the dollars rest on, in words (the intake figure and whose it is), printed beside the item. Null for a figure frozen on the load. */
+  basisNote?: string | null;
 };
 
 const cents = (n: number): number => Math.round(n * 100);
 const fromCents = (c: number): number => c / 100;
 const finite = (n: number | null | undefined): n is number => n != null && Number.isFinite(n);
 
-/** The leaks one finished load carries on its own (detention and dwell come from their own reads). */
-export function loadLeaks(l: LeakLoad): LeakItem[] {
+/**
+ * The leaks one finished load carries on its own (detention and dwell come from their own reads). A floor frozen on the load always wins. An imported load with none is priced from the carrier's intake
+ * (`intake`): its own lines, labelled as such. A load booked on the desk with none is counted and not priced, as before: the intake speaks for imported history only.
+ */
+export function loadLeaks(l: LeakLoad, intake?: LeakIntake | null): LeakItem[] {
   const base = { at: l.doneAt, loadId: l.loadId, label: l.loadNumber ?? "A load", lane: l.lane, customer: l.customer, truck: l.truck };
   const out: LeakItem[] = [];
   if (l.isTonu) {
     if (l.tonuRevenue > 0 && !l.invoiced) out.push({ ...base, key: "tonu_uninvoiced", dollars: l.tonuRevenue, miles: 0 });
     return out;
   }
-  if (l.emptyMiles > 0) out.push({ ...base, key: "empty_miles", dollars: finite(l.floor) && l.floor > 0 ? l.emptyMiles * l.floor : null, miles: l.emptyMiles });
-  if (finite(l.floor) && l.floor > 0 && l.drivenMiles > 0) {
-    const short = l.floor * l.drivenMiles - (l.gross - l.expenses);
-    if (cents(short) > 0) out.push({ ...base, key: "below_floor", dollars: short, miles: 0 });
+  if (finite(l.floor) && l.floor > 0) {
+    if (l.emptyMiles > 0) out.push({ ...base, key: "empty_miles", dollars: l.emptyMiles * l.floor, miles: l.emptyMiles });
+    if (l.drivenMiles > 0) {
+      const short = l.floor * l.drivenMiles - (l.gross - l.expenses);
+      if (cents(short) > 0) out.push({ ...base, key: "below_floor", dollars: short, miles: 0 });
+    }
+    return out;
   }
+  if (l.imported) {
+    const f = floorFor(intake, l.truck);
+    if (l.emptyMiles > 0) out.push({ ...base, key: "empty_miles_intake", dollars: f ? l.emptyMiles * f.rpm : null, miles: l.emptyMiles, basisNote: f?.note ?? null });
+    if (f && l.drivenMiles > 0) {
+      const short = f.rpm * l.drivenMiles - (l.gross - l.expenses);
+      if (cents(short) > 0) out.push({ ...base, key: "below_floor_intake", dollars: short, miles: 0, basisNote: f.note });
+    }
+    return out;
+  }
+  if (l.emptyMiles > 0) out.push({ ...base, key: "empty_miles", dollars: null, miles: l.emptyMiles });
   return out;
 }
 
@@ -85,6 +130,8 @@ export type LedgerLine = {
   label: string;
   group: LeakGroup;
   counted: boolean;
+  /** Priced from the carrier's intake, not from a figure frozen at booking. */
+  intake: boolean;
   basis: string;
   /** The sum of the items that could be priced. */
   dollars: number;
@@ -93,14 +140,28 @@ export type LedgerLine = {
   unpriced: number;
   unpricedMiles: number;
 };
-export type LedgerPeriod = { lines: LedgerLine[]; total: number; items: number; unpriced: number };
+export type LedgerPeriod = {
+  lines: LedgerLine[];
+  total: number;
+  items: number;
+  unpriced: number;
+  /** The part of the counted total (and of its items) that rests on the carrier's intake, not on a figure frozen at booking. Always inside `total`, never added to it. */
+  intake: { dollars: number; items: number; unpriced: number };
+};
 
-export type DrillRow = { name: string; dollars: number; items: number; unpriced: number; byKey: Partial<Record<LeakKey, number>> };
-export type TopItem = { key: LeakKey; loadId: string | null; label: string; at: number; dollars: number; lane: string | null; customer: string | null; truck: string | null };
+export type DrillRow = { name: string; dollars: number; /** The part of `dollars` priced from the intake. */ intake: number; items: number; unpriced: number; byKey: Partial<Record<LeakKey, number>> };
+export type TopItem = { key: LeakKey; loadId: string | null; label: string; at: number; dollars: number; lane: string | null; customer: string | null; truck: string | null; intake: boolean; basisNote: string | null };
 
 export type LedgerWeek = { label: string; end: number; byKey: Record<LeakKey, number>; total: number };
 
 export type OpenDwell = { dollars: number; trailers: number; rows: Array<{ id: string; number: string; sinceMs: number; owed: number }> };
+
+/**
+ * What the ledger could not look at, counted apart from the dollars: imported loads whose file carried no stop times cannot be checked for detention at all (nothing is estimated for them), and
+ * the screen lists a few so they can be found.
+ */
+export type LedgerCoverage = { importedLoads: number; noStopTimes: { loads: number; sample: Array<{ loadId: string; label: string }> } };
+export const NO_COVERAGE: LedgerCoverage = { importedLoads: 0, noStopTimes: { loads: 0, sample: [] } };
 
 export type LeakLedger = {
   window: TimeWindow;
@@ -115,9 +176,11 @@ export type LeakLedger = {
   top: TopItem[];
   /** What is sitting there right now and not yet a dated leak: trailers past their free time, owed and not billed. */
   openDwell: OpenDwell;
+  /** Imported loads that could not be checked for detention (the file had no stop times), for the "counted, not priced" list. */
+  coverage: LedgerCoverage;
 };
 
-const emptyByKey = (): Record<LeakKey, number> => ({ empty_miles: 0, below_floor: 0, detention_unbilled: 0, tonu_uninvoiced: 0, detention_waived: 0, dwell_forgone: 0 });
+const emptyByKey = (): Record<LeakKey, number> => Object.fromEntries(LEAKS.map((m) => [m.key, 0])) as Record<LeakKey, number>;
 
 function periodOf(items: readonly LeakItem[]): LedgerPeriod {
   const lines: LedgerLine[] = LEAKS.map((m) => {
@@ -128,6 +191,7 @@ function periodOf(items: readonly LeakItem[]): LedgerPeriod {
       label: m.label,
       group: m.group,
       counted: m.counted,
+      intake: m.intake,
       basis: m.basis,
       dollars: fromCents(priced.reduce((s, i) => s + cents(i.dollars!), 0)),
       items: mine.length,
@@ -136,26 +200,34 @@ function periodOf(items: readonly LeakItem[]): LedgerPeriod {
     };
   });
   const counted = lines.filter((l) => l.counted);
-  return { lines, total: fromCents(counted.reduce((s, l) => s + cents(l.dollars), 0)), items: counted.reduce((s, l) => s + l.items, 0), unpriced: counted.reduce((s, l) => s + l.unpriced, 0) };
+  const fromIntake = counted.filter((l) => l.intake);
+  return {
+    lines,
+    total: fromCents(counted.reduce((s, l) => s + cents(l.dollars), 0)),
+    items: counted.reduce((s, l) => s + l.items, 0),
+    unpriced: counted.reduce((s, l) => s + l.unpriced, 0),
+    intake: { dollars: fromCents(fromIntake.reduce((s, l) => s + cents(l.dollars), 0)), items: fromIntake.reduce((s, l) => s + l.items, 0), unpriced: fromIntake.reduce((s, l) => s + l.unpriced, 0) }
+  };
 }
 
 function drill(items: readonly LeakItem[], by: (i: LeakItem) => string | null, limit: number): DrillRow[] {
-  const rows = new Map<string, { cents: number; items: number; unpriced: number; byKey: Map<LeakKey, number> }>();
+  const rows = new Map<string, { cents: number; intake: number; items: number; unpriced: number; byKey: Map<LeakKey, number> }>();
   for (const i of items) {
     if (!leakMeta(i.key).counted) continue;
     const name = by(i);
     if (!name) continue;
-    const r = rows.get(name) ?? { cents: 0, items: 0, unpriced: 0, byKey: new Map() };
+    const r = rows.get(name) ?? { cents: 0, intake: 0, items: 0, unpriced: 0, byKey: new Map() };
     r.items += 1;
     if (i.dollars == null) r.unpriced += 1;
     else {
       r.cents += cents(i.dollars);
+      if (leakMeta(i.key).intake) r.intake += cents(i.dollars);
       r.byKey.set(i.key, (r.byKey.get(i.key) ?? 0) + cents(i.dollars));
     }
     rows.set(name, r);
   }
   return [...rows.entries()]
-    .map(([name, r]) => ({ name, dollars: fromCents(r.cents), items: r.items, unpriced: r.unpriced, byKey: Object.fromEntries([...r.byKey].map(([k, v]) => [k, fromCents(v)])) as Partial<Record<LeakKey, number>> }))
+    .map(([name, r]) => ({ name, dollars: fromCents(r.cents), intake: fromCents(r.intake), items: r.items, unpriced: r.unpriced, byKey: Object.fromEntries([...r.byKey].map(([k, v]) => [k, fromCents(v)])) as Partial<Record<LeakKey, number>> }))
     .sort((a, b) => b.dollars - a.dollars || b.items - a.items || a.name.localeCompare(b.name))
     .slice(0, limit);
 }
@@ -164,7 +236,7 @@ function drill(items: readonly LeakItem[], by: (i: LeakItem) => string | null, l
  * Every item, as a ledger: the period (and the one before it), twelve weeks, the lanes, customers and trucks it came from, and the biggest single items. `now` and `tz` are the clock the weeks and periods are
  * counted on (the workspace's own zone).
  */
-export function buildLeakLedger(items: readonly LeakItem[], opts: { period: KpiPeriod; compare: boolean; openDwell?: OpenDwell | null }, now: number, tz: string = activeTz()): LeakLedger {
+export function buildLeakLedger(items: readonly LeakItem[], opts: { period: KpiPeriod; compare: boolean; openDwell?: OpenDwell | null; coverage?: LedgerCoverage | null }, now: number, tz: string = activeTz()): LeakLedger {
   const window = periodWindow(opts.period, now, tz);
   const previous = opts.compare ? previousWindow(opts.period, now, tz) : null;
   const inNow = items.filter((i) => inWindow(i.at, window));
@@ -180,7 +252,7 @@ export function buildLeakLedger(items: readonly LeakItem[], opts: { period: KpiP
     .filter((i) => i.dollars != null && leakMeta(i.key).counted)
     .sort((a, b) => b.dollars! - a.dollars! || b.at - a.at)
     .slice(0, 25)
-    .map((i): TopItem => ({ key: i.key, loadId: i.loadId, label: i.label, at: i.at, dollars: i.dollars!, lane: i.lane, customer: i.customer, truck: i.truck }));
+    .map((i): TopItem => ({ key: i.key, loadId: i.loadId, label: i.label, at: i.at, dollars: i.dollars!, lane: i.lane, customer: i.customer, truck: i.truck, intake: leakMeta(i.key).intake, basisNote: i.basisNote ?? null }));
   return {
     window,
     previous,
@@ -191,7 +263,8 @@ export function buildLeakLedger(items: readonly LeakItem[], opts: { period: KpiP
     byCustomer: drill(inNow, (i) => i.customer, 10),
     byTruck: drill(inNow, (i) => i.truck, 10),
     top,
-    openDwell: opts.openDwell ?? { dollars: 0, trailers: 0, rows: [] }
+    openDwell: opts.openDwell ?? { dollars: 0, trailers: 0, rows: [] },
+    coverage: opts.coverage ?? NO_COVERAGE
   };
 }
 

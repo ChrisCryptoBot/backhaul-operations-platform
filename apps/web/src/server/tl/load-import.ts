@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { IMPORT_MAX_ROWS, parseCsv, type ProblemRow } from "@/lib/import-csv";
-import { autoMap, checkLoadRows, cleanMap, importChannel, missingFields, paymentOf, type ColumnMap, type LoadCheck, type LoadFieldKey } from "@/lib/load-import";
+import { autoMap, checkLoadRows, cleanMap, importChannel, missingFields, paymentOf, STOP_TIME_FIELDS, type ColumnMap, type LoadCheck, type LoadFieldKey } from "@/lib/load-import";
 import { recordAudit } from "./audit";
 import { lockWorkspace } from "./plan";
 import { currentWorkspaceId } from "./workspace";
+import { workspaceTimezone } from "./zone";
 
 /**
  * Loading a carrier's finished loads from a file. The file is read and checked here, on the server, every time: the preview a person sees and the import that follows both run the same check against the
@@ -36,14 +37,16 @@ async function read(text: string, mapping: LoadImportMap | null, workspaceId: st
   if (table.length === 0 || (table[0] ?? []).every((c) => c.trim() === "")) return { ok: false, error: "That file is empty. It needs a header row and one row per load." };
   const header = table[0]!;
   const map = mapping ? cleanMap(mapping, header.length) : autoMap(header);
-  const noCheck: LoadCheck = { total: 0, good: [], problems: [], problemCount: 0, duplicates: 0, tooMany: false, summary: { revenue: 0, miles: 0, first: null, last: null, invoiced: 0, paid: 0, withTruck: 0, truckNames: 0 } };
+  const noCheck: LoadCheck = { total: 0, good: [], problems: [], problemCount: 0, duplicates: 0, tooMany: false, summary: { revenue: 0, miles: 0, first: null, last: null, invoiced: 0, paid: 0, withTruck: 0, truckNames: 0, withWaits: 0, arrivalOnly: 0 } };
   if (missingFields(map).length > 0) return { ok: true, table, map, check: noCheck };
   const numberAt = map.loadNumber!;
-  const [existing, trucks] = await Promise.all([
+  const [existing, trucks, zone] = await Promise.all([
     existingFor(table.slice(1).map((r) => (r[numberAt] ?? "").trim()), workspaceId),
-    prisma.vehicle.findMany({ where: { workspaceId, archivedAt: null }, select: { name: true } })
+    prisma.vehicle.findMany({ where: { workspaceId, archivedAt: null }, select: { name: true } }),
+    workspaceTimezone(workspaceId)
   ]);
-  const check = checkLoadRows(table, map, { existing, trucks: new Set(trucks.flatMap((t) => (t.name ? [t.name.toLowerCase()] : []))) });
+  // The times in a file are the carrier's own wall clock, so they are read on the workspace's zone (stored on the workspace, never a cookie).
+  const check = checkLoadRows(table, map, { existing, trucks: new Set(trucks.flatMap((t) => (t.name ? [t.name.toLowerCase()] : []))), zone });
   return { ok: true, table, map, check };
 }
 
@@ -67,7 +70,9 @@ export type LoadImportPreview =
       tooMany: boolean;
       /** The first few good rows as they will land, and what the good rows add up to. */
       sample: Array<{ line: number; loadNumber: string; customer: string | null; lane: string; delivered: string; miles: number; revenue: number; truck: string | null; billing: "paid" | "invoiced" | "not billed" }>;
-      summary: { revenue: number; miles: number; first: string | null; last: string | null; invoiced: number; paid: number; notBilled: number; withTruck: number; truckNames: number };
+      summary: { revenue: number; miles: number; first: string | null; last: string | null; invoiced: number; paid: number; notBilled: number; withTruck: number; truckNames: number; withWaits: number; arrivalOnly: number };
+      /** Whether the match reads any stop-time column: when it does not, no load will carry a wait and detention cannot be checked on any of them. */
+      readsStopTimes: boolean;
     };
 
 const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
@@ -91,7 +96,8 @@ export async function previewLoadImport(text: string, mapping: LoadImportMap | n
     problems: c.problems,
     tooMany: false,
     sample: c.good.slice(0, 8).map(({ line, item }) => ({ line, loadNumber: item.loadNumber, customer: item.customer, lane: `${item.origin} to ${item.destination}`, delivered: day(item.completedAt)!, miles: item.loadedMiles, revenue: item.revenue + (item.fuelSurcharge ?? 0), truck: item.truck, billing: paymentOf(item).status ?? "not billed" })),
-    summary: { revenue: c.summary.revenue, miles: c.summary.miles, first: day(c.summary.first), last: day(c.summary.last), invoiced: c.summary.invoiced, paid: c.summary.paid, notBilled: c.good.length - c.summary.invoiced, withTruck: c.summary.withTruck, truckNames: c.summary.truckNames }
+    summary: { revenue: c.summary.revenue, miles: c.summary.miles, first: day(c.summary.first), last: day(c.summary.last), invoiced: c.summary.invoiced, paid: c.summary.paid, notBilled: c.good.length - c.summary.invoiced, withTruck: c.summary.withTruck, truckNames: c.summary.truckNames, withWaits: c.summary.withWaits, arrivalOnly: c.summary.arrivalOnly },
+    readsStopTimes: STOP_TIME_FIELDS.some((k) => r.map[k] != null)
   };
 }
 
@@ -123,11 +129,17 @@ export async function commitLoadImport(text: string, mapping: LoadImportMap | nu
       // Everything in the file landed first through another click: nothing to write, and nothing to say it was written.
       if (rows.length === 0) return null;
       let withoutTruck = 0;
+      // Each load gets its id here, so the stops its file carried times for can be written against it in the same transaction.
+      const stops: Array<{ loadId: string; stopSequence: number; addressString: string; stopType: string; stopRole: string; arrivedAt: Date | null; waitMinutes: number | null }> = [];
       const data = rows.map(({ item: d }) => {
         const pay = paymentOf(d);
         const vehicleId = d.truck ? (truckOf.get(d.truck.toLowerCase()) ?? null) : null;
         if (d.truck && !vehicleId) withoutTruck += 1;
+        const id = randomUUID();
+        // No coordinates and no time window: an import spends no map allowance, and a stop with no window is never on-time or late.
+        for (const s of d.stops) stops.push({ loadId: id, stopSequence: s.role === "pickup" ? 1 : 2, addressString: s.address, stopType: s.role, stopRole: s.role, arrivedAt: s.arrivedAt, waitMinutes: s.waitMinutes });
         return {
+          id,
           workspaceId,
           loadNumber: d.loadNumber,
           status: "completed",
@@ -154,6 +166,7 @@ export async function commitLoadImport(text: string, mapping: LoadImportMap | nu
         };
       });
       for (let i = 0; i < data.length; i += LOAD_IMPORT_CHUNK) await tx.load.createMany({ data: data.slice(i, i + LOAD_IMPORT_CHUNK) });
+      for (let i = 0; i < stops.length; i += LOAD_IMPORT_CHUNK * 2) await tx.stop.createMany({ data: stops.slice(i, i + LOAD_IMPORT_CHUNK * 2) });
       const n = data.length;
       const dup = r.check.duplicates + raced;
       await recordAudit(
@@ -163,7 +176,7 @@ export async function commitLoadImport(text: string, mapping: LoadImportMap | nu
           action: "loads_import_completed",
           summary: `${n.toLocaleString("en-US")} finished ${n === 1 ? "load" : "loads"} imported from ${file}${dup > 0 ? `; ${dup.toLocaleString("en-US")} already on the desk` : ""}${r.check.problemCount > 0 ? `; ${r.check.problemCount.toLocaleString("en-US")} ${r.check.problemCount === 1 ? "row" : "rows"} left out` : ""}`,
           before: null,
-          after: { File: file, "Rows read": String(r.check.total), Imported: String(n), "Already on the desk": String(dup), "Left out": String(r.check.problemCount), "Trucks not found": String(withoutTruck) },
+          after: { File: file, "Rows read": String(r.check.total), Imported: String(n), "Already on the desk": String(dup), "Left out": String(r.check.problemCount), "Trucks not found": String(withoutTruck), "With a wait at a stop": String(rows.filter((g) => g.item.stops.some((s) => s.waitMinutes != null)).length) },
           at: now,
           workspaceId
         },

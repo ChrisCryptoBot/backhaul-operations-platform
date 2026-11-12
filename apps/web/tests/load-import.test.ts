@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { parseCsv } from "@/lib/import-csv";
-import { autoMap, batchOfChannel, checkLoadRows, cleanMap, emptyMap, importChannel, LOAD_FIELDS, loadImportTemplate, missingFields, paymentOf, placeOf, readDay, type CheckContext, type ColumnMap } from "@/lib/load-import";
+import { autoMap, batchOfChannel, checkLoadRows, cleanMap, emptyMap, importChannel, LOAD_FIELDS, loadImportTemplate, MAX_WAIT_MINUTES, missingFields, paymentOf, placeOf, readDateTime, readDay, STOP_TIME_FIELDS, type CheckContext, type ColumnMap } from "@/lib/load-import";
 
 const HEADER = ["Load #", "Broker", "Pickup City", "Delivery City", "Pickup Date", "Delivery Date", "Miles", "DH Pickup", "DH Return", "Line Haul", "FSC", "Unit", "Invoice Date", "Invoice Amount", "Paid Date", "Paid Amount"];
 const ctx = (over: Partial<CheckContext> = {}): CheckContext => ({ existing: new Map(), trucks: new Set(["unit 104"]), ...over });
@@ -165,5 +165,121 @@ describe("what an imported load becomes", () => {
     expect(batchOfChannel(importChannel("abc123"))).toBe("abc123");
     expect(batchOfChannel("rate_con")).toBeNull();
     expect(batchOfChannel(null)).toBeNull();
+  });
+});
+
+describe("stop times: what a TMS export gives detention to be priced from", () => {
+  const HEADER2 = [...HEADER, "Pickup Arrival", "Pickup Departure", "Pickup Appt", "Delivery Arrival", "Delivery Departure", "Delivery Appt"];
+  const row2 = (over: Record<string, string> = {}) => {
+    const plain = row(over);
+    const extra: Record<string, string> = { "Pickup Arrival": "2026-09-14 08:00", "Pickup Departure": "2026-09-14 11:30", "Pickup Appt": "", "Delivery Arrival": "2026-09-16 07:50", "Delivery Departure": "2026-09-16 08:20", "Delivery Appt": "", ...over };
+    return [...plain, ...HEADER2.slice(HEADER.length).map((h) => extra[h] ?? "")];
+  };
+  const map2 = () => autoMap(HEADER2);
+  const t2 = (...rows: string[][]) => [HEADER2, ...rows];
+  const one = (over: Record<string, string> = {}) => checkLoadRows(t2(row2(over)), map2(), ctx());
+
+  test("the columns are found by their TMS names, and by the desk's own", () => {
+    const m = map2();
+    expect([m.pickupArrival, m.pickupDeparture, m.pickupAppointment, m.deliveryArrival, m.deliveryDeparture, m.deliveryAppointment]).toEqual([16, 17, 18, 19, 20, 21]);
+    const tms = autoMap(["Load #", "Broker", "Origin", "Destination", "Delivery Date", "Miles", "Rate", "Shipper In", "Shipper Out", "Consignee In", "Consignee Out"]);
+    expect([tms.pickupArrival, tms.pickupDeparture, tms.deliveryArrival, tms.deliveryDeparture]).toEqual([7, 8, 9, 10]);
+    expect(tms.destination).toBe(3); // "Consignee In" does not take the place of the destination
+    const checks = autoMap(["PU Check In", "PU Check Out", "DEL Check In", "DEL Check Out", "PU Appt", "Del Appt"]);
+    expect([checks.pickupArrival, checks.pickupDeparture, checks.deliveryArrival, checks.deliveryDeparture, checks.pickupAppointment, checks.deliveryAppointment]).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(STOP_TIME_FIELDS).toHaveLength(6);
+    expect(LOAD_FIELDS.filter((f) => STOP_TIME_FIELDS.includes(f.key)).every((f) => !f.required)).toBe(true);
+  });
+
+  test("the template carries the six columns, so a file made from it already has them matched", () => {
+    const header = parseCsv(loadImportTemplate())[0]!;
+    expect(header).toEqual(expect.arrayContaining(["Pickup arrival", "Pickup departure", "Pickup appointment", "Delivery arrival", "Delivery departure", "Delivery appointment"]));
+  });
+
+  describe("reading a date and a time", () => {
+    const iso = (s: string, zone?: string) => (readDateTime(s, zone) as Date).toISOString();
+    test("on the carrier's clock, whatever the file's style", () => {
+      expect(iso("2026-09-14 08:05")).toBe("2026-09-14T13:05:00.000Z"); // Central daylight time
+      expect(iso("2026-12-14 08:05")).toBe("2026-12-14T14:05:00.000Z"); // Central standard time
+      expect(iso("2026-09-14T08:05:30")).toBe("2026-09-14T13:05:00.000Z"); // seconds are not kept
+      expect(iso("9/14/2026 8:05 AM")).toBe("2026-09-14T13:05:00.000Z");
+      expect(iso("9/14/2026 8:05 PM")).toBe("2026-09-15T01:05:00.000Z");
+      expect(iso("9/14/2026 12:30 AM")).toBe("2026-09-14T05:30:00.000Z");
+      expect(iso("9/14/2026 12:30 PM")).toBe("2026-09-14T17:30:00.000Z");
+      expect(iso("9-14-2026 17:05")).toBe("2026-09-14T22:05:00.000Z");
+      expect(iso("9/14/26 17:05")).toBe("2026-09-14T22:05:00.000Z");
+      expect(iso("2026-09-14 08:05", "America/New_York")).toBe("2026-09-14T12:05:00.000Z");
+    });
+    test("an explicit offset in the file is believed over the carrier's clock", () => {
+      expect(iso("2026-09-14T08:05:00-05:00")).toBe("2026-09-14T13:05:00.000Z");
+      expect(iso("2026-09-14T13:05:00Z", "America/Los_Angeles")).toBe("2026-09-14T13:05:00.000Z");
+      expect(iso("2026-09-14 08:05 +0530")).toBe("2026-09-14T02:35:00.000Z");
+    });
+    test("blank is nothing; a day with no time, a made-up day or a made-up time is refused", () => {
+      expect(readDateTime("")).toBeNull();
+      expect(readDateTime("   ")).toBeNull();
+      for (const bad of ["2026-09-14", "9/14/2026", "8:05", "tomorrow", "2026-02-30 08:00", "2026-09-14 25:00", "2026-09-14 08:75", "13/45/2026 8:00 AM", "9/14/2026 13:05 PM", "9/14/2026 0:30 AM"]) expect(readDateTime(bad), bad).toBe("bad");
+    });
+  });
+
+  test("a good row carries a pickup stop and a delivery stop, each with its arrival and the wait between arrival and departure", () => {
+    const c = one();
+    expect(c).toMatchObject({ problemCount: 0 });
+    const stops = c.good[0]!.item.stops;
+    expect(stops).toEqual([
+      { role: "pickup", address: "Dallas, TX", arrivedAt: new Date("2026-09-14T13:00:00.000Z"), waitMinutes: 210 },
+      { role: "delivery", address: "Atlanta, GA", arrivedAt: new Date("2026-09-16T12:50:00.000Z"), waitMinutes: 30 }
+    ]);
+    expect(c.summary).toMatchObject({ withWaits: 1, arrivalOnly: 0 });
+  });
+
+  test("free time starts at the later of the arrival and the appointment: a truck that came early is not owed for the hours before", () => {
+    const wait = (over: Record<string, string>) => one(over).good[0]!.item.stops[0]!.waitMinutes;
+    expect(wait({})).toBe(210); // 08:00 to 11:30
+    expect(wait({ "Pickup Appt": "2026-09-14 09:00" })).toBe(150); // came at 8, booked for 9: counted from 9
+    expect(wait({ "Pickup Appt": "2026-09-14 07:00" })).toBe(210); // came after the appointment: counted from the arrival
+    expect(wait({ "Pickup Appt": "2026-09-14 12:00" })).toBe(0); // left before the appointment: no wait at all
+  });
+
+  test("the wait is real elapsed time, so a clock change inside it is not billed as an hour that did not happen", () => {
+    // Central clocks skipped 02:00 to 03:00 on 8 March 2026: 01:30 to 03:30 is one hour.
+    const c = one({ "Pickup Date": "3/8/2026", "Delivery Date": "2026-03-09", "Pickup Arrival": "2026-03-08 01:30", "Pickup Departure": "2026-03-08 03:30", "Delivery Arrival": "", "Delivery Departure": "" });
+    expect(c.good[0]!.item.stops).toEqual([expect.objectContaining({ role: "pickup", waitMinutes: 60 })]);
+  });
+
+  test("an arrival with no departure keeps the stop but not a wait: that wait is not estimated", () => {
+    const c = one({ "Pickup Departure": "", "Delivery Arrival": "", "Delivery Departure": "" });
+    expect(c.good[0]!.item.stops).toEqual([expect.objectContaining({ role: "pickup", waitMinutes: null })]);
+    expect(c.summary).toMatchObject({ withWaits: 0, arrivalOnly: 1 });
+  });
+
+  test("a departure with no arrival has nothing to measure from, and a row with no times has no stops", () => {
+    const c = one({ "Pickup Arrival": "", "Delivery Arrival": "", "Delivery Departure": "" });
+    expect(c.good[0]!.item.stops).toEqual([]);
+    expect(c.problemCount).toBe(0);
+    expect(one({ "Pickup Arrival": "", "Pickup Departure": "", "Delivery Arrival": "", "Delivery Departure": "" }).good[0]!.item.stops).toEqual([]);
+  });
+
+  test("a file with no stop-time column matched gives every load no stops, and says nothing is wrong with the rows", () => {
+    const c = checkLoadRows(table(row(), row({ "Load #": "2" })), mapOf(), ctx());
+    expect(c.good.map((g) => g.item.stops)).toEqual([[], []]);
+    expect(c.summary).toMatchObject({ withWaits: 0, arrivalOnly: 0 });
+  });
+
+  test("a time that is not a time, a departure before the arrival, or a wait of more than a week is a mistake in the row, named", () => {
+    const err = (over: Record<string, string>) => one(over).problems[0]!.errors.join(" ");
+    expect(err({ "Pickup Arrival": "yesterday" })).toMatch(/Pickup arrival is not a date and time/);
+    expect(err({ "Delivery Departure": "9/16/2026" })).toMatch(/Delivery departure is not a date and time/);
+    expect(err({ "Pickup Appt": "noon" })).toMatch(/Pickup appointment is not a date and time/);
+    expect(err({ "Pickup Departure": "2026-09-14 07:00" })).toMatch(/Pickup departure is before the arrival/);
+    expect(err({ "Pickup Arrival": "2026-09-01 08:00", "Pickup Departure": "2026-09-14 08:00" })).toMatch(/Pickup wait is longer than 7 days/);
+    expect(MAX_WAIT_MINUTES).toBe(10_080);
+    expect(one({ "Pickup Departure": "2026-09-14 07:00" }).good).toHaveLength(0);
+  });
+
+  test("the summary counts the loads whose wait can be priced and the ones that cannot", () => {
+    const c = checkLoadRows(t2(row2(), row2({ "Load #": "2", "Pickup Departure": "", "Delivery Arrival": "", "Delivery Departure": "" }), row2({ "Load #": "3", "Pickup Arrival": "", "Pickup Departure": "", "Delivery Arrival": "", "Delivery Departure": "" })), map2(), ctx());
+    expect(c.summary).toMatchObject({ withWaits: 1, arrivalOnly: 1 });
+    expect(c.good).toHaveLength(3);
   });
 });
