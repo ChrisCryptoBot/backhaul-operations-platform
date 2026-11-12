@@ -8,13 +8,13 @@ Read this first, then `docs/MONEY_PLAN.md` (the approved plan: 7 waves, gap tabl
 |---|---|
 | Baseline (relay, leak intake, UI elevation, vendored libs, plan doc) | Committed, 6 local commits `7fbec3f..c988f7a` |
 | Wave 1 part 1: invoice records, credit memos, multi-load invoices | Committed `7afbb58` |
-| Server-side invoice PDF + `pdf-lib` 1.17.1 | **Built, tested, NOT committed** (see "Uncommitted" below) |
+| Server-side invoice PDF + `pdf-lib` 1.17.1 | Committed `2d44172` (this handoff: `d278abb`) |
 | Wave 1 UI: multi-load button, credit memo button, Invoices screens on the record | **Not started** |
 | Waves 2-7 | Not started |
 
 Nothing is pushed. Branch `demo/truelane-dispatch` (dispatch-desk has its own git). **Push and production migrations are Chris's.** Commit only when Chris says (he usually says "commit it" per milestone).
 
-### Uncommitted, ready to commit as one piece
+### The PDF commit (`2d44172`) holds
 - `apps/web/package.json`, `package-lock.json` (`pdf-lib` 1.17.1, exact)
 - `apps/web/src/lib/invoice-pdf.ts` (pure: data in, `Uint8Array` out; US Letter; NOA box; `pdfSafe` for WinAnsi)
 - `apps/web/src/server/tl/invoice-pdf.ts` (`invoicePdfData`, `invoicePdf`: from the record, gap-16 fallback to `getInvoice`)
@@ -22,7 +22,6 @@ Nothing is pushed. Branch `demo/truelane-dispatch` (dispatch-desk has its own gi
 - `apps/web/src/app/(desk)/invoices/[id]/page.tsx` (PDF button beside Print)
 - `apps/web/tests/invoice-pdf.test.ts` (5 tests)
 
-Suggested message: `feat(desk): server-side invoice PDF with pdf-lib (money plan, Wave 1, rule H)`.
 
 **Leave out** the ~40 files under `apps/web/src/truelane/` that show a one-line change each: not ours (a re-vendor stamp from elsewhere). Also leave out `scratch/`, `apps/scratch/` and `docs/Dispatch desk terminal redesign.zip`.
 
@@ -39,7 +38,7 @@ Suggested message: `feat(desk): server-side invoice PDF with pdf-lib (money plan
 
 ## Next steps (in order)
 
-### 1. Commit the PDF work (after Chris says so)
+### 1. (Done) The PDF work is committed
 
 ### 2. "Invoice these loads together" (rule G)
 - Where: the Invoices screen's ready-to-invoice list (`app/(desk)/invoices/page.tsx`; rows come from `server/tl/queries.ts`). Add row checkboxes, and a bar when 2+ are checked: "N loads selected · $total · Customer".
@@ -77,4 +76,4 @@ Suggested message: `feat(desk): server-side invoice PDF with pdf-lib (money plan
 
 ## Prompt to give the next session
 
-> You are continuing the TrueLane dispatch desk money-modules work in `C:\Users\14698\OneDrive\Desktop\TRUELANE\dispatch-desk`. Read `docs/HANDOFF_2026-11-12_MONEY_WAVE1.md` and `docs/MONEY_PLAN.md` first. Wave 1 part 1 is committed (`7afbb58`); the server-side invoice PDF is built and uncommitted. Ask Chris before committing anything and never push. Next: (1) commit the PDF work when Chris says, (2) "Invoice these loads together" on the ready-to-invoice list, (3) the credit memo button and memo list on the invoice sheet, (4) move the Invoices list and sheet to read the invoice record while keeping imported invoices with no number (gap 16), then Wave 2 (factoring: remit-to on the connection, batch CSV + PDF packet transport, factoring economics, NOA re-render). Keep the single write path in `src/server/tl/invoicing.ts`, keep the load projection, and check each change in the browser on your own dev server (`desk-demo-3101`) plus the integration suites on `demo` and `demo_scale`.
+> You are continuing the TrueLane dispatch desk money-modules work in `C:\Users\14698\OneDrive\Desktop\TRUELANE\dispatch-desk`. Read `docs/HANDOFF_2026-11-12_MONEY_WAVE1.md` and `docs/MONEY_PLAN.md` first. Wave 1 part 1 (`7afbb58`) and the server-side invoice PDF (`2d44172`) are committed. Ask Chris before committing anything and never push. Next: (2) "Invoice these loads together" on the ready-to-invoice list, (3) the credit memo button and memo list on the invoice sheet, (4) move the Invoices list and sheet to read the invoice record while keeping imported invoices with no number (gap 16), then Wave 2 (factoring: remit-to on the connection, batch CSV + PDF packet transport, factoring economics, NOA re-render). Keep the single write path in `src/server/tl/invoicing.ts`, keep the load projection, and check each change in the browser on your own dev server (`desk-demo-3101`) plus the integration suites on `demo` and `demo_scale`.
