@@ -19,6 +19,7 @@
     "@prisma/client": "^6.7.0",
     "maplibre-gl": "^6.16.0",
     "next": "^14.2.29",
+    "pdf-lib": "1.17.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tz-lookup": "6.1.25"

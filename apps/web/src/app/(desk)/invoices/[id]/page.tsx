@@ -74,6 +74,10 @@ export default async function InvoicePage({ params }: { params: { id: string } }
           Open the load
         </Link>
         <PrintButton documentTitle={inv.invoiceNumber} />
+        {/* The PDF made on the server: the same file a factoring packet will carry (docs/MONEY_PLAN.md, rule H). */}
+        <a href={`/invoices/${inv.id}/pdf`} className="tl-btn" target="_blank" rel="noopener">
+          PDF
+        </a>
         {overdue ? (
           <>
             <CopyText size="md" label="Copy reminder" text={reminder} />
