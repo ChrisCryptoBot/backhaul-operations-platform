@@ -49,7 +49,9 @@ $migrations = @(
   "20261204000000_signals",
   "20261205000000_notification_subject",
   "20261206000000_stop_evidence",
-  "20261208000000_assignment_events"
+  "20261207000000_leak_intake",
+  "20261208000000_assignment_events",
+  "20261209000000_relay_legs_handoffs"
 )
 foreach ($m in $migrations) {
   npx prisma migrate resolve --applied $m --schema=./prisma/schema.prisma

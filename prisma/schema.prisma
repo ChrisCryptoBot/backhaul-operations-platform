@@ -44,6 +44,8 @@ model Workspace {
   reportDay             Int?     @map("report_day")
   reportHour            Int?     @map("report_hour")
   reportEnabled         Boolean? @map("report_enabled")
+  /// The Leak Read intake (docs/LEAK_LEDGER.md): what the carrier says a mile costs (the fleet's, and a truck's own) and the detention terms they bill at (the fleet's, and a customer's own). It prices imported history, which carries no frozen floor and no frozen detention terms. Null = not filled in; the ledger then counts those loads and prices none.
+  leakIntake            Json?    @map("leak_intake")
   /// The last statement number given out, so a discarded draft's number is never given again.
   settlementSeq         Int      @default(0) @map("settlement_seq")
 
@@ -94,6 +96,8 @@ model Workspace {
   drivers            Driver[]
   auditEvents        AuditEvent[]
   assignmentEvents   AssignmentEvent[]
+  loadLegs           LoadLeg[]
+  handoffs           Handoff[]
   settlements        Settlement[]
   customers          Customer[]
 
@@ -357,6 +361,8 @@ model Load {
   decisions        LoadDecision[]
   checkCalls       CheckCall[]
   assignment       Assignment?
+  legs             LoadLeg[]
+  handoffs         Handoff[]
   messages         Message[]
   settlement       SettlementLoad?
   signals          Signal[]
@@ -548,7 +554,7 @@ model AssignmentEvent {
   workspaceId       String   @map("workspace_id")
   loadId            String   @map("load_id")
   loadNumber        String?  @map("load_number")
-  /// assigned | reassigned | sent | accepted | declined | recalled | removed (taken off before it was ever sent)
+  /// assigned | reassigned | sent | accepted | declined | recalled | removed (taken off before it was ever sent) | dropped (handed off at a relay point) | received (took custody at a relay point)
   kind              String
   driverId          String?  @map("driver_id")
   driverName        String?  @map("driver_name")
@@ -565,6 +571,111 @@ model AssignmentEvent {
   @@index([loadId, createdAt])
   @@index([workspaceId, kind, createdAt])
   @@map("assignment_events")
+}
+
+/// One custody span of a load: a driver and truck (and trailer) from one point to another (docs/RELAY_DESIGN.md). A load with no relay has no legs written: it is one implicit leg, the assignment.
+/// The first handoff or an empty recall writes leg 1 from the assignment as it was, so each leg keeps who drove it, in what, over what miles, and the pay as it stood when the leg closed.
+/// kind: haul | positioning (a driver recalled while rolling empty to the pickup: no freight, paid for the miles). status: active | closed. milesSource: eld | driver | dispatcher (never a guess).
+model LoadLeg {
+  id            String    @id @default(cuid())
+  workspaceId   String    @map("workspace_id")
+  loadId        String    @map("load_id")
+  seq           Int
+  kind          String    @default("haul")
+  status        String    @default("active")
+  driverId      String?   @map("driver_id")
+  driverName    String?   @map("driver_name")
+  vehicleId     String?   @map("vehicle_id")
+  vehicleName   String?   @map("vehicle_name")
+  trailerId     String?   @map("trailer_id")
+  trailerNumber String?   @map("trailer_number")
+  fromName      String?   @map("from_name")
+  fromLat       Decimal?  @map("from_lat") @db.Decimal(9, 6)
+  fromLng       Decimal?  @map("from_lng") @db.Decimal(9, 6)
+  toName        String?   @map("to_name")
+  toLat         Decimal?  @map("to_lat") @db.Decimal(9, 6)
+  toLng         Decimal?  @map("to_lng") @db.Decimal(9, 6)
+  startedAt     DateTime? @map("started_at")
+  endedAt       DateTime? @map("ended_at")
+  milesDriven   Decimal?  @map("miles_driven") @db.Decimal(10, 1)
+  milesSource   String?   @map("miles_source")
+  /// The pay as it stood when the leg closed (a copy of the assignment's), so a later leg does not overwrite it. Settlement reads it in phase 3.
+  payKind       String?   @map("pay_kind")
+  payRate       Decimal?  @map("pay_rate") @db.Decimal(12, 4)
+  payEstimate   Decimal?  @map("pay_estimate") @db.Decimal(12, 2)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  load      Load      @relation(fields: [loadId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([loadId, seq])
+  @@index([workspaceId, loadId])
+  @@map("load_legs")
+}
+
+/// The baton: the record that closes one leg and opens the next (docs/RELAY_DESIGN.md, BATON_CONTRACT_V3.md). One row per handoff.
+/// type: drop_hook | rescue | slip_seat. reason: planned | hos | breakdown | recall_convert. state: dropped | received | disputed.
+/// Every value that came from a person names its source (droppedSource / receivedSource: driver | dispatcher | eld) and who entered it; a value nobody gave stays null. No money lives here.
+/// A discrepancy freezes the baton (frozenAt, frozenSha256) and blocks custody until dispatch acknowledges it. Photos and documents arrive with the phone (phase 4).
+model Handoff {
+  id                 String    @id @default(cuid())
+  workspaceId        String    @map("workspace_id")
+  loadId             String    @map("load_id")
+  type               String
+  reason             String
+  state              String    @default("dropped")
+  outLegSeq          Int       @map("out_leg_seq")
+  inLegSeq           Int?      @map("in_leg_seq")
+  locationName       String?   @map("location_name")
+  locationLat        Decimal?  @map("location_lat") @db.Decimal(9, 6)
+  locationLng        Decimal?  @map("location_lng") @db.Decimal(9, 6)
+  locationSlot       String?   @map("location_slot")
+  /// planned_yard | emergency_pin | dispatcher_typed
+  locationSetBy      String    @default("dispatcher_typed") @map("location_set_by")
+  tractorOutId       String?   @map("tractor_out_id")
+  tractorOutName     String?   @map("tractor_out_name")
+  tractorInId        String?   @map("tractor_in_id")
+  tractorInName      String?   @map("tractor_in_name")
+  trailerId          String?   @map("trailer_id")
+  trailerNumber      String?   @map("trailer_number")
+  outDriverId        String?   @map("out_driver_id")
+  outDriverName      String?   @map("out_driver_name")
+  inDriverId         String?   @map("in_driver_id")
+  inDriverName       String?   @map("in_driver_name")
+  sealNumber         String?   @map("seal_number")
+  /// On the pickup side: whether the seal matched what the outgoing driver recorded. Null until the incoming driver says.
+  sealMatches        Boolean?  @map("seal_matches")
+  reeferSetTemp      Decimal?  @map("reefer_set_temp") @db.Decimal(6, 1)
+  reeferActualTemp   Decimal?  @map("reefer_actual_temp") @db.Decimal(6, 1)
+  reeferFuelPct      Int?      @map("reefer_fuel_pct")
+  conditionOk        Boolean?  @map("condition_ok")
+  conditionNotes     String?   @map("condition_notes")
+  discrepancyFlagged Boolean   @default(false) @map("discrepancy_flagged")
+  discrepancyNotes   String?   @map("discrepancy_notes")
+  discrepancyBy      String?   @map("discrepancy_by")
+  discrepancyAt      DateTime? @map("discrepancy_at")
+  ackBy              String?   @map("ack_by")
+  ackAt              DateTime? @map("ack_at")
+  /// What the outgoing driver does now: bobtail | hook_empty | return_load | available_at_yard
+  outgoingNext       String?   @map("outgoing_next")
+  droppedAt          DateTime  @map("dropped_at")
+  droppedSource      String    @default("dispatcher") @map("dropped_source")
+  receivedAt         DateTime? @map("received_at")
+  receivedSource     String?   @map("received_source")
+  enteredBy          String    @default("Dispatcher") @map("entered_by")
+  via                String    @default("dispatcher")
+  frozenAt           DateTime? @map("frozen_at")
+  frozenSha256       String?   @map("frozen_sha256")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  load      Load      @relation(fields: [loadId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([loadId, createdAt])
+  @@index([workspaceId, state])
+  @@map("handoffs")
 }
 
 /// What the desk did and why: assignments, sends, driver answers, unassignments, invoices, payments and rate-confirmation
