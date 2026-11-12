@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/costProfileSnapshot.ts @ c3156b94. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/costProfileSnapshot.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Snapshot values frozen at load/decision time — pure helpers, no DB imports from domain.
  */

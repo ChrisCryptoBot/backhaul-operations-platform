@@ -19,6 +19,7 @@ Capabilities and the companies the desk is built to reach (the list is the vendo
 | Carrier vetting (`vetting`) | Highway | Simulator. Live call: not written. |
 | Fuel cards (`fuel_card`) | AtoB, WEX | WEX: simulator. AtoB: `not_implemented`. Live call for both: not written. |
 | IFTA (`ifta`) | ProMiles | Simulator. Live call: not written. |
+| Accounting (`accounting`) | QuickBooks Online (`quickbooks`) | QuickBooks: `not_implemented` (the push, pull and simulator are money plan Wave 3). Connects by OAuth 2, not a static key. |
 
 **Spireon is not a company the contract knows.** Adding one is a contract change (a name in the capability's list, the names of its secrets, and an adapter file), made in the TrueLane phone repository and vendored into the desk. The adapter interface in section 6 is what a company implements against.
 

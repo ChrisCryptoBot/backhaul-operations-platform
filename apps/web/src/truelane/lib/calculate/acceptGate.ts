@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/calculate/acceptGate.ts @ c3156b94. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/calculate/acceptGate.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Which button the pinned Calculate footer shows, and when it shows at all. Pure.
  * The rule is the one the result card held inline: the market verdict's own gate wins, otherwise a rejected load needs an override.

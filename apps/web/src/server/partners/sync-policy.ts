@@ -18,7 +18,9 @@ export const SYNC_POLICY: Record<Capability, SyncPolicy> = {
   payroll: { mode: "events", rhythm: "The company tells the desk when a pay run clears." },
   tracking: { mode: "events", rhythm: "The company tells the desk where a shared load is." },
   fuel_card: { mode: "on_demand", rhythm: "Fuel is read from the card when you ask, on a trip." },
-  ifta: { mode: "on_demand", rhythm: "A quarter is worked out when you ask." }
+  ifta: { mode: "on_demand", rhythm: "A quarter is worked out when you ask." },
+  // Wave 3 adds the nightly poll beside QuickBooks' change notifications once the pull is written; until then nothing runs on a clock.
+  accounting: { mode: "events", rhythm: "QuickBooks tells the desk when a payment is recorded." }
 };
 
 /** The capabilities the schedule runs, with how often (minutes). */

@@ -111,7 +111,7 @@ describe("rate confirmation reads: the allowance, the overage and the limits", (
 
 describe("the vendored partner contract (a copy of the phone's)", () => {
   test("names the same seven capabilities with a secret for every candidate", () => {
-    expect(CAPABILITIES).toHaveLength(7);
+    expect(CAPABILITIES).toHaveLength(8);
     for (const c of CAPABILITIES) for (const p of PROVIDERS[c]) expect(SECRET_ENV[p]?.length).toBeGreaterThan(0);
   });
 

@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/eiaRegion.ts @ c3156b94. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/eiaRegion.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Map a US address string to an EIA PADD region for on-highway fuel prices.
  * Prefer origin (where the trip starts / fuel often bought first); fall back to destination.

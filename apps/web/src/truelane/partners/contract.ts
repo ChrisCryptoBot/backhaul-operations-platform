@@ -1,4 +1,4 @@
-// VENDORED from TrueLane supabase/functions/_shared/partners/contract.ts @ c3156b94. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane supabase/functions/_shared/partners/contract.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
 // The partner-API contract: which capabilities TrueLane can hand to an outside company, which companies are candidates for each, the NAMES of the secrets
 // each one needs (never values), the status words, the packet a factor is sent, and the one result shape every partner function answers with.
 // PURE, NO IMPORTS: it runs in Deno (the Edge Functions), in the app's jest, and is vendored into the dispatch desk (scripts/vendor-truelane.mjs).
@@ -8,7 +8,7 @@
 
 // ── Capabilities and providers ──────────────────────────────────────────────────────────────
 
-export const CAPABILITIES = ["factoring", "eld", "fuel_card", "tracking", "vetting", "payroll", "ifta"] as const;
+export const CAPABILITIES = ["factoring", "eld", "fuel_card", "tracking", "vetting", "payroll", "ifta", "accounting"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 
 /** The candidate companies for each capability (not final). The first is the default. */
@@ -20,6 +20,7 @@ export const PROVIDERS: Record<Capability, readonly string[]> = {
   vetting: ["highway"],
   payroll: ["gusto"],
   ifta: ["promiles"],
+  accounting: ["quickbooks"],
 };
 
 /** What each capability is called to a person. */
@@ -31,6 +32,7 @@ export const CAPABILITY_LABEL: Record<Capability, string> = {
   vetting: "Carrier vetting",
   payroll: "Payroll",
   ifta: "IFTA",
+  accounting: "Accounting",
 };
 
 /** The Edge Function secrets a provider needs, by NAME. All must be set for the provider to count as configured. */
@@ -45,6 +47,8 @@ export const SECRET_ENV: Record<string, readonly string[]> = {
   highway: ["HIGHWAY_API_KEY"],
   gusto: ["GUSTO_CLIENT_ID", "GUSTO_CLIENT_SECRET"],
   promiles: ["PROMILES_API_KEY"],
+  // QuickBooks Online connects each account by OAuth 2 (authorization code, refresh token): these are the app's own client credentials, never an account's tokens.
+  quickbooks: ["QUICKBOOKS_CLIENT_ID", "QUICKBOOKS_CLIENT_SECRET"],
 };
 
 /** The secret each provider's webhooks are signed with, by name. */
@@ -59,6 +63,7 @@ export const WEBHOOK_SECRET_ENV: Record<string, string> = {
   highway: "HIGHWAY_WEBHOOK_SECRET",
   gusto: "GUSTO_WEBHOOK_SECRET",
   promiles: "PROMILES_WEBHOOK_SECRET",
+  quickbooks: "QUICKBOOKS_WEBHOOK_SECRET", // holds Intuit's verifier token, which signs its change notifications
 };
 
 export const ALL_PROVIDERS: readonly string[] = CAPABILITIES.flatMap((c) => PROVIDERS[c]);

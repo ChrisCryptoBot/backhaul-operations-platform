@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/calculators.ts @ c3156b94. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/calculators.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Pure domain math only. No async, no DB, no imports from @/lib or @/db.
  * Used by Load, CostProfile, TripSegment and app code. Async persistence stays in models.

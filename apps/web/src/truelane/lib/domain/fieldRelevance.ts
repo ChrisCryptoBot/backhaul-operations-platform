@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/fieldRelevance.ts @ c3156b94. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/fieldRelevance.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Vehicle-aware field relevance — the first step of the v1 owner-op UI simplification.
  *

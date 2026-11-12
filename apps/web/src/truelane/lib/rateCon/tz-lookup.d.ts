@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/rateCon/tz-lookup.d.ts @ c3156b94. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/rateCon/tz-lookup.d.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
 declare module 'tz-lookup' {
   /** The IANA timezone name at a latitude and longitude. Throws for an out-of-range coordinate. */
   export default function tzlookup(lat: number, lng: number): string;

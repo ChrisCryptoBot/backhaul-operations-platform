@@ -75,6 +75,7 @@ A fleet is switched on by setting its Clerk Organization id on the workspace (`w
 | `HIGHWAY_API_KEY`, `HIGHWAY_WEBHOOK_SECRET` | yes | Carrier vetting |
 | `GUSTO_CLIENT_ID`, `GUSTO_CLIENT_SECRET`, `GUSTO_WEBHOOK_SECRET` | yes | Payroll |
 | `PROMILES_API_KEY`, `PROMILES_WEBHOOK_SECRET` | yes | Fuel tax (IFTA) |
+| `QUICKBOOKS_CLIENT_ID`, `QUICKBOOKS_CLIENT_SECRET`, `QUICKBOOKS_WEBHOOK_SECRET` | yes | Accounting (QuickBooks Online): the app's OAuth client and Intuit's webhook verifier token |
 
 These are the server's own keys, used when a fleet has not saved its own. A fleet's own account with a company is kept sealed per workspace (Settings, Integrations) and wins over these.
 

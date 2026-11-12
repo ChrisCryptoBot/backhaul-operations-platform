@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/oversize.ts @ c3156b94. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/oversize.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Oversize (permit) detection — a negotiation/awareness signal from a load's dimensions vs. federal
  * legal limits. Oversize freight needs state permits (one per state crossed) and often escort/pilot

@@ -87,6 +87,11 @@ export type AdapterShapes = {
     in: { quarter: string; vehicles: Array<{ id: string; name: string | null }>; /** The quarter's delivered loads, each with its places and miles. */ trips?: Array<{ id: string; vehicleId: string; origin: string; destination: string; miles: number; mpg?: number | null }> };
     out: { jurisdictions: Array<{ state: string; miles: number; gallons: number }> };
   };
+  /** Accounting (QuickBooks Online first; docs/MONEY_PLAN.md, Wave 3). A placeholder until the push and pull are written: no company has an adapter yet, so every call answers "not implemented". */
+  accounting: {
+    in: { op: "company" };
+    out: { companyName: string | null };
+  };
 };
 
 export const partnerAdapters: { [K in Capability]: Adapter<AdapterShapes[K]["in"], AdapterShapes[K]["out"]> } = {
@@ -96,14 +101,15 @@ export const partnerAdapters: { [K in Capability]: Adapter<AdapterShapes[K]["in"
   tracking: routed("tracking"),
   vetting: routed("vetting"),
   payroll: routed("payroll"),
-  ifta: routed("ifta")
+  ifta: routed("ifta"),
+  accounting: routed("accounting")
 };
 
 const env = (name: string) => process.env[name];
 
 export type PartnerState = { provider: string; configured: boolean; connected: boolean; /** Why a call would not go through now, in words, or null. */ reason: string | null };
 
-const NAME: Record<string, string> = { triumphpay: "TriumphPay", motive: "Motive", samsara: "Samsara", atob: "AtoB", wex: "WEX", project44: "project44", fourkites: "FourKites", highway: "Highway", gusto: "Gusto", promiles: "ProMiles" };
+const NAME: Record<string, string> = { triumphpay: "TriumphPay", motive: "Motive", samsara: "Samsara", atob: "AtoB", wex: "WEX", project44: "project44", fourkites: "FourKites", highway: "Highway", gusto: "Gusto", promiles: "ProMiles", quickbooks: "QuickBooks Online" };
 export const providerName = (p: string) => NAME[p] ?? p;
 
 /** Where a capability stands for this workspace: the provider a call would use, whether its keys are set, and whether the workspace connected it. Booleans and words only. */
