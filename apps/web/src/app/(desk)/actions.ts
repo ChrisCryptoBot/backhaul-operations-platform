@@ -858,13 +858,21 @@ export async function invoiceLoadAction(loadId: string, form: InvoiceForm): Prom
 }
 
 /** Mark an invoice paid with the amount that came in; blank means the invoice total. */
-export async function paidAction(loadId: string, amount: string, paidOn = "", method = "", shortAction: "balance" | "writeoff" = "balance", shortReason = ""): Promise<PaidOut> {
+export async function paidAction(
+  loadId: string,
+  amount: string,
+  paidOn = "",
+  method = "",
+  shortAction: "balance" | "writeoff" = "balance",
+  shortReason = "",
+  extra: { reference?: string; payer?: string; shortCode?: string } = {}
+): Promise<PaidOut> {
   await requireCan("bill");
   // Money that will never come in is written off by an admin; a person who only bills records what was received and leaves the rest owing.
   if (shortAction === "writeoff") await requireCan("writeoff");
   const text = amount.trim().replace(/,/g, "");
   const typed = text === "" ? undefined : Number(text);
-  const out = await markLoadPaid(loadId, new Date(), { amount: typed, paidOn, method, shortAction: shortAction === "writeoff" ? "writeoff" : "balance", shortReason });
+  const out = await markLoadPaid(loadId, new Date(), { amount: typed, paidOn, method, shortAction: shortAction === "writeoff" ? "writeoff" : "balance", shortReason, reference: (extra.reference ?? "").slice(0, 80), payer: (extra.payer ?? "").slice(0, 120), shortCode: extra.shortCode });
   if (out.ok) refreshLoads();
   return out;
 }

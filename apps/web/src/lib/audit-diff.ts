@@ -77,6 +77,8 @@ export type AuditAction =
   | "statement_discarded"
   | "statement_saved"
   | "invoice_chased"
+  | "credit_memo_issued"
+  | "credit_memo_voided"
   | "detention_waived"
   | "detention_evidence_confirmed"
   | "detention_evidence_dismissed"
@@ -192,6 +194,8 @@ export const ACTION_LABEL: Record<string, string> = {
   statement_discarded: "Statement discarded",
   statement_saved: "Statement saved",
   invoice_chased: "Customer chased",
+  credit_memo_issued: "Credit memo",
+  credit_memo_voided: "Credit memo taken back",
   detention_waived: "Detention waived",
   detention_evidence_confirmed: "Detention evidence confirmed",
   detention_evidence_dismissed: "Detention evidence dismissed",
@@ -308,6 +312,8 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   statement_discarded: "muted",
   statement_saved: "muted",
   invoice_chased: "muted",
+  credit_memo_issued: "warn",
+  credit_memo_voided: "warn",
   detention_waived: "muted",
   detention_evidence_confirmed: "ok",
   detention_evidence_dismissed: "muted",
@@ -375,7 +381,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
 /** The filter chips on the audit page: which actions belong to which group. */
 export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[] }> = [
   { key: "dispatch", label: "Dispatch", actions: ["booked", "quote_saved", "quote_passed", "quote_discarded", "load_edited", "trip_started", "trip_undone", "delivered", "trip_reopened", "trip_corrected", "load_reopened", "assigned", "reassigned", "handoff_dropped", "handoff_received", "handoff_disputed", "handoff_acknowledged", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled", "signal_acknowledged"] },
-  { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "invoice_chased", "detention_waived", "detention_evidence_confirmed", "detention_evidence_dismissed", "invoice_voided", "paid", "payment_part", "payment_undone", "statement_started", "statement_saved", "statement_paid", "load_settled", "load_released", "statement_finalized", "statement_voided", "statement_discarded"] },
+  { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "invoice_chased", "detention_waived", "detention_evidence_confirmed", "detention_evidence_dismissed", "invoice_voided", "credit_memo_issued", "credit_memo_voided", "paid", "payment_part", "payment_undone", "statement_started", "statement_saved", "statement_paid", "load_settled", "load_released", "statement_finalized", "statement_voided", "statement_discarded"] },
   { key: "intake", label: "Intake", actions: ["rate_con_saved", "rate_con_read", "rate_con_read_failed", "document_added", "document_removed", "loads_import_completed", "loads_import_removed", "history_import_completed", "history_import_removed"] },
   { key: "team", label: "Team", actions: ["member_added", "member_role_changed", "member_removed", "member_scope_changed"] },
   { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_deactivated", "driver_reactivated", "schedule_changed", "time_off_added", "time_off_removed", "terminal_added", "terminal_renamed", "terminal_archived", "driver_home_set", "driver_code_changed", "region_added", "region_renamed", "region_archived", "terminal_region_set", "check_call", "check_call_removed", "truck_added", "truck_changed", "truck_archived", "truck_restored", "import_completed", "cost_profile_changed", "trailer_added", "trailer_changed", "trailer_archived", "trailer_restored", "trailer_hooked", "trailer_unhooked", "trailer_assigned", "dwell_adjusted", "dwell_waived", "dwell_reset"] },

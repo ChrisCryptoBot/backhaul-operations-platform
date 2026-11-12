@@ -279,6 +279,11 @@ async function main() {
     stops: await prisma.stop.count(),
     assignments: await prisma.assignment.count()
   };
+  // Invoices as their own records (docs/MONEY_PLAN.md, Wave 1).
+  {
+    const { ensureInvoiceRecords } = await import("../src/server/tl/invoice-records");
+    for (const w of await prisma.workspace.findMany({ select: { id: true } })) await ensureInvoiceRecords(prisma, w.id);
+  }
   console.log(`Seeded in ${((Date.now() - t0) / 1000).toFixed(1)} s`, counts);
 }
 

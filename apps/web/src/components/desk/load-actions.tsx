@@ -13,6 +13,7 @@ import { toCentralLocal } from "@/lib/zoned";
 import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
 import { AddressInput } from "./address-input";
 import { PAID_METHODS } from "@/lib/pay-method";
+import { SHORT_CODES, SHORT_CODE_LABEL, type ShortCode } from "@/lib/invoice-records";
 import { AuthorityStatus, useAuthorityLookup } from "./customer-authority";
 import { Modal } from "./kit/modal";
 import { FuelImport } from "./partner-actions";
@@ -879,13 +880,16 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff =
   const received = Math.round((billed - due) * 100) / 100;
   const [open, setOpen] = React.useState(false);
   // What is typed is kept until the payment is recorded.
-  const [{ amount, paidOn, method, shortAction, shortReason, overAck }, setPaid, draft] = useDraft<{ amount: string; paidOn: string; method: string; shortAction: "balance" | "writeoff"; shortReason: string; overAck: boolean }>(`paid:${loadId}`, {
+  const [{ amount, paidOn, method, shortAction, shortReason, overAck, reference, payer, shortCode }, setPaid, draft] = useDraft<{ amount: string; paidOn: string; method: string; shortAction: "balance" | "writeoff"; shortReason: string; overAck: boolean; reference: string; payer: string; shortCode: ShortCode | "" }>(`paid:${loadId}`, {
     amount: due.toFixed(2),
     paidOn: nowLocal().slice(0, 10),
     method: "",
     shortAction: "balance",
     shortReason: "",
-    overAck: false
+    overAck: false,
+    reference: "",
+    payer: "",
+    shortCode: ""
   });
   const setAmount = (v: string) => setPaid((p) => ({ ...p, amount: v }));
   const setPaidOn = (v: string) => setPaid((p) => ({ ...p, paidOn: v }));
@@ -893,6 +897,9 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff =
   const setShortAction = (v: "balance" | "writeoff") => setPaid((p) => ({ ...p, shortAction: v }));
   const setShortReason = (v: string) => setPaid((p) => ({ ...p, shortReason: v }));
   const setOverAck = (v: boolean) => setPaid((p) => ({ ...p, overAck: v }));
+  const setReference = (v: string) => setPaid((p) => ({ ...p, reference: v }));
+  const setPayer = (v: string) => setPaid((p) => ({ ...p, payer: v }));
+  const setShortCode = (v: ShortCode | "") => setPaid((p) => ({ ...p, shortCode: v }));
   const [message, setMessage] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   // Left blank, the amount is what is owed (the server reads it the same way).
@@ -903,7 +910,7 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff =
   async function pay() {
     setMessage(null);
     setBusy(true);
-    const got = await tried(() => paidAction(loadId, amount, paidOn, method, shortAction, shortReason));
+    const got = await tried(() => paidAction(loadId, amount, paidOn, method, shortAction, shortReason, { reference, payer, shortCode }));
     setBusy(false);
     if (!got.ok) return setMessage(got.message);
     const out = got.value;
@@ -970,6 +977,14 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff =
               </select>
             </Fld>
           </div>
+          <div className="dlg-two">
+            <Fld label="Reference" hint="Optional. The check number, ACH trace or remittance id.">
+              <input value={reference} onChange={(e) => setReference(e.target.value)} maxLength={80} />
+            </Fld>
+            <Fld label="Paid by" hint="Optional. Only when not the customer billed (a factor, a quick-pay service).">
+              <input value={payer} onChange={(e) => setPayer(e.target.value)} maxLength={120} />
+            </Fld>
+          </div>
           {diff < 0 ? (
             <fieldset className="dlg-choice" style={{ border: 0, padding: 0, margin: 0 }}>
               <legend className="tl-note warn">That is {usd(Math.abs(diff), 2)} short of what is owed. What should happen to the {usd(Math.abs(diff), 2)}?</legend>
@@ -983,6 +998,18 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff =
               ) : (
                 <p className="tl-sub" style={{ margin: "6px 0" }}>Writing it off is for an admin. Keep it open here, and ask one to close it.</p>
               )}
+              {canWriteOff && shortAction === "writeoff" ? (
+                <Fld label="What kind of short pay?" hint="Counted in reports.">
+                  <select value={shortCode} onChange={(e) => setShortCode(e.target.value as ShortCode | "")}>
+                    <option value="">Not said</option>
+                    {SHORT_CODES.map((c) => (
+                      <option key={c} value={c}>
+                        {SHORT_CODE_LABEL[c]}
+                      </option>
+                    ))}
+                  </select>
+                </Fld>
+              ) : null}
               {canWriteOff && shortAction === "writeoff" ? (
                 <Fld label="Why is it written off?" hint="Required. The customer's deduction, a damage claim, a negotiated discount. It goes in the audit trail.">
                   <input value={shortReason} onChange={(e) => setShortReason(e.target.value)} maxLength={200} />

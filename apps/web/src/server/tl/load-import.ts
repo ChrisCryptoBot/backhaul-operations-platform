@@ -6,6 +6,7 @@ import { recordAudit } from "./audit";
 import { lockWorkspace } from "./plan";
 import { currentWorkspaceId } from "./workspace";
 import { workspaceTimezone } from "./zone";
+import { ensureInvoiceRecords } from "./invoice-records";
 
 /**
  * Loading a carrier's finished loads from a file. The file is read and checked here, on the server, every time: the preview a person sees and the import that follows both run the same check against the
@@ -167,6 +168,8 @@ export async function commitLoadImport(text: string, mapping: LoadImportMap | nu
       });
       for (let i = 0; i < data.length; i += LOAD_IMPORT_CHUNK) await tx.load.createMany({ data: data.slice(i, i + LOAD_IMPORT_CHUNK) });
       for (let i = 0; i < stops.length; i += LOAD_IMPORT_CHUNK * 2) await tx.stop.createMany({ data: stops.slice(i, i + LOAD_IMPORT_CHUNK * 2) });
+      // Invoices written in bulk get their records too (a row with no invoice number has none yet: docs/MONEY_PLAN.md, gap 16).
+      await ensureInvoiceRecords(tx, workspaceId);
       const n = data.length;
       const dup = r.check.duplicates + raced;
       await recordAudit(

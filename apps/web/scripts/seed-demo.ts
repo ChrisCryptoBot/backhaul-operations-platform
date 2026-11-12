@@ -497,6 +497,9 @@ async function main() {
     assignments: await prisma.assignment.count(),
     auditEvents: await prisma.auditEvent.count()
   };
+  // Invoices as their own records (docs/MONEY_PLAN.md, Wave 1): the seed writes loads in bulk, so their records are made here.
+  const { ensureInvoiceRecords } = await import("../src/server/tl/invoice-records");
+  await ensureInvoiceRecords(prisma, WORKSPACE_ID);
   console.log("seeded", counts);
 }
 

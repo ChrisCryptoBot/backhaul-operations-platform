@@ -5,6 +5,7 @@ import { documentKinds } from "@/server/tl/documents";
 import { num } from "@/server/tl/convert";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { callPartner, partnerState, providerName } from "./call";
+import { openInvoiceOf, setInvoiceFactoring } from "@/server/tl/invoice-records";
 
 /**
  * Factoring: an invoice that is out can be sent to a factor with its packet. The invoice is always required; the rate confirmation and the proof of delivery help the factor
@@ -101,6 +102,8 @@ export async function factorInvoice(loadId: string, opts: { sendAnyway?: boolean
   const without = view.missingOptional.length > 0 ? `, without ${view.missingOptional.map((k) => PACKET_LABEL[k].toLowerCase()).join(" and ")}` : "";
   await prisma.$transaction(async (tx) => {
     await tx.load.update({ where: { id: loadId }, data: { factoringStatus: status, factoringReferenceId: referenceId, factoringUpdatedAt: now } });
+    const record = await openInvoiceOf(tx, workspaceId, loadId);
+    if (record) await setInvoiceFactoring(tx, record.id, { status, referenceId, now });
     await recordAudit(
       { entity: "invoice", action: "factoring_requested", loadId, loadNumber: load.loadNumber, summary: `${load.invoiceNumber ?? "Invoice"} sent to ${providerName(provider)} (reference ${referenceId})${without}`, before: { Factoring: factoringLabel(view.status) }, after: { Factoring: factoringLabel(status), Reference: referenceId }, at: now, workspaceId },
       tx
@@ -124,6 +127,8 @@ export async function applyFactoringUpdate(loadId: string, status: string, refer
   return prisma.$transaction(async (tx) => {
     const out = await tx.load.updateMany({ where: { id: loadId, workspaceId, factoringStatus: l.factoringStatus }, data: { factoringStatus: status, ...(referenceId ? { factoringReferenceId: referenceId } : {}), factoringUpdatedAt: now } });
     if (out.count !== 1) return false;
+    const record = await openInvoiceOf(tx, workspaceId, loadId);
+    if (record) await setInvoiceFactoring(tx, record.id, { status, ...(referenceId ? { referenceId } : {}), now });
     await recordAudit({ entity: "invoice", action: "factoring_updated", loadId, loadNumber: l.loadNumber, summary: `${l.invoiceNumber ?? "Invoice"}: ${factoringLabel(status).toLowerCase()}`, before: { Factoring: factoringLabel(l.factoringStatus) }, after: { Factoring: factoringLabel(status) }, at: now, workspaceId }, tx);
     return true;
   });

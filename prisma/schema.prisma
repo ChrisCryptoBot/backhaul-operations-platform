@@ -100,6 +100,8 @@ model Workspace {
   handoffs           Handoff[]
   settlements        Settlement[]
   customers          Customer[]
+  invoices           Invoice[]
+  invoicePayments    InvoicePayment[]
 
   @@map("workspaces")
 }
@@ -367,6 +369,8 @@ model Load {
   settlement       SettlementLoad?
   signals          Signal[]
   stopEvidence     StopEvidence[]
+  invoiceLoads     InvoiceLoad[]
+  invoiceLineRows  InvoiceLine[]
 
   // The lists a big fleet reads: by state, by day, by money, by customer, by number, and a truck's own loads. Trigram (search) indexes are in the
   // 20261106100000 migration only; Prisma cannot express them.
@@ -1509,4 +1513,111 @@ model StopEvidence {
   @@index([workspaceId, state])
   @@index([loadId])
   @@map("stop_evidence")
+}
+
+/// An invoice as its own record (docs/MONEY_PLAN.md, Wave 1). It can carry one load or several, and it keeps its lines, its payments and where it stands
+/// with a factor. During the move from "invoice fields on the load" the load keeps a projection of its invoice (invoice_number, invoiced_amount, paid_amount,
+/// payment_status) written by the same transaction, so every older reader still sees the same numbers; tests check the two never disagree.
+model Invoice {
+  id             String    @id @default(cuid())
+  workspaceId    String    @map("workspace_id")
+  number         String
+  /// invoice | credit_memo. A credit memo has a negative total and names the invoice it credits.
+  kind           String    @default("invoice")
+  /// open | paid | void. "Part paid" is an open invoice with paid_total above zero.
+  status         String    @default("open")
+  billToName     String?   @map("bill_to_name")
+  billToMc       String?   @map("bill_to_mc")
+  billToEmail    String?   @map("bill_to_email")
+  billToPhone    String?   @map("bill_to_phone")
+  issuedAt       DateTime  @map("issued_at")
+  termsDays      Int       @default(0) @map("terms_days")
+  total          Decimal   @db.Decimal(12, 2)
+  paidTotal      Decimal   @default(0) @map("paid_total") @db.Decimal(12, 2)
+  paidAt         DateTime? @map("paid_at")
+  writeOffAmount Decimal?  @map("write_off_amount") @db.Decimal(12, 2)
+  writeOffReason String?   @map("write_off_reason")
+  /// Why it closed short, as a code a report can count: quick_pay_fee | factor_fee | customer_deduction | damage_claim | negotiated | other.
+  writeOffCode   String?   @map("write_off_code")
+  creditOfId     String?   @map("credit_of_id")
+  voidedAt       DateTime? @map("voided_at")
+  voidReason     String?   @map("void_reason")
+  /// Where it stands with a factor: none | requested | submitted | funded | rejected | paid (the same words as the load's factoring_status).
+  factoringStatus      String    @default("none") @map("factoring_status")
+  factoringReferenceId String?   @map("factoring_reference_id")
+  factoringUpdatedAt   DateTime? @map("factoring_updated_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creditOf  Invoice?         @relation("CreditMemo", fields: [creditOfId], references: [id], onDelete: SetNull)
+  credits   Invoice[]        @relation("CreditMemo")
+  lines     InvoiceLine[]
+  loads     InvoiceLoad[]
+  payments  InvoicePayment[]
+
+  @@unique([workspaceId, number])
+  @@index([workspaceId, status, issuedAt])
+  @@index([workspaceId, kind])
+  @@map("invoices")
+}
+
+/// One line of an invoice, typed so a report or a partner can tell detention from lumper without reading the label.
+model InvoiceLine {
+  id        String  @id @default(cuid())
+  invoiceId String  @map("invoice_id")
+  loadId    String? @map("load_id")
+  /// linehaul | fuel_surcharge | detention | lumper | layover | tonu | stop_off | credit | other
+  kind      String
+  label     String
+  amount    Decimal @db.Decimal(12, 2)
+  sort      Int     @default(0)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  load    Load?   @relation(fields: [loadId], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId, sort])
+  @@index([loadId])
+  @@map("invoice_lines")
+}
+
+/// Which loads an invoice bills. A load is on at most one invoice that is not void (checked in the one write path).
+model InvoiceLoad {
+  invoiceId String @map("invoice_id")
+  loadId    String @map("load_id")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  load    Load    @relation(fields: [loadId], references: [id], onDelete: Cascade)
+
+  @@id([invoiceId, loadId])
+  @@index([loadId])
+  @@map("invoice_loads")
+}
+
+/// Money received against an invoice: what, when, how, and the reference that ties it to the bank, the check or the partner that reported it.
+model InvoicePayment {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  invoiceId   String   @map("invoice_id")
+  amount      Decimal  @db.Decimal(12, 2)
+  paidAt      DateTime @map("paid_at")
+  /// ach | check | wire | card | factoring | other
+  method      String?
+  /// The check number, ACH trace or remittance id.
+  reference   String?
+  /// Who paid it, when not the customer billed (a factor, a quick-pay service).
+  payer       String?
+  note        String?
+  /// desk | factor | accounting | import | legacy: who recorded it.
+  source      String   @default("desk")
+  /// The partner's own id for this payment, so reading the same payment twice never doubles it.
+  externalId  String?  @map("external_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invoice   Invoice   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, source, externalId])
+  @@index([invoiceId, paidAt])
+  @@map("invoice_payments")
 }
