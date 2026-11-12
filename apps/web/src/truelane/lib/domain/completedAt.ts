@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/completedAt.ts @ ebdbdf81. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/completedAt.ts @ c3156b94. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * `loads.completed_at` (v45): when a load was finished. Node-safe, no I/O.
  *

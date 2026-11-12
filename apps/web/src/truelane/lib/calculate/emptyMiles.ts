@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/calculate/emptyMiles.ts @ ebdbdf81. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/calculate/emptyMiles.ts @ c3156b94. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Empty miles (pickup + return deadhead) on the Rate Calculator — pure state rules.
  *

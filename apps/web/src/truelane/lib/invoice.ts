@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/invoice.ts @ ebdbdf81. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/invoice.ts @ c3156b94. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Broker invoice PDF (session 1 payment loop).
  *

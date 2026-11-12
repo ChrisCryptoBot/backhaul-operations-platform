@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/rateCon/types.ts @ ebdbdf81. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/rateCon/types.ts @ c3156b94. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Rate con extraction — the shape returned by the `rate-con-extract` Edge Function.
  * Keep in sync with supabase/functions/rate-con-extract/schema.ts (the JSON schema Claude fills).
