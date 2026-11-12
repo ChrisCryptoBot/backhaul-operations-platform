@@ -5,7 +5,7 @@ import React from "react";
 import { saveFactoringTermsAction } from "@/app/(desk)/actions";
 import { economicsOf } from "@/lib/factoring-economics";
 import { usd } from "@/lib/desk-format";
-import { BLANK_TERMS, validateTerms, type TermsForm } from "@/lib/factoring-terms";
+import { BLANK_TERMS, TRANSPORTS, validateTerms, type TermsForm, type Transport } from "@/lib/factoring-terms";
 import { useToast } from "./kit/toast";
 import { tried } from "./kit/tried";
 import { DraftNote, useDraft } from "./kit/use-draft";
@@ -64,6 +64,22 @@ export function FactoringTermsForm({ initial, canEdit }: { initial: TermsForm; c
         if (canEdit && !busy) void save();
       }}>
       <DraftNote draft={kept} what="these terms" />
+      <div className="dlg-two">
+        <Fld label="How the factor takes invoices" hint="Most factors take a batch of files: a schedule of accounts and one PDF packet per invoice.">
+          <select value={f.transport} onChange={(e) => setF({ ...f, transport: e.target.value as Transport })} disabled={!canEdit}>
+            {TRANSPORTS.map((t) => (
+              <option key={t.key} value={t.key}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </Fld>
+        {f.transport !== "api" ? (
+          <Fld label={f.transport === "batch_email" ? "The factor's email for batches" : "The factor's SFTP address"} error={errors.batchDestination} hint={f.transport === "batch_email" ? "Where batches are emailed." : "Like sftp://files.factor.com/inbox. The login is kept with the factor's keys, never here."}>
+            <input value={f.batchDestination} onChange={set("batchDestination")} disabled={!canEdit} maxLength={200} autoComplete="off" />
+          </Fld>
+        ) : null}
+      </div>
       <div className="dlg-two">
         <Fld label="Factoring company" error={errors.factorName} hint="Named on the notice of assignment.">
           <input value={f.factorName} onChange={set("factorName")} disabled={!canEdit} maxLength={80} autoComplete="off" />

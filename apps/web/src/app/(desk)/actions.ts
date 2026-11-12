@@ -75,6 +75,7 @@ import { undoPaid, recordChase, voidInvoice, invoiceLoads, issueCreditMemo, void
 import { waiveDetention } from "@/server/tl/detention";
 import { saveFactoringTerms, type SaveTermsResult } from "@/server/partners/factoring-terms";
 import { recordChargeback, type ChargebackResult } from "@/server/partners/factoring";
+import { cancelFactoringBatch, retryFactoringBatch, sendFactoringBatch, type BatchResult, type RetryResult } from "@/server/partners/factoring-batch";
 import type { TermsForm } from "@/lib/factoring-terms";
 import { confirmStopEvidence, dismissStopEvidence, type ConfirmValues, type DecisionResult } from "@/server/tl/detention-evidence";
 import { discardSettlement, finalizeSettlement, markSettlementPaid, saveDraft, startSettlement, voidSettlement, type Draft, type SettleResult } from "@/server/tl/settlement";
@@ -896,6 +897,31 @@ export async function saveFactoringTermsAction(form: TermsForm): Promise<SaveTer
     revalidatePath("/invoices");
     revalidatePath("/audit");
   }
+  return out;
+}
+
+/** Send the invoices that are ready to the factor as one batch of files (schedule of accounts and packets), by the SFTP or email the factoring terms name. */
+export async function sendFactoringBatchAction(invoiceIds?: string[]): Promise<BatchResult> {
+  await requireCan("bill");
+  const access = await checkAccess("bill");
+  const out = await sendFactoringBatch({ invoiceIds: invoiceIds?.slice(0, 500), who: access.ok ? (access.identity.name ?? access.identity.email ?? undefined) : undefined, terminal: await currentTerminal() });
+  if (out.ok) refreshLoads();
+  return out;
+}
+
+/** Try a batch that did not reach the factor again. */
+export async function retryFactoringBatchAction(batchId: string): Promise<RetryResult> {
+  await requireCan("bill");
+  const out = await retryFactoringBatch(batchId);
+  if (out.ok) refreshLoads();
+  return out;
+}
+
+/** Give a failed batch's invoices back, so they can go another way. */
+export async function cancelFactoringBatchAction(batchId: string, reason: string): Promise<{ ok: boolean; error?: string }> {
+  await requireCan("bill");
+  const out = await cancelFactoringBatch(batchId, reason.slice(0, 200));
+  if (out.ok) refreshLoads();
   return out;
 }
 

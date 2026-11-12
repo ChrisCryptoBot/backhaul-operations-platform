@@ -19,7 +19,7 @@ const run = process.env.RUN_DB_INTEGRATION === "true";
 const W = "fw2";
 const NOW = new Date("2026-11-20T18:00:00Z");
 
-const BLANK = { factorName: "", remitName: "", remitAddress: "", lockboxBank: "", routingNumber: "", accountNumber: "", noaText: "", advancePct: "", feePct: "" };
+const BLANK = { transport: "api" as const, batchDestination: "", factorName: "", remitName: "", remitAddress: "", lockboxBank: "", routingNumber: "", accountNumber: "", noaText: "", advancePct: "", feePct: "" };
 
 async function pdfBytes(pages = 1): Promise<Buffer> {
   const doc = await PDFDocument.create();

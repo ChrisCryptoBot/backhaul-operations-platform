@@ -102,6 +102,7 @@ model Workspace {
   customers          Customer[]
   invoices           Invoice[]
   factoringTerms     FactoringTerms?
+  factoringBatches   FactoringBatch[]
   invoicePayments    InvoicePayment[]
 
   @@map("workspaces")
@@ -1564,6 +1565,7 @@ model Invoice {
   lines     InvoiceLine[]
   loads     InvoiceLoad[]
   payments  InvoicePayment[]
+  batches   FactoringBatchInvoice[]
 
   @@unique([workspaceId, number])
   @@index([workspaceId, status, issuedAt])
@@ -1634,6 +1636,11 @@ model InvoicePayment {
 /// A fleet's own factoring terms: where a factored invoice must be paid (the notice of assignment), and the advance and fee the factor charges. Printed on the invoice PDF once an invoice is factored.
 model FactoringTerms {
   workspaceId   String   @id @map("workspace_id")
+  /// How the factor takes invoices: api | batch.
+  transport        String  @default("api")
+  /// For a batch: sftp | email, and where to.
+  batchMethod      String? @map("batch_method")
+  batchDestination String? @map("batch_destination")
   factorName    String?  @map("factor_name")
   remitName     String?  @map("remit_name")
   remitAddress  String?  @map("remit_address")
@@ -1649,4 +1656,44 @@ model FactoringTerms {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@map("factoring_terms")
+}
+
+/// A batch of invoices sent to a factor as files (a schedule of accounts and one PDF packet each) by SFTP or email (docs/MONEY_PLAN.md, Wave 2). status: queued | sent | failed | cancelled.
+model FactoringBatch {
+  id           String    @id @default(cuid())
+  workspaceId  String    @map("workspace_id")
+  number       String
+  status       String    @default("queued")
+  method       String
+  destination  String
+  invoiceCount Int       @map("invoice_count")
+  total        Decimal   @db.Decimal(12, 2)
+  bytes        Int       @default(0)
+  attempts     Int       @default(0)
+  lastError    String?   @map("last_error")
+  receipt      String?
+  sentAt       DateTime? @map("sent_at")
+  createdBy    String?   @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invoices  FactoringBatchInvoice[]
+
+  @@unique([workspaceId, number])
+  @@index([workspaceId, createdAt])
+  @@map("factoring_batches")
+}
+
+/// Which invoices a factoring batch carries.
+model FactoringBatchInvoice {
+  batchId   String @map("batch_id")
+  invoiceId String @map("invoice_id")
+
+  batch   FactoringBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  invoice Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@id([batchId, invoiceId])
+  @@index([invoiceId])
+  @@map("factoring_batch_invoices")
 }

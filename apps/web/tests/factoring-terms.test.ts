@@ -4,10 +4,25 @@ import { BLANK_TERMS, maskAccount, remitToOf, validateTerms } from "@/lib/factor
 import { scheduleCsv, splitReady, type ScheduleRow } from "@/lib/factoring-schedule";
 
 describe("factoring terms", () => {
-  test("a blank form is valid and saves nothing", () => {
+  test("a blank form is valid and saves nothing but the API transport", () => {
     const r = validateTerms(BLANK_TERMS);
     expect(r.ok).toBe(true);
-    if (r.ok) expect(Object.values(r.value).every((v) => v === null)).toBe(true);
+    if (r.ok) {
+      const { transport, ...rest } = r.value;
+      expect(transport).toBe("api");
+      expect(Object.values(rest).every((v) => v === null)).toBe(true);
+    }
+  });
+
+  test("a batch needs a destination that fits its method; an API factor needs none", () => {
+    expect(validateTerms({ ...BLANK_TERMS, transport: "batch_email", batchDestination: "" })).toMatchObject({ ok: false, errors: { batchDestination: expect.any(String) } });
+    expect(validateTerms({ ...BLANK_TERMS, transport: "batch_email", batchDestination: "not-an-email" }).ok).toBe(false);
+    expect(validateTerms({ ...BLANK_TERMS, transport: "batch_email", batchDestination: "batches@apex.example" })).toMatchObject({ ok: true, value: { transport: "batch", batchMethod: "email", batchDestination: "batches@apex.example" } });
+    expect(validateTerms({ ...BLANK_TERMS, transport: "batch_sftp", batchDestination: "ftp://wrong" }).ok).toBe(false);
+    expect(validateTerms({ ...BLANK_TERMS, transport: "batch_sftp", batchDestination: "sftp://files.apex.example:2222/inbox" })).toMatchObject({ ok: true, value: { batchMethod: "sftp" } });
+    expect(validateTerms({ ...BLANK_TERMS, transport: "batch_sftp", batchDestination: "files.apex.example:/inbox" }).ok).toBe(true);
+    // A destination typed while "API" is chosen is not kept.
+    expect(validateTerms({ ...BLANK_TERMS, transport: "api", batchDestination: "x" })).toMatchObject({ ok: true, value: { transport: "api", batchMethod: null, batchDestination: null } });
   });
 
   test("routing is nine digits, the account 4 to 17, percentages 0 to 100 with two decimals", () => {

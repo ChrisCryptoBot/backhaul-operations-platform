@@ -14,20 +14,20 @@ import { workspaceTimezone } from "@/server/tl/zone";
  */
 export const SCHEDULE_CAP = 500;
 
-export async function scheduleRows(workspaceId = currentWorkspaceId(), terminal: Terminals = null, only: string[] | null = null): Promise<{ rows: ScheduleRow[]; cut: boolean }> {
+export async function scheduleRows(workspaceId = currentWorkspaceId(), terminal: Terminals = null, only: string[] | null = null, invoiceIds: string[] | null = null): Promise<{ rows: ScheduleRow[]; cut: boolean }> {
   const tz = await workspaceTimezone(workspaceId);
   const day = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
   const invoices = await prisma.invoice.findMany({
+    // Named invoices (a batch being built or sent again) are read whatever their factoring state; otherwise, the open invoices not with a factor.
     where: {
       workspaceId,
       kind: "invoice",
-      status: "open",
-      factoringStatus: { in: ["none", "rejected"] },
+      ...(invoiceIds ? { id: { in: invoiceIds } } : { status: "open", factoringStatus: { in: ["none", "rejected"] } }),
       loads: { some: { ...(only ? { loadId: { in: only } } : {}), load: { is: { deletedAt: null, ...inTerminal(terminal) } } } }
     },
     orderBy: [{ issuedAt: "asc" }, { id: "asc" }],
     take: SCHEDULE_CAP + 1,
-    include: { loads: true }
+    include: { loads: true, lines: { select: { loadId: true, sort: true } } }
   });
   const cut = invoices.length > SCHEDULE_CAP;
   const shown = invoices.slice(0, SCHEDULE_CAP);
@@ -37,7 +37,9 @@ export async function scheduleRows(workspaceId = currentWorkspaceId(), terminal:
   // The same rule as the factoring view and the packet (server/tl/documents.ts, packetFiles): only files kept on the load count.
   const files = await packetFiles(loadIds, workspaceId);
   const rows = shown.map((i): ScheduleRow => {
-    const ids = i.loads.map((l) => l.loadId);
+    // The invoice's loads in line order (the order its money is shared out in), then any without a line.
+    const ordered = [...i.lines].sort((a, b) => a.sort - b.sort).map((l) => l.loadId).filter((id): id is string => !!id);
+    const ids = [...new Set([...ordered, ...i.loads.map((l) => l.loadId)])];
     const mine = ids.map((id) => byId.get(id)).filter((l): l is NonNullable<typeof l> => !!l);
     const due = dueAt(i.issuedAt, i.termsDays);
     return {
@@ -53,7 +55,9 @@ export async function scheduleRows(workspaceId = currentWorkspaceId(), terminal:
       balance: balanceOf({ total: i.total, paidTotal: i.paidTotal, status: "open" }),
       rateCon: ids.every((id) => files.get(id)?.rateCon === true),
       pod: ids.every((id) => files.get(id)?.pod === true),
-      reference: i.factoringReferenceId
+      reference: i.factoringReferenceId,
+      invoiceId: i.id,
+      loadIds: ids
     };
   });
   return { rows, cut };

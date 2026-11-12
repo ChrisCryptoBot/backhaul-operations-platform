@@ -18,6 +18,11 @@ import { listProposed } from "@/server/tl/detention-evidence";
 import { factoringLabel } from "@/server/partners/factoring";
 import { InvoiceDialog, PaidDialog } from "@/components/desk/load-actions";
 import { TogetherBar, TogetherPick, TogetherProvider, type TogetherLoad } from "@/components/desk/invoice-together";
+import { FactoringBatches } from "@/components/desk/factoring-batches";
+import { getFactoringTerms } from "@/server/partners/factoring-terms";
+import { listFactoringBatches } from "@/server/partners/factoring-batch";
+import { scheduleRows } from "@/server/partners/factoring-schedule";
+import { splitReady } from "@/lib/factoring-schedule";
 import { Card, PageHead, Stat, Tabs } from "@/components/desk/ui";
 import { DataTable, type Column, type Row, type SortHref } from "@/components/desk/data-table";
 import { DataTableTools } from "@/components/desk/data-table-tools";
@@ -110,6 +115,11 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
     // How this customer has treated the desk, when the search narrows to one (the Loads History computes it from the loads' own money columns).
     q ? listHistory({ q, pageSize: 1, terminal }) : Promise.resolve(null)
   ]);
+  // Factoring by batch: only when this fleet's factor takes invoices as files (Settings, Factoring terms).
+  const factoringTerms = await getFactoringTerms();
+  const batchOn = factoringTerms?.transport === "batch" && !!factoringTerms.batchMethod && !!factoringTerms.batchDestination;
+  const [batchRows, batches] = batchOn ? await Promise.all([scheduleRows(undefined, terminal), listFactoringBatches()]) : [null, []];
+  const batchSplit = batchRows ? splitReady(batchRows.rows) : null;
   const href = (over: { ready?: number; out?: number; paid?: number; show?: string | null; q?: string } = {}) => {
     const u = new URLSearchParams();
     const pages = { ready: readyPage, out: outPage, paid: paidPage, ...over };
@@ -318,6 +328,18 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
               </div>
             ))}
           </dl>
+        </Card>
+      ) : null}
+      {batchOn && batchSplit ? (
+        <Card title="Sending to the factor">
+          <FactoringBatches
+            method={factoringTerms!.batchMethod!}
+            destination={factoringTerms!.batchDestination!}
+            ready={batchSplit.ready.length}
+            held={batchSplit.held.map((h) => ({ number: h.row.number, lacks: h.lacks.join(" and ") }))}
+            batches={batches.map((b) => ({ ...b, sentAt: b.sentAt ? b.sentAt.toISOString() : null, createdAt: b.createdAt.toISOString() }))}
+            canAct={canBill}
+          />
         </Card>
       ) : null}
       <Card title={`Detention not yet billed, last 90 days · ${detention.unbilledLoads} ${detention.unbilledLoads === 1 ? "load" : "loads"} · ${usd(detention.totalUnbilled, 2)}`}>

@@ -14,6 +14,9 @@ export async function getFactoringTerms(workspaceId = currentWorkspaceId()): Pro
   const r = await prisma.factoringTerms.findUnique({ where: { workspaceId } });
   if (!r) return null;
   return {
+    transport: r.transport === "batch" ? "batch" : "api",
+    batchMethod: r.batchMethod === "sftp" || r.batchMethod === "email" ? r.batchMethod : null,
+    batchDestination: r.batchDestination,
     factorName: r.factorName,
     remitName: r.remitName,
     remitAddress: r.remitAddress,
@@ -30,6 +33,8 @@ export async function getFactoringTerms(workspaceId = currentWorkspaceId()): Pro
 
 /** The form's starting values: what is saved, as text. */
 export const termsForm = (t: StoredTerms | null): TermsForm => ({
+  transport: t?.transport === "batch" ? (t.batchMethod === "email" ? "batch_email" : "batch_sftp") : "api",
+  batchDestination: t?.batchDestination ?? "",
   factorName: t?.factorName ?? "",
   remitName: t?.remitName ?? "",
   remitAddress: t?.remitAddress ?? "",
@@ -50,7 +55,7 @@ export async function saveFactoringTerms(form: TermsForm, who = "Admin", now = n
   const before = await getFactoringTerms(workspaceId);
   const was = termsForm(before);
   const now2 = termsForm({ ...v, updatedAt: now, updatedBy: who });
-  const names: Array<[keyof TermsForm, string]> = [["factorName", "Factor"], ["remitName", "Pay to"], ["remitAddress", "Remit address"], ["lockboxBank", "Lockbox bank"], ["routingNumber", "Routing number"], ["accountNumber", "Account number"], ["noaText", "Notice of assignment"], ["advancePct", "Advance %"], ["feePct", "Fee %"]];
+  const names: Array<[keyof TermsForm, string]> = [["transport", "How the factor takes invoices"], ["batchDestination", "Batch destination"], ["factorName", "Factor"], ["remitName", "Pay to"], ["remitAddress", "Remit address"], ["lockboxBank", "Lockbox bank"], ["routingNumber", "Routing number"], ["accountNumber", "Account number"], ["noaText", "Notice of assignment"], ["advancePct", "Advance %"], ["feePct", "Fee %"]];
   const changed = names.filter(([k]) => was[k] !== now2[k]);
   if (changed.length === 0) return { ok: true, changed: false };
   const show = (k: keyof TermsForm, f: TermsForm) => (k === "accountNumber" ? (maskAccount(f.accountNumber || null) ?? "") : k === "noaText" ? (f.noaText ? "text set" : "") : f[k]);

@@ -2,7 +2,18 @@
  * A fleet's own factoring terms (docs/MONEY_PLAN.md, Wave 2): where a factored invoice must be paid, the notice of assignment wording, and the advance and fee the factor charges.
  * Pure: the form checks with `validateTerms`, the server saves what it returns, and the invoice PDF reads the remit-to with `remitToOf`.
  */
+/** How the factor takes invoices: through its API, or as a batch of files (schedule of accounts and packets) by SFTP or email. */
+export type Transport = "api" | "batch_sftp" | "batch_email";
+export const TRANSPORTS: Array<{ key: Transport; label: string }> = [
+  { key: "api", label: "Through the factor's API" },
+  { key: "batch_sftp", label: "A batch of files by SFTP" },
+  { key: "batch_email", label: "A batch of files by email" }
+];
+
 export type TermsForm = {
+  transport: Transport;
+  /** Where a batch goes: an SFTP address or an email address. */
+  batchDestination: string;
   factorName: string;
   remitName: string;
   remitAddress: string;
@@ -14,9 +25,12 @@ export type TermsForm = {
   feePct: string;
 };
 
-export const BLANK_TERMS: TermsForm = { factorName: "", remitName: "", remitAddress: "", lockboxBank: "", routingNumber: "", accountNumber: "", noaText: "", advancePct: "", feePct: "" };
+export const BLANK_TERMS: TermsForm = { transport: "api", batchDestination: "", factorName: "", remitName: "", remitAddress: "", lockboxBank: "", routingNumber: "", accountNumber: "", noaText: "", advancePct: "", feePct: "" };
 
 export type TermsValue = {
+  transport: "api" | "batch";
+  batchMethod: "sftp" | "email" | null;
+  batchDestination: string | null;
   factorName: string | null;
   remitName: string | null;
   remitAddress: string | null;
@@ -61,12 +75,22 @@ export function validateTerms(f: TermsForm): TermsCheck {
   if (noa.length > 600) errors.noaText = "600 characters at most.";
   const adv = pct(f.advancePct);
   const fee = pct(f.feePct);
+  const transport: Transport = f.transport === "batch_sftp" || f.transport === "batch_email" ? f.transport : "api";
+  const method = transport === "batch_sftp" ? "sftp" : transport === "batch_email" ? "email" : null;
+  const dest = f.batchDestination.trim();
+  if (method) {
+    const problem = destinationProblem(method, dest);
+    if (problem) errors.batchDestination = problem;
+  }
   if (adv === "bad") errors.advancePct = "A percentage from 0 to 100, like 90.";
   if (fee === "bad") errors.feePct = "A percentage from 0 to 100, like 2.5.";
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   return {
     ok: true,
     value: {
+      transport: method ? "batch" : "api",
+      batchMethod: method,
+      batchDestination: method ? dest : null,
       factorName: orNull(factorName),
       remitName: orNull(remitName),
       remitAddress: orNull(remitAddress),
@@ -90,3 +114,12 @@ export function remitToOf(t: Pick<TermsValue, "remitName" | "remitAddress" | "lo
 
 /** The account number with all but its last four digits hidden, for the audit trail and the screen. */
 export const maskAccount = (a: string | null): string | null => (a ? `${"*".repeat(Math.max(0, a.length - 4))}${a.slice(-4)}` : null);
+
+/** Where a batch goes, as typed: an email address, or an SFTP address (sftp://host[:port]/path, or host:/path). Null when it is right; the problem in words when not. */
+export function destinationProblem(method: "sftp" | "email", destination: string): string | null {
+  const d = destination.trim();
+  if (d === "") return method === "email" ? "Type the factor's email address for batches." : "Type the factor's SFTP address, like sftp://files.factor.com/inbox.";
+  if (d.length > 200) return "200 characters at most.";
+  if (method === "email") return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d) ? null : "That is not an email address.";
+  return /^sftp:\/\/[A-Za-z0-9.-]+(:\d{1,5})?(\/[^\s]*)?$/.test(d) || /^[A-Za-z0-9.-]+:\/(?!\/)[^\s]*$/.test(d) ? null : "Type it as sftp://host/path (or host:/path).";
+}

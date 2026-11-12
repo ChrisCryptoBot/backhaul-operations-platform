@@ -21,6 +21,9 @@ export type ScheduleRow = {
   pod: boolean;
   /** The reference the factor knows it by, when it has one. */
   reference: string | null;
+  /** The invoice record and its loads (first in line order), for the desk's own use; not written to the CSV. */
+  invoiceId?: string;
+  loadIds?: string[];
 };
 
 export const SCHEDULE_HEADERS = ["Invoice", "Loads", "Customer", "Customer MC", "PO", "Invoice date", "Due date", "Terms (days)", "Amount", "Balance", "Rate confirmation on file", "Proof of delivery on file", "Factor reference"];
