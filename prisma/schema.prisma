@@ -101,6 +101,7 @@ model Workspace {
   settlements        Settlement[]
   customers          Customer[]
   invoices           Invoice[]
+  factoringTerms     FactoringTerms?
   invoicePayments    InvoicePayment[]
 
   @@map("workspaces")
@@ -1546,6 +1547,14 @@ model Invoice {
   factoringStatus      String    @default("none") @map("factoring_status")
   factoringReferenceId String?   @map("factoring_reference_id")
   factoringUpdatedAt   DateTime? @map("factoring_updated_at")
+  /// What the factor advanced, charged and held on this invoice, and what came back (docs/MONEY_PLAN.md, Wave 2).
+  factoringAdvance           Decimal? @map("factoring_advance") @db.Decimal(12, 2)
+  factoringFee               Decimal? @map("factoring_fee") @db.Decimal(12, 2)
+  factoringReserve           Decimal? @map("factoring_reserve") @db.Decimal(12, 2)
+  factoringReserveReleased   Decimal? @map("factoring_reserve_released") @db.Decimal(12, 2)
+  factoringChargeback        Decimal? @map("factoring_chargeback") @db.Decimal(12, 2)
+  /// When the notice of assignment (the factor's remit-to) was put on this invoice's PDF.
+  noaAppliedAt               DateTime? @map("noa_applied_at")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 
@@ -1620,4 +1629,24 @@ model InvoicePayment {
   @@unique([workspaceId, source, externalId])
   @@index([invoiceId, paidAt])
   @@map("invoice_payments")
+}
+
+/// A fleet's own factoring terms: where a factored invoice must be paid (the notice of assignment), and the advance and fee the factor charges. Printed on the invoice PDF once an invoice is factored.
+model FactoringTerms {
+  workspaceId   String   @id @map("workspace_id")
+  factorName    String?  @map("factor_name")
+  remitName     String?  @map("remit_name")
+  remitAddress  String?  @map("remit_address")
+  lockboxBank   String?  @map("lockbox_bank")
+  routingNumber String?  @map("routing_number")
+  accountNumber String?  @map("account_number")
+  noaText       String?  @map("noa_text")
+  advancePct    Decimal? @map("advance_pct") @db.Decimal(5, 2)
+  feePct        Decimal? @map("fee_pct") @db.Decimal(5, 2)
+  updatedBy     String?  @map("updated_by")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@map("factoring_terms")
 }

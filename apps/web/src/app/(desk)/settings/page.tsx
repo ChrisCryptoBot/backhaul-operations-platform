@@ -40,6 +40,8 @@ import { headers } from "next/headers";
 import { dateTime } from "@/lib/desk-format";
 import { PLANS, priceText } from "@/lib/plans";
 import { TeamCard } from "@/components/desk/team-card";
+import { FactoringTermsForm } from "@/components/desk/factoring-terms-form";
+import { getFactoringTerms, termsForm } from "@/server/partners/factoring-terms";
 import { TerminalsCard } from "@/components/desk/terminals-card";
 import { RegionsCard } from "@/components/desk/regions-card";
 import { regionRows } from "@/server/tl/regions";
@@ -65,7 +67,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
   // The company, the plan, the team, the integrations, the clock and the thresholds are the admin's: everyone else sees how the desk looks for them and the alert rules, and the actions behind the rest refuse them as well.
   const admin = can(me.role, me.grants, "admin");
   const zone = await workspaceTimezone(currentWorkspaceId());
-  const [keyStatus, hooks] = await Promise.all([allCredentialStatus(), webhookPaths()]);
+  const [keyStatus, hooks, factoringTerms] = await Promise.all([allCredentialStatus(), webhookPaths(), getFactoringTerms()]);
   const host = headers().get("x-forwarded-host") ?? headers().get("host") ?? "";
   const integrationsOrigin = host ? `${headers().get("x-forwarded-proto") ?? "https"}://${host}` : "";
   const [row, kpi, company, plan, partners, members] = await Promise.all([getStoredThresholds(), getDeskKpi({ period: "4w", compare: false }), getCompany(), planSummary(), partnerStatus(), listMembers()]);
@@ -178,6 +180,13 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
             webhookPath: hooks.get(`${r.capability}:${r.provider}`) ?? null
           }))}
         />
+      </Card>
+      <Card title="Factoring terms" className="tl-card">
+        <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
+          If this fleet factors its invoices, say here where a factored invoice must be paid and what the factor charges. The invoice PDF then carries the factor&apos;s notice of assignment and remit-to, and
+          TrueLane works out the advance, the fee and the reserve when the factor funds an invoice.
+        </p>
+        <FactoringTermsForm initial={termsForm(factoringTerms)} canEdit={can(me.role, me.grants, "admin")} />
       </Card>
     </>
   );

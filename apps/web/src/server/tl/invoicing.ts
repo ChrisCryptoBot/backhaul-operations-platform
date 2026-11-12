@@ -15,7 +15,8 @@ import { podStopsMissing } from "./documents";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
 import { inTerminal } from "./terminal-sql";
-import { isShortCode } from "@/lib/invoice-records";
+import { balanceOf, isShortCode } from "@/lib/invoice-records";
+import { customerKey, MAX_LOADS_PER_INVOICE } from "@/lib/customer-key";
 import { addInvoicePayment, closeInvoiceRecord, createInvoiceRecord, openInvoiceOf, projectionOf, removeLastInvoicePayment, voidInvoiceRecord } from "./invoice-records";
 
 /**
@@ -320,7 +321,8 @@ export async function undoPaid(loadId: string, reason: string, now = new Date(),
   if (why.length < 3) return { ok: false, error: "Say why the payment is being taken back." };
   const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null } });
   type LoadRead = NonNullable<typeof load>;
-  if (await sharedInvoiceOf(loadId, workspaceId)) return { ok: false, error: "This load is on an invoice of several loads. Taking a payment back on it is done on the invoice, which the desk does not do yet." };
+  const sharedId = await sharedInvoiceOf(loadId, workspaceId);
+  if (sharedId) return undoSharedPayment(sharedId, why, now, workspaceId);
   if (!load) return { ok: false, error: "That load does not exist." };
   const received = numOrNull(load.paidAmount) ?? 0;
   const hasPayment = load.paymentStatus === "paid" || (load.paymentStatus === "invoiced" && received > 0);
@@ -391,7 +393,10 @@ export async function issueCreditMemo(loadId: string, input: { amount: number; r
   const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null } });
   if (!load) return { ok: false, error: "That load does not exist." };
   if (load.paymentStatus !== "invoiced") return { ok: false, error: load.paymentStatus === "paid" ? "This invoice is paid. A credit after payment is a refund, which the desk does not record." : "This load has no open invoice." };
-  if (await sharedInvoiceOf(loadId, workspaceId)) return { ok: false, error: "This load is on an invoice of several loads. A credit on it is made on the invoice, which the desk does not do yet." };
+  // A credit on an invoice a factor has (or is being asked to take) is the factor's to settle: it would cut what the factor collects and so its reserve. Refused, not guessed at.
+  if (FACTORED_OPEN.includes(load.factoringStatus)) return { ok: false, error: "This invoice is with a factoring company, so a credit changes what the factor collects and is settled with the factor, not here. Record what the factor reports instead." };
+  const sharedId = await sharedInvoiceOf(loadId, workspaceId);
+  if (sharedId) return creditSharedInvoice(sharedId, { amount, label: input.label }, why, now, workspaceId);
   const billed = billedOf({ invoicedAmount: numOrNull(load.invoicedAmount), status: load.status, quotedRevenue: num(load.quotedRevenue), fuelSurcharge: numOrNull(load.fuelSurcharge), tonuRevenue: numOrNull(load.tonuRevenue) });
   const before = numOrNull(load.paidAmount) ?? 0;
   const owing = dec(billed).minus(dec(before));
@@ -432,7 +437,8 @@ export async function issueCreditMemo(loadId: string, input: { amount: number; r
       });
       await tx.loadPayment.create({ data: { workspaceId, loadId, amount: dec(amount), paidAt: now, method: "credit" } });
       await addInvoicePayment(tx, { workspaceId, invoiceId: record.id, amount, paidAt: now, method: "credit", source: "credit", externalId: memo.id, note: why });
-      if (closes) await closeInvoiceRecord(tx, record.id, { paidAt: now, writeOff: null, factoringPaid: FACTORED_OPEN.includes(load.factoringStatus), now });
+      // Never with a factor here (refused above), so closing it releases no factor reserve.
+      if (closes) await closeInvoiceRecord(tx, record.id, { paidAt: now, writeOff: null, factoringPaid: false, now });
       await recordAudit(
         {
           entity: "invoice",
@@ -473,6 +479,13 @@ export async function voidCreditMemo(memoId: string, reason: string, now = new D
     const sum = await tx.invoicePayment.aggregate({ where: { invoiceId: originalId }, _sum: { amount: true } });
     const paid = sum._sum.amount ?? new Prisma.Decimal(0);
     await tx.invoice.update({ where: { id: originalId }, data: { paidTotal: paid, status: "open", paidAt: null, writeOffAmount: null, writeOffReason: null, writeOffCode: null } });
+    const original = await tx.invoice.findUnique({ where: { id: originalId }, select: { loads: { select: { loadId: true } } } });
+    if (original && original.loads.length > 1) {
+      // A credit on an invoice of several loads: every load shows its share again (rule A).
+      await reproject(tx, originalId, () => ({ paidMethod: null }));
+      await recordAudit({ entity: "invoice", action: "credit_memo_voided", loadId: original.loads[0]?.loadId ?? null, loadNumber: null, summary: `${memo.number} for $${amount.toFixed(2)} taken back`, reason: why, before: { "Credit memo": memo.number }, after: { "Credit memo": "Void" }, at: now, workspaceId }, tx);
+      return { ok: true, number: memo.number };
+    }
     if (loadId) {
       const lp = await tx.loadPayment.findFirst({ where: { loadId, workspaceId, method: "credit", amount: dec(amount) }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
       if (lp) await tx.loadPayment.delete({ where: { id: lp.id } });
@@ -490,10 +503,17 @@ export async function getInvoice(loadId: string, workspaceId = currentWorkspaceI
     prisma.auditEvent.findFirst({ where: { workspaceId, loadId, action: "invoice_chased" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { createdAt: true, actor: true } })
   ]);
   if (!l || !l.invoicedAt) return null;
+  // The invoice as its own record, when the load has one (rule I): its lines, loads, payments and credits. An imported invoice with no record keeps reading the load (gap 16).
+  const rec = await prisma.invoice.findFirst({
+    where: { workspaceId, kind: "invoice", status: { not: "void" }, loads: { some: { loadId } } },
+    orderBy: [{ issuedAt: "desc" }, { id: "desc" }],
+    include: { lines: { orderBy: { sort: "asc" } }, loads: true, payments: { orderBy: [{ paidAt: "asc" }, { id: "asc" }] } }
+  });
+  const recordView = rec ? await recordViewOf(rec, workspaceId) : null;
   const lines = Array.isArray(l.invoiceLines) ? (l.invoiceLines as Array<{ label: string; amount: number }>) : null;
   const total = billedOf({ invoicedAmount: numOrNull(l.invoicedAmount), status: l.status, quotedRevenue: num(l.quotedRevenue), fuelSurcharge: numOrNull(l.fuelSurcharge), tonuRevenue: numOrNull(l.tonuRevenue) });
   const terms = l.payTermsDays ?? 0;
-  return {
+  const fromLoad = {
     id: l.id,
     issuer: l.workspace.name,
     company: toCompany(l.workspace),
@@ -514,11 +534,85 @@ export async function getInvoice(loadId: string, workspaceId = currentWorkspaceI
     writeOffReason: l.writeOffReason,
     /** What is still owed on an invoice that is out (the total less what has come in so far); 0 when it is paid. */
     balance: l.paymentStatus === "paid" ? 0 : dec(total).minus(dec(numOrNull(l.paidAmount) ?? 0)).toNumber(),
-    payments: l.payments.map((p) => ({ amount: p.amount.toNumber(), paidAt: p.paidAt, method: p.method })),
+    payments: l.payments.map((p) => ({ amount: p.amount.toNumber(), paidAt: p.paidAt, method: p.method, reference: null as string | null, payer: null as string | null, source: "legacy" as string, note: null as string | null })),
     paidMethod: l.paidMethod,
     poNumber: l.poNumber,
     lastChasedAt: lastChase?.createdAt ?? null,
-    lastChasedBy: lastChase?.actor ?? null
+    lastChasedBy: lastChase?.actor ?? null,
+    recordId: null as string | null,
+    shared: false,
+    credits: [] as CreditView[],
+    loads: [{ id: l.id, number: l.loadNumber, po: l.poNumber, origin: l.originAddress, destination: l.destinationAddress, miles: num(l.loadedMiles), delivered: l.completedAt, stops: l.stops.map((s) => ({ sequence: s.stopSequence, role: s.stopRole ?? s.stopType, name: s.facilityName, address: s.addressString, arrived: s.arrivedAt, refs: Array.isArray(s.referenceNumbers) ? (s.referenceNumbers as unknown[]).map(String) : [] })) }] as InvoiceLoadView[]
+  };
+  if (!recordView) return fromLoad;
+  return { ...fromLoad, ...recordView.over, loads: recordView.loads.length > 0 ? recordView.loads : fromLoad.loads };
+}
+
+export type CreditView = { id: string; number: string; amount: number; label: string; reason: string | null; issuedAt: Date; status: "paid" | "void"; voidReason: string | null };
+export type InvoiceLoadView = { id: string; number: string | null; po: string | null; origin: string | null; destination: string | null; miles: number; delivered: Date | null; stops: Array<{ sequence: number; role: string; name: string | null; address: string; arrived: Date | null; refs: string[] }> };
+
+/** What the sheet takes from the invoice record instead of from one load: the number, the money, every load and line on it, the payments with their references, and the credit memos. */
+async function recordViewOf(
+  rec: Prisma.InvoiceGetPayload<{ include: { lines: true; loads: true; payments: true } }>,
+  workspaceId: string
+) {
+  const order: string[] = [];
+  for (const x of rec.lines) if (x.loadId && !order.includes(x.loadId)) order.push(x.loadId);
+  for (const x of rec.loads) if (!order.includes(x.loadId)) order.push(x.loadId);
+  const [loadRows, memos] = await Promise.all([
+    prisma.load.findMany({ where: { id: { in: order }, workspaceId }, include: { stops: { orderBy: { stopSequence: "asc" } } } }),
+    prisma.invoice.findMany({ where: { workspaceId, kind: "credit_memo", creditOfId: rec.id }, include: { lines: true }, orderBy: [{ issuedAt: "asc" }, { id: "asc" }] })
+  ]);
+  const byId = new Map(loadRows.map((x) => [x.id, x]));
+  const shared = rec.loads.length > 1;
+  const loads: InvoiceLoadView[] = order
+    .map((id) => byId.get(id))
+    .filter((x): x is NonNullable<typeof x> => !!x)
+    .map((x) => ({
+      id: x.id,
+      number: x.loadNumber,
+      po: x.poNumber,
+      origin: x.originAddress,
+      destination: x.destinationAddress,
+      miles: num(x.loadedMiles),
+      delivered: x.completedAt,
+      stops: x.stops.map((st) => ({ sequence: st.stopSequence, role: st.stopRole ?? st.stopType, name: st.facilityName, address: st.addressString, arrived: st.arrivedAt, refs: Array.isArray(st.referenceNumbers) ? (st.referenceNumbers as unknown[]).map(String) : [] }))
+    }));
+  const numberOf = new Map(loads.map((x) => [x.id, x.number]));
+  const total = rec.total.toNumber();
+  const status = rec.status as "open" | "paid" | "void";
+  const paidTotal = rec.paidTotal.toNumber();
+  const credits: CreditView[] = memos.map((m) => ({
+    id: m.id,
+    number: m.number,
+    amount: m.total.negated().toNumber(),
+    label: m.lines[0]?.label ?? "Credit",
+    reason: rec.payments.find((p) => p.source === "credit" && p.externalId === m.id)?.note ?? null,
+    issuedAt: m.issuedAt,
+    status: m.status === "void" ? "void" : "paid",
+    voidReason: m.voidReason
+  }));
+  return {
+    loads,
+    over: {
+      invoiceNumber: rec.number,
+      sent: rec.issuedAt,
+      due: dueAt(rec.issuedAt, rec.termsDays) ?? rec.issuedAt,
+      terms: rec.termsDays,
+      // Several loads: each line says which load it is for. One load: the lines read as they were billed.
+      lines: rec.lines.map((x) => ({ label: shared && x.loadId ? `${numberOf.get(x.loadId) ?? "Load"} · ${x.label}` : x.label, amount: x.amount.toNumber() })),
+      total,
+      status: (status === "paid" ? "paid" : "invoiced") as "paid" | "invoiced",
+      paidAt: rec.paidAt,
+      paidAmount: paidTotal > 0 ? paidTotal : null,
+      writeOffAmount: rec.writeOffAmount ? rec.writeOffAmount.toNumber() : null,
+      writeOffReason: rec.writeOffReason,
+      balance: balanceOf({ total: rec.total, paidTotal: rec.paidTotal, status }),
+      payments: rec.payments.map((p) => ({ amount: p.amount.toNumber(), paidAt: p.paidAt, method: p.method, reference: p.reference, payer: p.payer, source: p.source as string, note: p.note })),
+      recordId: rec.id,
+      shared,
+      credits
+    }
   };
 }
 
@@ -530,8 +624,7 @@ async function sharedInvoiceOf(loadId: string, workspaceId: string): Promise<str
   return r && r._count.loads > 1 ? r.id : null;
 }
 
-const customerKey = (l: { brokerName: string | null; brokerMcNumber: string | null }) => `${(l.brokerName ?? "").trim().toLowerCase().replace(/\s+/g, " ")}|${(l.brokerMcNumber ?? "").replace(/\D/g, "")}`;
-export const MAX_LOADS_PER_INVOICE = 50;
+export { MAX_LOADS_PER_INVOICE };
 
 export type MultiInvoiceOut = { ok: boolean; error?: string; errors?: Record<string, string>; number?: string; total?: number };
 
@@ -706,3 +799,103 @@ async function voidSharedInvoice(invoiceId: string, why: string, now: Date, work
   return ok ? { ok: true } : { ok: false, error: "That invoice changed while you were looking at it. Reload the page." };
 }
 
+
+/**
+ * A credit memo on an invoice of several loads (rule F). The memo's line names no load, so it stays on the memo and never enters a load's gross (rule A); the credit lands on the
+ * invoice as a payment row of its own source, and every load's projected amount received is worked out again from the record.
+ */
+async function creditSharedInvoice(invoiceId: string, input: { amount: number; label?: string }, why: string, now: Date, workspaceId: string): Promise<CreditOut> {
+  const rec = await prisma.invoice.findFirst({ where: { id: invoiceId, workspaceId, kind: "invoice", status: "open" }, include: { loads: true } });
+  if (!rec) return { ok: false, error: "That invoice is not open any more. Reload the page." };
+  if (FACTORED_OPEN.includes(rec.factoringStatus)) return { ok: false, error: "This invoice is with a factoring company, so a credit changes what the factor collects and is settled with the factor, not here. Record what the factor reports instead." };
+  const owing = dec(rec.total.toNumber()).minus(dec(rec.paidTotal.toNumber()));
+  if (dec(input.amount).gt(owing)) return { ok: false, error: `Only $${owing.toNumber().toFixed(2)} is still owed, so the credit can be at most that.` };
+  const closes = dec(input.amount).gte(owing);
+  const label = (input.label ?? "").trim() || "Credit";
+  const firstLoad = rec.loads[0]?.loadId ?? null;
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const claimed = await tx.invoice.updateMany({ where: { id: invoiceId, status: "open", paidTotal: rec.paidTotal }, data: { updatedAt: now } });
+      if (claimed.count !== 1) return { ok: false, error: "That invoice changed while you were looking at it. Reload and try again." };
+      const credits = await tx.invoice.count({ where: { workspaceId, creditOfId: rec.id } });
+      const number = `${rec.number}-CR${credits + 1}`;
+      const memo = await tx.invoice.create({
+        data: {
+          workspaceId,
+          number,
+          kind: "credit_memo",
+          status: "paid",
+          creditOfId: rec.id,
+          billToName: rec.billToName,
+          billToMc: rec.billToMc,
+          billToEmail: rec.billToEmail,
+          billToPhone: rec.billToPhone,
+          issuedAt: now,
+          termsDays: 0,
+          total: dec(input.amount).negated(),
+          paidTotal: dec(input.amount).negated(),
+          paidAt: now,
+          lines: { create: [{ loadId: null, kind: "credit", label, amount: dec(input.amount).negated(), sort: 1 }] }
+        },
+        select: { id: true }
+      });
+      await addInvoicePayment(tx, { workspaceId, invoiceId, amount: input.amount, paidAt: now, method: "credit", source: "credit", externalId: memo.id, note: why });
+      // Never with a factor here (refused above), so closing it releases no factor reserve.
+      if (closes) await closeInvoiceRecord(tx, invoiceId, { paidAt: now, writeOff: null, factoringPaid: false, now });
+      await reproject(tx, invoiceId, () => ({ paidMethod: "credit" }));
+      const left = owing.minus(dec(input.amount)).toNumber();
+      await recordAudit(
+        {
+          entity: "invoice",
+          action: "credit_memo_issued",
+          loadId: firstLoad,
+          loadNumber: null,
+          summary: `${number}: $${input.amount.toFixed(2)} credited on ${rec.number} (${rec.loads.length} loads)${closes ? ", which closes it" : `; $${left.toFixed(2)} still owed`}`,
+          reason: why,
+          before: { Owed: `$${owing.toNumber().toFixed(2)}` },
+          after: { "Credit memo": number, Credited: `$${input.amount.toFixed(2)}`, Owed: `$${left.toFixed(2)}` },
+          at: now,
+          workspaceId
+        },
+        tx
+      );
+      return { ok: true, number, closed: closes };
+    });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return { ok: false, error: "Another credit was just made on this invoice. Reload and try again." };
+    throw e;
+  }
+}
+
+/** Take the newest payment back on an invoice of several loads: the invoice is open again with what the others add up to, and every load shows its share again. A credit is voided, not undone. */
+async function undoSharedPayment(invoiceId: string, why: string, now: Date, workspaceId: string): Promise<PaidOut> {
+  const rec = await prisma.invoice.findFirst({ where: { id: invoiceId, workspaceId, kind: "invoice", status: { not: "void" } }, include: { loads: true } });
+  if (!rec) return { ok: false, error: "That invoice does not exist any more." };
+  const last = await prisma.invoicePayment.findFirst({ where: { invoiceId }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
+  if (!last) return { ok: false, error: "No payment has been recorded on this invoice." };
+  if (last.source === "credit") return { ok: false, error: "The last amount on this invoice is a credit memo. Void the credit memo instead." };
+  const taken = last.amount.toNumber();
+  const ok = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.invoice.updateMany({ where: { id: invoiceId, status: rec.status, paidTotal: rec.paidTotal }, data: { updatedAt: now } });
+    if (claimed.count !== 1) return false;
+    await removeLastInvoicePayment(tx, invoiceId, { factoringBackToFunded: rec.factoringStatus === "paid", now });
+    await reproject(tx, invoiceId, () => ({ paidMethod: null }));
+    await recordAudit(
+      {
+        entity: "invoice",
+        action: "payment_undone",
+        loadId: rec.loads[0]?.loadId ?? null,
+        loadNumber: null,
+        summary: `${rec.number} payment of $${taken.toFixed(2)} taken back across ${rec.loads.length} loads`,
+        reason: why,
+        before: { Status: rec.status === "paid" ? "Paid" : "Invoiced, part paid", Amount: `$${rec.paidTotal.toNumber().toFixed(2)}` },
+        after: { Status: "Invoiced" },
+        at: now,
+        workspaceId
+      },
+      tx
+    );
+    return true;
+  });
+  return ok ? { ok: true } : { ok: false, error: "That payment was already taken back, or the invoice changed. Reload the page." };
+}

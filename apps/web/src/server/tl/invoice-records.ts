@@ -84,6 +84,15 @@ export async function addInvoicePayment(tx: Tx, p: PaymentIn): Promise<void> {
 
 /** Close an invoice as paid, with what was written off when it closed short and why. */
 export async function closeInvoiceRecord(tx: Tx, invoiceId: string, c: { paidAt: Date; writeOff?: { amount: number; reason: string; code: ShortCode | null } | null; factoringPaid?: boolean; now: Date }): Promise<void> {
+  // A funded invoice the customer has now paid: the factor releases the reserve less its fee (docs/MONEY_PLAN.md, Wave 2).
+  let released: Prisma.Decimal | null = null;
+  if (c.factoringPaid) {
+    const f = await tx.invoice.findUnique({ where: { id: invoiceId }, select: { factoringReserve: true, factoringFee: true } });
+    if (f?.factoringReserve) {
+      const left = f.factoringReserve.minus(f.factoringFee ?? 0);
+      released = left.isNegative() ? new Prisma.Decimal(0) : left;
+    }
+  }
   await tx.invoice.update({
     where: { id: invoiceId },
     data: {
@@ -92,7 +101,7 @@ export async function closeInvoiceRecord(tx: Tx, invoiceId: string, c: { paidAt:
       writeOffAmount: c.writeOff ? cents(c.writeOff.amount) : null,
       writeOffReason: c.writeOff ? c.writeOff.reason : null,
       writeOffCode: c.writeOff ? c.writeOff.code : null,
-      ...(c.factoringPaid ? { factoringStatus: "paid", factoringUpdatedAt: c.now } : {})
+      ...(c.factoringPaid ? { factoringStatus: "paid", factoringUpdatedAt: c.now, ...(released ? { factoringReserveReleased: released } : {}) } : {})
     }
   });
 }
@@ -104,7 +113,7 @@ export async function removeLastInvoicePayment(tx: Tx, invoiceId: string, opts: 
   await refreshPaidTotal(tx, invoiceId);
   await tx.invoice.update({
     where: { id: invoiceId },
-    data: { status: "open", paidAt: null, writeOffAmount: null, writeOffReason: null, writeOffCode: null, ...(opts.factoringBackToFunded ? { factoringStatus: "funded", factoringUpdatedAt: opts.now } : {}) }
+    data: { status: "open", paidAt: null, writeOffAmount: null, writeOffReason: null, writeOffCode: null, ...(opts.factoringBackToFunded ? { factoringStatus: "funded", factoringUpdatedAt: opts.now, factoringReserveReleased: null } : {}) }
   });
 }
 

@@ -12,6 +12,8 @@ export default defineConfig({
     // Unit tests have no database: the spend ledger (server/tl/usage.ts) is off for them. tests/integration/usage.integration.test.ts turns it on.
     env: { DESK_SPEND_METER: "off" },
     include: ["tests/**/*.test.ts"],
+    // Clears the invoice records a database test leaves behind when it removes its loads (tests/global-setup.ts); does nothing without RUN_DB_INTEGRATION.
+    globalSetup: ["./tests/global-setup.ts"],
     // The database tests share one database and count its rows, so a file must not run while another is writing.
     fileParallelism: false
   }

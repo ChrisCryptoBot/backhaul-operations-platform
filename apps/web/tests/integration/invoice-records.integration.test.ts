@@ -174,7 +174,12 @@ describe.skipIf(!run)("one invoice for several loads of the same customer (rules
     expect(await markLoadPaid(ids[1]!, NOW, { amount: 2000, reference: "ACH 7781" }, WM)).toMatchObject({ ok: true, balance: 2650 });
     const loads = await prisma.load.findMany({ where: { id: { in: ids.slice(0, 3) } }, orderBy: { loadNumber: "asc" } });
     expect(loads.map((l) => l.paidAmount?.toNumber() ?? null)).toEqual([1100, 900, null]);
-    expect(await undoPaid(ids[0]!, "Wrong one", NOW, WM)).toMatchObject({ ok: false });
+    // Taking the payment back is done on the invoice, from any of its loads: every load shows its own share again.
+    expect(await undoPaid(ids[0]!, "Wrong one", NOW, WM)).toMatchObject({ ok: true });
+    const undone = await prisma.load.findMany({ where: { id: { in: ids.slice(0, 3) } }, orderBy: { loadNumber: "asc" } });
+    expect(undone.map((l) => [l.paymentStatus, l.paidAmount?.toNumber() ?? null])).toEqual([["invoiced", null], ["invoiced", null], ["invoiced", null]]);
+    expect(await undoPaid(ids[0]!, "Nothing left", NOW, WM)).toMatchObject({ ok: false });
+    expect(await markLoadPaid(ids[1]!, NOW, { amount: 2000, reference: "ACH 7781" }, WM)).toMatchObject({ ok: true, balance: 2650 });
     expect(await markLoadPaid(ids[2]!, NOW, { amount: 2650 }, WM)).toMatchObject({ ok: true });
     const paid = await prisma.load.findMany({ where: { id: { in: ids.slice(0, 3) } }, orderBy: { loadNumber: "asc" } });
     expect(paid.map((l) => [l.paymentStatus, l.paidAmount!.toNumber()])).toEqual([["paid", 1100], ["paid", 2000], ["paid", 1550]]);
@@ -189,6 +194,111 @@ describe.skipIf(!run)("one invoice for several loads of the same customer (rules
     const back = await prisma.load.findMany({ where: { id: { in: [ids[4]!, ids[5]!] } } });
     expect(back.every((l) => l.paymentStatus === null && l.invoiceNumber === null)).toBe(true);
     expect((await prisma.invoice.findFirstOrThrow({ where: { workspaceId: WM, number: "ACME-101" } })).status).toBe("void");
+  });
+});
+
+describe.skipIf(!run)("credits, lists and aging on an invoice of several loads (rules A, F, I)", () => {
+  const WC = "ir-credit";
+  const ids: string[] = [];
+  let invoiceId = "";
+  beforeAll(async () => {
+    await prisma.workspace.deleteMany({ where: { id: WC } });
+    await prisma.workspace.create({ data: { id: WC, name: "IR credit", plan: "enterprise" } });
+    for (const [n, rate, fsc] of [["C-1", 1000, 100], ["C-2", 2000, 0], ["C-3", 1500, 50]] as const) {
+      const l = await prisma.load.create({ data: { workspaceId: WC, loadNumber: n, brokerName: "Acme Logistics", brokerEmail: "ap@acme.invalid", status: "completed", completedAt: NOW, quotedRevenue: rate, fuelSurcharge: fsc, podNote: "Signed" } as never });
+      ids.push(l.id);
+    }
+    // A delivered load with an invoice and no record: imported history (gap 16).
+    await prisma.load.create({ data: { workspaceId: WC, loadNumber: "C-OLD", brokerName: "Older Customer", status: "completed", completedAt: NOW, quotedRevenue: 400, paymentStatus: "invoiced", invoicedAt: NOW, invoicedAmount: 400 } as never });
+    expect(await invoiceLoads(ids, { number: "ACME-C1", terms: "30" }, NOW, WC)).toMatchObject({ ok: true, total: 4650 });
+    invoiceId = (await prisma.invoice.findFirstOrThrow({ where: { workspaceId: WC, number: "ACME-C1" } })).id;
+  });
+  afterAll(async () => {
+    await prisma.workspace.deleteMany({ where: { id: WC } });
+  });
+
+  test("a credit on the invoice lands on its loads in order, and a credit that is too large is refused", async () => {
+    expect(await issueCreditMemo(ids[2]!, { amount: 4651, reason: "Too much" }, NOW, WC)).toMatchObject({ ok: false });
+    expect(await issueCreditMemo(ids[2]!, { amount: 500, reason: "Customer discount: late delivery", label: "Late delivery allowance" }, NOW, WC)).toMatchObject({ ok: true, number: "ACME-C1-CR1", closed: false });
+    const rec = await prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId }, include: { payments: true } });
+    expect(rec.paidTotal.toNumber()).toBe(500);
+    expect(rec.payments.map((p) => [p.source, p.amount.toNumber()])).toEqual([["credit", 500]]);
+    const memo = await prisma.invoice.findFirstOrThrow({ where: { workspaceId: WC, number: "ACME-C1-CR1" }, include: { lines: true } });
+    expect([memo.kind, memo.creditOfId, memo.total.toNumber(), memo.lines.map((l) => l.loadId)]).toEqual(["credit_memo", invoiceId, -500, [null]]);
+    const loads = await prisma.load.findMany({ where: { id: { in: ids } }, orderBy: { loadNumber: "asc" } });
+    expect(loads.map((l) => [l.paymentStatus, l.paidAmount?.toNumber() ?? null])).toEqual([["invoiced", 500], ["invoiced", null], ["invoiced", null]]);
+    // The credit is not a payment to take back.
+    expect(await undoPaid(ids[0]!, "Wrong", NOW, WC)).toMatchObject({ ok: false });
+  });
+
+  test("the lists and the aging show the invoice once, with the invoice's own money", async () => {
+    const { listInvoiceRows, countInvoices } = await import("@/server/tl/queries");
+    const { agingSummary, clearAgingCache } = await import("@/server/tl/aging");
+    clearAgingCache();
+    expect(await countInvoices("out", WC)).toBe(2); // the invoice, and the imported one
+    const rows = await listInvoiceRows(WC, { scope: "out" });
+    const shared = rows.find((r) => r.invoiceNumber === "ACME-C1")!;
+    expect(rows).toHaveLength(2);
+    expect([shared.loadsOnInvoice, shared.amount, shared.balance, shared.paidAmount, shared.imported]).toEqual([3, 4650, 4150, 500, false]);
+    expect(shared.loadNumber).toBe("C-1, C-2, C-3");
+    expect(rows.find((r) => r.invoiceNumber == null)?.imported).toBe(true);
+    // A search for a load that is not the invoice's lead finds the invoice.
+    expect((await listInvoiceRows(WC, { scope: "out", q: "C-3" })).map((r) => r.invoiceNumber)).toEqual(["ACME-C1"]);
+    const aging = await agingSummary(NOW.getTime(), WC);
+    expect([aging.count, aging.totalOutstanding]).toEqual([2, 4550]);
+    // What the list adds up to is what aging says is owed.
+    expect(rows.reduce((s, r) => s + r.balance, 0)).toBe(aging.totalOutstanding);
+  });
+
+  test("a credit that covers the rest closes the invoice, and taking it back opens it again with every load as it was", async () => {
+    const closed = await issueCreditMemo(ids[0]!, { amount: 4150, reason: "Customer discount: settled for less" }, NOW, WC);
+    expect(closed).toMatchObject({ ok: true, number: "ACME-C1-CR2", closed: true });
+    const done = await prisma.load.findMany({ where: { id: { in: ids } }, orderBy: { loadNumber: "asc" } });
+    expect(done.map((l) => [l.paymentStatus, l.paidAmount!.toNumber()])).toEqual([["paid", 1100], ["paid", 2000], ["paid", 1550]]);
+    const memo = await prisma.invoice.findFirstOrThrow({ where: { workspaceId: WC, number: "ACME-C1-CR2" } });
+    expect(await voidCreditMemo(memo.id, "Credit entered on the wrong invoice", NOW, WC)).toMatchObject({ ok: true });
+    const again = await prisma.load.findMany({ where: { id: { in: ids } }, orderBy: { loadNumber: "asc" } });
+    expect(again.map((l) => [l.paymentStatus, l.paidAmount?.toNumber() ?? null])).toEqual([["invoiced", 500], ["invoiced", null], ["invoiced", null]]);
+    const rec = await prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
+    expect([rec.status, rec.paidTotal.toNumber()]).toEqual(["open", 500]);
+  });
+});
+
+describe.skipIf(!run)("an invoice whose first line is not its smallest load id (the lead follows line order)", () => {
+  const WL = "ir-lead";
+  const ids: string[] = [];
+  beforeAll(async () => {
+    await prisma.workspace.deleteMany({ where: { id: WL } });
+    await prisma.workspace.create({ data: { id: WL, name: "IR lead", plan: "enterprise" } });
+    for (const [n, rate] of [["L-1", 1000], ["L-2", 2000], ["L-3", 1500]] as const) {
+      const l = await prisma.load.create({ data: { workspaceId: WL, loadNumber: n, brokerName: "Acme Logistics", status: "completed", completedAt: NOW, quotedRevenue: rate, podNote: "Signed" } as never });
+      ids.push(l.id);
+    }
+    // Ids grow with time, so L-3 has the largest id; putting it first makes its lines first.
+    expect(await invoiceLoads([ids[2]!, ids[0]!, ids[1]!], { number: "LEAD-1" }, NOW, WL)).toMatchObject({ ok: true, total: 4500 });
+    expect(await markLoadPaid(ids[0]!, NOW, { amount: 500 }, WL)).toMatchObject({ ok: true, balance: 4000 });
+  });
+  afterAll(async () => {
+    await prisma.workspace.deleteMany({ where: { id: WL } });
+  });
+
+  test("the part payment lands on the first load in line order, and that load is the row the list shows", async () => {
+    const loads = await prisma.load.findMany({ where: { id: { in: ids } }, orderBy: { loadNumber: "asc" } });
+    expect(loads.map((l) => l.paidAmount?.toNumber() ?? null)).toEqual([null, null, 500]);
+    const { listInvoiceRows } = await import("@/server/tl/queries");
+    const rows = await listInvoiceRows(WL, { scope: "out" });
+    expect(rows.map((r) => [r.id, r.loadNumber, r.balance])).toEqual([[ids[2]!, "L-3, L-1, L-2", 4000]]);
+  });
+
+  test("the Part paid filter keeps the invoice, and sorting by amount uses what the invoice still owes", async () => {
+    const { listInvoiceRows, countInvoices } = await import("@/server/tl/queries");
+    expect(await countInvoices("out", WL, undefined, null, "part")).toBe(1);
+    const sorted = await listInvoiceRows(WL, { scope: "out", sort: { key: "amount", dir: "desc" } });
+    expect(sorted.map((r) => r.balance)).toEqual([4000]);
+    const { agingSummary, clearAgingCache } = await import("@/server/tl/aging");
+    clearAgingCache();
+    const aging = await agingSummary(NOW.getTime(), WL);
+    expect([aging.count, aging.totalOutstanding]).toEqual([1, 4000]);
   });
 });
 

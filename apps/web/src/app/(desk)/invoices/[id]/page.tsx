@@ -1,12 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import React from "react";
+import { Prisma } from "@prisma/client";
 import { ChaseActions } from "@/components/desk/chase-actions";
 import { CopyText } from "@/components/desk/copy-text";
 import { DocHead } from "@/components/desk/doc-head";
 import { ReadOnlyBanner } from "@/components/desk/kit/read-only";
 import { PrintButton } from "@/components/desk/kpi/print-button";
 import { FactorPanel } from "@/components/desk/partner-actions";
+import { CreditMemoDialog, VoidCreditButton } from "@/components/desk/credit-memo";
+import { ConfirmForm } from "@/components/desk/kit/confirm-form";
+import { PaidDialog } from "@/components/desk/load-actions";
+import { undoPaidAction } from "@/app/(desk)/actions";
 import { dateTime, dayYear, miles, shortDate, usd } from "@/lib/desk-format";
 import { reminderText, termsLabel } from "@/lib/invoicing";
 import { moneyState } from "@/lib/money-state";
@@ -41,7 +46,10 @@ export default async function InvoicePage({ params }: { params: { id: string } }
   if (!inv) notFound();
   const me = access.ok ? access.identity : null;
   const canBill = !!me && can(me.role, me.grants, "bill");
+  const canWriteOff = !!me && can(me.role, me.grants, "writeoff");
   const now = new Date();
+  const lastPayment = inv.payments[inv.payments.length - 1] ?? null;
+  const loadWord = inv.loads.length > 1 ? `${inv.loads.length} loads` : "the load";
   const overdue = inv.status === "invoiced" && isOverdue(inv.sent, inv.terms, now);
   const pastDue = daysPastDue(inv.sent, inv.terms, now) ?? 0;
   const daysLeft = Math.max(0, -pastDue);
@@ -78,6 +86,14 @@ export default async function InvoicePage({ params }: { params: { id: string } }
         <a href={`/invoices/${inv.id}/pdf`} className="tl-btn" target="_blank" rel="noopener">
           PDF
         </a>
+        {canBill && inv.status === "invoiced" ? <PaidDialog loadId={inv.id} invoiceNumber={inv.invoiceNumber} billed={inv.total} owing={inv.balance} canWriteOff={canWriteOff} size="sm" /> : null}
+        {/* A credit on an invoice a factor has is the factor's to settle (server/tl/invoicing.ts refuses it), so it is not offered. */}
+        {canBill && inv.status === "invoiced" && inv.recordId && inv.balance > 0 && !(factoring && ["requested", "submitted", "funded"].includes(factoring.status)) ? <CreditMemoDialog loadId={inv.id} invoiceNumber={inv.invoiceNumber} owingCents={new Prisma.Decimal(inv.balance).times(100).toDecimalPlaces(0).toNumber()} /> : null}
+        {canBill && lastPayment && lastPayment.source !== "credit" ? (
+          <ConfirmForm action={undoPaidAction} fields={{ loadId: inv.id }} label="Undo last payment" title={`Take back the latest payment on ${inv.invoiceNumber ?? "this invoice"}?`} eyebrow="Payment" confirmLabel="Take it back" destructive askReason>
+            <p>The invoice goes back to owing what it did before that payment.</p>
+          </ConfirmForm>
+        ) : null}
         {overdue ? (
           <>
             <CopyText size="md" label="Copy reminder" text={reminder} />
@@ -106,7 +122,12 @@ export default async function InvoicePage({ params }: { params: { id: string } }
             blocked: factoring.blocked,
             paid: inv.status === "paid",
             canAct: canBill,
-            who: whoCan("bill")
+            who: whoCan("bill"),
+            loadCount: factoring.loadCount,
+            podPhotoOnly: factoring.podPhotoOnly,
+            money: factoring.money,
+            packetHref: canBill ? `/invoices/${inv.id}/packet` : undefined,
+            scheduleHref: canBill ? `/invoices/schedule?loads=${inv.loads.map((x) => x.id).join(",")}` : undefined
           }}
         />
       ) : null}
@@ -117,7 +138,7 @@ export default async function InvoicePage({ params }: { params: { id: string } }
           company={inv.company}
           heroLabel={inv.status === "paid" ? "Invoiced" : inv.paidAmount != null && inv.paidAmount > 0 ? "Balance due" : "Total due"}
           hero={usd(inv.status === "paid" ? inv.total : inv.balance, 2)}
-          sub={`${inv.status !== "paid" && inv.paidAmount != null && inv.paidAmount > 0 ? `of ${usd(inv.total, 2)}, ${usd(inv.paidAmount, 2)} received · ` : ""}Due ${shortDate(inv.due)} · ${termsLabel(inv.terms)}`}
+          sub={`${inv.status !== "paid" && inv.paidAmount != null && inv.paidAmount > 0 ? `of ${usd(inv.total, 2)}, ${usd(inv.paidAmount, 2)} ${inv.credits.some((c) => c.status === "paid") ? "received or credited" : "received"} · ` : ""}Due ${shortDate(inv.due)} · ${termsLabel(inv.terms)}`}
           stamp={stamp}
         />
 
@@ -141,12 +162,12 @@ export default async function InvoicePage({ params }: { params: { id: string } }
               </td>
             </tr>
             <tr>
-              <th>Load</th>
-              <td>{inv.load.number ?? "—"}</td>
+              <th>{inv.loads.length > 1 ? "Loads" : "Load"}</th>
+              <td>{inv.loads.length > 1 ? inv.loads.map((x) => x.number ?? "—").join(", ") : (inv.load.number ?? "—")}</td>
               <th>PO</th>
-              <td>{inv.load.po ?? "—"}</td>
+              <td>{inv.loads.length > 1 ? (inv.loads.map((x) => x.po).filter(Boolean).join(", ") || "—") : (inv.load.po ?? "—")}</td>
               <th>Delivered</th>
-              <td>{inv.load.delivered ? dayYear(inv.load.delivered) : "—"}</td>
+              <td>{inv.loads.length > 1 ? (inv.loads.map((x) => (x.delivered ? shortDate(x.delivered) : "—")).join(", ")) : inv.load.delivered ? dayYear(inv.load.delivered) : "—"}</td>
             </tr>
           </tbody>
         </table>
@@ -177,37 +198,42 @@ export default async function InvoicePage({ params }: { params: { id: string } }
           </tbody>
         </table>
 
-        <h2>The load</h2>
-        <p>
-          {inv.load.origin ?? "?"} to {inv.load.destination ?? "?"}
-          {inv.load.miles > 0 ? ` · ${miles(inv.load.miles)} loaded` : ""}
-        </p>
-        <table style={{ marginTop: 8 }} aria-label="Loads on this invoice">
-          <thead>
-            <tr>
-              <th>Stop</th>
-              <th>Place</th>
-              <th>Arrived</th>
-              <th>References</th>
-            </tr>
-          </thead>
-          <tbody>
-            {inv.stops.map((s) => (
-              <tr key={s.sequence}>
-                <td style={{ textTransform: "capitalize" }}>
-                  {s.sequence}. {s.role}
-                </td>
-                <td>
-                  {s.name ?? s.address}
-                  <div className="rp-meta">{s.address}</div>
-                </td>
-                <td>{s.arrived ? dateTime(s.arrived) : "—"}</td>
-                <td>{s.refs.length > 0 ? s.refs.join(", ") : "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {inv.load.closedWithoutPod ? <p className="rp-meta" style={{ marginTop: 8 }}>Proof of delivery: none, {inv.load.podNote ?? "no reason given"}.</p> : inv.load.podNote ? <p className="rp-meta" style={{ marginTop: 8 }}>Proof of delivery: {inv.load.podNote}.</p> : null}
+        <h2>{inv.loads.length > 1 ? `The ${inv.loads.length} loads` : "The load"}</h2>
+        {inv.loads.map((ld, n) => (
+          <div key={ld.id} className={n > 0 ? "rp-gap" : undefined}>
+            <p>
+              {inv.loads.length > 1 ? <b>{ld.number ?? "Load"} · </b> : null}
+              {ld.origin ?? "?"} to {ld.destination ?? "?"}
+              {ld.miles > 0 ? ` · ${miles(ld.miles)} loaded` : ""}
+            </p>
+            <table className="rp-t8" aria-label={`Stops of ${ld.number ?? "the load"}`}>
+              <thead>
+                <tr>
+                  <th>Stop</th>
+                  <th>Place</th>
+                  <th>Arrived</th>
+                  <th>References</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ld.stops.map((st) => (
+                  <tr key={st.sequence}>
+                    <td style={{ textTransform: "capitalize" }}>
+                      {st.sequence}. {st.role}
+                    </td>
+                    <td>
+                      {st.name ?? st.address}
+                      <div className="rp-meta">{st.address}</div>
+                    </td>
+                    <td>{st.arrived ? dateTime(st.arrived) : "—"}</td>
+                    <td>{st.refs.length > 0 ? st.refs.join(", ") : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+        {inv.loads.length === 1 && inv.load.closedWithoutPod ? <p className="rp-meta rp-t8">Proof of delivery: none, {inv.load.podNote ?? "no reason given"}.</p> : inv.loads.length === 1 && inv.load.podNote ? <p className="rp-meta rp-t8">Proof of delivery: {inv.load.podNote}.</p> : null}
 
         {inv.status === "paid" ? (
           <>
@@ -231,7 +257,9 @@ export default async function InvoicePage({ params }: { params: { id: string } }
                   <tr key={i}>
                     <td>
                       {dayYear(p.paidAt)}
-                      {p.method ? ` · ${paidMethodLabel(p.method).toLowerCase()}` : ""}
+                      {p.source === "credit" ? " · credit memo" : p.method ? ` · ${paidMethodLabel(p.method).toLowerCase()}` : ""}
+                      {p.reference ? ` · ref ${p.reference}` : ""}
+                      {p.payer ? ` · from ${p.payer}` : ""}
                     </td>
                     <td className="num">{usd(p.amount, 2)}</td>
                   </tr>
@@ -246,6 +274,26 @@ export default async function InvoicePage({ params }: { params: { id: string } }
                     </td>
                   </tr>
                 ) : null}
+              </tbody>
+            </table>
+          </>
+        ) : null}
+
+        {inv.credits.length > 0 ? (
+          <>
+            <h2>Credit memos</h2>
+            <table className="rp-table" aria-label="Credit memos">
+              <tbody>
+                {inv.credits.map((c) => (
+                  <tr key={c.id} className={c.status === "void" ? "rp-dim" : undefined}>
+                    <td>
+                      <b>{c.number}</b> · {dayYear(c.issuedAt)} · {c.label}
+                      {c.status === "void" ? ` · void${c.voidReason ? `: ${c.voidReason}` : ""}` : c.reason ? <span className="rp-meta"> {c.reason}</span> : null}
+                    </td>
+                    <td className="num">{c.status === "void" ? <s>{usd(-c.amount, 2)}</s> : usd(-c.amount, 2)}</td>
+                    <td className="num no-print">{canWriteOff && c.status !== "void" ? <VoidCreditButton memoId={c.id} number={c.number} amount={c.amount} /> : null}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </>

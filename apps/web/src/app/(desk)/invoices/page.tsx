@@ -2,6 +2,7 @@ import { currentTerminal } from "@/server/tl/terminal";
 import { dueAt, isOverdue, daysPastDue } from "@/lib/overdue";
 import Link from "next/link";
 import React from "react";
+import { Prisma } from "@prisma/client";
 import { agingFor, asInvoiceShow, countInvoices, INVOICE_SHOWS, INVOICE_SORT_KEYS, listInvoiceRows, type InvoiceSort } from "@/server/tl/queries";
 import { listHistory } from "@/server/tl/history";
 import { ChaseActions } from "@/components/desk/chase-actions";
@@ -16,6 +17,7 @@ import { getDetentionRecovery } from "@/server/tl/detention";
 import { listProposed } from "@/server/tl/detention-evidence";
 import { factoringLabel } from "@/server/partners/factoring";
 import { InvoiceDialog, PaidDialog } from "@/components/desk/load-actions";
+import { TogetherBar, TogetherPick, TogetherProvider, type TogetherLoad } from "@/components/desk/invoice-together";
 import { Card, PageHead, Stat, Tabs } from "@/components/desk/ui";
 import { DataTable, type Column, type Row, type SortHref } from "@/components/desk/data-table";
 import { DataTableTools } from "@/components/desk/data-table-tools";
@@ -160,12 +162,23 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
         act: canBill && r.unbilled > 0 ? <WaiveDetentionButton loadId={r.loadId} loadNumber={r.loadNumber} amount={r.unbilled} /> : null
       }
     }));
+  // The loads that can be ticked for one invoice: line haul plus fuel surcharge in cents (detention is added on a load's own invoice), and why a load cannot be invoiced yet.
+  const togetherLoads: TogetherLoad[] = toInvoice.map((r) => ({
+    id: r.id,
+    loadNumber: r.loadNumber,
+    customer: r.broker,
+    mc: r.brokerMc,
+    cents: new Prisma.Decimal(r.invoiceContext.rate).plus(r.invoiceContext.surcharge).times(100).toDecimalPlaces(0).toNumber(),
+    defaultNumber: r.defaultNumber,
+    defaultTerms: r.invoiceContext.defaultTerms,
+    blocked: r.readiness.blockers[0] ?? null
+  }));
   const readyRows: Row[] = toInvoice.map((r) => ({
     id: r.id,
     href: `/loads/${r.id}`,
     search: [r.loadNumber, r.broker, r.lane].filter(Boolean).join(" "),
     cells: {
-      load: (<><Link href={`/loads/${r.id}`}>{r.loadNumber}</Link><span className="sub">{r.broker}</span></>),
+      load: (<><TogetherPick id={r.id} /><Link href={`/loads/${r.id}`}>{r.loadNumber}</Link><span className="sub">{r.broker}</span></>),
       lane: r.lane,
       done: dayYear(r.completedAt),
       amount: (
@@ -191,8 +204,13 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
       cells: {
         invoice: (
           <>
-            <Link href={`/invoices/${r.id}`}>{r.invoiceNumber}</Link>
-            <span className="sub">{r.loadNumber}{r.factoringStatus !== "none" ? <> · <span className="tl-chip info">{factoringLabel(r.factoringStatus)}</span></> : null}</span>
+            <Link href={`/invoices/${r.id}`}>{r.invoiceNumber ?? "No number"}</Link>
+            <span className="sub">
+              {r.loadNumber}
+              {r.loadsOnInvoice > 1 ? ` · ${r.loadsOnInvoice} loads` : ""}
+              {r.imported ? <> · <span className="tl-chip muted">Imported</span></> : null}
+              {r.factoringStatus !== "none" ? <> · <span className="tl-chip info">{factoringLabel(r.factoringStatus)}</span></> : null}
+            </span>
           </>
         ),
         broker: r.broker,
@@ -233,7 +251,17 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
     href: `/loads/${r.id}`,
     search: [r.invoiceNumber, r.broker].filter(Boolean).join(" "),
     cells: {
-      invoice: <Link href={`/invoices/${r.id}`}>{r.invoiceNumber}</Link>,
+      invoice: (
+        <>
+          <Link href={`/invoices/${r.id}`}>{r.invoiceNumber ?? "No number"}</Link>
+          {r.loadsOnInvoice > 1 || r.imported ? (
+            <span className="sub">
+              {r.loadsOnInvoice > 1 ? `${r.loadsOnInvoice} loads` : ""}
+              {r.imported ? <>{r.loadsOnInvoice > 1 ? " · " : ""}<span className="tl-chip muted">Imported</span></> : null}
+            </span>
+          ) : null}
+        </>
+      ),
       broker: r.broker,
       sent: dayYear(r.invoicedAt),
       paid: dayYear(r.paidAt),
@@ -262,6 +290,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
     <>
       <PageHead title="Invoices" sub="Delivered loads that still need an invoice, what is out, and what has been paid.">
         <a className="tl-btn" href={exportHref("all")}>Export CSV</a>
+        {canBill ? <a className="tl-btn ghost" href="/invoices/schedule">Schedule of accounts (CSV)</a> : null}
       </PageHead>
       {!canBill ? <ReadOnlyBanner who={whoCan("bill")} what="invoices" /> : null}
       {terminal && hiddenByTerminal > 0 ? (
@@ -353,7 +382,10 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
         </p>
       ) : null}
       <Card title={`Ready to invoice · ${readyTotal}${q ? " matching" : ""}`} action={<a className="tl-btn ghost sm" href={exportHref("ready", searchParams?.readySort)}>Export Ready CSV</a>}>
-        <DataTable id="inv-ready" label="Ready to invoice" columns={READY} rows={readyRows} sortHref={sortLink("readySort", readySort)} empty={<EmptyState icon="check" title={q ? "Nothing matches that" : "Every delivered load has an invoice"} />} />
+        <TogetherProvider loads={togetherLoads} canPick={canBill}>
+          <TogetherBar />
+          <DataTable id="inv-ready" label="Ready to invoice" columns={READY} rows={readyRows} sortHref={sortLink("readySort", readySort)} empty={<EmptyState icon="check" title={q ? "Nothing matches that" : "Every delivered load has an invoice"} />} />
+        </TogetherProvider>
         <Pager page={readyPage} pageSize={READY_PAGE} total={readyTotal} hrefFor={(n) => href({ ready: n })} newer="Previous" older="Next" />
       </Card>
       <Card title={`Out and waiting · ${outTotal}${q || show ? " matching" : ""}`} action={<a className="tl-btn ghost sm" href={exportHref("out", searchParams?.outSort)}>Export Out CSV</a>}>

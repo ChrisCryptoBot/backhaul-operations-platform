@@ -5,6 +5,7 @@ import { termsLabel } from "@/lib/invoicing";
 import { dueAt } from "@/lib/overdue";
 import { balanceOf, invoiceStateLabel } from "@/lib/invoice-records";
 import { providerName } from "@/server/partners/call";
+import { factoringPrint } from "@/server/partners/factoring-terms";
 import { toCompany } from "./company";
 import { getInvoice } from "./invoicing";
 import { inTerminal } from "./terminal-sql";
@@ -45,7 +46,8 @@ export async function invoicePdfData(loadId: string, workspaceId = currentWorksp
     let factoring: InvoicePdfData["factoring"] = null;
     if (rec.factoringStatus !== "none" && rec.factoringStatus !== "rejected") {
       const conn = await prisma.partnerConnection.findFirst({ where: { workspaceId, capability: "factoring" }, select: { provider: true, accountLabel: true } });
-      factoring = { factor: conn ? conn.accountLabel || providerName(conn.provider) : "the factoring company", reference: rec.factoringReferenceId, remitTo: null };
+      const print = await factoringPrint(workspaceId);
+      factoring = { factor: print.factor ?? (conn ? conn.accountLabel || providerName(conn.provider) : "the factoring company"), reference: rec.factoringReferenceId, remitTo: print.remitTo, noaText: print.noaText };
     }
     return {
       kind: "invoice",

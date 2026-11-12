@@ -220,10 +220,52 @@ export const INVOICE_SORT_KEYS = ["sent", "customer", "broker", "invoice", "amou
 
 type InvoiceFilters = { q?: string; terminal?: Terminals; show?: InvoiceShow | null };
 
+/** An invoice that carries several loads (docs/MONEY_PLAN.md, rule G), with its own money. */
+export type SharedInvoice = { id: string; number: string; total: number; paidTotal: number; status: string; paidAt: Date | null; loadIds: string[] };
+
+/**
+ * The invoices of several loads, so a list shows each of them once. The lead load stands for the invoice in a list and carries the invoice's own money; the others are left out of the
+ * list. The lead is the first load in line order: the order projectToLoads (lib/invoice-records.ts, rule A) shares money out in, so a part payment always reaches the lead first. Few invoices
+ * are shared, so this is one small read.
+ */
+export async function sharedInvoices(workspaceId: string): Promise<{ lead: Map<string, SharedInvoice>; others: Map<string, string> }> {
+  const rows = await prisma.$queryRaw<Array<{ id: string; number: string; total: string; paid_total: string; status: string; paid_at: Date | null; load_ids: string[] }>>`
+    select i.id, i.number, i.total::text as total, i.paid_total::text as paid_total, i.status, i.paid_at, array_agg(il.load_id order by (select min(x.sort) from invoice_lines x where x.invoice_id = i.id and x.load_id = il.load_id) nulls last, il.load_id) as load_ids
+    from invoices i join invoice_loads il on il.invoice_id = i.id
+    where i.workspace_id = ${workspaceId} and i.kind = 'invoice' and i.status <> 'void'
+    group by i.id having count(*) > 1`;
+  const lead = new Map<string, SharedInvoice>();
+  const others = new Map<string, string>();
+  for (const r of rows) {
+    const leadId = r.load_ids[0]!;
+    lead.set(leadId, { id: r.id, number: r.number, total: new Prisma.Decimal(r.total).toNumber(), paidTotal: new Prisma.Decimal(r.paid_total).toNumber(), status: r.status, paidAt: r.paid_at, loadIds: r.load_ids });
+    for (const id of r.load_ids.slice(1)) others.set(id, leadId);
+  }
+  return { lead, others };
+}
+
 /** The loads an invoice list is made of: the scope, the search, the terminal and the filter. "Overdue" is worked out on the desk's calendar by the database and comes back as the loads it names. */
 async function invoiceWhere(scope: InvoiceScope, workspaceId: string, f: InvoiceFilters, now = new Date()) {
-  const and: object[] = [INVOICEABLE, inTerminal(f.terminal ?? null), invoiceSearch(f.q)];
-  if (f.show === "part") and.push({ paidAmount: { gt: 0 } });
+  const and: object[] = [INVOICEABLE, inTerminal(f.terminal ?? null)];
+  const search = invoiceSearch(f.q);
+  if (scope === "ready") and.push(search);
+  else {
+    // An invoice of several loads shows once, as its lead load. A search for any of its loads (or its number) finds it.
+    const shared = await sharedInvoices(workspaceId);
+    if (shared.others.size === 0) and.push(search);
+    else {
+      const otherIds = [...shared.others.keys()];
+      const text = (f.q ?? "").trim();
+      const viaOthers = text ? (await prisma.load.findMany({ where: { id: { in: otherIds }, deletedAt: null, ...invoiceSearch(text) }, select: { id: true } })).map((x) => shared.others.get(x.id)!) : [];
+      and.push(viaOthers.length > 0 ? { OR: [search, { id: { in: viaOthers } }] } : search);
+      and.push({ id: { notIn: otherIds } });
+    }
+  }
+  if (f.show === "part") {
+    // An invoice of several loads is part paid when the invoice is (its own paid total), not when its lead load happens to show a share.
+    const partLeads = scope === "ready" ? [] : [...(await sharedInvoices(workspaceId)).lead.entries()].filter(([, inv]) => inv.paidTotal > 0).map(([id]) => id);
+    and.push(partLeads.length > 0 ? { OR: [{ paidAmount: { gt: 0 } }, { id: { in: partLeads } }] } : { paidAmount: { gt: 0 } });
+  }
   if (f.show === "factored") and.push({ factoringStatus: { not: "none" } });
   if (f.show === "overdue") {
     const tz = await workspaceTimezone(workspaceId);
@@ -273,6 +315,8 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
     if (opts.sort?.key === "due" || opts.sort?.key === "amount") {
       const dir = opts.sort.dir === "asc" ? 1 : -1;
       const sortKey = opts.sort.key;
+      // A shared invoice's lead row shows the invoice's own money, so it sorts by that too, not by the lead load's share.
+      const sharedForSort = sortKey === "amount" && scope !== "ready" ? await sharedInvoices(workspaceId) : null;
       const pairs: Array<{ id: string; v: number | null }> =
         sortKey === "due"
           ? (await prisma.load.findMany({ where, select: { id: true, invoicedAt: true, payTermsDays: true } })).map((m) => ({
@@ -286,6 +330,12 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
               if (scope === "ready") {
                 const b = invoiceBasis({ status: m.status, quotedRevenue: num(m.quotedRevenue), fuelSurcharge: num(m.fuelSurcharge), tonuRevenue: numOrNull(m.tonuRevenue) });
                 return { id: m.id, v: new Prisma.Decimal(b.rate).plus(b.surcharge).toNumber() };
+              }
+              const inv = sharedForSort?.lead.get(m.id);
+              if (inv) {
+                if (scope === "paid") return { id: m.id, v: inv.paidTotal > 0 ? inv.paidTotal : inv.total };
+                const left = new Prisma.Decimal(inv.total).minus(inv.paidTotal);
+                return { id: m.id, v: left.isNegative() ? 0 : left.toNumber() };
               }
               const billed =
                 m.invoicedAmount != null
@@ -349,6 +399,18 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
       for (const r of g) if (r.loadId && r._max.createdAt) chased.set(r.loadId, r._max.createdAt);
     }
   }
+  // Each row says whether it stands for an invoice of several loads (the invoice's own money and every load number), and whether it is an invoice with no record (imported history).
+  const sharedAll = scope === "ready" ? null : await sharedInvoices(workspaceId);
+  const otherNumbers = new Map<string, string>();
+  if (sharedAll && sharedAll.lead.size > 0) {
+    const need = loads.flatMap((l) => sharedAll.lead.get(l.id)?.loadIds.slice(1) ?? []);
+    if (need.length > 0) for (const x of await prisma.load.findMany({ where: { id: { in: need } }, select: { id: true, loadNumber: true } })) otherNumbers.set(x.id, x.loadNumber ?? "");
+  }
+  const withRecord = new Set<string>();
+  if (scope !== "ready" && loads.length > 0) {
+    const ids = loads.filter((l) => l.paymentStatus !== null).map((l) => l.id);
+    if (ids.length > 0) for (const r of await prisma.invoiceLoad.findMany({ where: { loadId: { in: ids }, invoice: { kind: "invoice", status: { not: "void" } } }, select: { loadId: true } })) withRecord.add(r.loadId);
+  }
   return loads.map((l) => {
     const basis = invoiceBasis({ status: l.status, quotedRevenue: num(l.quotedRevenue), fuelSurcharge: num(l.fuelSurcharge), tonuRevenue: numOrNull(l.tonuRevenue) });
     const rate = basis.rate;
@@ -356,11 +418,12 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
     const billable = light || basis.tonu ? 0 : detentionOfLoad(l, thresholds.detentionGraceMinutes).billable;
     const billed = billedOf({ invoicedAmount: numOrNull(l.invoicedAmount), status: l.status, quotedRevenue: num(l.quotedRevenue), fuelSurcharge: numOrNull(l.fuelSurcharge), tonuRevenue: numOrNull(l.tonuRevenue) });
     const paidAmount = numOrNull(l.paidAmount);
-    return {
+    const row = {
       id: l.id,
       loadNumber: l.loadNumber,
       poNumber: l.poNumber,
       broker: l.brokerName,
+      brokerMc: l.brokerMcNumber,
       origin: l.originAddress,
       destination: l.destinationAddress,
       lane: `${l.originAddress ?? "?"} → ${l.destinationAddress ?? "?"}`,
@@ -388,7 +451,30 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
       paidDifference: l.paymentStatus === "paid" && paidAmount != null ? new Prisma.Decimal(paidAmount).minus(billed).toDecimalPlaces(2).toNumber() : null,
       invoiceContext: { rate, surcharge: basis.surcharge, detention: billable, rateLabel: basis.label, defaultTerms: l.payTermsDays ?? customerTerms.get((l.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays },
       defaultNumber: revisedInvoiceNumber(defaultInvoiceNumber(l.loadNumber, l.id), voidedNumbers.get(l.id) ?? new Set()),
-      readiness: invoiceReadiness({ ...l, quotedRevenue: rate, paidLinehaul: numOrNull(l.actualRevenue), podStopsMissing: missingPods.get(l.id) ?? null })
+      readiness: invoiceReadiness({ ...l, quotedRevenue: rate, paidLinehaul: numOrNull(l.actualRevenue), podStopsMissing: missingPods.get(l.id) ?? null }),
+      /** More than one load on this invoice: the row stands for the whole invoice and carries its money. */
+      loadsOnInvoice: 1,
+      /** The invoice's record id, when the row is an invoice with a record. */
+      invoiceId: null as string | null,
+      /** An invoice (or payment) on the load with no invoice record behind it: imported history that carried no invoice number (docs/MONEY_PLAN.md, gap 16). */
+      imported: scope !== "ready" && l.paymentStatus !== null && !withRecord.has(l.id)
+    };
+    const inv = sharedAll?.lead.get(l.id);
+    if (!inv) return row;
+    // The lead load of an invoice of several loads: the invoice's own number and money, and every load number on it.
+    const owing = new Prisma.Decimal(inv.total).minus(inv.paidTotal);
+    return {
+      ...row,
+      loadNumber: [l.loadNumber ?? "", ...inv.loadIds.slice(1).map((id) => otherNumbers.get(id) ?? "")].filter(Boolean).join(", "),
+      invoiceNumber: inv.number,
+      amount: inv.total,
+      readyAmount: inv.total,
+      paidAmount: inv.paidTotal > 0 ? inv.paidTotal : null,
+      balance: l.paymentStatus === "invoiced" ? (owing.isNegative() ? 0 : owing.toNumber()) : 0,
+      paidDifference: l.paymentStatus === "paid" && inv.paidTotal > 0 ? new Prisma.Decimal(inv.paidTotal).minus(inv.total).toDecimalPlaces(2).toNumber() : null,
+      loadsOnInvoice: inv.loadIds.length,
+      invoiceId: inv.id,
+      imported: false
     };
   });
 }

@@ -1256,3 +1256,16 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .rp .ev-decide .tl-note { color: #5d534b; }
 .rp .ev-decide .th-err { color: #a3262a; font-size: 12px; }
 }
+
+/* Invoice these loads together (components/desk/invoice-together.tsx): the checkbox in a ready row, and the bar that says what is chosen. */
+.tl-pick { width: 16px; height: 16px; margin: 0 8px 0 0; vertical-align: -2px; accent-color: var(--db-accent); cursor: pointer; }
+.tl-pick:disabled { cursor: not-allowed; opacity: 0.4; }
+.tl-together { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 12px; padding: 10px 14px; border: 1px solid var(--db-border-strong); background: var(--db-bg-elev-1); font-size: var(--db-text-sm); }
+.tl-together-act { display: inline-flex; gap: 8px; margin-left: auto; }
+.dlg-foot-msg { margin-right: auto; }
+.dlg-lead { margin: 0; }
+.rp-gap { margin-top: 18px; }
+.rp-t8 { margin-top: 8px; }
+.rp-dim { opacity: 0.6; }
+.dlg-foot-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 16px; }
+.fp-money { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 8px 0 0; }

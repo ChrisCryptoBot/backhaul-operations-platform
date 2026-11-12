@@ -33,7 +33,7 @@ export type InvoicePdfData = {
   balance: number;
   creditOf: string | null;
   /** Set when the invoice has gone to a factor: the notice of assignment prints and the remit-to is the factor's (rule C). */
-  factoring: { factor: string; reference: string | null; remitTo: string | null } | null;
+  factoring: { factor: string; reference: string | null; remitTo: string | null; /** The notice wording the fleet saved with its factoring terms; the plain wording prints when it is blank. */ noaText?: string | null } | null;
 };
 
 const PAGE_W = 612;
@@ -136,7 +136,9 @@ export async function buildInvoicePdf(d: InvoicePdfData): Promise<Uint8Array> {
 
   // Notice of assignment (rule C): only when the invoice has gone to a factor.
   if (d.factoring) {
-    const noa = `NOTICE OF ASSIGNMENT. This invoice has been assigned and is payable only to ${d.factoring.factor}${d.factoring.reference ? ` (reference ${d.factoring.reference})` : ""}. Payment to anyone else does not discharge the debt.${d.factoring.remitTo ? ` Remit to: ${d.factoring.remitTo}.` : " The factor's remit-to address is not on file: ask the factor before paying."}`;
+    const said = d.factoring.noaText ? pdfSafe(d.factoring.noaText) : "Payment to anyone else does not discharge the debt.";
+    // Rule C: this copy replaces any sent before the invoice was factored, which named the carrier as the payee.
+    const noa = `NOTICE OF ASSIGNMENT. This invoice has been assigned and is payable only to ${pdfSafe(d.factoring.factor)}${d.factoring.reference ? ` (reference ${pdfSafe(d.factoring.reference)})` : ""}. ${said}${d.factoring.remitTo ? ` Remit to: ${pdfSafe(d.factoring.remitTo)}.` : " The factor's remit-to address is not on file: ask the factor before paying."} This notice replaces any earlier copy of invoice ${pdfSafe(d.number)}, which named the carrier as the payee.`;
     const lines = wrap(noa, font, 9, PAGE_W - 2 * M - 16);
     const h = lines.length * 12 + 12;
     ensure(h + 10);

@@ -109,8 +109,10 @@ describe.skipIf(!run)("the partner seams", () => {
     const stops = (n: number) => ({ create: [{ stopSequence: 1, stopType: "pickup", stopRole: "pickup", addressString: "Dallas, TX", timeWindowEarliest: days(-n - 2), timeWindowLatest: days(-n - 2) }, { stopSequence: 2, stopType: "delivery", stopRole: "delivery", addressString: "Tulsa, OK", timeWindowEarliest: days(-n), timeWindowLatest: days(-n), podPhotoUrl: "pod.jpg" }] });
     const load = await prisma.load.create({ data: { workspaceId: W, loadNumber: "E4-L1", status: "completed", completedAt: days(-3), quotedRevenue: 1500, vehicleId: truck.id, paymentStatus: "invoiced", invoiceNumber: "E4-INV-1", invoicedAt: days(-2), invoicedAmount: 1500, rateConPath: "rc.pdf", stops: stops(3) } });
     const noDoc = await prisma.load.create({ data: { workspaceId: W, loadNumber: "E4-L2", status: "completed", completedAt: days(-3), quotedRevenue: 900, paymentStatus: "invoiced", invoiceNumber: "E4-INV-2", invoicedAt: days(-2), invoicedAmount: 900, stops: { create: [{ stopSequence: 1, stopType: "pickup", addressString: "Dallas, TX" }] } } });
-    // The rate confirmation is a kept file (a typed file name on the load is not one); the proof of delivery is the driver's photo on the delivery stop.
+    // The rate confirmation and the proof of delivery are kept files (a typed file name on the load is not one). The driver's photo on the delivery stop is a link, not a kept file,
+    // so since 2026-11-12 it no longer counts by itself (server/tl/documents.ts, packetFiles: the factoring view, the packet and the schedule use one rule).
     await prisma.loadDocument.create({ data: { id: "e4-doc-rc", workspaceId: W, loadId: load.id, kind: "rate_con", name: "rc.pdf", mime: "application/pdf", bytes: 10, sha256: "0".repeat(64), storageKey: `${W}/00000000-0000-0000-0000-000000000001`, addedBy: "test" } });
+    await prisma.loadDocument.create({ data: { id: "e4-doc-pod", workspaceId: W, loadId: load.id, kind: "pod", name: "pod.pdf", mime: "application/pdf", bytes: 10, sha256: "0".repeat(64), storageKey: `${W}/00000000-0000-0000-0000-000000000002`, addedBy: "test" } });
     Object.assign(ids, { truck: truck.id, truck2: truck2.id, driver: driver.id, ready: ready.id, load: load.id, loadNoDoc: noDoc.id });
   });
   afterAll(async () => {

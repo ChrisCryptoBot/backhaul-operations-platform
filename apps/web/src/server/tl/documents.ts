@@ -106,3 +106,24 @@ export async function documentKinds(loadId: string, workspaceId = currentWorkspa
   const rows = await prisma.loadDocument.findMany({ where: { loadId, workspaceId }, select: { kind: true }, distinct: ["kind"] });
   return new Set(rows.map((r) => r.kind as DocKind));
 }
+
+/**
+ * The one rule for what a factoring packet is made of (docs/MONEY_PLAN.md, rule B), used by the factoring view, the packet and the schedule of accounts alike: a load has its rate
+ * confirmation or its proof of delivery only when that file is kept on the load as a document. A delivery photo the driver's phone sent is a link, not a kept file, so it cannot go in a
+ * packet and does not count; `photoOnly` says when it is the only proof there is, so the screen can ask for it to be saved as a document.
+ */
+export async function packetFiles(loadIds: string[], workspaceId = currentWorkspaceId()): Promise<Map<string, { rateCon: boolean; pod: boolean; photoOnly: boolean }>> {
+  const out = new Map<string, { rateCon: boolean; pod: boolean; photoOnly: boolean }>();
+  if (loadIds.length === 0) return out;
+  const [docs, photos] = await Promise.all([
+    prisma.loadDocument.findMany({ where: { workspaceId, loadId: { in: loadIds }, kind: { in: ["rate_con", "pod"] } }, select: { loadId: true, kind: true } }),
+    prisma.stop.findMany({ where: { loadId: { in: loadIds }, podPhotoUrl: { not: null } }, select: { loadId: true } })
+  ]);
+  const withPhoto = new Set(photos.map((p) => p.loadId));
+  for (const id of loadIds) {
+    const mine = docs.filter((d) => d.loadId === id);
+    const pod = mine.some((d) => d.kind === "pod");
+    out.set(id, { rateCon: mine.some((d) => d.kind === "rate_con"), pod, photoOnly: !pod && withPhoto.has(id) });
+  }
+  return out;
+}

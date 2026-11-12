@@ -39,12 +39,18 @@ export async function agingSummary(now = Date.now(), workspaceId = currentWorksp
       Array<{ n: number; total: number | null; overdue_n: number; overdue_amount: number | null; oldest: number | null; next_due: number | null; c_n: number; c_a: number | null; a_n: number; a_a: number | null; b_n: number; b_a: number | null; c2_n: number; c2_a: number | null; d_n: number; d_a: number | null }>
     >`
       with o as (
-        select greatest(${BILLED} - coalesce(l.paid_amount, 0), 0)::float8 as owing,
+        select greatest(case when r.n > 1 then r.total - r.paid_total else ${BILLED} - coalesce(l.paid_amount, 0) end, 0)::float8 as owing,
           case when l.invoiced_at is null then null
             else ((l.invoiced_at at time zone 'UTC') at time zone ${tz})::date + coalesce(l.pay_terms_days, 0) end as due,
           (${new Date(now)}::timestamp at time zone 'UTC' at time zone ${tz})::date as today
         from loads l
-        where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status <> 'quote' and l.payment_status = 'invoiced' ${terminalSql(terminal, workspaceId)}
+        -- An invoice of several loads is one invoice: its lead load (the first in line order, the same as server/tl/queries.ts sharedInvoices) stands for it with the invoice's own money, and the others are not counted again.
+        left join lateral (
+          select i.total, i.paid_total, (select count(*) from invoice_loads x where x.invoice_id = i.id) as n, (select x.load_id from invoice_loads x where x.invoice_id = i.id order by (select min(y.sort) from invoice_lines y where y.invoice_id = i.id and y.load_id = x.load_id) nulls last, x.load_id limit 1) as lead
+          from invoice_loads il join invoices i on i.id = il.invoice_id and i.kind = 'invoice' and i.status <> 'void'
+          where il.load_id = l.id limit 1
+        ) r on true
+        where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status <> 'quote' and l.payment_status = 'invoiced' and (r.n is null or r.n = 1 or r.lead = l.id) ${terminalSql(terminal, workspaceId)}
       ), d as (select owing, due, today, (today - due) as late from o)
       select count(*)::int as n, coalesce(sum(owing), 0)::float8 as total,
         (count(*) filter (where late > 0))::int as overdue_n, coalesce(sum(owing) filter (where late > 0), 0)::float8 as overdue_amount,

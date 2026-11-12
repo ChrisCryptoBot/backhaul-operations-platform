@@ -6,7 +6,7 @@ import { cookies } from "next/headers";
 import { SLEEP_COOKIE, THEME_COOKIE, UI_COOKIE, asSleepMinutes, asTheme, asUi } from "@/lib/appearance";
 import { redirect, RedirectType } from "next/navigation";
 import { prisma } from "@/lib/db";
-import { requireCan } from "@/server/tl/access";
+import { checkAccess, requireCan } from "@/server/tl/access";
 import { removeLoadDocument, type DocResult } from "@/server/tl/documents";
 import { addMember, setMemberGrants, removeMember, setMemberRole, type MemberResult } from "@/server/tl/members";
 import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
@@ -71,8 +71,11 @@ import { deleteLoad, restoreLoad, type RemoveResult } from "@/server/tl/remove";
 import { saveBillingDetails, type BillingResult } from "@/server/tl/billing-details";
 import type { BillingDetailsValues } from "@/lib/billing-details";
 import { completeTrip, correctTrip, reopenDelivered, saveExpenses, startTrip, undoStartTrip, type TripResult } from "@/server/tl/execution";
-import { undoPaid, recordChase, voidInvoice, type InvoiceOut, type PaidOut } from "@/server/tl/invoicing";
+import { undoPaid, recordChase, voidInvoice, invoiceLoads, issueCreditMemo, voidCreditMemo, type CreditOut, type InvoiceOut, type MultiInvoiceOut, type PaidOut } from "@/server/tl/invoicing";
 import { waiveDetention } from "@/server/tl/detention";
+import { saveFactoringTerms, type SaveTermsResult } from "@/server/partners/factoring-terms";
+import { recordChargeback, type ChargebackResult } from "@/server/partners/factoring";
+import type { TermsForm } from "@/lib/factoring-terms";
 import { confirmStopEvidence, dismissStopEvidence, type ConfirmValues, type DecisionResult } from "@/server/tl/detention-evidence";
 import { discardSettlement, finalizeSettlement, markSettlementPaid, saveDraft, startSettlement, voidSettlement, type Draft, type SettleResult } from "@/server/tl/settlement";
 import { checkAttachment } from "@/lib/attachments";
@@ -853,6 +856,53 @@ export async function saveExpensesAction(loadId: string, values: ExpenseValues):
 export async function invoiceLoadAction(loadId: string, form: InvoiceForm): Promise<InvoiceOut> {
   await requireCan("bill");
   const out = await invoiceLoad(loadId, { form });
+  if (out.ok) refreshLoads();
+  return out;
+}
+
+/** One invoice for several delivered loads of the same customer (docs/MONEY_PLAN.md, rule G). The server checks the same-customer rule again; the screen only explains it first. */
+export async function invoiceLoadsAction(loadIds: string[], form: { number: string; terms: string }): Promise<MultiInvoiceOut> {
+  await requireCan("bill");
+  const out = await invoiceLoads(loadIds.slice(0, 60), { number: form.number.slice(0, 40), terms: form.terms.slice(0, 4) });
+  if (out.ok) refreshLoads();
+  return out;
+}
+
+/** Credit part or all of what is owed on an open invoice with a credit memo of its own (rule F). The amount is typed as dollars and cents and checked on the server. */
+export async function creditMemoAction(loadId: string, amount: string, reason: string, label: string): Promise<CreditOut> {
+  await requireCan("bill");
+  const text = amount.trim().replace(/,/g, "");
+  if (!/^\d{1,9}(\.\d{1,2})?$/.test(text)) return { ok: false, error: "Type the amount to credit as dollars and cents, like 125.50." };
+  const out = await issueCreditMemo(loadId, { amount: Number.parseFloat(text), reason: reason.slice(0, 200), label: label.slice(0, 80) });
+  if (out.ok) refreshLoads();
+  return out;
+}
+
+/** Take a credit memo back. A credit is money the customer was told it did not owe, so taking it back is an admin's (the same as a write-off). */
+export async function voidCreditMemoAction(memoId: string, reason: string): Promise<CreditOut> {
+  await requireCan("writeoff");
+  const out = await voidCreditMemo(memoId, reason.slice(0, 200));
+  if (out.ok) refreshLoads();
+  return out;
+}
+
+/** The fleet's factoring terms (remit-to, notice wording, advance and fee). An admin's: they decide where customers are told to pay. */
+export async function saveFactoringTermsAction(form: TermsForm): Promise<SaveTermsResult> {
+  await requireCan("admin");
+  const access = await checkAccess("admin");
+  const out = await saveFactoringTerms(form, access.ok ? (access.identity.name ?? access.identity.email ?? "Admin") : "Admin");
+  if (out.ok && out.changed) {
+    revalidatePath("/settings");
+    revalidatePath("/invoices");
+    revalidatePath("/audit");
+  }
+  return out;
+}
+
+/** The factor charged a funded invoice back (the customer did not pay it). */
+export async function factoringChargebackAction(loadId: string, reason: string): Promise<ChargebackResult> {
+  await requireCan("bill");
+  const out = await recordChargeback(loadId, reason.slice(0, 200));
   if (out.ok) refreshLoads();
   return out;
 }

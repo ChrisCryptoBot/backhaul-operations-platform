@@ -2,9 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import React from "react";
-import { connectPartnerAction, disconnectPartnerAction, factorInvoiceAction, factoringUpdateAction, importFuelAction, saveFuelCardAction, sendToPayrollAction, syncEldAction, vetCarrierAction } from "@/app/(desk)/actions";
+import { connectPartnerAction, disconnectPartnerAction, factorInvoiceAction, factoringChargebackAction, factoringUpdateAction, importFuelAction, saveFuelCardAction, sendToPayrollAction, syncEldAction, vetCarrierAction } from "@/app/(desk)/actions";
 import { usd } from "@/lib/desk-format";
 import { PROVIDERS } from "@/truelane/partners/contract";
+import { Modal } from "./kit/modal";
 import { ReadOnlyBanner } from "./kit/read-only";
 import { useToast } from "./kit/toast";
 import { useDraft } from "./kit/use-draft";
@@ -42,7 +43,71 @@ export type FactorInfo = {
   paid?: boolean;
   canAct?: boolean;
   who?: string;
+  /** How many loads the invoice carries; more than one says so, because the factor takes them as one invoice. */
+  loadCount?: number;
+  /** Loads whose only proof of delivery is the driver's phone photo (a link, not a kept file). */
+  podPhotoOnly?: number;
+  /** What the factor advanced, charged and holds on this invoice, or what the fleet's terms say it should (docs/MONEY_PLAN.md, Wave 2). */
+  money?: { advance: number | null; fee: number | null; reserveHeld: number | null; reserveReleased: number | null; chargeback: number | null; expected: { advance: number; reserveHeld: number; fee: number; reserveReleasable: number; netToCarrier: number } | null } | null;
+  /** The packet (the invoice, rate confirmations and proofs of delivery as one PDF) and the schedule of accounts, for a batch factor. */
+  packetHref?: string;
+  scheduleHref?: string;
 };
+
+/** The factor charged the invoice back: the advance is owed back and the invoice is the fleet's to collect again. */
+function ChargebackButton({ loadId, advance }: { loadId: string; advance: number }) {
+  const router = useRouter();
+  const toast = useToast();
+  const [open, setOpen] = React.useState(false);
+  const [f, setF, kept] = useDraft<{ reason: string }>(`factor-chargeback:${loadId}`, { reason: "" });
+  const [message, setMessage] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  async function go() {
+    setMessage(null);
+    if (f.reason.trim().length < 3) return setMessage("Say why the factor charged it back.");
+    setBusy(true);
+    const got = await tried(() => factoringChargebackAction(loadId, f.reason));
+    setBusy(false);
+    if (!got.ok) return setMessage(got.message);
+    if (got.value.ok) {
+      kept.saved();
+      setOpen(false);
+      toast({ text: `Charged back: ${usd(got.value.amount, 2)} is owed to the factor.`, tone: "bad" });
+      router.refresh();
+    } else setMessage(got.value.error);
+  }
+  return (
+    <>
+      <button type="button" className="tl-btn sm" onClick={() => { setMessage(null); setOpen(true); }}>
+        The factor charged it back
+      </button>
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        eyebrow="Factoring"
+        title="Record a chargeback?"
+        footer={
+          <>
+            {message ? <span className="tl-note warn dlg-foot-msg" role="alert">{message}</span> : null}
+            <button type="button" className="tl-btn" onClick={() => setOpen(false)}>
+              Back
+            </button>
+            <button type="button" className="tl-btn primary" disabled={busy} onClick={() => void go()}>
+              Record the chargeback
+            </button>
+          </>
+        }>
+        <form className="dlg-form" onSubmit={(e) => { e.preventDefault(); if (!busy) void go(); }}>
+          <p className="tl-note dlg-lead">The customer did not pay, so the factor takes its {usd(advance, 2)} advance back and releases no reserve. The invoice goes back to you to collect, and can be sent to a factor again.</p>
+          <label className="tl-field">
+            Why
+            <input value={f.reason} onChange={(e) => setF({ reason: e.target.value })} maxLength={200} autoComplete="off" />
+          </label>
+        </form>
+      </Modal>
+    </>
+  );
+}
 
 /** The factoring box on an invoice: where it stands with the factor, what the packet holds, and "Send to the factor" (the optional items go missing only by "Send anyway"). */
 export function FactorPanel({ info }: { info: FactorInfo }) {
@@ -105,6 +170,12 @@ export function FactorPanel({ info }: { info: FactorInfo }) {
         <span className={`tl-chip ${info.status === "none" ? "muted" : info.status === "rejected" ? "bad" : info.status === "funded" || info.status === "paid" ? "ok" : "info"}`}>{info.statusLabel}</span>
         {info.referenceId ? <span className="tl-sub" style={{ marginLeft: 8 }}>Reference {info.referenceId}</span> : null}
       </p>
+      {info.loadCount && info.loadCount > 1 ? <p className="tl-sub">This invoice carries {info.loadCount} loads. The factor takes it as one invoice, so every load needs its rate confirmation and proof of delivery on file.</p> : null}
+      {info.podPhotoOnly ? (
+        <p className="tl-note warn">
+          {info.podPhotoOnly === 1 ? "One load's" : `${info.podPhotoOnly} loads'`} only proof of delivery is the driver&apos;s phone photo, which is a link and not a kept file. Save it on the load as a proof of delivery to put it in the packet.
+        </p>
+      ) : null}
       <ul className="tl-sub" style={{ margin: "0 0 10px", paddingLeft: 18 }} aria-label="The packet">
         {info.manifest.map((m) => (
           <li key={m.kind}>
@@ -113,6 +184,32 @@ export function FactorPanel({ info }: { info: FactorInfo }) {
           </li>
         ))}
       </ul>
+      {info.packetHref || info.scheduleHref ? (
+        <p className="tl-form-row">
+          {info.packetHref ? <a className="tl-btn sm" href={info.packetHref} target="_blank" rel="noopener">Download the packet (PDF)</a> : null}
+          {info.scheduleHref ? <a className="tl-btn sm ghost" href={info.scheduleHref}>Schedule of accounts (CSV)</a> : null}
+        </p>
+      ) : null}
+      {info.money && (info.money.advance != null || info.money.chargeback != null || info.money.expected) ? (
+        <dl className="tl-kv fp-money" aria-label="What the factor pays">
+          {info.money.advance != null ? (
+            <>
+              <div><dt>Advanced</dt><dd>{usd(info.money.advance, 2)}</dd></div>
+              <div><dt>Held in reserve</dt><dd>{usd(info.money.reserveHeld ?? 0, 2)}</dd></div>
+              <div><dt>Fee</dt><dd>{usd(info.money.fee ?? 0, 2)}</dd></div>
+              {info.money.reserveReleased != null ? <div><dt>Reserve released</dt><dd>{usd(info.money.reserveReleased, 2)}</dd></div> : null}
+            </>
+          ) : info.money.expected ? (
+            <>
+              <div><dt>Expected advance</dt><dd>{usd(info.money.expected.advance, 2)}</dd></div>
+              <div><dt>Reserve</dt><dd>{usd(info.money.expected.reserveHeld, 2)}</dd></div>
+              <div><dt>Fee</dt><dd>{usd(info.money.expected.fee, 2)}</dd></div>
+              <div><dt>You end up with</dt><dd>{usd(info.money.expected.netToCarrier, 2)}</dd></div>
+            </>
+          ) : null}
+          {info.money.chargeback != null ? <div><dt>Charged back</dt><dd className="tone-neg">{usd(info.money.chargeback, 2)}</dd></div> : null}
+        </dl>
+      ) : null}
       {!canAct ? (
         <p className="tl-note" role="note" style={{ margin: 0 }}>
           {info.who ?? "Accounting or Admin"} can send this invoice to the factor or update its status.
@@ -127,6 +224,11 @@ export function FactorPanel({ info }: { info: FactorInfo }) {
               </label>
             ) : null}
           </div>
+          {info.status === "funded" && info.money?.advance ? (
+            <div className="tl-form-row">
+              <ChargebackButton loadId={info.loadId} advance={info.money.advance} />
+            </div>
+          ) : null}
           {NEXT_STEPS[info.status] ? (
             <div className="tl-form-row" style={{ marginTop: 10, alignItems: "center" }}>
               <span className="tl-sub">The factor&apos;s answer, until it is reported automatically:</span>

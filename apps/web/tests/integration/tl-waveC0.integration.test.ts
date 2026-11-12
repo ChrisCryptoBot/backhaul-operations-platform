@@ -95,6 +95,8 @@ describe.skipIf(!run)("core load integrity on the demo database", () => {
     await prisma.settlement.deleteMany({ where: { driver: { name: { startsWith: "WC0" } } } });
     await prisma.auditEvent.deleteMany({ where: { OR: [{ loadId: { in: ids } }, { createdAt: { gte: startedAt }, entity: { in: ["fleet", "settlement", "settings"] } }] } });
     await prisma.load.deleteMany({ where: { id: { in: ids } } });
+    // An invoice number is held for good by its record, so this run's records go too, or the next run finds its numbers taken.
+    await prisma.invoice.deleteMany({ where: { workspaceId: WS, number: { startsWith: "WC0-" } } });
     await prisma.driver.deleteMany({ where: { workspaceId: WS, name: { startsWith: "WC0" } } });
     await prisma.vehicle.deleteMany({ where: { workspaceId: WS, name: { startsWith: "WC0" } } });
     const c = originalCompany.current;
@@ -279,7 +281,8 @@ describe.skipIf(!run)("core load integrity on the demo database", () => {
       const form = { number: "WC0-INV-SAME", terms: "", detention: false, lumper: "", layover: "", otherLabel: "", other: "" };
       expect(await invoiceLoad(a.id, { form })).toMatchObject({ ok: true });
       expect(await invoiceLoad(b.id, { form })).toMatchObject({ ok: false, errors: { number: expect.stringContaining("already on WC0-NUM-A") } });
-      await expect(prisma.load.update({ where: { id: b.id }, data: { invoiceNumber: "WC0-INV-SAME" } })).rejects.toBeInstanceOf(Prisma.PrismaClientKnownRequestError);
+      // Uniqueness lives on the invoice record since the multi-load migration (20261211): a second record with the same number is refused by the database.
+      await expect(prisma.invoice.create({ data: { workspaceId: WS, number: "WC0-INV-SAME", issuedAt: new Date(), termsDays: 30, total: 100 } })).rejects.toBeInstanceOf(Prisma.PrismaClientKnownRequestError);
       expect((await prisma.load.findUniqueOrThrow({ where: { id: b.id } })).invoiceNumber).toBeNull();
     });
 
