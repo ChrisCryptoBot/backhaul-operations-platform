@@ -24,6 +24,14 @@ import { calculateIfta } from "../src/server/partners/ifta";
 import { fileIftaReturn } from "../src/server/partners/ifta-filing";
 import { quarterBounds, syncIftaMileage } from "../src/server/partners/ifta-mileage";
 import { commitIftaRates } from "../src/server/partners/ifta-rates";
+import { createHash } from "node:crypto";
+import type { Prisma } from "@prisma/client";
+import { createApiKey } from "../src/server/api/keys";
+import { INVOICE_INCLUDE, SETTLEMENT_SELECT, shapeInvoice, shapePayment, shapeSettlement } from "../src/server/api/reads";
+import { checkFeature } from "../src/server/partners/gates";
+import { createEndpoint } from "../src/server/webhooks/endpoints";
+import { envelope } from "../src/server/webhooks/emit";
+import type { WebhookEvent } from "../src/lib/webhook-events";
 
 const prisma = new PrismaClient();
 const W = "demo-workspace";
@@ -370,13 +378,103 @@ async function seedFuelTax() {
   await writeFills([{ key: "P-late", vehicleId: q3.trucks[q3.trucks.length - 1]!, state: "AR", gallons: 88, at: day(q4From, -3) }]);
 }
 
+/**
+ * Wave 7 (the partner surface): a read API key, an outbound webhook endpoint with a few deliveries (one dead, one failed), and one inbound company event that failed, so Settings, Integrations
+ * and Partner issues have something to show. Only `demo-workspace` is touched (never `showcase-workspace`).
+ *
+ * Nothing here can reach a live server: the endpoint's host is on `.invalid` (RFC 2606: it never resolves), and it is created with a resolver that answers a public placeholder so creation
+ * does not depend on DNS. Deliveries are written in end states (sent, dead) plus one failed whose next try is hours away; if a scheduler ever runs `POST /partners/cron` against the demo
+ * database, that try fails at name lookup and no request is made. The failed inbound event names a TriumphPay event; the demo has no TriumphPay connection, so "Run again" on it answers that
+ * TriumphPay is not connected, and "Settle" works.
+ *
+ * Idempotent: the key is made once (printed once, then only its masked form exists anywhere); the endpoint once; deliveries and the event are upserted by stable ids and put back to their
+ * seeded state. While the money steps above run, the seeded endpoint is paused (pauseSeedEndpoint) so a re-run's own invoices and statements queue nothing to it.
+ */
+const SEED_KEY_LABEL = "Demo accounting sync (sample)";
+const SEED_HOOK_URL = "https://hooks.truelane-demo.invalid/truelane";
+const SEED_HOOK_EVENTS: WebhookEvent[] = ["invoice.created", "credit_memo.created", "payment.applied", "statement.finalized"];
+const SEED_INBOUND_ID = "seed-w7-tp-funded-1";
+const SEED_WHO = "Demo seed";
+/** A stable evt_<32 hex>, so a re-run updates the same delivery. */
+const seedEventId = (name: string) => `evt_${createHash("sha256").update(`seed-wave7:${name}`).digest("hex").slice(0, 32)}`;
+
+/** Returns whether the seeded endpoint was on, so it can be put back. */
+async function pauseSeedEndpoint(): Promise<boolean> {
+  const ep = await prisma.webhookEndpoint.findFirst({ where: { workspaceId: W, url: SEED_HOOK_URL } });
+  if (!ep) return true; // first run: it is made switched on
+  if (ep.active) await prisma.webhookEndpoint.update({ where: { id: ep.id }, data: { active: false } });
+  return ep.active;
+}
+
+async function seedWave7(endpointWasOn: boolean) {
+  for (const f of ["read_api", "outbound_webhooks"] as const) must(`plan ${f}`, await checkFeature(f, W));
+
+  // The read key: made once. The whole key is shown here, once; the database keeps its hash.
+  const key = await prisma.partnerApiKey.findFirst({ where: { workspaceId: W, label: SEED_KEY_LABEL, revokedAt: null } });
+  if (key) console.log(`read key: kept (${key.prefix}_…${key.last4})`);
+  else {
+    const made = await createApiKey({ label: SEED_KEY_LABEL, scopes: ["invoices", "payments", "settlements"] }, SEED_WHO, NOW, W, "test");
+    if (!made.ok) throw new Error(`api key: ${made.error}`);
+    console.log(`read key made (shown this once, not stored): ${made.key}`);
+  }
+
+  // The endpoint: made once, through the desk's own path (checked address, sealed secret, audited). The secret is never printed.
+  let ep = await prisma.webhookEndpoint.findFirst({ where: { workspaceId: W, url: SEED_HOOK_URL } });
+  if (!ep) {
+    if (!process.env.DESK_CREDENTIAL_KEY) throw new Error("DESK_CREDENTIAL_KEY is not set: the endpoint's signing secret cannot be sealed. Set it from apps/web/.env.local for this run.");
+    const placeholder = async () => [{ address: "93.184.216.34", family: 4 }];
+    const made = await createEndpoint({ url: SEED_HOOK_URL, label: "Sample receiver (never resolves)", events: SEED_HOOK_EVENTS }, SEED_WHO, NOW, W, { resolver: placeholder });
+    if (!made.ok) throw new Error(`endpoint: ${made.error}`);
+    ep = await prisma.webhookEndpoint.findUniqueOrThrow({ where: { id: made.id } });
+    console.log(`webhook endpoint made: ${SEED_HOOK_URL} (secret …${ep.secretLast4})`);
+  } else {
+    if (endpointWasOn) await prisma.webhookEndpoint.update({ where: { id: ep.id }, data: { active: true } });
+    console.log(`webhook endpoint: kept (${endpointWasOn ? "on" : "left off, as it was"})`);
+  }
+
+  // Real-looking bodies from the demo's own records, shaped exactly as the desk sends them (invoices tied to loads only, so a stray test row is never described).
+  const invoice = await prisma.invoice.findFirst({ where: { workspaceId: W, kind: "invoice", loads: { some: {} } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], include: INVOICE_INCLUDE });
+  const memo = await prisma.invoice.findFirst({ where: { workspaceId: W, kind: "credit_memo" }, orderBy: { createdAt: "asc" }, include: INVOICE_INCLUDE });
+  const payments = await prisma.invoicePayment.findMany({ where: { workspaceId: W, invoice: { loads: { some: {} } } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 2 });
+  const statement = await prisma.settlement.findFirst({ where: { workspaceId: W, status: "final" }, orderBy: [{ finalizedAt: "desc" }, { id: "desc" }], select: SETTLEMENT_SELECT });
+  if (!invoice || !memo || payments.length < 2 || !statement) throw new Error("wave 7: the demo has no invoice, credit memo, two payments and a final statement to describe (run the steps above first)");
+  const hours = (h: number) => new Date(NOW.getTime() - h * 3_600_000);
+  type Seeded = { name: string; type: WebhookEvent; data: Record<string, unknown>; at: Date; state: Partial<Prisma.WebhookDeliveryUncheckedCreateInput> };
+  const sent = (at: Date) => ({ status: "sent", attempts: 1, lastStatus: 200, lastError: null, sentAt: new Date(at.getTime() + 2_000), nextAttemptAt: at });
+  const rows: Seeded[] = [
+    // Dead first, then deliveries that went through after it, so the endpoint's dead-in-a-row count is honestly 0.
+    { name: "memo-dead", type: "credit_memo.created", data: shapeInvoice(memo), at: hours(80), state: { status: "dead", attempts: 8, lastStatus: 503, lastError: "The receiver answered 503.", sentAt: null, nextAttemptAt: hours(30) } },
+    { name: "statement-sent", type: "statement.finalized", data: shapeSettlement(statement), at: hours(26), state: sent(hours(26)) },
+    { name: "invoice-sent", type: "invoice.created", data: shapeInvoice(invoice), at: hours(20), state: sent(hours(20)) },
+    { name: "payment-sent", type: "payment.applied", data: shapePayment(payments[1]!), at: hours(6), state: sent(hours(6)) },
+    { name: "payment-failed", type: "payment.applied", data: shapePayment(payments[0]!), at: hours(1), state: { status: "failed", attempts: 2, lastStatus: null, lastError: "The receiver's name does not resolve.", sentAt: null, nextAttemptAt: new Date(NOW.getTime() + 6 * 3_600_000) } }
+  ];
+  for (const r of rows) {
+    const eventId = seedEventId(r.name);
+    const payload = envelope(eventId, r.type, r.data, r.at) as Prisma.InputJsonObject;
+    const state = { ...r.state, payload, type: r.type, leaseUntil: null, resolvedAt: null, resolvedBy: null, resolution: null, resolutionNote: null };
+    await prisma.webhookDelivery.upsert({ where: { endpointId_eventId: { endpointId: ep.id, eventId } }, create: { workspaceId: W, endpointId: ep.id, eventId, createdAt: r.at, ...state }, update: state });
+  }
+  await prisma.webhookEndpoint.update({ where: { id: ep.id }, data: { deadInARow: 0 } });
+
+  // One company event the desk could not apply, with its body kept: it shows on Partner issues.
+  const target = (await prisma.load.findFirst({ where: { workspaceId: W, deletedAt: null, factoringStatus: "submitted", invoiceNumber: { not: null } }, select: { invoiceNumber: true } })) ?? (await prisma.load.findFirst({ where: { workspaceId: W, deletedAt: null, invoiceNumber: { not: null } }, orderBy: { invoicedAt: "desc" }, select: { invoiceNumber: true } }));
+  if (!target?.invoiceNumber) throw new Error("wave 7: no invoiced load to name in the inbound event");
+  const body = JSON.stringify({ id: SEED_INBOUND_ID, type: "factoring.funded", reference: target.invoiceNumber, reference_id: `TP-SBX-${target.invoiceNumber}` });
+  const at = hours(3);
+  const event = { workspaceId: W, kind: "factoring.funded", outcome: "failed", detail: "The desk could not apply it. It can be tried again.", payload: body, attemptedAt: at, receivedAt: at, resolvedAt: null, resolvedBy: null, resolution: null, resolutionNote: null };
+  await prisma.partnerEvent.upsert({ where: { provider_eventId: { provider: "triumphpay", eventId: `${W}:${SEED_INBOUND_ID}` } }, create: { provider: "triumphpay", eventId: `${W}:${SEED_INBOUND_ID}`, ...event }, update: event });
+}
+
 async function main() {
   if (!(await prisma.workspace.findUnique({ where: { id: W } }))) throw new Error("no demo workspace: run seed-demo.ts first");
+  const endpointWasOn = await pauseSeedEndpoint();
   await clearMoney();
   await seedPay();
   await seedInvoices();
   await seedWave6();
   await seedFuelTax();
+  await seedWave7(endpointWasOn);
   const [statements, ledger, invoices] = await Promise.all([
     prisma.settlement.groupBy({ by: ["status"], where: { workspaceId: W }, _count: { _all: true } }),
     prisma.driverLedgerEntry.groupBy({ by: ["kind"], where: { workspaceId: W }, _count: { _all: true } }),

@@ -2,11 +2,16 @@ import { createHmac } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { PROVIDERS, WEBHOOK_SECRET_ENV } from "@/truelane/partners/contract";
+import { CAPABILITIES, PROVIDERS, WEBHOOK_SECRET_ENV } from "@/truelane/partners/contract";
 import { FAILURES_BEFORE_ERROR, retryMinutes } from "@/server/partners/health";
 import { shippedProviders } from "@/server/partners/adapters";
 import { SYNC_POLICY } from "@/server/partners/sync-policy";
 import { EVENT_KINDS, MAX_WEBHOOK_BYTES, signatureHeaderFor, verifySignature } from "@/server/partners/webhook-core";
+import { API_SCOPES, DEFAULT_LIMIT, MAX_ACTIVE_KEYS, MAX_LIMIT, RATE_LIMIT } from "@/lib/api-keys";
+import { FEATURE_PLAN, MONEY_MOVING_ENV, SWITCH_REASON_MIN } from "@/lib/partner-gates";
+import { PLAN_KEYS, planOf } from "@/lib/plans";
+import { DEAD_BEFORE_DISABLE, DELIVERY_TIMEOUT_MS, HEADER_EVENT_ID, HEADER_SIGNATURE, HEADER_TIMESTAMP, MAX_ATTEMPTS, TEST_EVENT, TOLERANCE_SECONDS, WEBHOOK_EVENTS, backoffMinutes, signatureHeader, verifySignatureHeader } from "@/lib/webhook-sign";
+import { READERS } from "@/server/api/reads";
 
 const doc = fs.readFileSync(path.join(__dirname, "../../../docs/PARTNER_INTEGRATION_SPEC.md"), "utf8");
 
@@ -60,6 +65,58 @@ describe("the partner integration spec matches the code", () => {
     expect(doc).toContain("Samsara: answers `not_implemented`");
     expect(doc).toContain("FourKites: `not_implemented`");
     expect(doc).toContain("AtoB: `not_implemented`");
+  });
+
+  it("names the read API routes, the Bearer header, every scope, the request id and the paging and rate numbers", () => {
+    for (const scope of API_SCOPES) {
+      expect(doc, scope).toContain(`\`GET /api/v1/${scope}\``);
+      expect(doc, scope).toContain(`\`${scope}\``);
+      expect(fs.existsSync(path.join(__dirname, `../src/app/(public)/api/v1/${scope}/route.ts`)), scope).toBe(true);
+    }
+    expect(Object.keys(READERS).sort()).toEqual([...API_SCOPES].sort());
+    expect(doc).toContain("`Authorization: Bearer <key>`");
+    expect(doc).toContain("**`x-request-id`**");
+    expect(doc).toContain("`x-ratelimit-limit`");
+    expect(doc).toContain(`**${RATE_LIMIT} requests a minute per key**`);
+    expect(doc).toContain(`\`limit\` is ${DEFAULT_LIMIT} when not given and is held to 1..${MAX_LIMIT}`);
+    expect(doc).toContain(`at most ${MAX_ACTIVE_KEYS} keys in use`);
+    for (const code of ["unauthenticated", "revoked", "forbidden_scope", "plan", "rate_limited", "bad_request", "server_error"]) expect(doc, code).toContain(`\`${code}\``);
+  });
+
+  it("names the outbound headers, every outbound event, the window and the retry numbers", () => {
+    for (const h of [HEADER_EVENT_ID, HEADER_TIMESTAMP, HEADER_SIGNATURE]) expect(doc, h).toContain(`**\`${h}\`**`);
+    for (const e of WEBHOOK_EVENTS) expect(doc, e).toContain(`\`${e}\``);
+    expect(doc).toContain(`\`${TEST_EVENT}\``);
+    expect(doc).toContain(`more than **${TOLERANCE_SECONDS / 60} minutes** from your own clock`);
+    expect(doc).toContain(`retried after **${[1, 2, 3].map(backoffMinutes).join(", ")} minutes, then every ${backoffMinutes(4) / 60} hours**`);
+    expect(doc).toContain(`the **${MAX_ATTEMPTS}th** failed attempt makes it \`dead\``);
+    expect(doc).toContain(`**${DEAD_BEFORE_DISABLE}** dead deliveries in a row switch the endpoint off`);
+    expect(doc).toContain(`no answer within ${DELIVERY_TIMEOUT_MS / 1000} seconds`);
+    expect(doc).toContain("`169.254.169.254`");
+  });
+
+  it("the worked outbound signature is what the desk sends, and the real verifier accepts it only inside the window", () => {
+    const secret = "whsec_example_secret";
+    const t = 1767225600;
+    const body = '{"id":"evt_0123456789abcdef0123456789abcdef","object":"event","type":"invoice.created"}';
+    const header = signatureHeader(secret, t, body);
+    expect(header).toMatch(/^t=1767225600,v1=[0-9a-f]{64}$/);
+    expect(doc).toContain(`secret \`${secret}\`, timestamp \`${t}\``);
+    expect(doc).toContain(body);
+    expect(doc).toContain(`x-truelane-signature: ${header}`);
+    expect(verifySignatureHeader(header, secret, body, t)).toBe(true);
+    expect(verifySignatureHeader(header, secret, body, t + TOLERANCE_SECONDS)).toBe(true);
+    expect(verifySignatureHeader(header, secret, body, t + TOLERANCE_SECONDS + 1)).toBe(false);
+    expect(verifySignatureHeader(header, secret, body + " ", t)).toBe(false);
+  });
+
+  it("states the plan line and the money-moving switch as the code has them", () => {
+    expect(FEATURE_PLAN.read_api).toBe(FEATURE_PLAN.outbound_webhooks);
+    expect(doc).toContain(`**the read API and outbound webhooks come with the ${planOf(FEATURE_PLAN.read_api).label} plan and up**`);
+    for (const c of CAPABILITIES) expect(FEATURE_PLAN[c], c).toBe(PLAN_KEYS[0]);
+    expect(doc).toContain("every company capability in section 1 is on every plan");
+    expect(doc).toContain(`**\`${MONEY_MOVING_ENV}\`**\`=yes\``);
+    expect(doc).toContain(`at least ${SWITCH_REASON_MIN} characters`);
   });
 
   it("does not claim more than is built: no live company, and no telematics push event", () => {
