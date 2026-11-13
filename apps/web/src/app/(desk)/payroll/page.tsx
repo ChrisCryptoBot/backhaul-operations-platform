@@ -72,6 +72,10 @@ export default async function PayrollPage({ searchParams }: { searchParams?: Par
           With payroll, sent {dayYear(r.sentAt)}
           {r.reference ? ` · ${r.reference}` : ""}
         </span>
+      ) : r.rejectedAt && !r.sentAt ? (
+        <span className="tl-chip warn" title={`Payroll refused it ${dayYear(r.rejectedAt)}. Fix it, then send it again.`}>
+          Rejected by payroll: {r.rejectReason ?? "no reason given"}
+        </span>
       ) : r.notReady ? (
         <span className="tl-chip warn">{r.notReady}</span>
       ) : (

@@ -24,8 +24,8 @@ export function verifySignature(raw: string, header: string | null | undefined, 
 }
 
 /** The neutral envelope an adapter maps a company's event into. */
-export type PartnerEventKind = "factoring.submitted" | "factoring.funded" | "factoring.paid" | "factoring.rejected" | "payroll.paid" | "tracking.arrived" | "tracking.departed" | "ping";
-export const EVENT_KINDS: readonly PartnerEventKind[] = ["factoring.submitted", "factoring.funded", "factoring.paid", "factoring.rejected", "payroll.paid", "tracking.arrived", "tracking.departed", "ping"];
+export type PartnerEventKind = "factoring.submitted" | "factoring.funded" | "factoring.paid" | "factoring.rejected" | "payroll.paid" | "payroll.rejected" | "tracking.arrived" | "tracking.departed" | "ping";
+export const EVENT_KINDS: readonly PartnerEventKind[] = ["factoring.submitted", "factoring.funded", "factoring.paid", "factoring.rejected", "payroll.paid", "payroll.rejected", "tracking.arrived", "tracking.departed", "ping"];
 
 export type NeutralEvent = {
   /** The company's own id for this event: what makes a repeat recognisable. */
@@ -37,6 +37,8 @@ export type NeutralEvent = {
   referenceId: string | null;
   /** For a tracking event: the stop (its number in the load) the truck reached or left. */
   stop?: number | null;
+  /** For a refusal (payroll.rejected): the company's reason, in its words. */
+  detail?: string | null;
 };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -51,7 +53,8 @@ export function readNeutralEvent(parsed: unknown, raw: string): NeutralEvent | n
   const type = text(parsed.type, 40);
   if (!type || !(EVENT_KINDS as readonly string[]).includes(type)) return null;
   const id = text(parsed.id, 120) ?? text(parsed.event_id, 120) ?? `sha256:${createHash("sha256").update(raw, "utf8").digest("hex")}`;
-  return { id, kind: type as PartnerEventKind, reference: text(parsed.reference, 80), referenceId: text(parsed.reference_id, 80) };
+  // Only a refusal carries a reason; every other event keeps the shape it always had.
+  return { id, kind: type as PartnerEventKind, reference: text(parsed.reference, 80), referenceId: text(parsed.reference_id, 80), ...(type === "payroll.rejected" ? { detail: text(parsed.reason, 200) } : {}) };
 }
 
 /**

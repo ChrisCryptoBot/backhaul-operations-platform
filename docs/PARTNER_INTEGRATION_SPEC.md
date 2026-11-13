@@ -52,10 +52,11 @@ sig = hmac.new(secret.encode(), raw_body, hashlib.sha256).hexdigest()
 
 **Neutral envelope.** `{ "id": string?, "type": <kind>, "reference": string?, "reference_id": string? }`, plus `stop` (the stop's number in the load) for tracking events. `id` is the company's own id for the event and is what makes a repeat recognisable; a body with no id gets a stable one from its bytes. A company with its own event shape is mapped into this envelope by its adapter (TriumphPay, Gusto and project44 have modeled mappers; none is confirmed against a real payload).
 
-**Event kinds (closed set).** `factoring.submitted`, `factoring.funded`, `factoring.paid`, `factoring.rejected`, `payroll.paid`, `tracking.arrived`, `tracking.departed`, `ping`. Any other `type` is recorded as ignored, never rejected.
+**Event kinds (closed set).** `factoring.submitted`, `factoring.funded`, `factoring.paid`, `factoring.rejected`, `payroll.paid`, `payroll.rejected`, `tracking.arrived`, `tracking.departed`, `ping`. Any other `type` is recorded as ignored, never rejected.
 
 - `factoring.*` moves an invoice's factoring status one allowed step from where it is (a replay or an out-of-order event cannot move it backwards); `reference` is the invoice number or the factor's reference.
 - `payroll.paid` marks the sent statements on a run as paid.
+- `payroll.rejected` releases a refused payment: `reference` is the run, `reference_id` the statement (all of the run's statements when it is absent), `reason` the company's words. The statement is no longer sent and shows the reason until it is sent again. The desk also asks payroll about runs it has not heard of three days after sending (twice a day), and applies what it finds exactly as these events, so an event that arrives after the poll moves nothing.
 - `tracking.arrived` and `tracking.departed` record a shipment milestone against the load named by `reference` (the stop by `stop`).
 - `ping` is a connectivity test and is recorded and audited.
 - **There is no telematics push event** (ignition, idle, position) in this set. ELD data reaches the desk by polling (section 3). A push event would be an addition to this set and its mapper; it is not built.

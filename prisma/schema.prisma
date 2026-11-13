@@ -759,29 +759,34 @@ model Settlement {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  workspace        Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  driver           Driver              @relation(fields: [driverId], references: [id], onDelete: Restrict)
-  loads            SettlementLoad[]
-  lineRows         SettlementLine[]
+  workspace           Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  driver              Driver              @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  loads               SettlementLoad[]
+  lineRows            SettlementLine[]
   /// When the statement was sent to payroll, and the reference payroll gave it. Blank until sent.
   /// Fuel card purchases deducted on this statement: the ids picked while it is a draft, and the ledger as it was when it was finalized.
-  fuelIds          Json?               @map("fuel_ids")
-  fuel             Json?
-  fuelTransactions FuelTransaction[]
-  payrollSentAt    DateTime?           @map("payroll_sent_at")
-  payrollReference String?             @map("payroll_reference")
+  fuelIds             Json?               @map("fuel_ids")
+  fuel                Json?
+  fuelTransactions    FuelTransaction[]
+  payrollSentAt       DateTime?           @map("payroll_sent_at")
+  payrollReference    String?             @map("payroll_reference")
   /// When the driver was paid, and how, when it was not through payroll (a check, a transfer). A statement paid either way cannot be voided.
-  paidAt           DateTime?           @map("paid_at")
-  paidMethod       String?             @map("paid_method")
+  paidAt              DateTime?           @map("paid_at")
+  paidMethod          String?             @map("paid_method")
+  /// Payroll status poll (Wave 4 step 5): when the desk last asked about this run, and, when payroll refused the payment, when and why (the statement is released to be sent again).
+  payrollCheckedAt    DateTime?           @map("payroll_checked_at")
+  payrollRejectedAt   DateTime?           @map("payroll_rejected_at")
+  payrollRejectReason String?             @map("payroll_reject_reason")
   /// Draft only: the deductions skipped on this statement (with the reason) and an escrow release (with the reason). Wave 4 step 3.
-  deductionChoices Json?               @map("deduction_choices")
-  ledger           DriverLedgerEntry[]
+  deductionChoices    Json?               @map("deduction_choices")
+  ledger              DriverLedgerEntry[]
 
   @@unique([workspaceId, number])
   @@index([workspaceId, status])
   @@index([workspaceId, createdAt])
   @@index([workspaceId, finalizedAt])
   @@index([driverId])
+  @@index([status, payrollSentAt])
   @@map("settlements")
 }
 

@@ -6,6 +6,7 @@ import { recordAudit } from "@/server/tl/audit";
 import { num } from "@/server/tl/convert";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { callPartner, partnerState, providerName } from "./call";
+import { applyPayrollPaid, applyPayrollRejected } from "./events";
 
 /**
  * Payroll: a finalized driver statement can be sent to the payroll company once, when its driver is set up there (a worker type and the id payroll knows them by). Sending marks
@@ -32,6 +33,9 @@ export type PayrollRow = {
   /** When the payroll company's run cleared, and how the statement was paid ("payroll" when its event said so). */
   paidAt: Date | null;
   paidMethod: string | null;
+  /** When payroll refused it and why (the statement was released to be sent again). Cleared when it is sent again. */
+  rejectedAt: Date | null;
+  rejectReason: string | null;
   /** What keeps it from being sent now, in words, or null when it is ready. */
   notReady: string | null;
 };
@@ -104,6 +108,8 @@ export async function listPayroll(opts: { page?: number; filter?: "ready" | "sen
       reference: unfinished ? null : s.payrollReference,
       paidAt: s.paidAt,
       paidMethod: s.paidMethod,
+      rejectedAt: s.payrollRejectedAt,
+      rejectReason: s.payrollRejectReason,
       notReady: readiness(s.driver, effectiveSentAt, { paidAt: s.paidAt, total: num(s.total) })
     };
   });
@@ -168,7 +174,8 @@ export async function sendToPayroll(statementIds: string[], now = new Date(), wo
   }
   const { reference } = result.data;
   await prisma.$transaction(async (tx) => {
-    await tx.settlement.updateMany({ where: { id: { in: ids }, workspaceId, payrollReference: claimRef }, data: { payrollReference: reference } });
+    // Sent again after a refusal: the refusal is history now (it stays in the audit log).
+    await tx.settlement.updateMany({ where: { id: { in: ids }, workspaceId, payrollReference: claimRef }, data: { payrollReference: reference, payrollCheckedAt: null, payrollRejectedAt: null, payrollRejectReason: null } });
     await tx.driver.updateMany({ where: { id: { in: statements.map((s) => s.driverId) }, workspaceId }, data: { payrollStatus: "sent" } });
     const total = statements.reduce((sum, s) => sum.plus(new Prisma.Decimal(num(s.total))), new Prisma.Decimal(0)).toDecimalPlaces(2).toNumber();
     await recordAudit(
@@ -185,6 +192,103 @@ export async function sendToPayroll(statementIds: string[], now = new Date(), wo
     );
   });
   return { ok: true, sent: ids.length, reference };
+}
+
+// ── The status poll (docs/MONEY_PLAN.md, Wave 4 step 5, gap 12) ─────────────────────────────────
+
+/** A run is asked about once it has been with payroll this long without word of it clearing, and then at most this often. */
+export const PAYROLL_POLL_AFTER_DAYS = 3;
+export const PAYROLL_POLL_EVERY_HOURS = 12;
+export const PAYROLL_POLL_MAX_RUNS = 50;
+
+export type PayrollPollResult = { runs: number; paid: number; rejected: number; pending: number; failed: number; duplicate: number };
+
+/**
+ * One poll outcome, recorded the way a webhook event is (partner_events, one row per event id, so a repeat is a "duplicate" and does nothing) and applied through the same function the webhook
+ * uses. The poll's event id is its own and stable for the run (and the statement, for a refusal), so asking twice is one event; a company's webhook for the same run arrives under the
+ * company's id and finds nothing left to move.
+ */
+async function recordPolled(i: { workspaceId: string; provider: string; eventId: string; kind: "payroll.paid" | "payroll.rejected"; now: Date; apply: () => Promise<boolean> }): Promise<"applied" | "ignored" | "duplicate"> {
+  const eventKey = `${i.workspaceId}:${i.eventId}`;
+  try {
+    await prisma.partnerEvent.create({ data: { workspaceId: i.workspaceId, provider: i.provider, eventId: eventKey, kind: i.kind, outcome: "ignored", detail: "Found by the payroll status check.", receivedAt: i.now } });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return "duplicate";
+    throw e;
+  }
+  const applied = await i.apply();
+  await prisma.partnerEvent.update({ where: { provider_eventId: { provider: i.provider, eventId: eventKey } }, data: { outcome: applied ? "applied" : "ignored", detail: applied ? "Found by the payroll status check." : "No sent statements on that run." } });
+  return applied ? "applied" : "ignored";
+}
+
+/**
+ * Ask payroll about every run that was sent, has not been heard of for PAYROLL_POLL_AFTER_DAYS, and is still unpaid: paid marks it paid (on the day it cleared), a refusal releases the statement
+ * and says why, exactly as the webhook would. A run still pending writes nothing but the time it was asked (no audit, no event), so the poll can run every heartbeat and ask each run at most every
+ * PAYROLL_POLL_EVERY_HOURS. A company that cannot be reached is asked again at that rhythm too, never hammered. Counts only.
+ */
+export async function pollPayrollStatus(opts: { now?: Date; workspaceId?: string; limit?: number } = {}): Promise<PayrollPollResult> {
+  const now = opts.now ?? new Date();
+  const out: PayrollPollResult = { runs: 0, paid: 0, rejected: 0, pending: 0, failed: 0, duplicate: 0 };
+  const sentBefore = new Date(now.getTime() - PAYROLL_POLL_AFTER_DAYS * 86_400_000);
+  const checkedBefore = new Date(now.getTime() - PAYROLL_POLL_EVERY_HOURS * 3_600_000);
+  const due = await prisma.settlement.findMany({
+    where: {
+      ...(opts.workspaceId ? { workspaceId: opts.workspaceId } : {}),
+      status: "final",
+      paidAt: null,
+      payrollSentAt: { lt: sentBefore },
+      AND: [{ payrollReference: { not: null } }, { NOT: { payrollReference: { startsWith: CLAIM } } }, { OR: [{ payrollCheckedAt: null }, { payrollCheckedAt: { lt: checkedBefore } }] }]
+    },
+    select: { id: true, workspaceId: true, payrollReference: true, payrollSentAt: true, driver: { select: { payrollEmployeeId: true } } },
+    orderBy: [{ payrollSentAt: "asc" }, { id: "asc" }],
+    take: 5000
+  });
+  const runs = new Map<string, typeof due>();
+  for (const s of due) {
+    const k = `${s.workspaceId}|${s.payrollReference}`;
+    const list = runs.get(k) ?? [];
+    list.push(s);
+    runs.set(k, list);
+  }
+  for (const group of [...runs.values()].slice(0, opts.limit ?? PAYROLL_POLL_MAX_RUNS)) {
+    const { workspaceId, payrollReference: reference } = group[0]!;
+    if (!reference) continue;
+    out.runs += 1;
+    const ids = group.map((s) => s.id);
+    const sentAt = group.reduce((m, s) => (s.payrollSentAt! < m ? s.payrollSentAt! : m), group[0]!.payrollSentAt!);
+    let called;
+    try {
+      called = await callPartner("payroll", null, { op: "status", reference, sentAt: sentAt.toISOString(), asOf: now.toISOString(), statements: group.map((s) => ({ id: s.id, employeeId: s.driver.payrollEmployeeId })) }, workspaceId);
+    } catch {
+      called = null;
+    }
+    // Asked: whatever the answer, this run waits PAYROLL_POLL_EVERY_HOURS before it is asked again. A timestamp, not an event: "still pending" leaves no trail.
+    await prisma.settlement.updateMany({ where: { id: { in: ids }, workspaceId, payrollReference: reference }, data: { payrollCheckedAt: now } });
+    if (!called || !called.result.ok) {
+      out.failed += 1;
+      continue;
+    }
+    const { provider } = called;
+    const answer = called.result.data;
+    const payments = answer.payments ?? [];
+    let moved = false;
+    for (const p of payments.filter((x) => x.status === "rejected" && ids.includes(x.id))) {
+      const r = await recordPolled({ workspaceId, provider, eventId: `poll:payroll.rejected:${reference}:${p.id}`, kind: "payroll.rejected", now, apply: () => applyPayrollRejected(reference, now, workspaceId, { statementIds: [p.id], reason: p.reason ?? null, via: "poll" }) });
+      if (r === "applied") out.rejected += 1;
+      else if (r === "duplicate") out.duplicate += 1;
+      moved = true;
+    }
+    const paidIds = answer.state === "paid" ? ids.filter((id) => !payments.some((p) => p.id === id && p.status === "rejected")) : payments.filter((p) => p.status === "paid" && ids.includes(p.id)).map((p) => p.id);
+    if (paidIds.length > 0) {
+      const paidAt = answer.paidAt ? new Date(answer.paidAt) : null;
+      const r = await recordPolled({ workspaceId, provider, eventId: `poll:payroll.paid:${reference}`, kind: "payroll.paid", now, apply: () => applyPayrollPaid(reference, now, workspaceId, { statementIds: paidIds, paidAt: paidAt && !Number.isNaN(paidAt.getTime()) ? paidAt : null, via: "poll" }) });
+      if (r === "applied") out.paid += 1;
+      else if (r === "duplicate") out.duplicate += 1;
+      moved = true;
+    }
+    if (!moved) out.pending += 1;
+  }
+  return out;
 }
 
 export { partnerState };

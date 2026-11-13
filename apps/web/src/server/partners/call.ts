@@ -80,9 +80,15 @@ export type AdapterShapes = {
     in: { mcNumber: string | null; dotNumber: string | null };
     out: { status: "clear" | "review" | "failed"; coiExpiresAt: string | null; safetyScore?: number | null; authorityActive?: boolean; liabilityCoverage?: number | null; cargoCoverage?: number | null; flags?: string[] };
   };
+  /**
+   * Payroll: send a batch of statements (one run), or ask where a run stands (Wave 4 step 5: the status poll). A status answer is `pending` until the run clears; `paid` (with the day it
+   * cleared) or `rejected` / `mixed` name each statement's outcome, with the company's reason for a refusal.
+   */
   payroll: {
-    in: { statements: Array<{ id: string; number: string; employeeId: string | null; workerType: string | null; total: number; periodStart: string; periodEnd: string; idempotencyKey?: string }> };
-    out: { reference: string; payments?: Array<{ id: string; status: string }> };
+    in:
+      | { op?: "send"; statements: Array<{ id: string; number: string; employeeId: string | null; workerType: string | null; total: number; periodStart: string; periodEnd: string; idempotencyKey?: string }> }
+      | { op: "status"; reference: string; /** When the desk sent the run, and the desk's clock now (ISO): the simulator clears a run a set time after it was sent. */ sentAt: string; asOf: string; statements: Array<{ id: string; employeeId: string | null }> };
+    out: { reference: string; state?: "pending" | "paid" | "rejected" | "mixed"; paidAt?: string | null; payments?: Array<{ id: string; status: string; reason?: string | null }> };
   };
   ifta: {
     in: { quarter: string; vehicles: Array<{ id: string; name: string | null }>; /** The quarter's delivered loads, each with its places and miles. */ trips?: Array<{ id: string; vehicleId: string; origin: string; destination: string; miles: number; mpg?: number | null }> };

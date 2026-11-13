@@ -5,7 +5,7 @@ import { WEBHOOK_SECRET_ENV } from "@/truelane/partners/contract";
 import { recordAudit } from "@/server/tl/audit";
 import { workspaceReader } from "./credentials";
 import { applyFactoringUpdate } from "./factoring";
-import { applyPayrollPaid, applyTrackingMilestone } from "./events";
+import { applyPayrollPaid, applyPayrollRejected, applyTrackingMilestone } from "./events";
 import { recordHealth } from "./health";
 import { MAX_WEBHOOK_BYTES, factoringStatusOf, readEvent, signatureHeaderFor, verifySignature } from "./webhook-core";
 
@@ -63,7 +63,11 @@ export async function handleWebhook(i: { provider: string; token: string; raw: s
       if (load && !applied) detail = "Not an allowed step from where the invoice is.";
     }
   } else if (event.kind === "payroll.paid" && conn.capability === "payroll") {
-    applied = await applyPayrollPaid(event.reference, now, conn.workspaceId);
+    applied = await applyPayrollPaid(event.reference, now, conn.workspaceId, { via: "webhook" });
+    if (!applied) detail = "No sent statements on that run.";
+  } else if (event.kind === "payroll.rejected" && conn.capability === "payroll") {
+    // The statement the refusal is for, when the company names one; otherwise the whole run.
+    applied = await applyPayrollRejected(event.reference, now, conn.workspaceId, { statementIds: event.referenceId ? [event.referenceId] : null, reason: event.detail ?? null, via: "webhook" });
     if (!applied) detail = "No sent statements on that run.";
   } else if ((event.kind === "tracking.arrived" || event.kind === "tracking.departed") && conn.capability === "tracking") {
     applied = await applyTrackingMilestone({ reference: event.reference, stop: event.stop ?? null, kind: event.kind }, now, conn.workspaceId);

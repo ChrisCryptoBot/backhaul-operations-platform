@@ -62,6 +62,7 @@ for m in \
   20261216000000_settlement_lines \
   20261217000000_driver_tax_profile \
   20261218000000_driver_deductions \
-  20261219000000_driver_advances; do
+  20261219000000_driver_advances \
+  20261220000000_payroll_status_poll; do
   npx prisma migrate resolve --applied "$m" --schema=./prisma/schema.prisma
 done

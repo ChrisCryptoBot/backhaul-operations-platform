@@ -15,7 +15,7 @@ export const SYNC_POLICY: Record<Capability, SyncPolicy> = {
   eld: { mode: "poll", everyMinutes: 15, staleAfterMinutes: 90, rhythm: "Hours of service are read every 15 minutes." },
   vetting: { mode: "poll", everyMinutes: 24 * 60, staleAfterMinutes: 3 * 24 * 60, rhythm: "Carrier checks are repeated once a day." },
   factoring: { mode: "events", rhythm: "The company tells the desk when an invoice is funded or paid." },
-  payroll: { mode: "events", rhythm: "The company tells the desk when a pay run clears." },
+  payroll: { mode: "events", rhythm: "The company tells the desk when a pay run clears; a run not heard of three days after it was sent is asked about twice a day." },
   tracking: { mode: "events", rhythm: "The company tells the desk where a shared load is." },
   fuel_card: { mode: "on_demand", rhythm: "Fuel is read from the card when you ask, on a trip." },
   ifta: { mode: "on_demand", rhythm: "A quarter is worked out when you ask." },

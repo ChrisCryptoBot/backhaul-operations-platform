@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { resealCredentials } from "@/server/partners/credentials";
 import { purgeOldEvents, purgeOldPings, purgeOldStays } from "@/server/partners/retention";
 import { runPartnerSync } from "@/server/partners/sync";
+import { pollPayrollStatus } from "@/server/partners/payroll";
 import { freezeRecentDeliveries } from "@/server/tl/detention-evidence";
 
 /**
@@ -23,11 +24,13 @@ export async function POST(req: NextRequest) {
   if (!same(req.headers.get("x-partner-cron") ?? "", secret)) return NextResponse.json({ ok: false, error: "Not allowed." }, { status: 401 });
   // The same heartbeat does the housekeeping: connections read on a clock, keys sealed under a key that was rotated out, and webhook events past the keeping period. Counts only.
   const ran = await runPartnerSync();
+  // Payroll runs sent days ago with no word of clearing: asked where they stand (each at most twice a day), applied exactly as the webhook would be.
+  const payroll = await pollPayrollStatus().catch(() => null);
   const resealed = await resealCredentials();
   const purged = await purgeOldEvents();
   // Freeze what each recently delivered truck's track says about its stops BEFORE the fixes are deleted: the detention evidence pack (docs/DETENTION_EVIDENCE.md) outlives the week the fixes are kept.
   const frozen = await freezeRecentDeliveries().catch(() => null);
   const pingsPurged = await purgeOldPings();
   const staysPurged = await purgeOldStays();
-  return NextResponse.json({ ok: true, ran, resealed, purged, pingsPurged, staysPurged, evidenceFrozen: frozen ? frozen.created + frozen.improved : 0 });
+  return NextResponse.json({ ok: true, ran, payroll, resealed, purged, pingsPurged, staysPurged, evidenceFrozen: frozen ? frozen.created + frozen.improved : 0 });
 }
