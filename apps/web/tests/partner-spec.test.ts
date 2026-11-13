@@ -95,6 +95,13 @@ describe("the partner integration spec matches the code", () => {
     expect(doc).toContain("`169.254.169.254`");
   });
 
+  it("the Settings webhook card says how long retries last, as the schedule has it", () => {
+    const card = fs.readFileSync(path.join(__dirname, "../src/components/desk/webhooks-card.tsx"), "utf8");
+    let minutes = 0;
+    for (let failed = 1; failed < MAX_ATTEMPTS; failed++) minutes += backoffMinutes(failed);
+    expect(card).toContain(`tried again for about ${Math.floor(minutes / 60)} hours (${MAX_ATTEMPTS} tries in all)`);
+  });
+
   it("the worked outbound signature is what the desk sends, and the real verifier accepts it only inside the window", () => {
     const secret = "whsec_example_secret";
     const t = 1767225600;

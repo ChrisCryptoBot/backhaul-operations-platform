@@ -103,7 +103,7 @@ export function WebhooksCard({ endpoints, deliveries, canEdit, planRefusal, keyM
     <div className="wh-card">
       <p className="tl-note dlg-lead">
         TrueLane tells another system when money moves: an invoice made or taken back, a credit memo, a payment recorded or taken back, a driver statement finalized or voided. Each event is posted
-        to the address as JSON, signed with the address&apos;s own secret, and tried again for a day and a half if the receiver does not answer with a 2xx. Drivers are named by id only.
+        to the address as JSON, signed with the address&apos;s own secret, and tried again for about 25 hours (8 tries in all) if the receiver does not answer with a 2xx. Drivers are named by id only.
       </p>
       <p className="tl-sub wh-recipe">
         Headers <code>x-truelane-event-id</code>, <code>x-truelane-timestamp</code>, <code>x-truelane-signature: t=…,v1=…</code>; v1 is the hex HMAC-SHA256 of <code>timestamp.body</code>. Keep the event id to do each event once.
