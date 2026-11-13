@@ -46,6 +46,9 @@ export default async function StatementPage({ params }: { params: { id: string }
               All statements
             </Link>
             <PrintButton documentTitle={s.number} />
+            <a className="tl-btn" href={`/settlements/${s.id}/pdf`} target="_blank" rel="noopener">
+              Draft PDF
+            </a>
           </PageHead>
         </div>
         <SettlementEditor
@@ -101,6 +104,9 @@ export default async function StatementPage({ params }: { params: { id: string }
           Driver
         </Link>
         <PrintButton documentTitle={s.number} />
+        <a className="tl-btn" href={`/settlements/${s.id}/pdf`} target="_blank" rel="noopener">
+          Download PDF
+        </a>
         {s.status === "final" && !paidOut ? (
           <>
             {canPayout ? <MarkSettlementPaid id={s.id} number={s.number} driverName={s.driver.name} total={st.total} /> : null}

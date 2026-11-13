@@ -60,7 +60,7 @@ export function pdfSafe(text: string | null | undefined): string {
 
 export const usdText = (n: number) => `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-function wrap(text: string, font: PDFFont, size: number, width: number): string[] {
+export function wrap(text: string, font: PDFFont, size: number, width: number): string[] {
   const words = pdfSafe(text).split(" ").filter(Boolean);
   const out: string[] = [];
   let line = "";
