@@ -1,5 +1,5 @@
 /**
- * Money on the demo desk (docs/MONEY_PLAN.md, Waves 1-4), on top of scripts/seed-demo.ts: driver pay statements with every kind of line, payroll in every state, the driver ledger
+ * Money on the demo desk (docs/MONEY_PLAN.md, Waves 1-6), on top of scripts/seed-demo.ts: driver pay statements with every kind of line, payroll in every state, the driver ledger
  * (deductions, escrow, advances), tax profiles for the 1099 page, and invoices in the states the billing screens show (short-paid, factored at each step, a chargeback, a credit memo).
  *
  * Everything goes through the desk's own functions (statements, finalize, void, mark paid, deductions, advances, tax profile, invoicing, factoring), so the rows, the ledger and the audit trail are
@@ -187,6 +187,54 @@ async function seedInvoices() {
   must("chargeback", await recordChargeback(chargedBack!.id, "Customer did not pay within 90 days", ago(1), W));
 }
 
+// ── Wave 6: cash, cost of money, chargeback repaid ───────────────────────────────────────────
+
+/**
+ * Money moving in this week and the one before, so the KPI's cash card and Why it moved's cash bridge have something to show, and the Leak ledger's fee lines have items: the charged-back invoice
+ * repaid by its customer, a quick-pay fee taken short, a part payment and a factor funding in the week before. Each step checks whether it was done before (its own reference, or the state it
+ * leaves), so a re-run changes nothing, and every step goes through the desk's own functions, so Data health's money checks stay clean.
+ */
+async function seedWave6() {
+  const ago = (d: number) => notAfterNow(new Date(NOW.getTime() - d * DAY));
+  // Open invoices no factor and no credit has touched, oldest first, one load each.
+  const free = async () =>
+    (
+      await prisma.invoice.findMany({
+        where: { workspaceId: W, kind: "invoice", status: "open", factoringStatus: "none", factoringChargeback: null, credits: { none: {} }, paidTotal: 0 },
+        orderBy: [{ issuedAt: "asc" }, { number: "asc" }],
+        select: { id: true, number: true, total: true, loads: { select: { loadId: true } } }
+      })
+    ).filter((i) => i.loads.length === 1);
+
+  // 1. The charged-back invoice, paid by its customer after the chargeback.
+  const charged = await prisma.invoice.findFirst({ where: { workspaceId: W, kind: "invoice", factoringChargeback: { not: null } }, select: { id: true, status: true, factoringChargedBackAt: true, loads: { select: { loadId: true } } } });
+  if (charged && charged.status === "open") {
+    const back = charged.factoringChargedBackAt?.getTime() ?? NOW.getTime() - DAY;
+    must("chargeback repaid", await markLoadPaid(charged.loads[0]!.loadId, notAfterNow(new Date(Math.max(back + 6 * 3_600_000, NOW.getTime() - 12 * 3_600_000))), { source: "desk", method: "ach", reference: "SEED-W6-REPAY", payer: "Customer, after the chargeback", shortAction: "balance" }, W));
+  }
+  // 2. A quick-pay fee taken short (2%): Factoring Fees in the journal, a fee line in the Leak ledger.
+  if ((await prisma.invoice.count({ where: { workspaceId: W, writeOffCode: "quick_pay_fee" } })) === 0) {
+    const i = (await free())[0];
+    if (!i) throw new Error("no open invoice for the quick-pay fee");
+    const amount = Math.round(Number(i.total) * 0.98 * 100) / 100;
+    must("quick-pay fee", await markLoadPaid(i.loads[0]!.loadId, ago(3), { amount, shortAction: "writeoff", shortReason: "Quick pay: 2% taken for payment in 2 days", shortCode: "quick_pay_fee", method: "ach", reference: "SEED-W6-QP", source: "desk" }, W));
+  }
+  // 3. The week before: a customer's part payment, and a factor funding an invoice (still with the factor, so part of what is owed is funded).
+  if ((await prisma.invoicePayment.count({ where: { workspaceId: W, reference: "SEED-W6-PART" } })) === 0) {
+    const i = (await free())[0];
+    if (!i) throw new Error("no open invoice for the part payment");
+    must("part payment", await markLoadPaid(i.loads[0]!.loadId, ago(9), { amount: Math.round(Number(i.total) * 0.5 * 100) / 100, method: "check", reference: "SEED-W6-PART", source: "desk" }, W));
+  }
+  if ((await prisma.invoice.count({ where: { workspaceId: W, factoringReferenceId: "APX-55123" } })) === 0) {
+    const i = (await free())[0];
+    if (!i) throw new Error("no open invoice to fund");
+    const loadId = i.loads[0]!.loadId;
+    await prisma.invoice.update({ where: { id: i.id }, data: { factoringStatus: "submitted" } });
+    await prisma.load.update({ where: { id: loadId }, data: { factoringStatus: "submitted" } });
+    if (!(await applyFactoringUpdate(loadId, "funded", "APX-55123", ago(10), W))) throw new Error(`fund ${i.number}`);
+  }
+}
+
 // ── Fuel and fuel tax (Wave 5) ───────────────────────────────────────────────────────────────
 
 /** The provider every seeded fuel purchase carries, so a re-run takes exactly these away. */
@@ -202,7 +250,7 @@ async function clearFuelTax() {
   await prisma.fuelTransaction.deleteMany({ where: { workspaceId: W, provider: SEED_FUEL } });
 }
 
-type Fill = { key: string; vehicleId: string | null; state: string | null; gallons: number; at: Date; taxPaid?: boolean; product?: string; status?: string; location?: string };
+type Fill = { key: string; vehicleId: string | null; state: string | null; gallons: number; at: Date; taxPaid?: boolean; product?: string; status?: string; location?: string; /** Dollars; left out, the source said nothing. */ discount?: number; discountPerGallon?: number };
 
 async function writeFills(fills: Fill[]) {
   await prisma.fuelTransaction.createMany({
@@ -220,7 +268,9 @@ async function writeFills(fills: Fill[]) {
       status: f.status ?? "settled",
       gallons: f.gallons.toFixed(1),
       pricePerGallon: PRICE.toFixed(4),
-      amount: (Math.round(f.gallons * PRICE * 100) / 100).toFixed(2)
+      amount: (Math.round(f.gallons * PRICE * 100) / 100).toFixed(2),
+      discount: f.discount == null ? null : f.discount.toFixed(2),
+      discountPerGallon: f.discountPerGallon == null ? null : f.discountPerGallon.toFixed(4)
     }))
   });
 }
@@ -281,6 +331,13 @@ async function seedFuelTax() {
     { key: "C-declined", vehicleId: t4, state: "AR", gallons: 95, at: day(q4From, 11), status: "declined" },
     { key: "C-overfill", vehicleId: t4, state: "MO", gallons: 275, at: day(q4From, 20) }
   );
+  // Wave 6: two fills the card recorded with no discount (one says $0.00, one $0.0000 a gallon), on two trucks, in this week and the one before: the Leak ledger counts them and never prices them.
+  const t4b = q4.trucks[q4.trucks.length - 1]!;
+  const recent = (d: number) => new Date(Math.max(q4From.getTime() + DAY, NOW.getTime() - d * DAY));
+  q4.fills.push(
+    { key: "C-nodisc-a", vehicleId: t4, state: "TX", gallons: 110, at: recent(4), discount: 0, discountPerGallon: 0, location: "Truck stop, Amarillo, TX" },
+    { key: "C-nodisc-b", vehicleId: t4b, state: "OK", gallons: 95, at: recent(11), discountPerGallon: 0, location: "Truck stop, Oklahoma City, OK" }
+  );
   await writeFills([...q3.fills, ...q4.fills]);
   const overfill = await prisma.fuelTransaction.findFirstOrThrow({ where: { workspaceId: W, provider: SEED_FUEL, externalId: "SEED-P-overfill" } });
   must("clear overfill", await clearFuelFlag(overfill.id, "over_capacity", "Saddle tanks fitted in July: 300 gallons", NOW, W));
@@ -318,6 +375,7 @@ async function main() {
   await clearMoney();
   await seedPay();
   await seedInvoices();
+  await seedWave6();
   await seedFuelTax();
   const [statements, ledger, invoices] = await Promise.all([
     prisma.settlement.groupBy({ by: ["status"], where: { workspaceId: W }, _count: { _all: true } }),

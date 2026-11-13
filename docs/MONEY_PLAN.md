@@ -158,7 +158,7 @@ Sizes: **S** = under a day, **M** = 1 to 3 days, **L** = a week or more.
 
 **Wave 5: Fuel and IFTA (M to L).** All-miles source (ELD jurisdiction miles from a Motive-shaped adapter, routed all-miles fallback), purchased gallons by state, quarterly rate matrix store and import, the return with net due or credit, per-vehicle audit detail, fuel exception flags, reefer and DEF separate, fuel CSV import.
 
-**Wave 6: Analytics and integrity (M).** Data health money-integrity checks, leak lines from partner data, KPI and Why it moved on cash.
+**Wave 6: Analytics and integrity (M).** Data health money-integrity checks, leak lines from partner data, KPI and Why it moved on cash. *Built 2026-11-13 (local):* factoring release and chargeback days stored, quick-pay and factor fees taken short booked to Factoring Fees (`514c040`); seven money checks on Data health (`0cc7503`); partner lines in the Leak ledger (`ca03796`); cash beside gross on /kpi and a cash bridge on Why it moved (`e192039`, which took in the planned step 5); the demo seed for all of it (step 6). Production migration `20261229000000_factoring_dates` is Chris's.
 
 **Wave 7: Partner surface (L).** Outbound signed webhooks and a scoped read API, dead-letter and retry screen, partner showcase demo page, plan gating, partner onboarding doc update (`docs/PARTNER_INTEGRATION_SPEC.md`).
 
