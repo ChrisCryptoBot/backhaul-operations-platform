@@ -72,6 +72,10 @@ model Workspace {
   bridgeOutbox       BridgeOutbox[]
   partnerCredentials PartnerCredential[]
   partnerEvents      PartnerEvent[]
+  partnerOAuthTokens PartnerOAuthToken[]
+  partnerOAuthStates PartnerOAuthState[]
+  externalRefs       ExternalRef[]
+  syncCursors        SyncCursor[]
   iftaLines          IftaLine[]
   fuelTransactions   FuelTransaction[]
   vehiclePings       VehiclePing[]
@@ -871,6 +875,95 @@ model PartnerCredential {
 
   @@unique([workspaceId, provider])
   @@map("partner_credentials")
+}
+
+/// A fleet's sign-in to a partner company that connects by OAuth 2 (QuickBooks Online first; docs/MONEY_PLAN.md, Wave 3), beside the pasted keys in PartnerCredential. The access and refresh
+/// tokens are sealed together in the same AES-256-GCM envelope as keys; only the expiries, the company's id for the account and the state can be read.
+model PartnerOAuthToken {
+  id               String    @id @default(cuid())
+  workspaceId      String    @map("workspace_id")
+  provider         String
+  /// The company's own id for the account connected (QuickBooks: the realm id). Not a secret: every call names it.
+  accountId        String    @map("account_id")
+  /// "v1.<iv>.<tag>.<ciphertext>" of { access_token, refresh_token }. Never returned by any query the screens use.
+  sealed           String
+  scope            String?
+  accessExpiresAt  DateTime  @map("access_expires_at")
+  refreshExpiresAt DateTime? @map("refresh_expires_at")
+  /// A refresh is claimed by compare-and-set on this, with a short lease, so two calls never spend the same refresh token.
+  version          Int       @default(0)
+  refreshingUntil  DateTime? @map("refreshing_until")
+  refreshedAt      DateTime? @map("refreshed_at")
+  /// active | expired (the company refused the refresh token: the fleet signs in again)
+  status           String    @default("active")
+  lastError        String?   @map("last_error")
+  connectedBy      String?   @map("connected_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, provider])
+  @@map("partner_oauth_tokens")
+}
+
+/// One sign-in redirect to a partner company, used once: the state sent with it is kept only as its SHA-256, expires in minutes, and ties the callback to the fleet and person who started it.
+model PartnerOAuthState {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  provider    String
+  stateHash   String    @unique @map("state_hash")
+  expiresAt   DateTime  @map("expires_at")
+  usedAt      DateTime? @map("used_at")
+  createdBy   String?   @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@map("partner_oauth_states")
+}
+
+/// Which record in a partner company stands for which record on the desk (a customer, an invoice, a payment, a driver as a vendor, ...), so a sync updates instead of creating twice.
+/// One desk record maps to one partner record and back, per company. `syncToken` is the company's version of its record (QuickBooks' SyncToken); `pushedHash` is what the desk last sent.
+model ExternalRef {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  provider    String
+  /// customer | invoice | payment | credit_memo | vendor | bill | bill_payment | item | account
+  entity      String
+  localId     String   @map("local_id")
+  externalId  String   @map("external_id")
+  syncToken   String?  @map("sync_token")
+  pushedHash  String?  @map("pushed_hash")
+  syncedAt    DateTime @map("synced_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, provider, entity, localId])
+  @@unique([workspaceId, provider, entity, externalId])
+  @@map("external_refs")
+}
+
+/// How far a pull from a partner company has read, per stream (QuickBooks: the time its change feed was last read to). Moved only forward, by compare-and-set, so two runs never skip or repeat.
+model SyncCursor {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  provider    String
+  stream      String
+  cursor      String?
+  lastRunAt   DateTime? @map("last_run_at")
+  lastOkAt    DateTime? @map("last_ok_at")
+  lastError   String?   @map("last_error")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, provider, stream])
+  @@map("sync_cursors")
 }
 
 /// Every event a company's webhook has sent, once: the company's own event id is unique per provider, so a repeat is recognised and ignored. No body is kept (it can hold names and addresses): the kind and an outcome.

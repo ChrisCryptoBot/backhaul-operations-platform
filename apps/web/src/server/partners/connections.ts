@@ -7,6 +7,7 @@ import { readersFor, workspaceReader } from "./credentials";
 import { newWebhookToken } from "./credentials-core";
 import { isOverdue, rhythmOf } from "./sync-policy";
 import { keyMode } from "./adapters/sandbox";
+import { isOAuthProvider } from "@/lib/oauth";
 
 /** Which companies the fleet has connected, and whether the server holds each one's keys. Booleans and words only: a key's name or value is never sent to a screen. */
 export type ConnectionRow = {
@@ -69,6 +70,8 @@ export async function connectPartner(capability: string, provider: string, accou
   if (!(CAPABILITIES as readonly string[]).includes(capability)) return { ok: false, error: "Unknown service." };
   const cap = capability as Capability;
   if (resolveProvider(cap, provider) !== provider) return { ok: false, error: "That company is not one TrueLane works with for this." };
+  // A company that connects by signing in (QuickBooks) is connected by its callback, with its tokens: a connection made here would say "connected" with nothing to call it with.
+  if (isOAuthProvider(provider)) return { ok: false, error: `${providerName(provider)} connects by signing in to it: use Sign in.` };
   if (!providerConfigured(provider, await workspaceReader(provider, workspaceId))) return { ok: false, error: `${providerName(provider)} has no keys yet: paste this fleet's own keys, or ask whoever runs the server to set them.` };
   const label = accountLabel?.trim().slice(0, 60) || null;
   const was = await prisma.partnerConnection.findUnique({ where: { workspaceId_capability_provider: { workspaceId, capability, provider } } });

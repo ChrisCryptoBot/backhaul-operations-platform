@@ -56,6 +56,7 @@ for m in \
   20261210000000_invoice_records \
   20261211000000_invoice_multi_load \
   20261212000000_factoring_terms \
-  20261213000000_factoring_batches; do
+  20261213000000_factoring_batches \
+  20261214000000_accounting_oauth_sync; do
   npx prisma migrate resolve --applied "$m" --schema=./prisma/schema.prisma
 done

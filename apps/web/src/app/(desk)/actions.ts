@@ -2,7 +2,9 @@
 
 import { asLimit } from "@/lib/quote-nearest";
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { beginOAuth, disconnectOAuth, type BeginResult } from "@/server/partners/oauth";
+import { originOf } from "@/server/partners/origin";
 import { SLEEP_COOKIE, THEME_COOKIE, UI_COOKIE, asSleepMinutes, asTheme, asUi } from "@/lib/appearance";
 import { redirect, RedirectType } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -1349,5 +1351,22 @@ export async function removeMemberAction(id: string): Promise<MemberResult> {
   await requireCan("admin");
   const out = await removeMember(id);
   if (out.ok) revalidatePath("/settings");
+  return out;
+}
+
+/** Start signing in to a partner company that connects by OAuth (QuickBooks Online): answers the address to send the person to. Admin only. */
+export async function beginPartnerSignInAction(provider: string): Promise<BeginResult> {
+  await requireCan("admin");
+  const access = await checkAccess("admin");
+  const origin = originOf(headers());
+  if (!origin) return { ok: false, error: "The desk could not tell its own address. Open it from its usual address and try again." };
+  return beginOAuth(String(provider), { origin, who: access.ok ? (access.identity.name ?? access.identity.email) : null });
+}
+
+/** Sign out of a partner company: its tokens are forgotten and the connection is marked not connected. Admin only. */
+export async function signOutPartnerAction(provider: string): Promise<{ ok: true; changed: boolean }> {
+  await requireCan("admin");
+  const out = await disconnectOAuth(String(provider));
+  revalidatePath("/settings");
   return out;
 }
