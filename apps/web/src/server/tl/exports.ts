@@ -14,6 +14,7 @@ import { paidMethodLabel } from "@/lib/pay-method";
 import { toCentralLocal } from "@/lib/zoned";
 import { currentWorkspaceId } from "./workspace";
 import { workspaceTimezone } from "./zone";
+import { PRODUCT_LABEL, STATUS_LABEL } from "@/lib/fuel-normalize";
 import { listFuel } from "@/server/partners/fuel-store";
 import { storedIfta } from "@/server/partners/ifta";
 import { factoringLabel } from "@/server/partners/factoring";
@@ -329,8 +330,8 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
     return {
       filename: name(`fuel-${days}d`),
       csv: toCsv(
-        ["Date", "Truck", "Where", "Card company", "Gallons", "Price a gallon", "Discount a gallon", "Discount", "Charged", "Load", "Driver statement"],
-        rows.slice(0, cap).map((r): CsvCell[] => [ymdIn(r.postedAt, "UTC"), r.truck, r.location, r.providerName, r.gallons, r.pricePerGallon, r.discountPerGallon, r.discount, r.amount, r.loadNumber, r.statementNumber])
+        ["Date", "Truck", "Where", "State", "Product", "Status", "Card company", "Gallons", "Price a gallon", "Discount a gallon", "Discount", "Charged", "Load", "Driver statement"],
+        rows.slice(0, cap).map((r): CsvCell[] => [ymdIn(r.postedAt, "UTC"), r.truck, r.location, r.state, PRODUCT_LABEL[r.product], STATUS_LABEL[r.status], r.providerName, r.gallons, r.pricePerGallon, r.discountPerGallon, r.discount, r.amount, r.loadNumber, r.statementNumber])
       )
     };
   }

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import type { FuelProduct, FuelStatus } from "@/lib/fuel-normalize";
 import { PROVIDERS, SECRET_ENV, err, isCapability, providerConfigured, resolveProvider, type Capability, type PartnerResult } from "@/truelane/partners/contract";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { workspaceReader } from "./credentials";
@@ -22,6 +23,24 @@ const stub: Adapter<never, never> = async ({ provider }) => notImplemented(provi
 
 /** A load's lane for the simulator: where the tractor picks up and delivers, when, and whether the load is on the road (then it is somewhere along the lane whatever the clock says). */
 export type SimTrip = { origin: { lat: number; lng: number }; destination: { lat: number; lng: number }; startsAt: number; endsAt: number; inProgress: boolean };
+
+/** One fuel purchase in the desk's words, as a card adapter (or the CSV importer) hands it to the store. */
+export type PurchaseOut = {
+  on: string;
+  gallons: number | null;
+  amount: number;
+  id?: string;
+  location?: string | null;
+  pricePerGallon?: number | null;
+  discountPerGallon?: number | null;
+  discount?: number | null;
+  state?: string | null;
+  city?: string | null;
+  product?: FuelProduct;
+  taxPaid?: boolean;
+  purchasedAt?: string | null;
+  status?: FuelStatus;
+};
 
 /** What each capability's adapter reads and answers: the desk's own shapes, not any company's. */
 export type AdapterShapes = {
@@ -68,9 +87,13 @@ export type AdapterShapes = {
     };
   };
   fuel_card: {
-    in: { vehicleName: string | null; accountId: string; since: string | null; until: string | null };
-    /** `amount` is what the card was charged, after the discount. */
-    out: { purchases: Array<{ on: string; gallons: number | null; amount: number; id?: string; location?: string | null; pricePerGallon?: number | null; discountPerGallon?: number | null; discount?: number | null }> };
+    /** `asOf` is the desk's clock (epoch ms): the simulator answers for it, so a purchase on the last day reads pending and later settled. A live adapter ignores it. */
+    in: { vehicleName: string | null; accountId: string; since: string | null; until: string | null; asOf?: number };
+    /**
+     * `amount` is what the card was charged, after the discount. `state` and `city` are where it was bought (state as a two-letter code), `product` and `status` the desk's words from
+     * lib/fuel-normalize.ts, `purchasedAt` the moment (ISO) when the company gives one.
+     */
+    out: { purchases: Array<PurchaseOut> };
   };
   tracking: {
     in: { loadId: string; share: boolean; loadNumber?: string | null; stops?: Array<{ sequence: number; role: string; city: string; lat?: number | null; lng?: number | null; /** When the stop's window opens. */ opensAt?: string | null }> };

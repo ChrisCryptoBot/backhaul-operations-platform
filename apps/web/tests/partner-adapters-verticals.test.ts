@@ -43,11 +43,39 @@ describe("fuel cards, modeled after WEX", () => {
     ]
   };
 
-  it("keeps this unit's, this account's, these days' purchases; the amount is what the card was charged; DEF has no gallons", () => {
+  it("keeps this unit's, this account's, these days' purchases; the amount is what the card was charged; DEF keeps its gallons as DEF", () => {
     const out = normalizeWex(input, tx);
     expect(out.purchases.map((p) => p.id)).toEqual(["a", "b"]);
-    expect(out.purchases[0]).toMatchObject({ on: "2026-12-01", gallons: 100, amount: 375, location: "Pilot, Dallas, TX", pricePerGallon: 4, discountPerGallon: 0.25, discount: 25 });
-    expect(out.purchases[1]).toMatchObject({ gallons: null, amount: 16.8 });
+    expect(out.purchases[0]).toMatchObject({ on: "2026-12-01", gallons: 100, amount: 375, location: "Pilot, Dallas, TX", pricePerGallon: 4, discountPerGallon: 0.25, discount: 25, state: "TX", city: "Dallas", product: "road_diesel", status: "settled", purchasedAt: "2026-12-01T10:00:00Z" });
+    expect(out.purchases[1]).toMatchObject({ gallons: 4, amount: 16.8, product: "def" });
+  });
+
+  it("reefer diesel is its own product, a status comes through, and a merchant state that is not a jurisdiction is left blank", () => {
+    const more: WexTransactions = {
+      transactions: [
+        { ...tx.transactions[0]!, transaction_id: "r", product: "REEFER_DIESEL", status: "PENDING" },
+        { ...tx.transactions[0]!, transaction_id: "x", status: "DECLINED", merchant: { name: "Odd", city: "Nowhere", state: "ZZ" } }
+      ]
+    };
+    const out = normalizeWex(input, more);
+    expect(out.purchases[0]).toMatchObject({ id: "r", product: "reefer_diesel", status: "pending" });
+    expect(out.purchases[1]).toMatchObject({ id: "x", status: "declined", state: null });
+  });
+
+  it("the simulator follows the desk's clock: the last day is pending, older fills are posted; reefer units also fill the trailer's unit", () => {
+    const wide = { vehicleName: "Unit 101", accountId: "WEX-9", since: "2026-09-01", until: "2026-12-02" };
+    const a = sandboxWexTransactions(wide, NOW);
+    for (const t of a.transactions) {
+      const age = NOW.getTime() - Date.parse(t.posted_at);
+      if (t.status === "PENDING") expect(age).toBeLessThan(86_400_000);
+      if (t.status === "POSTED") expect(age).toBeGreaterThanOrEqual(86_400_000);
+    }
+    expect(a.transactions.some((t) => t.status === "POSTED")).toBe(true);
+    // Some unit among a handful pulls a reefer; its trailer fills are smaller and their own product.
+    const units = ["Unit 101", "Unit 102", "Unit 103", "Unit 104", "Unit 105", "Unit 106"];
+    const reefer = units.flatMap((u) => sandboxWexTransactions({ ...wide, vehicleName: u }, NOW).transactions).filter((t) => t.product === "REEFER_DIESEL");
+    expect(reefer.length).toBeGreaterThan(0);
+    for (const t of reefer) expect(t.gallons).toBeLessThanOrEqual(50);
   });
 });
 

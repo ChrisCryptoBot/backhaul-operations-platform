@@ -108,7 +108,8 @@ const toFuelLine = (r: Prisma.FuelTransactionGetPayload<{ include: { load: { sel
 
 /**
  * The fuel card purchases that could come off this driver's pay for the period: bought in it (on the workspace's calendar), on the truck the driver is assigned to or on a load the driver ran, and
- * not already deducted on another statement. They are offered, never taken: a dispatcher picks which come off.
+ * not already deducted on another statement. Only settled purchases: a pending one may still change, and a declined or voided one was never charged. They are offered, never taken: a
+ * dispatcher picks which come off.
  */
 export async function eligibleFuel(driverId: string, start: string, end: string, workspaceId = currentWorkspaceId(), db: Db = prisma): Promise<FuelLine[]> {
   const bounds = periodBounds(start, end, await workspaceTimezone(workspaceId));
@@ -116,7 +117,7 @@ export async function eligibleFuel(driverId: string, start: string, end: string,
   const driver = await db.driver.findFirst({ where: { id: driverId, workspaceId }, select: { assignedVehicleId: true } });
   if (!driver) return [];
   const rows = await db.fuelTransaction.findMany({
-    where: { workspaceId, settlementId: null, postedAt: { gte: bounds.from, lt: bounds.to }, OR: [...(driver.assignedVehicleId ? [{ vehicleId: driver.assignedVehicleId }] : []), { load: { assignment: { is: { driverId } } } }] },
+    where: { workspaceId, settlementId: null, status: "settled", postedAt: { gte: bounds.from, lt: bounds.to }, OR: [...(driver.assignedVehicleId ? [{ vehicleId: driver.assignedVehicleId }] : []), { load: { assignment: { is: { driverId } } } }] },
     include: { load: { select: { loadNumber: true } } },
     orderBy: [{ postedAt: "asc" }, { id: "asc" }]
   });
@@ -287,9 +288,10 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
         await tx.driverLedgerEntry.createMany({
           data: statement.deductions.map((d) => ({ workspaceId, driverId: s.driverId, deductionId: d.deductionId, advanceId: d.advanceId, settlementId: id, kind: d.kind, label: d.label, amount: new Prisma.Decimal(d.amount), reason: d.kind === "escrow_release" ? d.basis : null }))
         });
-      // Each fuel purchase comes off one statement, once: taken from the state it was read in, so one a second statement took a moment ago stops this one rather than coming off twice.
+      // Each fuel purchase comes off one statement, once: taken from the state it was read in, so one a second statement took a moment ago stops this one rather than coming off twice. It
+      // must still be settled: a purchase the card voided since the draft was read stops the finalize the same way.
       if (statement.fuel.length > 0) {
-        const taken = await tx.fuelTransaction.updateMany({ where: { id: { in: statement.fuel.map((f) => f.id) }, workspaceId, settlementId: null }, data: { settlementId: id } });
+        const taken = await tx.fuelTransaction.updateMany({ where: { id: { in: statement.fuel.map((f) => f.id) }, workspaceId, settlementId: null, status: "settled" }, data: { settlementId: id } });
         if (taken.count !== statement.fuel.length) throw new FuelTaken();
       }
       // Each load's own history says it was paid, and on what.
@@ -303,7 +305,7 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
     });
   } catch (e) {
     if (e instanceof LostDraft) return { ok: false, error: `${s.number} was just finalized or discarded by someone else. Reload it.` };
-    if (e instanceof FuelTaken) return { ok: false, error: "A fuel purchase on this statement was just deducted on another statement. Reload it and pick again." };
+    if (e instanceof FuelTaken) return { ok: false, error: "A fuel purchase on this statement was just deducted on another statement, or the card voided it. Reload it and pick again." };
     if (e instanceof DeductionsMoved) return { ok: false, error: `${s.driver.name}'s deductions or escrow balance changed while you were looking (another statement was finalized or voided). Reload ${s.number} and review it.` };
     if (isUniqueViolation(e)) return { ok: false, error: "A load on this statement was just settled on another one. Reload it and try again." };
     throw e;

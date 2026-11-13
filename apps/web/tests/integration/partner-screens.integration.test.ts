@@ -117,8 +117,14 @@ describe.skipIf(!run)("the partner data, kept and shown", () => {
     expect(list.total).toBe(all.length);
     expect(list.rows.length).toBeLessThanOrEqual(FUEL_PAGE);
     expect(list.rows[0]!.postedAt.getTime()).toBeGreaterThanOrEqual(list.rows[list.rows.length - 1]!.postedAt.getTime()); // newest first
-    const charged = all.reduce((s, r) => s + Number(r.amount), 0);
+    // Totals are the settled purchases only (the simulator's last day is still pending); every one is listed.
+    const settled = all.filter((r) => r.status === "settled");
+    const charged = settled.reduce((s, r) => s + Number(r.amount), 0);
     expect(list.totals.charged).toBeCloseTo(charged, 1);
+    expect(list.totals.purchases + list.totals.notCounted).toBe(all.length);
+    expect(list.totals.notCounted).toBe(all.length - settled.length);
+    // The simulator's purchases come with the state they were bought in and what was pumped.
+    expect(all.every((r) => r.purchaseState != null && /^[A-Z]{2}$/.test(r.purchaseState) && r.product !== "unknown" && r.purchasedAt != null)).toBe(true);
     expect(list.totals.discount).toBeGreaterThan(0);
     expect(list.totals.netPerGallon!).toBeGreaterThan(2.5);
     expect(list.totals.netPerGallon!).toBeLessThan(5);

@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/desk/kit/states";
 import { Pager } from "@/components/desk/pager";
 import { PageHead, Stat } from "@/components/desk/ui";
 import { dayYear, gallons, perGallon, usd } from "@/lib/desk-format";
+import { PRODUCT_LABEL, STATUS_LABEL } from "@/lib/fuel-normalize";
 import { asPage } from "@/lib/paging";
 import { partnerStatus } from "@/server/partners/connections";
 import { FUEL_PAGE, listFuel } from "@/server/partners/fuel-store";
@@ -21,6 +22,8 @@ const COLUMNS: Column[] = [
   { key: "date", label: "Date", group: "Purchase" },
   { key: "truck", label: "Truck", group: "Purchase" },
   { key: "where", label: "Where", group: "Purchase" },
+  { key: "state", label: "State", group: "Purchase" },
+  { key: "product", label: "Product", group: "Fuel" },
   { key: "gallons", label: "Gallons", group: "Fuel", align: "num" },
   { key: "ppg", label: "$/gal", group: "Fuel", align: "num" },
   { key: "disc", label: "Discount/gal", group: "Fuel", align: "num" },
@@ -33,7 +36,8 @@ const COLUMNS: Column[] = [
 /**
  * Fuel: what the fuel cards were charged for, as the card company reported it: each purchase with its gallons, its price and the card's discount a gallon, and the load and the driver
  * statement it is tied to. The purchases are read from the card when someone asks (a trip's fuel box, or the button here) and kept, so the same purchase is never counted twice. A purchase is
- * a record here: nothing is taken off any driver's statement because of it.
+ * a record here: nothing is taken off any driver's statement because of it. Each purchase shows the state it was bought in and what was pumped; pending, declined and voided purchases are
+ * listed but never counted in the totals.
  */
 export default async function FuelPage({ searchParams }: { searchParams?: { days?: string; page?: string } }) {
   await requirePage("read");
@@ -58,10 +62,19 @@ export default async function FuelPage({ searchParams }: { searchParams?: { days
       date: dayYear(r.postedAt, "UTC"),
       truck: r.truckId ? <Link href={`/fleet/${r.truckId}`}>{r.truck ?? "Truck"}</Link> : <span className="dim">—</span>,
       where: r.location ?? <span className="dim">—</span>,
+      state: r.state ?? <span className="t-st" data-tone="warn">not said</span>,
+      product: r.product === "road_diesel" ? PRODUCT_LABEL.road_diesel : <span className="t-st" data-tone={r.product === "unknown" || r.product === "gasoline" || r.product === "other" ? "warn" : "info"}>{PRODUCT_LABEL[r.product]}</span>,
       gallons: gallons(r.gallons),
       ppg: perGallon(r.pricePerGallon),
       disc: r.discountPerGallon == null ? <span className="dim">—</span> : <span className="t-pos">{perGallon(r.discountPerGallon, 3)}</span>,
-      charged: usd(r.amount, 2),
+      charged:
+        r.status === "settled" ? (
+          usd(r.amount, 2)
+        ) : (
+          <>
+            <span className="dim">{usd(r.amount, 2)}</span> <span className="t-st" data-tone={r.status === "pending" ? "warn" : "bad"}>{STATUS_LABEL[r.status]}</span>
+          </>
+        ),
       load: r.loadId ? <Link href={`/loads/${r.loadId}`}>{r.loadNumber ?? "Load"}</Link> : <span className="dim">not tied</span>,
       statement: r.statementId ? (
         <>
@@ -73,6 +86,11 @@ export default async function FuelPage({ searchParams }: { searchParams?: { days
     }
   }));
   const t = data.totals;
+  // The gallons split by what was pumped, so reefer and DEF are seen apart from the tractor's road diesel.
+  const split = (["road_diesel", "reefer_diesel", "gasoline", "other", "unknown"] as const)
+    .filter((p) => (t.byProduct[p] ?? 0) > 0)
+    .map((p) => `${gallons(t.byProduct[p])} ${PRODUCT_LABEL[p].toLowerCase()}`);
+  const def = t.byProduct.def ?? 0;
 
   return (
     <>
@@ -90,8 +108,8 @@ export default async function FuelPage({ searchParams }: { searchParams?: { days
         ))}
       </div>
       <div className="tl-grid cols-4">
-        <Stat label="Purchases" value={String(t.purchases)} sub={`in the last ${days} days`} />
-        <Stat label="Gallons" value={gallons(t.gallons)} />
+        <Stat label="Purchases" value={String(t.purchases)} sub={`settled in the last ${days} days${t.notCounted > 0 ? `; ${t.notCounted} pending, declined or void not counted` : ""}`} />
+        <Stat label="Gallons" value={gallons(t.gallons)} sub={[split.length > 1 ? split.join(" · ") : null, def > 0 ? `DEF ${gallons(def)} gal kept apart` : null].filter(Boolean).join("; ") || undefined} />
         <Stat label="Charged" value={usd(t.charged, 2)} sub={t.netPerGallon != null ? `${perGallon(t.netPerGallon, 3)} a gallon after discount` : undefined} />
         <Stat label="Discount saved" value={usd(t.discount, 2)} tone={t.discount > 0 ? "ok" : undefined} />
       </div>

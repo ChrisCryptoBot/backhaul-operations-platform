@@ -5,6 +5,7 @@ import { notImplemented } from "../not-implemented";
 import { SANDBOX_HUBS } from "./motive";
 import { seedOf } from "./sandbox";
 import { NotLive, type Adapter, type ProviderAdapter } from "./types";
+import { productOf, stateCode, statusOf } from "@/lib/fuel-normalize";
 
 /**
  * Fuel cards, modeled after WEX (Comdata is the same shape of thing): a card account's purchases, each with the merchant, the gallons, the posted price, the card's discount a gallon and what
@@ -20,7 +21,9 @@ export type WexTransactions = {
     account: string;
     unit: string;
     merchant: { name: string; city: string; state: string };
-    product: "DIESEL" | "REEFER_DIESEL" | "DEF";
+    product: "DIESEL" | "REEFER_DIESEL" | "DEF" | "UNLEADED" | "OTHER";
+    /** Where the purchase stands. Assumed: POSTED once it settles, PENDING before, DECLINED at the pump, REVERSED after. Absent on an account that only lists posted purchases. */
+    status?: "POSTED" | "PENDING" | "DECLINED" | "REVERSED";
     gallons: number;
     price_per_gallon: number;
     discount_per_gallon: number;
@@ -45,8 +48,9 @@ export const liveWexClient: WexClient = {
 const d2 = (n: number) => new Prisma.Decimal(n).toDecimalPlaces(2).toNumber();
 
 /**
- * The company's purchases into the desk's. Only this unit's, only the days asked for. Diesel and reefer diesel count as fuel and have gallons; DEF (exhaust fluid) is money spent at the
- * pump but not fuel, so it adds to the charge and not to the gallons. The amount is what the card was charged: the discount is already taken off.
+ * The company's purchases into the desk's. Only this unit's, only the days asked for. Every purchase keeps its gallons and says what was pumped (road diesel, reefer diesel, DEF), so the
+ * reefer unit's fuel and exhaust fluid stay apart from the tractor's road diesel. The state is the merchant's, read to a two-letter code (blank when the company's is not a jurisdiction). The
+ * amount is what the card was charged: the discount is already taken off.
  */
 export function normalizeWex(input: In, tx: WexTransactions): Out {
   const unit = (input.vehicleName ?? "").trim().toLowerCase();
@@ -57,12 +61,17 @@ export function normalizeWex(input: In, tx: WexTransactions): Out {
       .map((t) => ({
         id: t.transaction_id,
         on: t.posted_at.slice(0, 10),
-        gallons: t.product === "DEF" ? null : t.gallons,
+        gallons: t.gallons,
         amount: d2(t.total),
         location: `${t.merchant.name}, ${t.merchant.city}, ${t.merchant.state}`,
         pricePerGallon: t.price_per_gallon,
         discountPerGallon: t.discount_per_gallon,
-        discount: d2(new Prisma.Decimal(t.discount_per_gallon).times(t.gallons).toNumber())
+        discount: d2(new Prisma.Decimal(t.discount_per_gallon).times(t.gallons).toNumber()),
+        state: stateCode(t.merchant.state),
+        city: t.merchant.city.trim() || null,
+        product: productOf(t.product),
+        purchasedAt: t.posted_at,
+        status: statusOf(t.status)
       }))
   };
 }
@@ -73,13 +82,16 @@ const MERCHANTS = ["Love's Travel Stop", "Pilot Flying J", "TA Travel Center", "
 
 /**
  * A simulated card account: a purchase about every day and a half for the unit over the days asked for (the last week when none are), at hubs along real freight lanes, 70 to 140 gallons at a
- * posted price near the diesel average with the card's discount, and now and then a DEF fill. The same unit and the same day always give the same purchases.
+ * posted price near the diesel average with the card's discount, now and then a DEF fill, and on a reefer unit (a stable third of units) a smaller fill for the trailer's unit. A purchase in
+ * the last day before the desk's clock is still pending; now and then a fill is declined at the pump first. The same unit and the same day always give the same purchases.
  */
 export function sandboxWexTransactions(input: In, now: Date): WexTransactions {
   const day = 86_400_000;
   const end = input.until ? Date.parse(`${input.until}T23:59:59Z`) : now.getTime();
   const start = input.since ? Date.parse(`${input.since}T00:00:00Z`) : end - 7 * day;
   const unit = input.vehicleName ?? "Unit";
+  /** A stable third of units pull a reefer, whose unit is fuelled from its own tank. */
+  const reefer = seedOf(`reefer:${unit}`) % 3 === 0;
   const out: WexTransactions["transactions"] = [];
   const first = start - (start % day);
   for (let t = first; t <= end; t += day) {
@@ -92,6 +104,9 @@ export function sandboxWexTransactions(input: In, now: Date): WexTransactions {
     const postedAt = new Date(t + (6 + (seed % 14)) * 3_600_000);
     if (postedAt.getTime() > end) continue;
     const [city = "", state = ""] = hub.city.split(", ");
+    const status: "POSTED" | "PENDING" = now.getTime() - postedAt.getTime() < day ? "PENDING" : "POSTED";
+    const merchant = { name: MERCHANTS[seed % MERCHANTS.length]!, city, state };
+    if (seed % 29 === 0) out.push({ transaction_id: `wex-sbx-dcl-${seed.toString(16)}`, posted_at: new Date(postedAt.getTime() - 300_000).toISOString(), account: input.accountId, unit, merchant, product: "DIESEL", status: "DECLINED", gallons, price_per_gallon: price, discount_per_gallon: discount, total: d2(new Prisma.Decimal(price).minus(discount).times(gallons).toNumber()) });
     out.push({
       transaction_id: `wex-sbx-${seed.toString(16)}`,
       posted_at: postedAt.toISOString(),
@@ -99,18 +114,23 @@ export function sandboxWexTransactions(input: In, now: Date): WexTransactions {
       unit,
       merchant: { name: MERCHANTS[seed % MERCHANTS.length]!, city, state },
       product: "DIESEL",
+      status,
       gallons,
       price_per_gallon: price,
       discount_per_gallon: discount,
       total: d2(new Prisma.Decimal(price).minus(discount).times(gallons).toNumber())
     });
-    if (seed % 7 === 0) out.push({ transaction_id: `wex-sbx-def-${seed.toString(16)}`, posted_at: postedAt.toISOString(), account: input.accountId, unit, merchant: { name: MERCHANTS[seed % MERCHANTS.length]!, city, state }, product: "DEF", gallons: 4, price_per_gallon: 4.2, discount_per_gallon: 0, total: 16.8 });
+    if (seed % 7 === 0) out.push({ transaction_id: `wex-sbx-def-${seed.toString(16)}`, posted_at: postedAt.toISOString(), account: input.accountId, unit, merchant, product: "DEF", status, gallons: 4, price_per_gallon: 4.2, discount_per_gallon: 0, total: 16.8 });
+    if (reefer && seed % 2 === 1) {
+      const rg = 20 + (seedOf(`r:${seed}`) % 31);
+      out.push({ transaction_id: `wex-sbx-rfr-${seed.toString(16)}`, posted_at: new Date(postedAt.getTime() + 600_000).toISOString(), account: input.accountId, unit, merchant, product: "REEFER_DIESEL", status, gallons: rg, price_per_gallon: price, discount_per_gallon: discount, total: d2(new Prisma.Decimal(price).minus(discount).times(rg).toNumber()) });
+    }
   }
   return { transactions: out };
 }
 
 /** The simulator as a client: the company's one call, answered for the unit the desk is asking about (a real account holds every unit's cards; the normalizer picks this one's). */
-export const sandboxWexClient = (unit: string | null, now: Date = new Date()): WexClient => ({
+export const sandboxWexClient = (unit: string | null, now: Date): WexClient => ({
   async transactions(q) {
     return sandboxWexTransactions({ vehicleName: unit, accountId: q.account, since: q.from, until: q.to }, now);
   }
@@ -128,6 +148,6 @@ async function run(client: WexClient, provider: string, input: In) {
 }
 
 const live: Adapter<In, Out> = ({ provider, input }) => run(liveWexClient, provider, input);
-const sandbox: Adapter<In, Out> = ({ provider, input }) => run(sandboxWexClient(input.vehicleName, new Date()), provider, input);
+const sandbox: Adapter<In, Out> = ({ provider, input }) => run(sandboxWexClient(input.vehicleName, input.asOf != null ? new Date(input.asOf) : new Date()), provider, input);
 
 export const wexAdapter: ProviderAdapter<In, Out> = { live, sandbox };

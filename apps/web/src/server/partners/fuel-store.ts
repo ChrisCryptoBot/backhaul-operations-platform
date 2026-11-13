@@ -4,14 +4,16 @@ import { prisma } from "@/lib/db";
 import { recordAudit } from "@/server/tl/audit";
 import { num, numOrNull } from "@/server/tl/convert";
 import { currentWorkspaceId } from "@/server/tl/workspace";
-import { callPartner, providerName } from "./call";
+import { isFuelGallons, nextStatus, placeParts, stateCode, type FuelProduct, type FuelStatus } from "@/lib/fuel-normalize";
+import { callPartner, providerName, type PurchaseOut } from "./call";
 
 /**
  * Fuel card purchases, kept (the `fuel_transactions` table): one row per purchase by the company's own id, so reading the same days twice never doubles a purchase. A purchase is tied to the
  * load the truck was running when it was bought (the truck's load whose stops, a day either side, cover the purchase), and through that load to the driver statement it is on. `amount` is what
- * the card was charged after its discount. Nothing here moves any money: a purchase is a record, and a statement deduction is a person's decision (a later piece of work).
+ * the card was charged after its discount. Each purchase keeps the state it was bought in, what was pumped and where it stands (lib/fuel-normalize.ts); only a settled one is offered on a
+ * statement or counted. Nothing here moves any money: a purchase is a record, and a statement deduction is a person's decision.
  */
-export type PurchaseIn = { on: string; gallons: number | null; amount: number; id?: string; location?: string | null; pricePerGallon?: number | null; discountPerGallon?: number | null; discount?: number | null };
+export type PurchaseIn = PurchaseOut;
 
 const whole = (n: number) => n - (n % 1);
 const gap = (a: number, b: number) => (a > b ? a - b : b - a);
@@ -20,20 +22,49 @@ const externalOf = (p: PurchaseIn) => p.id ?? `${p.on}:${p.amount}:${p.gallons ?
 /** A purchase's day is a calendar date; it is kept at noon UTC so no zone shifts it onto a neighbouring day. */
 const postedOf = (on: string) => new Date(`${on.slice(0, 10)}T12:00:00Z`);
 
-/** Keep a batch of purchases for one truck, tied to a load when one is given. Re-reading the same purchases changes nothing but a missing load tie. Returns how many were new. */
+/** Where a purchase was bought: the source's own state first, else the end of its place line. */
+const whereOf = (p: PurchaseIn) => {
+  const fromLine = placeParts(p.location);
+  const state = stateCode(p.state) ?? fromLine.state;
+  return { state, city: p.city?.trim() || (state != null && state === fromLine.state ? fromLine.city : null) };
+};
+const instantOf = (iso: string | null | undefined) => {
+  if (!iso) return null;
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? new Date(t) : null;
+};
+
+/**
+ * Keep a batch of purchases for one truck, tied to a load when one is given. Re-reading the same purchases fills in only what is missing (a load tie, the state, the product, the moment) and
+ * moves the status as `nextStatus` allows; a purchase that settles out of pending takes the settled figures, since nothing can have been deducted from it yet. Returns how many were new.
+ */
 export async function storePurchases(provider: string, purchases: PurchaseIn[], where: { workspaceId: string; vehicleId: string | null; loadFor?: (on: string) => string | null }): Promise<number> {
   let fresh = 0;
   for (const p of purchases) {
     const externalId = externalOf(p);
     const loadId = where.loadFor?.(p.on) ?? null;
     const key = { workspaceId_provider_externalId: { workspaceId: where.workspaceId, provider, externalId } };
-    const had = await prisma.fuelTransaction.findUnique({ where: key, select: { id: true, loadId: true } });
+    const place = whereOf(p);
+    const product: FuelProduct = p.product ?? "unknown";
+    const status: FuelStatus = p.status ?? "settled";
+    const purchasedAt = instantOf(p.purchasedAt);
+    const money = { gallons: dec(p.gallons), pricePerGallon: dec(p.pricePerGallon), discountPerGallon: dec(p.discountPerGallon), discount: dec(p.discount), amount: new Prisma.Decimal(p.amount) };
+    const had = await prisma.fuelTransaction.findUnique({ where: key, select: { id: true, loadId: true, purchaseState: true, purchaseCity: true, product: true, purchasedAt: true, status: true, settlementId: true } });
     if (had) {
-      if (!had.loadId && loadId) await prisma.fuelTransaction.update({ where: key, data: { loadId } });
+      const moved = nextStatus(had.status, status);
+      const data: Prisma.FuelTransactionUncheckedUpdateInput = {
+        ...(!had.loadId && loadId ? { loadId } : {}),
+        ...(had.purchaseState == null && place.state ? { purchaseState: place.state, purchaseCity: had.purchaseCity ?? place.city } : {}),
+        ...(had.product === "unknown" && product !== "unknown" ? { product } : {}),
+        ...(had.purchasedAt == null && purchasedAt ? { purchasedAt } : {}),
+        ...(moved ? { status: moved } : {}),
+        ...(moved === "settled" && had.settlementId == null ? money : {})
+      };
+      if (Object.keys(data).length > 0) await prisma.fuelTransaction.update({ where: key, data });
       continue;
     }
     await prisma.fuelTransaction.create({
-      data: { workspaceId: where.workspaceId, provider, externalId, vehicleId: where.vehicleId, loadId, postedAt: postedOf(p.on), location: p.location ?? null, gallons: dec(p.gallons), pricePerGallon: dec(p.pricePerGallon), discountPerGallon: dec(p.discountPerGallon), discount: dec(p.discount), amount: new Prisma.Decimal(p.amount) }
+      data: { workspaceId: where.workspaceId, provider, externalId, vehicleId: where.vehicleId, loadId, postedAt: postedOf(p.on), location: p.location ?? null, purchaseState: place.state, purchaseCity: place.city, product, ...(p.taxPaid != null ? { taxPaid: p.taxPaid } : {}), purchasedAt, status, ...money }
     });
     fresh += 1;
   }
@@ -63,7 +94,7 @@ export async function syncFuelCards(days: number, now = new Date(), workspaceId 
   const unreached: string[] = [];
   for (const t of trucks) {
     const profile = t.costProfile!;
-    const { provider, result } = await callPartner("fuel_card", profile.fuelCardProvider, { vehicleName: t.name, accountId: profile.fuelCardAccountId!, since: dayOf(since), until: dayOf(now) }, workspaceId);
+    const { provider, result } = await callPartner("fuel_card", profile.fuelCardProvider, { vehicleName: t.name, accountId: profile.fuelCardAccountId!, since: dayOf(since), until: dayOf(now), asOf: now.getTime() }, workspaceId);
     if (!result.ok) {
       if (result.code === "not_configured" || result.code === "not_connected" || result.code === "not_implemented") return { ok: false, error: result.message ?? "The fuel card could not be reached.", code: result.code };
       unreached.push(t.name ?? "a truck");
@@ -102,6 +133,9 @@ export type FuelRow = {
   truckId: string | null;
   truck: string | null;
   location: string | null;
+  state: string | null;
+  product: FuelProduct;
+  status: FuelStatus;
   provider: string;
   providerName: string;
   gallons: number | null;
@@ -116,20 +150,32 @@ export type FuelRow = {
   /** The purchase was deducted from the driver's pay on that statement (not only on a load that is on it). */
   deducted: boolean;
 };
-export type FuelTotals = { purchases: number; gallons: number; charged: number; discount: number; netPerGallon: number | null };
+/**
+ * The period's totals, over settled purchases only (pending, declined and void ones are listed, never counted: `notCounted` says how many). `gallons` is fuel (everything but DEF) and the
+ * price a gallon is what that fuel cost over those gallons; `charged` is everything the cards were charged, DEF included. `byProduct` splits the gallons, so reefer and DEF are seen apart.
+ */
+export type FuelTotals = { purchases: number; gallons: number; charged: number; discount: number; netPerGallon: number | null; byProduct: Partial<Record<FuelProduct, number>>; notCounted: number };
 
-/** The purchases of the last `days`, newest first, a page at a time, with the totals for the whole period and the load and driver statement each is tied to. */
+/** The purchases of the last `days`, newest first, a page at a time (every status), with the settled totals for the whole period and the load and driver statement each is tied to. */
 export async function listFuel(opts: { days?: number; page?: number; terminal?: Terminals } = {}, now = new Date(), workspaceId = currentWorkspaceId()): Promise<{ rows: FuelRow[]; totals: FuelTotals; page: number; pageSize: number; total: number }> {
   const span = Math.min(Math.max(1, whole(opts.days ?? 30)), 366);
   const page = Math.max(1, whole(opts.page ?? 1));
   const where: Prisma.FuelTransactionWhereInput = { workspaceId, postedAt: { gte: new Date(`${dayOf(new Date(now.getTime() - span * DAY))}T00:00:00Z`) }, ...(opts.terminal != null ? { vehicle: { terminal: terminalFilter(opts.terminal) } } : {}) };
-  const [rows, total, sums] = await Promise.all([
+  const counted: Prisma.FuelTransactionWhereInput = { ...where, status: "settled" };
+  const [rows, total, sums, products] = await Promise.all([
     prisma.fuelTransaction.findMany({ where, include: { vehicle: { select: { name: true } }, settlement: { select: { id: true, number: true, status: true } }, load: { select: { loadNumber: true, settlement: { select: { settlement: { select: { id: true, number: true, status: true } } } } } } }, orderBy: [{ postedAt: "desc" }, { id: "asc" }], skip: (page - 1) * FUEL_PAGE, take: FUEL_PAGE }),
     prisma.fuelTransaction.count({ where }),
-    prisma.fuelTransaction.aggregate({ where, _sum: { gallons: true, amount: true, discount: true } })
+    prisma.fuelTransaction.aggregate({ where: counted, _sum: { amount: true, discount: true }, _count: { _all: true } }),
+    prisma.fuelTransaction.groupBy({ by: ["product"], where: counted, _sum: { gallons: true, amount: true }, orderBy: { product: "asc" } })
   ]);
-  const gallons = num(sums._sum.gallons);
+  const zero = new Prisma.Decimal(0);
+  const fuel = products.filter((p) => isFuelGallons(p.product));
+  const gallonsD = fuel.reduce((s, p) => s.plus(p._sum.gallons ?? zero), zero);
+  const fuelCharged = fuel.filter((p) => p._sum.gallons != null).reduce((s, p) => s.plus(p._sum.amount ?? zero), zero);
+  const gallons = gallonsD.toDecimalPlaces(3).toNumber();
   const charged = num(sums._sum.amount);
+  const byProduct: Partial<Record<FuelProduct, number>> = {};
+  for (const p of products) if (p._sum.gallons != null) byProduct[p.product as FuelProduct] = num(p._sum.gallons);
   return {
     rows: rows.map((r) => {
       // The statement it was deducted on comes first; failing that, the statement the load it is tied to is on.
@@ -141,6 +187,9 @@ export async function listFuel(opts: { days?: number; page?: number; terminal?: 
         truckId: r.vehicleId,
         truck: r.vehicle?.name ?? null,
         location: r.location,
+        state: r.purchaseState,
+        product: r.product as FuelProduct,
+        status: r.status as FuelStatus,
         provider: r.provider,
         providerName: providerName(r.provider),
         gallons: numOrNull(r.gallons),
@@ -156,7 +205,7 @@ export async function listFuel(opts: { days?: number; page?: number; terminal?: 
         deducted: direct != null
       };
     }),
-    totals: { purchases: total, gallons, charged, discount: num(sums._sum.discount), netPerGallon: gallons > 0 ? new Prisma.Decimal(charged).div(gallons).toDecimalPlaces(3).toNumber() : null },
+    totals: { purchases: sums._count._all, gallons, charged, discount: num(sums._sum.discount), netPerGallon: gallonsD.gt(0) ? fuelCharged.div(gallonsD).toDecimalPlaces(3).toNumber() : null, byProduct, notCounted: total - sums._count._all },
     page,
     pageSize: FUEL_PAGE,
     total

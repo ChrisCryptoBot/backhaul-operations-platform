@@ -150,15 +150,15 @@ export async function getDataHealth(q: HealthQuery, now = new Date(), workspaceI
           exists (select 1 from load_documents d where d.load_id = l.id and d.kind = 'pod') as pod_doc,
           exists (select 1 from load_documents d where d.load_id = l.id and d.kind = 'rate_con') as ratecon_doc,
           a.driver_id, a.pay_rate::float8, a.pay_estimate::float8,
-          (select sum(f.amount)::float8 from fuel_transactions f where f.load_id = l.id) as card_fuel,
-          (select sum(f.gallons)::float8 from fuel_transactions f where f.load_id = l.id) as card_gallons
+          (select sum(f.amount)::float8 from fuel_transactions f where f.load_id = l.id and f.status = 'settled') as card_fuel,
+          (select sum(f.gallons)::float8 from fuel_transactions f where f.load_id = l.id and f.status = 'settled' and f.product <> 'def') as card_gallons
         from loads l left join vehicles v on v.id = l.vehicle_id left join assignments a on a.load_id = l.id
         where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status in ('completed', 'tonu') and coalesce(l.completed_at, l.updated_at) >= ${since}${scope}
         order by coalesce(l.completed_at, l.updated_at) desc limit ${MAX_HEALTH_LOADS + 1}`,
       prisma.vehicle.findMany({ where: { workspaceId, archivedAt: null, ...here }, select: { id: true, name: true, mpg: true, homeBaseAddress: true, homeBaseLat: true, costProfile: { select: { vehicleId: true } } }, take: UNIT_CAP, orderBy: { name: "asc" } }),
       prisma.driver.findMany({ where: { workspaceId, active: true, ...here }, select: { id: true, name: true, cdlExpiry: true, medicalCardExpiry: true, phone: true }, take: UNIT_CAP, orderBy: { name: "asc" } }),
       prisma.trailer.findMany({ where: { workspaceId, archivedAt: null, ...here }, select: { id: true, number: true, registrationExpiry: true, inspectionExpiry: true }, take: UNIT_CAP, orderBy: { number: "asc" } }),
-      prisma.fuelTransaction.count({ where: { workspaceId } })
+      prisma.fuelTransaction.count({ where: { workspaceId, status: "settled" } })
     ]);
     const truncated = raw.length > MAX_HEALTH_LOADS;
     const loads = raw.slice(0, MAX_HEALTH_LOADS).map(toLoad);

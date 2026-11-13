@@ -86,7 +86,8 @@ export async function journalFile(span: { from?: string | null; to?: string | nu
       include: { lines: { select: { kind: true, amount: true } }, payments: { select: { id: true, amount: true, paidAt: true, source: true } } }
     }),
     prisma.settlement.findMany({ where: { workspaceId, status: "final", voidedAt: null, finalizedAt: { not: null } }, include: { driver: { select: { name: true, payrollWorkerType: true } }, lineRows: { select: { kind: true, amount: true }, orderBy: { sort: "asc" } } } }),
-    prisma.fuelTransaction.findMany({ where: { workspaceId }, select: { id: true, postedAt: true, amount: true, location: true } }),
+    // Only a settled purchase is an expense: a pending, declined or voided one never reaches the books.
+    prisma.fuelTransaction.findMany({ where: { workspaceId, status: "settled" }, select: { id: true, postedAt: true, amount: true, location: true } }),
     prisma.driverAdvance.findMany({ where: { workspaceId }, include: { driver: { select: { name: true, payrollWorkerType: true } } } })
   ]);
 

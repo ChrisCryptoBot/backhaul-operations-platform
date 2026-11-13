@@ -76,8 +76,9 @@ describe("the statement shows its fuel, and the sheet prints it", () => {
 
   it("a fuel purchase can be picked only on the draft, and the finalize takes each once", () => {
     const server = src("src/server/tl/settlement.ts");
-    expect(server).toContain("settlementId: null, postedAt");
-    expect(server).toContain("where: { id: { in: statement.fuel.map((f) => f.id) }, workspaceId, settlementId: null }");
+    // Offered and taken only while settled (Wave 5 step 1): a pending, declined or voided purchase never comes off pay.
+    expect(server).toContain("settlementId: null, status: \"settled\", postedAt");
+    expect(server).toContain("where: { id: { in: statement.fuel.map((f) => f.id) }, workspaceId, settlementId: null, status: \"settled\" }");
     expect(server).toContain("throw new FuelTaken()");
     expect(server).toContain("where: { settlementId: id, workspaceId }, data: { settlementId: null }"); // a voided statement gives them back
   });

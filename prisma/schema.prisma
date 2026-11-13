@@ -142,49 +142,51 @@ model Customer {
 }
 
 model Vehicle {
-  id                String    @id @default(cuid())
-  workspaceId       String    @map("workspace_id")
-  name              String?
-  make              String?
-  model             String?
-  year              Int?
-  type              String?
-  mpg               Decimal?  @db.Decimal(8, 3)
-  fuelType          String?   @map("fuel_type")
-  homeBaseAddress   String?   @map("home_base_address")
+  id                  String    @id @default(cuid())
+  workspaceId         String    @map("workspace_id")
+  name                String?
+  make                String?
+  model               String?
+  year                Int?
+  type                String?
+  mpg                 Decimal?  @db.Decimal(8, 3)
+  fuelType            String?   @map("fuel_type")
+  /// The tractor's fuel tanks, in gallons: a fill bigger than this (plus a little) is flagged on Fuel. Blank until someone types it.
+  tankCapacityGallons Decimal?  @map("tank_capacity_gallons") @db.Decimal(8, 1)
+  homeBaseAddress     String?   @map("home_base_address")
   /// Where the home base is, found once (permanent geocoding) so measuring a quote does not look the address up each time. Blank until it is found.
-  homeBaseLat       Decimal?  @map("home_base_lat") @db.Decimal(9, 6)
-  homeBaseLng       Decimal?  @map("home_base_lng") @db.Decimal(9, 6)
-  payloadLbs        Int?      @map("payload_lbs")
-  maxLengthFt       Decimal?  @map("max_length_ft") @db.Decimal(8, 2)
-  maxWidthFt        Decimal?  @map("max_width_ft") @db.Decimal(8, 2)
-  maxHeightIn       Decimal?  @map("max_height_in") @db.Decimal(8, 2)
+  homeBaseLat         Decimal?  @map("home_base_lat") @db.Decimal(9, 6)
+  homeBaseLng         Decimal?  @map("home_base_lng") @db.Decimal(9, 6)
+  payloadLbs          Int?      @map("payload_lbs")
+  maxLengthFt         Decimal?  @map("max_length_ft") @db.Decimal(8, 2)
+  maxWidthFt          Decimal?  @map("max_width_ft") @db.Decimal(8, 2)
+  maxHeightIn         Decimal?  @map("max_height_in") @db.Decimal(8, 2)
   /// What the truck carries for loads that need it. Unticked reads as "not equipped", as on the phone.
-  hasLiftgate       Boolean   @default(false) @map("has_liftgate")
-  hasRamp           Boolean   @default(false) @map("has_ramp")
-  hasPalletJack     Boolean   @default(false) @map("has_pallet_jack")
+  hasLiftgate         Boolean   @default(false) @map("has_liftgate")
+  hasRamp             Boolean   @default(false) @map("has_ramp")
+  hasPalletJack       Boolean   @default(false) @map("has_pallet_jack")
   /// Which terminal (yard, branch, region) runs this truck. Free text; the terminals offered are the distinct values in use. Blank = unassigned.
-  terminal          String?
+  terminal            String?
   /// The ELD the tractor is linked to and the hours left on the driver's clock as it last reported them (a caution on the Quote, never a rule).
-  eldProvider       String    @default("none") @map("eld_provider")
-  eldVehicleId      String?   @map("eld_vehicle_id")
-  hosAvailableHours Decimal?  @map("hos_available_hours") @db.Decimal(5, 2)
-  hosSyncedAt       DateTime? @map("hos_synced_at")
+  eldProvider         String    @default("none") @map("eld_provider")
+  eldVehicleId        String?   @map("eld_vehicle_id")
+  hosAvailableHours   Decimal?  @map("hos_available_hours") @db.Decimal(5, 2)
+  hosSyncedAt         DateTime? @map("hos_synced_at")
   /// Where the ELD last put the tractor, and when it said so. Shown as 'last seen'; never an input to a verdict.
-  lastLat           Decimal?  @map("last_lat") @db.Decimal(9, 6)
-  lastLng           Decimal?  @map("last_lng") @db.Decimal(9, 6)
-  lastLocatedAt     DateTime? @map("last_located_at")
+  lastLat             Decimal?  @map("last_lat") @db.Decimal(9, 6)
+  lastLng             Decimal?  @map("last_lng") @db.Decimal(9, 6)
+  lastLocatedAt       DateTime? @map("last_located_at")
   /// What the ELD said about the engine at that fix: speed, heading, moving / idle / off, hours idle today, and when the current idle began. Written only by the ELD sync.
-  vin               String?
-  lastSpeedMph      Decimal?  @map("last_speed_mph") @db.Decimal(5, 1)
-  lastHeadingDeg    Int?      @map("last_heading_deg")
-  engineState       String?   @map("engine_state")
-  idleHoursToday    Decimal?  @map("idle_hours_today") @db.Decimal(5, 2)
-  idleSince         DateTime? @map("idle_since")
-  active            Boolean   @default(true)
-  archivedAt        DateTime? @map("archived_at")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  vin                 String?
+  lastSpeedMph        Decimal?  @map("last_speed_mph") @db.Decimal(5, 1)
+  lastHeadingDeg      Int?      @map("last_heading_deg")
+  engineState         String?   @map("engine_state")
+  idleHoursToday      Decimal?  @map("idle_hours_today") @db.Decimal(5, 2)
+  idleSince           DateTime? @map("idle_since")
+  active              Boolean   @default(true)
+  archivedAt          DateTime? @map("archived_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
   workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   costProfile      CostProfile?
@@ -1360,20 +1362,31 @@ model IftaLine {
 /// A fuel card purchase, as the card company reported it: kept so fuel can be listed, tied to the load it was bought for and followed to the driver statement that load is on. One row per
 /// purchase (the company's own id), so reading the same days twice never doubles it. `amount` is what the card was charged after the discount.
 model FuelTransaction {
-  id                String   @id @default(cuid())
-  workspaceId       String   @map("workspace_id")
+  id                String    @id @default(cuid())
+  workspaceId       String    @map("workspace_id")
   provider          String
-  externalId        String   @map("external_id")
-  vehicleId         String?  @map("vehicle_id")
-  loadId            String?  @map("load_id")
-  postedAt          DateTime @map("posted_at")
+  externalId        String    @map("external_id")
+  vehicleId         String?   @map("vehicle_id")
+  loadId            String?   @map("load_id")
+  postedAt          DateTime  @map("posted_at")
   location          String?
-  gallons           Decimal? @db.Decimal(10, 3)
-  pricePerGallon    Decimal? @map("price_per_gallon") @db.Decimal(8, 4)
-  discountPerGallon Decimal? @map("discount_per_gallon") @db.Decimal(8, 4)
-  discount          Decimal? @db.Decimal(12, 2)
-  amount            Decimal  @db.Decimal(12, 2)
-  createdAt         DateTime @default(now()) @map("created_at")
+  /// Where it was bought, read cleanly (lib/fuel-normalize.ts): a two-letter US state or Canadian province, and the city. Fuel tax credits the gallons to this jurisdiction. Blank when the source did not say.
+  purchaseState     String?   @map("purchase_state")
+  purchaseCity      String?   @map("purchase_city")
+  /// What was pumped: road_diesel (the tractor's tank, IFTA fuel), reefer_diesel (the trailer's unit), def (exhaust fluid), gasoline, other, or unknown when the source did not say.
+  product           String    @default("unknown")
+  /// Tax was paid at the pump (a retail purchase). Bulk fuel from the fleet's own tank is not: it counts toward miles to the gallon but earns no tax-paid credit.
+  taxPaid           Boolean   @default(true) @map("tax_paid")
+  /// The moment of purchase when the source gives one (postedAt stays the calendar day, at noon UTC).
+  purchasedAt       DateTime? @map("purchased_at")
+  /// settled (the default), pending, declined or void. Only settled purchases are offered on a statement or counted in fuel and fuel-tax totals.
+  status            String    @default("settled")
+  gallons           Decimal?  @db.Decimal(10, 3)
+  pricePerGallon    Decimal?  @map("price_per_gallon") @db.Decimal(8, 4)
+  discountPerGallon Decimal?  @map("discount_per_gallon") @db.Decimal(8, 4)
+  discount          Decimal?  @db.Decimal(12, 2)
+  amount            Decimal   @db.Decimal(12, 2)
+  createdAt         DateTime  @default(now()) @map("created_at")
 
   workspace    Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   vehicle      Vehicle?    @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
@@ -1384,6 +1397,7 @@ model FuelTransaction {
 
   @@unique([workspaceId, provider, externalId])
   @@index([workspaceId, postedAt])
+  @@index([workspaceId, purchaseState])
   @@index([loadId])
   @@index([settlementId])
   @@map("fuel_transactions")
