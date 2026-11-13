@@ -196,3 +196,37 @@ export function iftaReturnMath(input: { miles: readonly ReturnMiles[]; fuel: rea
     }
   };
 }
+
+/** When a quarter's return is due: the last day of the month after the quarter ends (Q1 April 30, Q2 July 31, Q3 October 31, Q4 January 31 of the next year). YYYY-MM-DD, or null. */
+export function iftaDueDate(quarter: string): string | null {
+  const m = /^(\d{4})-Q([1-4])$/.exec(quarter);
+  if (!m) return null;
+  const q = parseInt(m[2]!, 10);
+  const year = parseInt(m[1]!, 10) + (q === 4 ? 1 : 0);
+  const month = q === 4 ? 1 : q * 3 + 1; // 1-based
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+}
+
+export type RateState = "none" | "sample" | "provisional" | "mixed" | "final";
+/** Where the quarter's rate table stands, in one word: none, sample (any sample rate), all provisional, some final, or all final. */
+export function rateState(count: number, final: number, sample: number): RateState {
+  if (count === 0) return "none";
+  if (sample > 0) return "sample";
+  if (final === 0) return "provisional";
+  return final === count ? "final" : "mixed";
+}
+export const RATE_STATE_LABEL: Record<RateState, string> = { none: "No rates", sample: "Sample rates", provisional: "Provisional", mixed: "Some final", final: "Final" };
+
+const utcDay = (ymd: string) => Date.UTC(parseInt(ymd.slice(0, 4), 10), parseInt(ymd.slice(5, 7), 10) - 1, parseInt(ymd.slice(8, 10), 10));
+/** How far a due date (YYYY-MM-DD) is from today (YYYY-MM-DD, the workspace's own day): whole days left, negative when past due. */
+export const daysUntil = (due: string, today: string): number => (utcDay(due) - utcDay(today)) / 86_400_000;
+
+/** Money for the return screen: "$13.80", "-$102.30" (a credit), or a dash. */
+export const returnMoney = (s: string | null): string => {
+  if (s == null) return "—";
+  const neg = s.startsWith("-");
+  const abs = D(neg ? s.slice(1) : s).toFixed(2);
+  const [whole, cents] = abs.split(".");
+  return `${neg ? "-" : ""}$${whole!.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${cents}`;
+};

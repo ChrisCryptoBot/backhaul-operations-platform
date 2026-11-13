@@ -5,10 +5,12 @@ import { IftaCalcButton, IftaEldMilesButton } from "@/components/desk/data-actio
 import { CanGate } from "@/components/desk/kit/can-gate";
 import { EmptyState } from "@/components/desk/kit/states";
 import { PageHead, Stat } from "@/components/desk/ui";
-import { dateTime } from "@/lib/desk-format";
+import { dateTime, dayYear } from "@/lib/desk-format";
+import { daysUntil, RATE_STATE_LABEL, returnMoney, type Blocker } from "@/lib/ifta-return";
 import { recentQuarters } from "@/lib/ifta-rates-csv";
 import { partnerState, providerName } from "@/server/partners/call";
 import { iftaQuarterMiles } from "@/server/partners/ifta-mileage";
+import { iftaReturn } from "@/server/partners/ifta-return";
 import { requirePage } from "@/server/tl/access";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { workspaceTimezone } from "@/server/tl/zone";
@@ -16,45 +18,112 @@ import { workspaceTimezone } from "@/server/tl/zone";
 export const metadata = { title: "IFTA · TrueLane" };
 export const dynamic = "force-dynamic";
 
-const COLUMNS: Column[] = [
-  { key: "state", label: "State", group: "Jurisdiction", sticky: true, width: 110 },
-  { key: "miles", label: "Miles", group: "The quarter", align: "num", accentBand: true },
-  { key: "loaded", label: "Loaded", group: "The quarter", align: "num" },
-  { key: "empty", label: "Empty", group: "The quarter", align: "num" },
-  { key: "share", label: "Share of miles", group: "The quarter", align: "num" }
+const LINES: Column[] = [
+  { key: "state", label: "Jurisdiction", group: "Where", sticky: true, width: 150 },
+  { key: "miles", label: "Miles", group: "Miles and fuel", align: "num" },
+  { key: "taxable", label: "Taxable gal", group: "Miles and fuel", align: "num" },
+  { key: "paid", label: "Tax-paid gal", group: "Miles and fuel", align: "num" },
+  { key: "net", label: "Net gal", group: "Miles and fuel", align: "num" },
+  { key: "rate", label: "Rate", group: "Tax", align: "num" },
+  { key: "tax", label: "Tax", group: "Tax", align: "num", accentBand: true },
+  { key: "srate", label: "Surcharge rate", group: "Tax", align: "num", priority: 3 },
+  { key: "surcharge", label: "Surcharge", group: "Tax", align: "num", accentBand: true },
+  { key: "total", label: "Due", group: "Tax", align: "num", accentBand: true }
 ];
 
-const n1 = (s: string) => Number(s).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const TRUCKS: Column[] = [
+  { key: "truck", label: "Truck", group: "Truck", sticky: true, width: 150 },
+  { key: "source", label: "Miles from", group: "Truck" },
+  { key: "miles", label: "Miles", group: "The quarter", align: "num" },
+  { key: "gallons", label: "Road diesel gal", group: "The quarter", align: "num" },
+  { key: "bulk", label: "Of it bulk", group: "The quarter", align: "num" },
+  { key: "mpg", label: "Own MPG", group: "The quarter", align: "num" },
+  { key: "purchases", label: "Purchases", group: "The quarter", align: "num" }
+];
+
+const n1 = (s: string | null) => (s == null ? "—" : Number(s).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
+const n0 = (s: string | null) => (s == null ? "—" : Number(s).toLocaleString("en-US", { maximumFractionDigits: 0 }));
 const trucks = (n: number) => `${n} ${n === 1 ? "truck" : "trucks"}`;
 
+/** Where each blocker is fixed. */
+function fixFor(b: Blocker, quarter: string): { href: string; label: string } {
+  switch (b.code) {
+    case "missing_rate":
+    case "sample_rates":
+      return { href: `/ifta/rates?quarter=${quarter}`, label: "Tax rates" };
+    case "open_flags":
+      return { href: "/fuel?flagged=1&days=90", label: "Flagged fuel" };
+    case "no_miles":
+      return { href: "#ifta-miles", label: "Read or route miles" };
+    default:
+      return { href: "/fuel?days=90", label: "Fuel" };
+  }
+}
+
 /**
- * IFTA: a quarter's miles by state (money plan Wave 5). Each truck counts its ELD miles when the ELD reported it, else its legs routed from its loads (empty legs between loads included); never
- * both. Gallons, tax and the return itself are steps 6 and 7; this page shows the miles they will be worked out from and where each truck's came from.
+ * IFTA: the quarter's return (money plan Wave 5 step 7), from one read (server/partners/ifta-return.ts) that the per-truck audit and both CSVs share. Each truck's miles are its ELD miles when the
+ * ELD reported it, else its loads routed; fuel is settled road diesel, tax-paid fills credited where they were bought. What stands between this and a return that can be filed is listed at the top,
+ * each with where to fix it.
  */
 export default async function IftaPage({ searchParams }: { searchParams?: { quarter?: string } }) {
   await requirePage("read");
   const tz = await workspaceTimezone(currentWorkspaceId());
   const options = recentQuarters(new Date(), tz);
   const quarter = options.includes(searchParams?.quarter ?? "") ? searchParams!.quarter! : options[0]!;
-  const [q, router, eld] = await Promise.all([iftaQuarterMiles(quarter), partnerState("ifta"), partnerState("eld")]);
-  const states = q?.states ?? [];
-  const total = Number(q?.miles ?? "0");
-  const rows: Row[] = states.map((l) => ({
-    id: l.state,
-    cells: { state: <b>{l.state}</b>, miles: n1(l.miles), loaded: n1(l.loadedMiles), empty: n1(l.emptyMiles), share: total > 0 ? `${((Number(l.miles) / total) * 100).toFixed(1)}%` : "—" }
+  const [r, q, router, eld] = await Promise.all([iftaReturn(quarter), iftaQuarterMiles(quarter), partnerState("ifta"), partnerState("eld")]);
+  if (!r.ok) throw new Error(r.error);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const left = daysUntil(r.dueDate, today);
+  const due = r.total == null ? null : Number(r.total);
+
+  const lineRows: Row[] = r.lines.map((l) => ({
+    id: l.jurisdiction,
+    cells: {
+      state: (
+        <>
+          <b>{l.jurisdiction}</b> <span className="dim">{l.name}</span>
+        </>
+      ),
+      miles: n1(l.miles),
+      taxable: n0(l.taxableGallons),
+      paid: n0(l.taxPaidGallons),
+      net: n0(l.netGallons),
+      rate: l.rate ? `$${l.rate}` : <span className="t-st" data-tone="bad">No rate</span>,
+      tax: returnMoney(l.tax),
+      srate: l.surchargeRate && l.surchargeRate !== "0.0000" ? `$${l.surchargeRate}` : <span className="dim">—</span>,
+      surcharge: returnMoney(l.surcharge),
+      total: returnMoney(l.total)
+    }
+  }));
+  const truckRows: Row[] = r.trucks.map((t) => ({
+    id: t.vehicleId,
+    href: `/ifta/trucks/${t.vehicleId}?quarter=${quarter}`,
+    cells: {
+      truck: <b>{t.name ?? "Unnamed truck"}</b>,
+      source: t.method == null ? <span className="dim">No miles</span> : `${t.method === "eld" ? "ELD" : "Routed"} (${providerName(t.source ?? "")})`,
+      miles: n1(t.miles),
+      gallons: n1(t.gallons),
+      bulk: Number(t.bulkGallons) > 0 ? n1(t.bulkGallons) : <span className="dim">—</span>,
+      mpg: t.mpg ?? "—",
+      purchases: String(t.purchases)
+    }
   }));
   const sourceLine = (q?.sources ?? []).map((s) => (s.method === "eld" ? `ELD miles (${providerName(s.source)}) for ${trucks(s.trucks)}` : `routed (${providerName(s.source)}) for ${trucks(s.trucks)}`)).join(" · ");
   const hasEld = (q?.sources ?? []).some((s) => s.method === "eld");
   const hasRouted = (q?.sources ?? []).some((s) => s.method === "routed") || (q?.setAside ?? 0) > 0;
+  const notCounted = [
+    Number(r.notes.canadaGallons) > 0 ? `${n1(r.notes.canadaGallons)} gallons bought in Canada (gap 15)` : null,
+    r.notes.notFuel > 0 ? `${r.notes.notFuel} settled ${r.notes.notFuel === 1 ? "purchase" : "purchases"} of reefer diesel, DEF or other fuel` : null,
+    r.notes.notSettled > 0 ? `${r.notes.notSettled} pending, declined or void ${r.notes.notSettled === 1 ? "purchase" : "purchases"}` : null
+  ].filter(Boolean);
 
   return (
     <>
-      <PageHead title="IFTA" sub="A quarter's miles by state: each truck's ELD miles, or its loads routed when the ELD did not report it. The fuel bought in each state is on the Fuel screen.">
-        <a className="tl-btn" href={`/export/ifta?quarter=${quarter}`} aria-disabled={states.length === 0}>Export CSV</a>
+      <PageHead title="IFTA" sub="The quarter's fuel-tax return: miles by state, fuel bought by state, and the tax due or credited in each.">
         <CanGate caps={["bill"]}>
+          <a className="tl-btn" href={`/export/ifta?quarter=${quarter}`} aria-disabled={r.lines.length === 0}>Return CSV</a>
+          <a className="tl-btn" href={`/export/ifta-audit?quarter=${quarter}`} aria-disabled={r.lines.length === 0}>Audit CSV</a>
           <Link className="tl-btn" href={`/ifta/rates?quarter=${quarter}`}>Tax rates</Link>
-          <IftaEldMilesButton quarter={quarter} reason={eld.reason} again={hasEld} />
-          <IftaCalcButton quarter={quarter} reason={router.reason} again={hasRouted} />
         </CanGate>
       </PageHead>
       <div className="tl-tabs ifta-tabs" role="tablist" aria-label="Quarter">
@@ -65,29 +134,72 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
         ))}
       </div>
       <div className="tl-grid cols-4">
-        <Stat label="Miles" value={states.length > 0 ? n1(q!.miles) : "—"} sub={states.length > 0 ? `${states.length} ${states.length === 1 ? "state" : "states"}` : "none kept yet"} />
-        <Stat label="Loaded / empty" value={states.length > 0 ? `${n1(q!.loadedMiles)} / ${n1(q!.emptyMiles)}` : "—"} />
-        <Stat label="Trucks" value={q && q.trucks.length > 0 ? String(q.trucks.length) : "—"} sub={sourceLine || undefined} />
-        <Stat label="Last read" value={q?.syncedAt ? dateTime(q.syncedAt) : "—"} />
+        <Stat
+          label={due != null && due < 0 ? "Credit" : "Due"}
+          value={due == null ? "—" : returnMoney(due < 0 ? r.total!.slice(1) : r.total)}
+          sub={r.tax != null ? `Tax ${returnMoney(r.tax)} · surcharge ${returnMoney(r.surcharge)}` : r.lines.length > 0 ? "Not worked out: see below" : "No miles or fuel yet"}
+          tone={r.blockers.length > 0 ? "warn" : undefined}
+        />
+        <Stat label="Fleet MPG" value={r.mpg ?? "—"} sub={`${n1(r.miles)} mi ÷ ${n1(r.gallons)} gal road diesel`} />
+        <Stat label="Filing due" value={dayYear(new Date(`${r.dueDate}T12:00:00Z`), "UTC")} sub={left < 0 ? `${-left} ${left === -1 ? "day" : "days"} past due` : left === 0 ? "Due today" : `In ${left} ${left === 1 ? "day" : "days"}`} tone={left < 0 ? "bad" : left <= 14 ? "warn" : undefined} />
+        <Stat
+          label="Tax rates"
+          value={RATE_STATE_LABEL[r.rateState]}
+          sub={r.rateCount > 0 ? `${r.rateFinal} final of ${r.rateCount}${r.rateSample > 0 ? ", sample, not for filing" : ""}` : "Import the quarter's rate table"}
+          tone={r.rateState === "final" ? "ok" : r.rateState === "sample" || r.rateState === "none" ? "bad" : "warn"}
+        />
       </div>
-      {q && q.setAside > 0 ? (
-        <p className="tl-note ifta-eld-line">
-          {trucks(q.setAside)} also {q.setAside === 1 ? "has" : "have"} routed miles, set aside: the ELD reported {q.setAside === 1 ? "it" : "them"}, and ELD miles always come first.
-        </p>
+
+      {r.blockers.length > 0 ? (
+        <section className="tl-card ifta-blockers" aria-label="Before this return can be filed">
+          <h3>Before this return can be filed</h3>
+          <ul>
+            {r.blockers.map((b) => {
+              const fix = fixFor(b, quarter);
+              return (
+                <li key={b.code}>
+                  <span className="t-st" data-tone="bad" />
+                  <span>{b.text}</span> <Link href={fix.href}>{fix.label}</Link>
+                </li>
+              );
+            })}
+          </ul>
+          {r.flagsPartial ? <p className="tl-note">Fuel flags were read from the newest purchases only; there are more than one reading takes.</p> : null}
+        </section>
+      ) : r.lines.length > 0 ? (
+        <p className="tl-note ok ifta-eld-line">Nothing stands in the way of this return.{r.rateState !== "final" ? " The rates are not all final yet." : ""}</p>
       ) : null}
+
       <DataTable
-        id="ifta-table"
-        label={`Miles by state, ${quarter}`}
-        columns={COLUMNS}
-        rows={rows}
+        id="ifta-return"
+        label={`Return by jurisdiction, ${quarter}`}
+        columns={LINES}
+        rows={lineRows}
         empty={
-          <EmptyState icon="chart" title={`${quarter} has no miles kept yet`}>
-            Read ELD miles for the trucks your ELD reports, then route the rest from their loads. Both need the company connected in Settings.
+          <EmptyState icon="chart" title={`${quarter} has no miles or fuel yet`}>
+            Read ELD miles for the trucks your ELD reports and route the rest, below. Fuel comes from the card company or a fuel file on Fuel.
           </EmptyState>
         }
       />
+
+      <section id="ifta-miles" className="ifta-miles">
+        <h3>Miles</h3>
+        <p className="tl-note">
+          {sourceLine ? `${sourceLine}.` : "No miles kept for this quarter."} {q?.syncedAt ? `Last read ${dateTime(q.syncedAt)}.` : null} A truck the ELD reported counts its ELD miles only; any other truck counts its loads routed stop by stop, with the empty runs between them.
+        </p>
+        {q && q.setAside > 0 ? <p className="tl-note">{trucks(q.setAside)} also {q.setAside === 1 ? "has" : "have"} routed miles, set aside: the ELD reported {q.setAside === 1 ? "it" : "them"}.</p> : null}
+        <CanGate caps={["bill"]}>
+          <div className="ifta-actions">
+            <IftaEldMilesButton quarter={quarter} reason={eld.reason} again={hasEld} />
+            <IftaCalcButton quarter={quarter} reason={router.reason} again={hasRouted} />
+          </div>
+        </CanGate>
+      </section>
+
+      <DataTable id="ifta-trucks" label={`Trucks, ${quarter}`} columns={TRUCKS} rows={truckRows} empty={<EmptyState icon="trucks" title="No truck has miles or fuel this quarter" />} />
+
       <p className="tl-note ifta-eld-line">
-        A truck the ELD reported counts its ELD miles only; any other truck counts its loads routed stop by stop, with the empty runs between them. A first load with empty miles and no home base on the truck has no empty run before it (none is made up). Gallons and tax come with the return.
+        {notCounted.length > 0 ? `Not on the return: ${notCounted.join("; ")}. ` : null}Fleet MPG is all miles over all settled road diesel, bulk included; tax-paid fills are credited where they were bought. Rounded as one rule: MPG to two places, gallons whole, money to the cent per jurisdiction, then added. Confirm with an accountant before filing.
       </p>
     </>
   );

@@ -189,7 +189,7 @@ describe.skipIf(!run)("the partner data, kept and shown", () => {
     expect(csv!.filename).toContain(`ifta-${q}`);
     // The file starts with a byte-order mark so a spreadsheet opens it as UTF-8.
     expect(csv!.csv.startsWith(String.fromCharCode(0xfeff))).toBe(true);
-    expect(csv!.csv.slice(1).split(/\r?\n/)[0]).toBe("Quarter,State,Miles,Loaded miles,Empty miles");
+    expect(csv!.csv.slice(1).split(/\r?\n/)[0]).toBe("Quarter,Jurisdiction,Name,Miles,Taxable gallons,Tax-paid gallons,Net gallons,Rate,Tax,Surcharge rate,Surcharge,Total,Fleet MPG,Due");
     expect(await buildExport("ifta", { quarter: "nonsense" }, new Date())).toBeNull();
   });
 

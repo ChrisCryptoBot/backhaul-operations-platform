@@ -17,7 +17,8 @@ import { workspaceTimezone } from "./zone";
 import { FLAG_LABEL } from "@/lib/fuel-exceptions";
 import { PRODUCT_LABEL, STATUS_LABEL } from "@/lib/fuel-normalize";
 import { listFuel } from "@/server/partners/fuel-store";
-import { iftaQuarterMiles } from "@/server/partners/ifta-mileage";
+import { iftaReturnDetail } from "@/server/partners/ifta-return";
+import { providerName } from "@/server/partners/call";
 import { factoringLabel } from "@/server/partners/factoring";
 import { listAudit } from "./audit";
 import { listTrailersPage } from "./trailers";
@@ -46,7 +47,7 @@ export const MAX_EXPORT_ROWS = 25_000;
  * The CSV files the desk offers. Each is built from the same functions the screen uses (the Loads filter, the KPI engine),
  * so a file always matches what was on screen when it was asked for. Dates are the Central calendar date.
  */
-export const EXPORT_KINDS = ["loads", "invoices", "settlements", "settlement-lines", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "kpi-trucks", "leaks", "leaks-weeks", "leaks-items", "data-health", "data-health-checks", "quote-decisions", "fuel", "ifta", "contractor-1099"] as const;
+export const EXPORT_KINDS = ["loads", "invoices", "settlements", "settlement-lines", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "kpi-trucks", "leaks", "leaks-weeks", "leaks-items", "data-health", "data-health-checks", "quote-decisions", "fuel", "ifta", "ifta-audit", "contractor-1099"] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
 type Query = Record<string, string | string[] | undefined>;
@@ -345,16 +346,37 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
     return { filename: name(`contractor-1099-${year}`), csv: form1099Csv(report) };
   }
 
-  if (kind === "ifta") {
+  if (kind === "ifta" || kind === "ifta-audit") {
+    // The quarter's return and the rows behind it, from one read (server/partners/ifta-return.ts): the screen, the audit page and both files always agree. The route lets only the billing office ask.
     const quarter = first(query.quarter) ?? "";
     if (!/^\d{4}-Q[1-4]$/.test(quarter)) return null;
-    // ELD miles where the ELD reported a truck, routed where it did not (each truck counted once). The return's own CSV, with gallons and tax, is step 7.
-    const q = await iftaQuarterMiles(quarter);
+    const truck = first(query.truck) || null;
+    const r = await iftaReturnDetail(quarter, kind === "ifta-audit" && truck ? { vehicleId: truck } : {}, now);
+    if (!r.ok) return null;
+    // Figures go in as numbers (exact decimals, read once), so a credit's minus sign is a number's, not text the CSV writer has to defuse.
+    const dn = (v: string | null) => (v == null ? null : new Prisma.Decimal(v).toNumber());
+    if (kind === "ifta") {
+      return {
+        filename: name(`ifta-${quarter}`),
+        csv: toCsv(
+          ["Quarter", "Jurisdiction", "Name", "Miles", "Taxable gallons", "Tax-paid gallons", "Net gallons", "Rate", "Tax", "Surcharge rate", "Surcharge", "Total", "Fleet MPG", "Due"],
+          [
+            ...r.lines.map((l): CsvCell[] => [quarter, l.jurisdiction, l.name, dn(l.miles), dn(l.taxableGallons), dn(l.taxPaidGallons), dn(l.netGallons), dn(l.rate), dn(l.tax), dn(l.surchargeRate), dn(l.surcharge), dn(l.total), dn(r.mpg), r.dueDate]),
+            [quarter, "ALL", "All jurisdictions", dn(r.miles), null, null, null, null, dn(r.tax), null, dn(r.surcharge), dn(r.total), dn(r.mpg), r.dueDate]
+          ]
+        )
+      };
+    }
+    const names = new Map(r.trucks.map((t) => [t.vehicleId, t.name]));
+    const iso = (d: Date) => d.toISOString();
     return {
-      filename: name(`ifta-${quarter}`),
+      filename: name(`ifta-audit-${quarter}${truck ? `-${(names.get(truck) ?? "truck").replace(/[^A-Za-z0-9]+/g, "-")}` : ""}`),
       csv: toCsv(
-        ["Quarter", "State", "Miles", "Loaded miles", "Empty miles"],
-        (q?.states ?? []).map((l): CsvCell[] => [quarter, l.state, l.miles, l.loadedMiles, l.emptyMiles])
+        ["Quarter", "Record", "Truck", "Method", "Source", "Jurisdiction", "Loaded", "Load", "Start odometer", "End odometer", "Started (UTC)", "Ended (UTC)", "Miles", "Piece or receipt id", "Bought (UTC)", "Location", "Product", "Status", "Tax paid", "Gallons", "Amount", "Counted"],
+        [
+          ...r.pieces.map((p): CsvCell[] => [quarter, "miles", names.get(p.vehicleId) ?? p.vehicleId, p.method === "eld" ? "ELD" : "Routed", providerName(p.source), p.jurisdiction, p.loaded ? "loaded" : "empty", p.loadNumber, dn(p.startOdometer), dn(p.endOdometer), iso(p.startedAt), iso(p.endedAt), dn(p.miles), p.externalId, null, null, null, null, null, null, null, "yes"]),
+          ...r.receipts.map((f): CsvCell[] => [quarter, "fuel", f.vehicleId ? (names.get(f.vehicleId) ?? f.vehicleId) : null, null, providerName(f.provider), f.state, null, null, null, null, null, null, null, f.externalId, iso(f.at), f.location, PRODUCT_LABEL[f.product as keyof typeof PRODUCT_LABEL] ?? f.product, STATUS_LABEL[f.status as keyof typeof STATUS_LABEL] ?? f.status, f.taxPaid ? "yes" : "no", dn(f.gallons), dn(f.amount), f.counted ? "yes" : "no"])
+        ]
       )
     };
   }

@@ -1329,3 +1329,10 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .ifta-eld-btn { display: inline-flex; flex-direction: column; align-items: flex-start; }
 .ifta-eld-line { margin-top: 12px; max-width: 90ch; }
 .ifta-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.ifta-blockers { margin-top: var(--db-3); margin-bottom: var(--db-3); padding: 12px 14px; }
+.ifta-blockers h3 { margin: 0 0 var(--db-2); }
+.ifta-blockers ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.ifta-blockers li { display: flex; gap: 8px; align-items: baseline; }
+.ifta-miles { margin-top: var(--db-4); margin-bottom: var(--db-3); }
+.ifta-miles h3, .ifta-section { margin-top: var(--db-4); margin-bottom: var(--db-2); }
+.ifta-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
