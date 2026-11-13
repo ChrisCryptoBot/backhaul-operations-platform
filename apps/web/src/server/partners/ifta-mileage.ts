@@ -497,8 +497,11 @@ export type IftaQuarterMiles = {
 };
 
 /** The quarter's miles as every reader counts them: each truck's ELD rows if it has any, else its routed rows (lib/ifta-mileage.ts). Null for anything that is not a quarter. */
-export async function iftaQuarterMiles(quarter: string, workspaceId = currentWorkspaceId()): Promise<IftaQuarterMiles | null> {
-  if (!isIftaQuarter(quarter)) return null;
+/**
+ * The quarter's mileage rows grouped by truck, method, company, jurisdiction and loaded, with each truck's counted method and company (ELD first, lib/ifta-mileage.ts) and only the groups that
+ * count. The one read every IFTA reader starts from (this page's summary, the return), so they always agree on which rows count.
+ */
+export async function countedMileage(quarter: string, workspaceId = currentWorkspaceId()) {
   const groups = await prisma.iftaMileage.groupBy({ by: ["vehicleId", "method", "source", "jurisdiction", "loaded"], where: { workspaceId, quarter }, _sum: { miles: true }, _count: { _all: true }, _max: { syncedAt: true } });
   const perSource = new Map<string, { vehicleId: string; method: string; source: string; syncedAt: Date | null }>();
   for (const g of groups) {
@@ -508,7 +511,12 @@ export async function iftaQuarterMiles(quarter: string, workspaceId = currentWor
     if (!had || (at && (!had.syncedAt || at > had.syncedAt))) perSource.set(k, { vehicleId: g.vehicleId, method: g.method, source: g.source, syncedAt: at ?? had?.syncedAt ?? null });
   }
   const chosen = countedSource([...perSource.values()]);
-  const counted = countedRows(groups, chosen);
+  return { groups, chosen, counted: countedRows(groups, chosen) };
+}
+
+export async function iftaQuarterMiles(quarter: string, workspaceId = currentWorkspaceId()): Promise<IftaQuarterMiles | null> {
+  if (!isIftaQuarter(quarter)) return null;
+  const { groups, chosen, counted } = await countedMileage(quarter, workspaceId);
   const routedTrucks = new Set(groups.filter((g) => g.method === "routed").map((g) => g.vehicleId));
   const setAside = [...routedTrucks].filter((v) => chosen.get(v)?.method === "eld").length;
   const names = new Map((await prisma.vehicle.findMany({ where: { workspaceId, id: { in: [...chosen.keys()] } }, select: { id: true, name: true } })).map((v) => [v.id, v.name]));
