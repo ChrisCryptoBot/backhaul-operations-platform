@@ -15,6 +15,8 @@ const DOCK = { lat: 32.7767, lng: -96.797 }; // Dallas
 const hours = (h: number) => new Date(NOW.getTime() - h * 3_600_000);
 
 async function wipe(id: string) {
+  await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id } } });
+  await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id } } }, { driver: { workspace: { id } } }] } });
   await prisma.workspace.deleteMany({ where: { id } });
 }
 

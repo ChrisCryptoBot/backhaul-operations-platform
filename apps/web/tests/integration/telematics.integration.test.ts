@@ -50,6 +50,8 @@ describe.skipIf(!run)("telematics: radar, idle, dwell, onboarding", () => {
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
     }
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: { in: [W, SMALL, OTHER] } } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: { in: [W, SMALL, OTHER] } } } }, { driver: { workspace: { id: { in: [W, SMALL, OTHER] } } } }] } });
     await prisma.workspace.deleteMany({ where: { id: { in: [W, SMALL, OTHER] } } });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -104,6 +106,8 @@ describe.skipIf(!run)("telematics: radar, idle, dwell, onboarding", () => {
       expect(mine.make).toBe("My own make");
       expect(Number(mine.mpg)).toBe(7.5);
     } finally {
+      await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: `${W}-b` } } });
+      await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: `${W}-b` } } }, { driver: { workspace: { id: `${W}-b` } } }] } });
       await prisma.workspace.deleteMany({ where: { id: `${W}-b` } });
     }
   });

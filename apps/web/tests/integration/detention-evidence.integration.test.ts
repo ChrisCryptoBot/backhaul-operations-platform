@@ -23,6 +23,8 @@ const DL = { lat: 33.5, lng: -96.5 };
 const north = (p: { lat: number; lng: number }, miles: number) => ({ lat: p.lat + miles / 69.09, lng: p.lng });
 
 async function wipe(id: string) {
+  await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id } } });
+  await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id } } }, { driver: { workspace: { id } } }] } });
   await prisma.workspace.deleteMany({ where: { id } });
 }
 

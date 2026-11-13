@@ -15,6 +15,8 @@ const NOW = new Date();
 const profile = { estimatedMonthlyMiles: "7000", breakEvenRpm: "1.5", lastFuelPricePerGallon: "3.9", driverHourlyTarget: "25" };
 
 async function wipe(id: string) {
+  await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id } } });
+  await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id } } }, { driver: { workspace: { id } } }] } });
   await prisma.workspace.deleteMany({ where: { id } });
 }
 

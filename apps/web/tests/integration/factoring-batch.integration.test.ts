@@ -53,6 +53,8 @@ describe.skipIf(!run)("factoring by batch, through the simulator", () => {
 
   beforeAll(async () => {
     saved = process.env[KEY];
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "Batch desk", plan: "enterprise" } });
     for (const n of ["B-1", "B-2", "B-3", "B-4", "B-5"]) await ready(n);
@@ -62,6 +64,8 @@ describe.skipIf(!run)("factoring by batch, through the simulator", () => {
     if (saved === undefined) delete process.env[KEY];
     else process.env[KEY] = saved;
     await removeFiles(keys);
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
   });
 

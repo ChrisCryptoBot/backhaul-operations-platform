@@ -51,6 +51,8 @@ describe.skipIf(!run)("the payroll status poll", () => {
     globalThis.fetch = vi.fn(() => {
       throw new Error("the desk tried to reach the network");
     }) as unknown as typeof fetch;
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "Payroll poll desk", plan: "enterprise" } });
     expect(await saveKeysAndConnect("gusto", { GUSTO_CLIENT_ID: "sandbox_gusto_id_01", GUSTO_CLIENT_SECRET: "sandbox_gusto_secret", GUSTO_WEBHOOK_SECRET: SECRET }, NOW, W)).toMatchObject({ connected: true });
@@ -63,6 +65,8 @@ describe.skipIf(!run)("the payroll status poll", () => {
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
     }
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
   });
 

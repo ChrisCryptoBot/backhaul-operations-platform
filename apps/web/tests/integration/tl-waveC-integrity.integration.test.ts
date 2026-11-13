@@ -52,6 +52,8 @@ describe.skipIf(!run)("Part C: integrity of loads, money and documents", () => {
 
   beforeAll(async () => {
     process.env.DESK_UPLOAD_DIR = uploads;
+    // An assignment holds its driver (onDelete: Restrict) while the workspace cascade removes drivers: take them first.
+    await prisma.assignment.deleteMany({ where: { load: { workspaceId: W } } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "Part C desk", plan: "enterprise" } });
     const ok = { cdlExpiry: day(900), medicalCardExpiry: day(900) };
@@ -65,7 +67,10 @@ describe.skipIf(!run)("Part C: integrity of loads, money and documents", () => {
     delete process.env.DESK_UPLOAD_DIR;
     for (const k of KEYS) delete process.env[k];
     await prisma.settlementLoad.deleteMany({ where: { settlement: { workspaceId: W } } });
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspaceId: W } });
     await prisma.settlement.deleteMany({ where: { workspaceId: W } });
+    // An assignment holds its driver (onDelete: Restrict) while the workspace cascade removes drivers: take them first.
+    await prisma.assignment.deleteMany({ where: { load: { workspaceId: W } } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     rmSync(uploads, { recursive: true, force: true });
   });
@@ -179,6 +184,8 @@ describe.skipIf(!run)("Part C: integrity of loads, money and documents", () => {
       await expect(saveReviewedDraft({ ...review, vehicleId: mine.id })).rejects.toThrow(/not available/);
       expect(await prisma.load.count({ where: { workspaceId: W, loadNumber: "C-RC-1" } })).toBe(0);
     } finally {
+      // An assignment holds its driver (onDelete: Restrict) while the workspace cascade removes drivers: take them first.
+      await prisma.assignment.deleteMany({ where: { load: { workspaceId: "partc-other" } } });
       await prisma.workspace.deleteMany({ where: { id: "partc-other" } });
     }
   });

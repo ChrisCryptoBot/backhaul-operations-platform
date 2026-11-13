@@ -46,6 +46,8 @@ describe.skipIf(!run)("the remaining shelves on the sandbox simulator", () => {
     process.env.DESK_CREDENTIAL_KEY = randomBytes(32).toString("base64");
     globalThis.fetch = fetchSpy as unknown as typeof fetch;
     for (const id of [W, OTHER]) {
+      await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id } } });
+      await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id } } }, { driver: { workspace: { id } } }] } });
       await prisma.workspace.deleteMany({ where: { id } });
       await prisma.workspace.create({ data: { id, name: id, plan: "enterprise" } });
     }
@@ -63,6 +65,8 @@ describe.skipIf(!run)("the remaining shelves on the sandbox simulator", () => {
       if (saved[k] === undefined) delete process.env[k];
       else process.env[k] = saved[k];
     }
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: { in: [W, OTHER] } } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: { in: [W, OTHER] } } } }, { driver: { workspace: { id: { in: [W, OTHER] } } } }] } });
     await prisma.workspace.deleteMany({ where: { id: { in: [W, OTHER] } } });
   });
 

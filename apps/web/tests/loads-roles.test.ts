@@ -108,3 +108,34 @@ describe("the files and the uploads", () => {
     expect(route("documents", "upload", "route.ts")).toMatch(/guardRoute\("documents"\)/);
   });
 });
+
+describe("driver pay is the billing office's (billing_details)", () => {
+  const SRC = path.join(__dirname, "..", "src");
+  const src = (...p: string[]) => readFileSync(path.join(SRC, ...p), "utf8").replace(/\r\n/g, "\n");
+
+  it("lets an admin, accounting and a dispatcher with the billing grant see it; never a viewer, a plain dispatcher or a driver manager", () => {
+    expect(can("admin", [], "billing_details")).toBe(true);
+    expect(can("accounting", [], "billing_details")).toBe(true);
+    expect(can("dispatcher", ["bill"], "billing_details")).toBe(true);
+    expect(can("viewer", [], "billing_details")).toBe(false);
+    expect(can("dispatcher", [], "billing_details")).toBe(false);
+    expect(can("driver_manager", [], "billing_details")).toBe(false);
+    // A grant only widens a dispatcher: a viewer or a driver manager with it still cannot.
+    expect(can("viewer", ["bill"], "billing_details")).toBe(false);
+    expect(can("driver_manager", ["bill"], "billing_details")).toBe(false);
+  });
+
+  it("gates the statements, payroll and 1099 screens, the statement PDF and the pay files on it", () => {
+    for (const page of [["settlements", "page.tsx"], ["settlements", "[id]", "page.tsx"], ["payroll", "page.tsx"], ["payroll", "1099", "page.tsx"]]) expect(src("app", "(desk)", ...page), page.join("/")).toMatch(/await requirePage\("billing_details"\)/);
+    expect(src("app", "(desk)", "settlements", "[id]", "pdf", "route.ts")).toMatch(/await guardRoute\("billing_details"\)/);
+    expect(src("app", "(desk)", "export", "[kind]", "route.ts")).toMatch(/params\.kind === "contractor-1099" \|\| params\.kind === "settlements" \|\| params\.kind === "settlement-lines"\) \{\s+const noTax = await guardRoute\("billing_details"\)/);
+  });
+
+  it("shows the Settlements and Payroll links only to someone who may see driver pay, grant included", () => {
+    const shell = src("components", "desk", "desk-shell.tsx");
+    expect(shell).toContain('{ href: "/settlements", label: "Settlements", code: "ST", billing: true }');
+    expect(shell).toContain('{ href: "/payroll", label: "Payroll", code: "PY", billing: true }');
+    expect(shell).toContain("(!i.billing || data.account.billing)");
+    expect(src("server", "tl", "shell.ts")).toMatch(/const billing = \(await checkAccess\("billing_details"\)\)\.ok/);
+  });
+});

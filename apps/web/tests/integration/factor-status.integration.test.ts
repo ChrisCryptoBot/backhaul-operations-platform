@@ -32,6 +32,8 @@ const FILE = [
 describe.skipIf(!run)("a factor's status file", () => {
   const inv: Record<string, { id: string; loadId: string }> = {};
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "Status desk", plan: "enterprise" } });
     expect(await saveFactoringTerms(BLANK, "test", NOW, W)).toMatchObject({ ok: true });
@@ -48,6 +50,8 @@ describe.skipIf(!run)("a factor's status file", () => {
     }
   });
   afterAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
   });
 
@@ -125,6 +129,8 @@ describe.skipIf(!run)("a factor's status file: bad funded amounts and part payme
   const W2 = "fstatus2";
   const inv: Record<string, { id: string; loadId: string }> = {};
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W2 } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W2 } } }, { driver: { workspace: { id: W2 } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W2 } });
     await prisma.workspace.create({ data: { id: W2, name: "Status desk 2", plan: "enterprise" } });
     expect(await saveFactoringTerms(BLANK, "test", NOW, W2)).toMatchObject({ ok: true });
@@ -138,6 +144,8 @@ describe.skipIf(!run)("a factor's status file: bad funded amounts and part payme
     }
   });
   afterAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W2 } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W2 } } }, { driver: { workspace: { id: W2 } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W2 } });
   });
 

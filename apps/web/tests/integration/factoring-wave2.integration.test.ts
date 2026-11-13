@@ -33,6 +33,8 @@ describe.skipIf(!run)("factoring terms, a factored invoice of several loads, the
   let invoiceId = "";
 
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "FW2 desk", plan: "enterprise" } });
     for (const [n, rate] of [["F-1", 1000], ["F-2", 2000]] as const) {
@@ -44,6 +46,8 @@ describe.skipIf(!run)("factoring terms, a factored invoice of several loads, the
   });
   afterAll(async () => {
     await removeFiles(keys);
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
   });
 

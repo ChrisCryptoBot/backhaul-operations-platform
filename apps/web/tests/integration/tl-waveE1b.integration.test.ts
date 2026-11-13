@@ -15,10 +15,16 @@ const run = process.env.RUN_DB_INTEGRATION === "true";
 const day = (d: string) => new Date(`${d}T17:00:00Z`);
 
 async function workspace(id: string) {
+  await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id } } });
+  await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id } } }, { driver: { workspace: { id } } }] } });
   await prisma.workspace.deleteMany({ where: { id } });
   await prisma.workspace.create({ data: { id, name: `E1 ${id}`, plan: "enterprise" } });
 }
-const drop = (id: string) => prisma.workspace.deleteMany({ where: { id } });
+// An assignment holds its driver (onDelete: Restrict) while the workspace cascade removes drivers: take them first.
+const drop = async (id: string) => {
+  await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspaceId: id } }, { driver: { workspaceId: id } }] } });
+  await prisma.workspace.deleteMany({ where: { id } });
+};
 
 describe.skipIf(!run)("importing trucks and drivers from a file", () => {
   const W = "e1-import";

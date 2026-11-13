@@ -42,6 +42,8 @@ describe.skipIf(!run)("the QuickBooks sync, against the simulator", () => {
     process.env.DESK_CREDENTIAL_KEY = randomBytes(32).toString("base64");
     process.env.QUICKBOOKS_CLIENT_ID = "sandbox_qbo_client_sync";
     process.env.QUICKBOOKS_CLIENT_SECRET = "sandbox_qbo_secret_sync";
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "QBO sync desk", plan: "enterprise", timezone: "America/Chicago" } as never });
     resetSandboxBook(SANDBOX_REALM, W);
@@ -92,6 +94,8 @@ describe.skipIf(!run)("the QuickBooks sync, against the simulator", () => {
       else process.env[k] = saved[k];
     }
     resetSandboxBook(SANDBOX_REALM, W);
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
   });
 

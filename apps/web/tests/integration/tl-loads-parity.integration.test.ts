@@ -19,6 +19,8 @@ describe.skipIf(!run)("loads parity on the demo database", () => {
   const id: Record<string, string> = {};
   const stopIds: Record<string, string[]> = {};
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "LP parity", plan: "enterprise" } });
     const make = async (key: string, data: Record<string, unknown>, deliveries = 1) => {
@@ -39,6 +41,8 @@ describe.skipIf(!run)("loads parity on the demo database", () => {
   });
   afterAll(async () => {
     await prisma.auditEvent.deleteMany({ where: { workspaceId: W } });
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
   });
 

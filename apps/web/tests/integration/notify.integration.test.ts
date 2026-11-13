@@ -38,6 +38,8 @@ const hook = (status = 200) => {
 };
 
 async function wipe(id: string) {
+  await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id } } });
+  await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id } } }, { driver: { workspace: { id } } }] } });
   await prisma.workspace.deleteMany({ where: { id } });
 }
 const fresh = () => {
@@ -230,6 +232,8 @@ describe.skipIf(!run)("telling people", () => {
     await saveSignalSettings({ minLevel: "block", reportEnabled: "on", reportDay: "1", reportHour: "7" }, NOW, W);
     const MON = new Date("2026-11-09T14:00:00Z"); // Monday 08:00 in Chicago
     const SUN = new Date("2026-11-08T14:00:00Z");
+    // A load delivered in the week the report covers (Nov 2-8): the fixtures above are dated from today, so without one the report would only find a load once today falls in that week.
+    if (!(await prisma.load.findFirst({ where: { workspaceId: W, loadNumber: "NT-WEEK" } }))) await prisma.load.create({ data: { workspaceId: W, loadNumber: "NT-WEEK", quotedRevenue: 800, actualRevenue: 800, loadedMiles: 400, status: "completed", scheduledDate: new Date("2026-11-04T14:00:00Z"), completedAt: new Date("2026-11-05T17:00:00Z") } });
     // Before its day: nothing.
     const early = hook();
     expect(await cron(HOOK, early.f, new Date("2026-11-09T12:00:00Z"))).toMatchObject({ reports: { not_due: 1 } });

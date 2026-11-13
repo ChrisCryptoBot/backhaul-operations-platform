@@ -11,7 +11,7 @@ import { asPage } from "@/lib/paging";
 import { statementPayBadge } from "@/lib/statement-pay";
 import { can, whoCan } from "@/lib/roles";
 import { periodPresets } from "@/lib/settlement";
-import { checkAccess } from "@/server/tl/access";
+import { checkAccess, requirePage } from "@/server/tl/access";
 import { listSettlements, settlementCounts, STATEMENTS_PAGE, unsettledByDriver } from "@/server/tl/settlement";
 import { currentTerminal } from "@/server/tl/terminal";
 import { currentWorkspaceId } from "@/server/tl/workspace";
@@ -44,6 +44,8 @@ const DRAFT_PAGE = 25;
 
 /** Driver pay: what each driver is owed for loads they delivered, as statements you work up, finalize and print. */
 export default async function SettlementsPage({ searchParams }: { searchParams?: { page?: string; owed?: string; drafts?: string; voided?: string } }) {
+  // Driver pay is the billing office's: a viewer, a dispatcher without the billing grant and a driver manager get the not-found page.
+  await requirePage("billing_details");
   // A big fleet settles every driver every week, so each list is a page at a time: the drivers owed pay (the total above is for all of them), the drafts being
   // worked up, the finalized statements newest first, and the voided ones.
   // The header's terminal narrows statements too, by the driver's terminal.

@@ -19,6 +19,8 @@ const days = (n: number) => new Date(NOW.getTime() - n * 86_400_000);
 const LANE = "Dallas, TX → Atlanta, GA";
 
 async function wipe(id: string) {
+  await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id } } });
+  await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id } } }, { driver: { workspace: { id } } }] } });
   await prisma.workspace.deleteMany({ where: { id } });
 }
 

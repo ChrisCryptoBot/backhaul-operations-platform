@@ -21,6 +21,8 @@ const day = (d: string) => new Date(`${d}T17:00:00Z`);
 describe.skipIf(!run)("loads scope on the demo database", () => {
   const id: Record<string, string> = {};
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "LS scope", plan: "enterprise" } });
     const dallas = await prisma.vehicle.create({ data: { workspaceId: W, name: "LS Dallas", type: "box_truck", terminal: "Dallas" } as never });
@@ -38,6 +40,8 @@ describe.skipIf(!run)("loads scope on the demo database", () => {
   });
   afterAll(async () => {
     await prisma.auditEvent.deleteMany({ where: { workspaceId: W } });
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
   });
 
@@ -85,10 +89,14 @@ describe.skipIf(!run)("loads scope on the demo database", () => {
     await restoreLoad(id.X!, new Date(), W);
     // Another workspace's change does not move this one's mark.
     const mine = await dataMark(W);
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: "ls-other" } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: "ls-other" } } }, { driver: { workspace: { id: "ls-other" } } }] } });
     await prisma.workspace.deleteMany({ where: { id: "ls-other" } });
     await prisma.workspace.create({ data: { id: "ls-other", name: "LS other", plan: "enterprise" } });
     await prisma.load.create({ data: { workspaceId: "ls-other", loadNumber: "LS-OTHER", quotedRevenue: 1 } as never });
     expect((await dataMark(W)).split(":")[0]).toBe(mine.split(":")[0]);
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: "ls-other" } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: "ls-other" } } }, { driver: { workspace: { id: "ls-other" } } }] } });
     await prisma.workspace.deleteMany({ where: { id: "ls-other" } });
   });
 

@@ -35,6 +35,8 @@ describe.skipIf(!run)("signing in to QuickBooks, the external-id map and the cur
     process.env.QUICKBOOKS_CLIENT_ID = "sandbox_qbo_client_1234";
     process.env.QUICKBOOKS_CLIENT_SECRET = "sandbox_qbo_secret_1234";
     for (const id of [W, OTHER]) {
+      await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id } } });
+      await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id } } }, { driver: { workspace: { id } } }] } });
       await prisma.workspace.deleteMany({ where: { id } });
       await prisma.workspace.create({ data: { id, name: id, plan: "enterprise" } });
     }

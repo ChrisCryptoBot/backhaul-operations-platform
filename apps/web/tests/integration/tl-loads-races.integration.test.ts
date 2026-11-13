@@ -23,6 +23,8 @@ describe.skipIf(!run)("loads, pressed twice at once", () => {
   const id: Record<string, string> = {};
   let stops: string[] = [];
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "LR races", plan: "enterprise" } });
     const make = async (key: string, data: Record<string, unknown>) => {
@@ -45,6 +47,8 @@ describe.skipIf(!run)("loads, pressed twice at once", () => {
   });
   afterAll(async () => {
     await prisma.auditEvent.deleteMany({ where: { workspaceId: W } });
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
   });
 

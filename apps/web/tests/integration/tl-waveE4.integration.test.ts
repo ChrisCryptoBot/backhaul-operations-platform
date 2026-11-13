@@ -36,6 +36,8 @@ const fake = (cap: keyof typeof partnerAdapters, fn: (call: { provider: string; 
 describe.skipIf(!run)("a plan holds only its number of trucks", () => {
   const P = "e4-plan";
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: P } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: P } } }, { driver: { workspace: { id: P } } }] } });
     await prisma.workspace.deleteMany({ where: { id: P } });
     await prisma.workspace.create({ data: { id: P, name: "E4 plan", plan: "starter" } });
   });
@@ -98,6 +100,8 @@ describe.skipIf(!run)("the partner seams", () => {
   const ids = { truck: "", truck2: "", driver: "", ready: "", load: "", loadNoDoc: "" };
 
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "E4 partners" } });
     for (const k of KEYS) delete process.env[k];
@@ -120,6 +124,8 @@ describe.skipIf(!run)("the partner seams", () => {
     for (const k of KEYS) delete process.env[k];
     await prisma.settlementLoad.deleteMany({ where: { settlement: { workspaceId: W } } });
     await prisma.settlement.deleteMany({ where: { workspaceId: W } });
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
   });
 

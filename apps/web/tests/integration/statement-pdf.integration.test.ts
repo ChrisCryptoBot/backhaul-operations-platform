@@ -99,7 +99,7 @@ describe.skipIf(!run)("the statement PDF", () => {
     expect(await statementPdfData("nope", W, null, NOW)).toBeNull();
   });
 
-  test("the route: the same gate as the statement page, and a file that is not cached or sniffed", async () => {
+  test("the route: the billing office only (403 for a viewer or a dispatcher), inside the terminals, and a file that is not cached or sniffed", async () => {
     const { GET } = await import("@/app/(desk)/settlements/[id]/pdf/route");
     const call = (id: string) => GET(new Request(`http://desk.test/settlements/${id}/pdf`), { params: { id } });
     state.terminal = null;
@@ -110,9 +110,15 @@ describe.skipIf(!run)("the statement PDF", () => {
     expect(ok.headers.get("x-content-type-options")).toBe("nosniff");
     expect(ok.headers.get("cache-control")).toBe("no-store");
     expect(Buffer.from(await ok.arrayBuffer()).subarray(0, 5).toString("latin1")).toBe("%PDF-");
-    // A viewer may read the statement page, so the file too.
-    state.cookies["desk-demo"] = "viewer";
-    expect((await call(st.w2!)).status).toBe(200);
+    // Driver pay is the billing office's: a viewer, a plain dispatcher and a driver manager are refused (403); accounting and an admin get the file.
+    for (const role of ["viewer", "dispatcher", "driver_manager"]) {
+      state.cookies["desk-demo"] = role;
+      expect((await call(st.w2!)).status, role).toBe(403);
+    }
+    for (const role of ["accounting", "admin"]) {
+      state.cookies["desk-demo"] = role;
+      expect((await call(st.w2!)).status, role).toBe(200);
+    }
     // Outside the chosen terminals: not found.
     state.terminal = "Houston";
     expect((await call(st.w2!)).status).toBe(404);

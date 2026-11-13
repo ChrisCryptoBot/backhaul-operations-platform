@@ -203,6 +203,7 @@ export default async function DriverPage({ params }: { params: { id: string } })
         </p>
       </Card>
 
+      {seeTax ? (
       <Card
         title={`Pay statements${statements.total > statements.rows.length ? ` · latest ${statements.rows.length} of ${statements.total}` : statements.total > 0 ? ` · ${statements.total}` : ""}`}
         action={
@@ -245,7 +246,9 @@ export default async function DriverPage({ params }: { params: { id: string } })
           </p>
         ) : null}
       </Card>
+      ) : null}
 
+      {seeTax ? (
       <DriverDeductions
         driverId={p.id}
         employee={deductions.employee}
@@ -258,6 +261,7 @@ export default async function DriverPage({ params }: { params: { id: string } })
         ledger={deductions.ledger.map((e) => ({ ...e, at: e.at.toISOString() }))}
         canEdit={canBill}
       />
+      ) : null}
 
       <Card title="Changes" className="tl-card">
         {history.rows.length === 0 ? (

@@ -44,6 +44,8 @@ const cents = (s: string | undefined) => (s ? Math.round(Number.parseFloat(s) * 
 describe.skipIf(!run)("the journal and the accounts", () => {
   const loads: Record<string, string> = {};
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "Journal desk", plan: "enterprise", timezone: "America/Chicago" } as never });
     expect(await saveFactoringTerms(TERMS, "test", NOW, W)).toMatchObject({ ok: true });
@@ -66,6 +68,8 @@ describe.skipIf(!run)("the journal and the accounts", () => {
     await prisma.fuelTransaction.create({ data: { workspaceId: W, provider: "wex", externalId: "t-1", postedAt: new Date("2026-11-18T18:00:00Z"), amount: new Prisma.Decimal("300.00"), location: "Amarillo, TX" } });
   });
   afterAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
   });
 

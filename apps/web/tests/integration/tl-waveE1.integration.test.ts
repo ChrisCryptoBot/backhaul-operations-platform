@@ -43,6 +43,8 @@ describe.skipIf(!run)("another workspace's records cannot be acted on", () => {
   const ids = { driver: "", draft: "", assigned: "", done: "", invoiced: "", paid: "" };
 
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: OTHER } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: OTHER } } }, { driver: { workspace: { id: OTHER } } }] } });
     await prisma.workspace.deleteMany({ where: { id: OTHER } });
     await prisma.workspace.create({ data: { id: OTHER, name: "E1 other fleet", plan: "enterprise" } });
     const driver = await prisma.driver.create({ data: { workspaceId: OTHER, name: "E1 Other Driver", cdlClass: "A", cdlExpiry: FUTURE, medicalCardExpiry: FUTURE } });
@@ -59,6 +61,8 @@ describe.skipIf(!run)("another workspace's records cannot be acted on", () => {
 
   afterAll(async () => {
     await prisma.auditEvent.deleteMany({ where: { OR: [{ workspaceId: OTHER }, { summary: { contains: "E1 " }, workspaceId: WS }] } });
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: OTHER } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: OTHER } } }, { driver: { workspace: { id: OTHER } } }] } });
     await prisma.workspace.deleteMany({ where: { id: OTHER } }); // loads, drivers and assignments go with it
   });
 

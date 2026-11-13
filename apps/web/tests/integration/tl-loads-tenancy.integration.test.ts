@@ -40,6 +40,8 @@ describe.skipIf(!run)("loads cannot be reached across workspaces", () => {
 
   beforeAll(async () => {
     for (const w of [A, B]) {
+      await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: w } } });
+      await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: w } } }, { driver: { workspace: { id: w } } }] } });
       await prisma.workspace.deleteMany({ where: { id: w } });
       await prisma.workspace.create({ data: { id: w, name: `LT ${w}`, plan: "enterprise" } });
     }
@@ -70,7 +72,10 @@ describe.skipIf(!run)("loads cannot be reached across workspaces", () => {
   });
   afterAll(async () => {
     await prisma.auditEvent.deleteMany({ where: { workspaceId: { in: [A, B] } } });
-    for (const w of [A, B]) await prisma.workspace.deleteMany({ where: { id: w } });
+    for (const w of [A, B]) {
+      await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspaceId: w } }, { driver: { workspaceId: w } }] } });
+      await prisma.workspace.deleteMany({ where: { id: w } });
+    }
   });
 
   const snapshot = async () => JSON.stringify(await prisma.load.findMany({ where: { workspaceId: A }, include: { stops: { orderBy: { stopSequence: "asc" } }, assignment: true, documents: true }, orderBy: { loadNumber: "asc" } }));

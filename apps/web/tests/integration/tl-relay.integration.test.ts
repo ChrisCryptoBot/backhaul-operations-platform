@@ -46,6 +46,8 @@ describe.skipIf(!run)("relays: a baton between two drivers", () => {
   const driver = (name: string) => prisma.driver.create({ data: { workspaceId: W, name, cdlExpiry: new Date(NOW.getTime() + 400 * D), medicalCardExpiry: new Date(NOW.getTime() + 400 * D), defaultPayKind: "cpm", defaultPayRate: 0.55 } }).then((d) => d.id);
 
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "Relay test fleet", plan: "enterprise" } });
     ids.d1 = await driver("RL Driver One");
@@ -56,6 +58,8 @@ describe.skipIf(!run)("relays: a baton between two drivers", () => {
     ids.trailer = (await prisma.trailer.create({ data: { workspaceId: W, number: "RL-501" } })).id;
   });
   afterAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } }); // loads, legs, handoffs, assignments and events go with it
   });
 
@@ -253,12 +257,17 @@ describe.skipIf(!run)("a driver recalled while rolling empty keeps the miles the
   }
 
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: P } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: P } } }, { driver: { workspace: { id: P } } }] } });
     await prisma.workspace.deleteMany({ where: { id: P } });
     await prisma.workspace.create({ data: { id: P, name: "Relay empty-recall fleet", plan: "enterprise" } });
     ids.d = (await prisma.driver.create({ data: { workspaceId: P, name: "RP Driver", cdlExpiry: new Date(NOW.getTime() + 400 * D), medicalCardExpiry: new Date(NOW.getTime() + 400 * D), defaultPayKind: "cpm", defaultPayRate: 0.55 } })).id;
     ids.t = (await prisma.vehicle.create({ data: { workspaceId: P, name: "RP Truck" } })).id;
   });
-  afterAll(() => prisma.workspace.deleteMany({ where: { id: P } }));
+  afterAll(async () => {
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspaceId: P } }, { driver: { workspaceId: P } }] } });
+    await prisma.workspace.deleteMany({ where: { id: P } });
+  });
 
   test("the miles are kept on a closed positioning leg with their source, paid at the driver's own cents a mile, and the load is back in the bucket", async () => {
     const load = await accepted("RP-1");

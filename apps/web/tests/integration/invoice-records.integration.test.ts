@@ -33,6 +33,8 @@ async function parity(loadId: string) {
 describe.skipIf(!run)("invoice records stay equal to the load, step by step", () => {
   let loadId = "";
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "IR desk", plan: "enterprise" } });
     const l = await prisma.load.create({
@@ -41,6 +43,8 @@ describe.skipIf(!run)("invoice records stay equal to the load, step by step", ()
     loadId = l.id;
   });
   afterAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
   });
 
@@ -145,6 +149,8 @@ describe.skipIf(!run)("one invoice for several loads of the same customer (rules
   const WM = "ir-multi";
   const ids: string[] = [];
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: WM } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: WM } } }, { driver: { workspace: { id: WM } } }] } });
     await prisma.workspace.deleteMany({ where: { id: WM } });
     await prisma.workspace.create({ data: { id: WM, name: "IR multi", plan: "enterprise" } });
     for (const [n, rate, fsc, broker] of [["M-1", 1000, 100, "Acme Logistics"], ["M-2", 2000, 0, "ACME  logistics"], ["M-3", 1500, 50, "Acme Logistics"], ["M-X", 900, 0, "Other Broker"]] as const) {
@@ -153,6 +159,8 @@ describe.skipIf(!run)("one invoice for several loads of the same customer (rules
     }
   });
   afterAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: WM } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: WM } } }, { driver: { workspace: { id: WM } } }] } });
     await prisma.workspace.deleteMany({ where: { id: WM } });
   });
 
@@ -202,6 +210,8 @@ describe.skipIf(!run)("credits, lists and aging on an invoice of several loads (
   const ids: string[] = [];
   let invoiceId = "";
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: WC } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: WC } } }, { driver: { workspace: { id: WC } } }] } });
     await prisma.workspace.deleteMany({ where: { id: WC } });
     await prisma.workspace.create({ data: { id: WC, name: "IR credit", plan: "enterprise" } });
     for (const [n, rate, fsc] of [["C-1", 1000, 100], ["C-2", 2000, 0], ["C-3", 1500, 50]] as const) {
@@ -214,6 +224,8 @@ describe.skipIf(!run)("credits, lists and aging on an invoice of several loads (
     invoiceId = (await prisma.invoice.findFirstOrThrow({ where: { workspaceId: WC, number: "ACME-C1" } })).id;
   });
   afterAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: WC } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: WC } } }, { driver: { workspace: { id: WC } } }] } });
     await prisma.workspace.deleteMany({ where: { id: WC } });
   });
 
@@ -268,6 +280,8 @@ describe.skipIf(!run)("an invoice whose first line is not its smallest load id (
   const WL = "ir-lead";
   const ids: string[] = [];
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: WL } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: WL } } }, { driver: { workspace: { id: WL } } }] } });
     await prisma.workspace.deleteMany({ where: { id: WL } });
     await prisma.workspace.create({ data: { id: WL, name: "IR lead", plan: "enterprise" } });
     for (const [n, rate] of [["L-1", 1000], ["L-2", 2000], ["L-3", 1500]] as const) {
@@ -279,6 +293,8 @@ describe.skipIf(!run)("an invoice whose first line is not its smallest load id (
     expect(await markLoadPaid(ids[0]!, NOW, { amount: 500 }, WL)).toMatchObject({ ok: true, balance: 4000 });
   });
   afterAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: WL } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: WL } } }, { driver: { workspace: { id: WL } } }] } });
     await prisma.workspace.deleteMany({ where: { id: WL } });
   });
 

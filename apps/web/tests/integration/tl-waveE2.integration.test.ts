@@ -21,6 +21,8 @@ const ymd = (n: number) => days(n).toISOString().slice(0, 10);
 const FUTURE = new Date("2031-01-31T12:00:00Z");
 
 async function wipe(id: string) {
+  await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id } } });
+  await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id } } }, { driver: { workspace: { id } } }] } });
   await prisma.workspace.deleteMany({ where: { id } });
 }
 

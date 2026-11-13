@@ -23,7 +23,10 @@ describe.skipIf(!run)("invoices, one money view, on the demo database", () => {
   let driverId = "";
 
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspaceId: W } });
     await prisma.settlement.deleteMany({ where: { workspaceId: W } });
+    // An assignment holds its driver (onDelete: Restrict) while the workspace cascade removes drivers: take them first.
+    await prisma.assignment.deleteMany({ where: { load: { workspaceId: W } } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "IM desk", plan: "enterprise" } });
     const dallas = await prisma.vehicle.create({ data: { workspaceId: W, name: "IM Dallas", type: "box_truck", terminal: "Dallas" } as never });
@@ -45,7 +48,10 @@ describe.skipIf(!run)("invoices, one money view, on the demo database", () => {
   });
   afterAll(async () => {
     await prisma.auditEvent.deleteMany({ where: { workspaceId: W } });
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspaceId: W } });
     await prisma.settlement.deleteMany({ where: { workspaceId: W } });
+    // An assignment holds its driver (onDelete: Restrict) while the workspace cascade removes drivers: take them first.
+    await prisma.assignment.deleteMany({ where: { load: { workspaceId: W } } });
     await prisma.workspace.deleteMany({ where: { id: W } });
   });
 

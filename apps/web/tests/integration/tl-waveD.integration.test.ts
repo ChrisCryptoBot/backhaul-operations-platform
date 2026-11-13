@@ -39,6 +39,8 @@ describe.skipIf(!run)("Part D: the Quote, editing a load, and what must stay put
   const events = (loadId: string) => prisma.auditEvent.findMany({ where: { loadId }, orderBy: { createdAt: "asc" } });
 
   beforeAll(async () => {
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "Part D desk", plan: "enterprise" } });
     const { saveTruck, saveCostProfile } = await import("@/server/tl/fleet");

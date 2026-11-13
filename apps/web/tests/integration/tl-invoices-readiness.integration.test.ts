@@ -27,6 +27,8 @@ const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86_400_000);
 async function wipe() {
   await prisma.auditEvent.deleteMany({ where: { workspaceId: W } });
   await prisma.settlement.deleteMany({ where: { workspaceId: W } });
+  await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
+  await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
   await prisma.workspace.deleteMany({ where: { id: W } });
 }
 

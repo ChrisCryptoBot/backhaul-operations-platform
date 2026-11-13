@@ -25,7 +25,7 @@ const demoLabel = (role: Role) => DEMO_USERS.find((u) => u.role === role)?.label
 
 
 /** `code` is the two-letter mnemonic the rail leads with (and the panel header repeats): a list of places, not a list of icons. */
-type Item = { href: string; label: string; code: string; pill?: (c: ShellData["counts"]) => { n: number; tone?: "alert" | "warn" } | null; /** Who the rail shows it to (src/lib/roles.ts); left out, everyone. The server refuses what a role may not do whether or not the link is shown. */ roles?: Role[] };
+type Item = { href: string; label: string; code: string; pill?: (c: ShellData["counts"]) => { n: number; tone?: "alert" | "warn" } | null; /** Who the rail shows it to (src/lib/roles.ts); left out, everyone. The server refuses what a role may not do whether or not the link is shown. */ roles?: Role[]; /** Shown only to someone who may see driver pay (billing_details), whatever their role: a dispatcher with the billing grant too. */ billing?: boolean };
 
 const NAV: Array<{ label: string; items: Item[] }> = [
   {
@@ -62,8 +62,8 @@ const NAV: Array<{ label: string; items: Item[] }> = [
     label: "Money",
     items: [
       { href: "/invoices", label: "Invoices", code: "IV", pill: (c) => (c.overdue > 0 ? { n: c.overdue, tone: "alert" } : c.readyToInvoice > 0 ? { n: c.readyToInvoice } : null) },
-      { href: "/settlements", label: "Settlements", code: "ST", roles: ["admin", "accounting"] },
-      { href: "/payroll", label: "Payroll", code: "PY", roles: ["admin", "accounting"] },
+      { href: "/settlements", label: "Settlements", code: "ST", billing: true },
+      { href: "/payroll", label: "Payroll", code: "PY", billing: true },
       { href: "/fuel", label: "Fuel", code: "FU", roles: ["admin", "dispatcher", "accounting"] },
       { href: "/ifta", label: "IFTA", code: "IF", roles: ["admin", "accounting"] },
       { href: "/leaks", label: "Leak ledger", code: "LK", roles: ["admin", "accounting"] },
@@ -201,7 +201,7 @@ export function DeskShell({ children, drawer, data, initialCollapsed, sleepMinut
           <div><span>Empty miles</span><b>{pct(t.emptyShare)}</b></div>
         </div>
         <nav id="t-sections" className="t-rail" aria-label="Sections">
-          {NAV.map((group) => ({ ...group, items: group.items.filter((i) => !role || !i.roles || i.roles.includes(role as Role)) }))
+          {NAV.map((group) => ({ ...group, items: group.items.filter((i) => (!role || !i.roles || i.roles.includes(role as Role)) && (!i.billing || data.account.billing)) }))
             .filter((group) => group.items.length > 0)
             .map((group) => (
             <React.Fragment key={group.label}>

@@ -48,7 +48,10 @@ describe.skipIf(!run)("the rest of Part D", () => {
   });
   const clear = async () => {
     await prisma.settlementLoad.deleteMany({ where: { settlement: { workspaceId: W } } });
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspaceId: W } });
     await prisma.settlement.deleteMany({ where: { workspaceId: W } });
+    // An assignment holds its driver (onDelete: Restrict) while the workspace cascade removes drivers: take them first.
+    await prisma.assignment.deleteMany({ where: { load: { workspaceId: W } } });
     await prisma.workspace.deleteMany({ where: { id: W } });
   };
   afterAll(clear);

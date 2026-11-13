@@ -21,6 +21,8 @@ const DOCK = { lat: 32.7767, lng: -96.797 };
 const ago = (m: number) => new Date(NOW.getTime() - m * 60_000);
 
 async function wipe(id: string) {
+  await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id } } });
+  await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id } } }, { driver: { workspace: { id } } }] } });
   await prisma.workspace.deleteMany({ where: { id } });
 }
 

@@ -95,8 +95,9 @@ describe("what each person is shown", () => {
     expect(shell).toContain(".filter((group) => group.items.length > 0)");
     // Dispatching is not for the billing office; billing is not for a dispatcher.
     expect(shell).toMatch(/label: "Quote a load"[^}]*roles: \["admin", "dispatcher"\]/);
-    expect(shell).toMatch(/label: "Payroll"[^}]*roles: \["admin", "accounting"\]/);
-    expect(shell).toMatch(/label: "Settlements"[^}]*roles: \["admin", "accounting"\]/);
+    // Driver pay links follow billing_details (a dispatcher with the billing grant sees them too), not a role list.
+    expect(shell).toMatch(/label: "Payroll"[^}]*billing: true/);
+    expect(shell).toMatch(/label: "Settlements"[^}]*billing: true/);
     // A driver manager sees the people-side screens and not the freight or billing ones.
     expect(shell).toMatch(/label: "Schedules"[^}]*roles: \["admin", "dispatcher", "driver_manager", "viewer"\]/);
     expect(shell).toMatch(/label: "Planner"[^}]*roles: \["admin", "dispatcher", "driver_manager", "viewer"\]/);

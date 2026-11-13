@@ -20,7 +20,10 @@ const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
 // A statement holds on to its loads and its driver (the database will not let a load go while a statement is paid on it), so they go first.
 async function drop(id: string) {
   await prisma.settlementLoad.deleteMany({ where: { settlement: { workspaceId: id } } });
+  await prisma.driverLedgerEntry.deleteMany({ where: { workspaceId: id } });
   await prisma.settlement.deleteMany({ where: { workspaceId: id } });
+  // An assignment holds its driver (onDelete: Restrict) while the workspace cascade removes drivers: take them first.
+  await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspaceId: id } }, { driver: { workspaceId: id } }] } });
   await prisma.workspace.deleteMany({ where: { id } });
 }
 async function workspace(id: string) {

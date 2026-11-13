@@ -33,6 +33,8 @@ describe.skipIf(!run)("sign-in on: who is on a desk", () => {
   beforeAll(async () => {
     vi.stubEnv("DESK_AUTH", "on");
     vi.stubEnv("DESK_SESSION_SECRET", SECRET);
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: { in: [W, OTHER] } } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: { in: [W, OTHER] } } } }, { driver: { workspace: { id: { in: [W, OTHER] } } } }] } });
     await prisma.workspace.deleteMany({ where: { id: { in: [W, OTHER] } } });
     await prisma.workspace.create({ data: { id: W, name: "Auth desk", plan: "growth" } });
     await prisma.workspace.create({ data: { id: OTHER, name: "Other desk", plan: "starter" } });
@@ -46,6 +48,8 @@ describe.skipIf(!run)("sign-in on: who is on a desk", () => {
   });
   afterAll(async () => {
     await prisma.member.deleteMany({ where: { workspaceId: { in: [W, OTHER] } } });
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: { in: [W, OTHER] } } } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: { in: [W, OTHER] } } } }, { driver: { workspace: { id: { in: [W, OTHER] } } } }] } });
     await prisma.workspace.deleteMany({ where: { id: { in: [W, OTHER] } } });
     vi.unstubAllEnvs();
   });

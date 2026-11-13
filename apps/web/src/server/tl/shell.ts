@@ -1,3 +1,4 @@
+import { checkAccess } from "./access";
 import { notQuote } from "@/lib/quote-status";
 import { prisma } from "@/lib/db";
 import type { Role } from "@/lib/roles";
@@ -49,7 +50,8 @@ export type ShellData = {
   /** The carrier's own clock (an IANA zone): what a time on every screen is read on. */
   timezone: string;
   /** Whether sign-in is on, and who is signed in (for the account block and its Sign out). */
-  account: { on: boolean; name: string; role: Role | null };
+  /** `billing`: may see driver pay (billing_details), asked of the member table so a dispatcher's billing grant counts. */
+  account: { on: boolean; name: string; role: Role | null; billing: boolean };
 };
 
 export function buildShellData(rows: ShellRow[], now: number = Date.now(), alertCounts: { block: number; warn: number } = { block: 0, warn: 0 }): ShellData {
@@ -82,7 +84,7 @@ export function buildShellData(rows: ShellRow[], now: number = Date.now(), alert
     scope: { label: "All terminals", kind: "all", names: null, chosen: true, limited: false, menu: { regions: [], unassigned: [], total: { trucks: 0, drivers: 0 }, canAll: true } },
     workspaceName: "",
     timezone: "America/Chicago",
-    account: { on: false, name: "", role: null }
+    account: { on: false, name: "", role: null, billing: false }
   };
 }
 
@@ -116,6 +118,7 @@ export async function getShellData(workspaceId = currentWorkspaceId(), stand?: P
   const menu = await scopeMenu(scope, workspaceId);
   const who = sessionIdentity();
   const demo = demoIdentity();
+  const billing = (await checkAccess("billing_details")).ok;
   const overdue = owed.overdueCount;
   return {
     counts: { needsDriver, sentWaiting, onTheRoad, readyToInvoice, overdue, alertsBlock: alerts.counts.block, alertsWarn: alerts.counts.warn, unreadMessages },
@@ -124,6 +127,6 @@ export async function getShellData(workspaceId = currentWorkspaceId(), stand?: P
     scope: { label: scope.label, kind: scope.kind, names: scope.names, chosen: scope.chosen, limited: scope.limited, menu },
     workspaceName: workspace?.name ?? "",
     timezone: asZone(workspace?.timezone),
-    account: { on: authOn(), name: who?.name ?? demo?.name ?? "", role: who?.role ?? demo?.role ?? null }
+    account: { on: authOn(), name: who?.name ?? demo?.name ?? "", role: who?.role ?? demo?.role ?? null, billing }
   };
 }

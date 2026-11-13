@@ -27,7 +27,11 @@ const W = "ds-shifts";
 const OTHER = "ds-other";
 const BACKFILL = "ds-backfill";
 
-const wipe = (id: string) => prisma.workspace.deleteMany({ where: { id } });
+// An assignment holds its driver (onDelete: Restrict) while the workspace cascade removes drivers: take them first.
+const wipe = async (id: string) => {
+  await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspaceId: id } }, { driver: { workspaceId: id } }] } });
+  await prisma.workspace.deleteMany({ where: { id } });
+};
 const day = (s: string) => new Date(s);
 const MONFRI: Week = Array.from({ length: 7 }, (_, d) => (d >= 1 && d <= 5 ? { start: 6 * 60, end: 18 * 60 } : null));
 const stops = (pickup: string, delivery: string) => ({

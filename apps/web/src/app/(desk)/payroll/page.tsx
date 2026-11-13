@@ -11,7 +11,7 @@ import { asPage } from "@/lib/paging";
 import { can, whoCan } from "@/lib/roles";
 import { periodText } from "@/lib/settlement";
 import { listPayroll, PAYROLL_PAGE, WORKER_TYPES } from "@/server/partners/payroll";
-import { checkAccess } from "@/server/tl/access";
+import { checkAccess, requirePage } from "@/server/tl/access";
 import { currentTerminal } from "@/server/tl/terminal";
 
 export const metadata = { title: "Payroll · TrueLane" };
@@ -32,6 +32,7 @@ type Params = { page?: string; show?: string };
 
 /** Driver pay going to the payroll company: the finalized statements, who is set up there, and one button to send what is ready. Gross pay only. */
 export default async function PayrollPage({ searchParams }: { searchParams?: Params }) {
+  await requirePage("billing_details");
   const show = searchParams?.show === "sent" ? "sent" : searchParams?.show === "all" ? "all" : "ready";
   const terminal = await currentTerminal();
   const [data, access] = await Promise.all([

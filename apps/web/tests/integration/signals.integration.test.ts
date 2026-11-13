@@ -17,6 +17,8 @@ const days = (n: number) => new Date(NOW.getTime() - n * 86_400_000);
 const later = (hours: number) => new Date(NOW.getTime() + hours * 3_600_000);
 
 async function wipe(id: string) {
+  await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id } } });
+  await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id } } }, { driver: { workspace: { id } } }] } });
   await prisma.workspace.deleteMany({ where: { id } });
 }
 const fresh = () => {

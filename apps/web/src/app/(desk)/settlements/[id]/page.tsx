@@ -10,7 +10,7 @@ import { PageHead } from "@/components/desk/ui";
 import { dateTime, dayYear, shortDate, usd } from "@/lib/desk-format";
 import { paidMethodLabel } from "@/lib/pay-method";
 import { can, whoCan } from "@/lib/roles";
-import { checkAccess } from "@/server/tl/access";
+import { checkAccess, requirePage } from "@/server/tl/access";
 import { getSettlement } from "@/server/tl/settlement";
 import { isNetPay, payNote } from "@/lib/settlement";
 import { currentTerminal } from "@/server/tl/terminal";
@@ -18,6 +18,8 @@ import { currentTerminal } from "@/server/tl/terminal";
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: { id: string } }) {
+  // The tab title names the statement only for someone who may see it.
+  if (!(await checkAccess("billing_details")).ok) return { title: "Statement · TrueLane" };
   const terminal = await currentTerminal();
   const s = await getSettlement(params.id, undefined, terminal);
   return { title: s?.number ?? "Statement · TrueLane" };
@@ -28,6 +30,7 @@ export async function generateMetadata({ params }: { params: { id: string } }) {
  * who it is for, the period, each load and how its pay was worked out, the adjustments and the total.
  */
 export default async function StatementPage({ params }: { params: { id: string } }) {
+  await requirePage("billing_details");
   const terminal = await currentTerminal();
   const [s, access] = await Promise.all([getSettlement(params.id, undefined, terminal), checkAccess("read")]);
   if (!s) notFound();

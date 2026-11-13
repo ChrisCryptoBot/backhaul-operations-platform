@@ -12,8 +12,8 @@ export async function GET(req: Request, { params }: { params: { kind: string } }
     const noBill = await guardRoute("bill");
     if (noBill) return noBill;
   }
-  // A contractor's legal name, TIN last four and address are billing details, like the driver page's tax profile.
-  if (params.kind === "contractor-1099") {
+  // Driver pay statements and their lines are the billing office's, like their screens; so is the 1099 file (legal names, TIN last four, addresses).
+  if (params.kind === "contractor-1099" || params.kind === "settlements" || params.kind === "settlement-lines") {
     const noTax = await guardRoute("billing_details");
     if (noTax) return noTax;
   }
