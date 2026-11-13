@@ -9,7 +9,9 @@
 #   powershell -File dispatch-desk\start-demo-prod.ps1 -NoStart -Port 3200   # only warm a server that is already running
 #
 # Before recording: re-seed so "today" is today (load windows are set relative to the moment the seed runs):
-#   $env:DATABASE_URL="postgresql://demo:demo@localhost:54330/demo"; npx tsx dispatch-desk/scripts/seed-demo.ts
+#   $env:DATABASE_URL="postgresql://demo:demo@localhost:54330/demo"; npx tsx dispatch-desk/apps/web/scripts/seed-demo.ts
+# and then the money on top (statements, payroll, the driver ledger, tax profiles, factored invoices; docs/MONEY_PLAN.md Waves 1-4):
+#   npx tsx dispatch-desk/apps/web/scripts/seed-money-demo.ts
 # then start (or restart) this script, so the warm-up reads the fresh data. Open http://localhost:3100/sign-in, press the Admin demo button, and record from there.
 param(
   [int]$Port = 3100,
@@ -51,7 +53,7 @@ if (-not $up) { throw "The desk did not answer on $base" }
 $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
 $session.Cookies.Add((New-Object System.Net.Cookie("desk-demo", "admin", "/", "localhost")))
 
-$pages = "loads", "dispatch", "planner", "quote", "customers", "lanes", "kpi", "kpi/report", "leaks", "signals", "data-health", "invoices", "settlements", "payroll", "fleet", "drivers", "trailers",
+$pages = "loads", "dispatch", "planner", "quote", "customers", "lanes", "kpi", "kpi/report", "leaks", "signals", "data-health", "invoices", "settlements", "payroll", "payroll/1099", "fleet", "drivers", "trailers",
   "fuel", "detention", "alerts", "audit", "documents", "rate-cons", "schedules", "messages", "settings", "ifta", "radar"
 
 function Warm([string]$path) {

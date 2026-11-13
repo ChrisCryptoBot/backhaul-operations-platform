@@ -81,7 +81,10 @@ async function main() {
   // Clean slate for the demo workspace (children cascade).
   // Statements first: their loads and drivers are held (RESTRICT) until they are gone.
   await prisma.settlementLoad.deleteMany({ where: { settlement: { workspaceId: WORKSPACE_ID } } });
+  // The driver ledger (Wave 4: deductions, escrow, advances) holds its statements and drivers too; assignments hold their drivers.
+  await prisma.driverLedgerEntry.deleteMany({ where: { workspaceId: WORKSPACE_ID } });
   await prisma.settlement.deleteMany({ where: { workspaceId: WORKSPACE_ID } });
+  await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspaceId: WORKSPACE_ID } }, { driver: { workspaceId: WORKSPACE_ID } }] } });
   await prisma.workspace.deleteMany({ where: { id: WORKSPACE_ID } });
   await prisma.workspace.create({ data: { id: WORKSPACE_ID, name: "Demo fleet", plan: "pro" } });
 
