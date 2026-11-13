@@ -62,7 +62,9 @@ import { AccountingAccountsForm, AccountingSync, JournalExport } from "@/compone
 import { readCursor } from "@/server/partners/external-refs";
 import type { OAuthView } from "@/components/desk/integrations-panel";
 import { MoneyMovingCard } from "@/components/desk/money-moving-card";
-import { moneyMovingState } from "@/server/partners/gates";
+import { checkFeature, moneyMovingState } from "@/server/partners/gates";
+import { ApiKeysCard } from "@/components/desk/api-keys-card";
+import { listApiKeys } from "@/server/api/keys";
 
 export const metadata = { title: "Settings · TrueLane" };
 
@@ -83,6 +85,9 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
   const [row, kpi, company, plan, partners, members] = await Promise.all([getStoredThresholds(), getDeskKpi({ period: "4w", compare: false }), getCompany(), planSummary(), partnerStatus(), listMembers()]);
   const signalSettings = await getSignalSettings();
   const moneyMoving = admin ? await moneyMovingState(currentWorkspaceId()) : null;
+  // The read API's keys are the admin's: nobody else is shown that they exist.
+  const apiKeys = admin ? await listApiKeys(currentWorkspaceId()) : null;
+  const readApi = admin ? await checkFeature("read_api", currentWorkspaceId()) : null;
   // Companies signed in to by OAuth (QuickBooks): where each sign-in stands, never a token. And the fleet's accounting accounts (rules D and E).
   // Read for every viewer: the sign-in view carries no token, and the accounts are names, so a billing user checking the journal sees the accounts as they are, not as blanks.
   const oauthViews = new Map<string, OAuthView>();
@@ -240,6 +245,16 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
       {moneyMoving ? (
         <Card title="Money moving through companies" className="tl-card">
           <MoneyMovingCard view={{ counsel: moneyMoving.counsel, live: moneyMoving.live, by: moneyMoving.by, at: moneyMoving.at ? dateTime(moneyMoving.at) : null, reason: moneyMoving.reason }} canEdit={admin} />
+        </Card>
+      ) : null}
+      {apiKeys ? (
+        <Card title="Read API keys" className="tl-card">
+          <ApiKeysCard
+            rows={apiKeys.map((k) => ({ id: k.id, label: k.label, masked: k.masked, scopes: k.scopes, createdBy: k.createdBy, createdAt: dateTime(k.createdAt), lastUsedAt: k.lastUsedAt ? dateTime(k.lastUsedAt) : null, revokedAt: k.revokedAt ? dateTime(k.revokedAt) : null, revokedBy: k.revokedBy }))}
+            canEdit={admin}
+            planRefusal={readApi && !readApi.ok ? readApi.error : null}
+            origin={integrationsOrigin}
+          />
         </Card>
       ) : null}
       {accountingCards}

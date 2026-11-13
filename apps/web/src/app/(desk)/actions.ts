@@ -86,6 +86,8 @@ import { undoPaid, recordChase, voidInvoice, invoiceLoads, issueCreditMemo, void
 import { waiveDetention } from "@/server/tl/detention";
 import { saveFactoringTerms, type SaveTermsResult } from "@/server/partners/factoring-terms";
 import { setMoneyMoving, type SwitchResult } from "@/server/partners/gates";
+import { createApiKey, revokeApiKey, type CreatedKey, type RevokeResult } from "@/server/api/keys";
+import { authOn as signInOn } from "@/server/tl/identity";
 import { recordChargeback, type ChargebackResult } from "@/server/partners/factoring";
 import { cancelFactoringBatch, retryFactoringBatch, sendFactoringBatch, type BatchResult, type RetryResult } from "@/server/partners/factoring-batch";
 import { importFactorStatus, type ImportResult as FactorStatusResult } from "@/server/partners/factor-status-import";
@@ -927,6 +929,32 @@ export async function setMoneyMovingAction(on: boolean, reason: string): Promise
   const access = await checkAccess("admin");
   const who = access.ok ? access.identity.name || access.identity.email || "Admin" : "Admin";
   const out = await setMoneyMoving({ on: on === true, reason }, who, new Date(), currentWorkspaceId());
+  if (out.ok && out.changed) {
+    revalidatePath("/settings");
+    revalidatePath("/audit");
+  }
+  return out;
+}
+
+/** A key for the partner read API (Wave 7 step 2): an admin's. The whole key comes back here once and is never kept; the demo desk makes test keys, a signed-in desk live ones. */
+export async function createApiKeyAction(label: string, scopes: string[]): Promise<CreatedKey> {
+  await requireCan("admin");
+  const access = await checkAccess("admin");
+  const who = access.ok ? access.identity.name || access.identity.email || "Admin" : "Admin";
+  const out = await createApiKey({ label, scopes }, who, new Date(), currentWorkspaceId(), signInOn() ? "live" : "test");
+  if (out.ok) {
+    revalidatePath("/settings");
+    revalidatePath("/audit");
+  }
+  return out;
+}
+
+/** Revoke a read API key: refused from the next request on. An admin's. */
+export async function revokeApiKeyAction(id: string): Promise<RevokeResult> {
+  await requireCan("admin");
+  const access = await checkAccess("admin");
+  const who = access.ok ? access.identity.name || access.identity.email || "Admin" : "Admin";
+  const out = await revokeApiKey(String(id).slice(0, 64), who, new Date(), currentWorkspaceId());
   if (out.ok && out.changed) {
     revalidatePath("/settings");
     revalidatePath("/audit");

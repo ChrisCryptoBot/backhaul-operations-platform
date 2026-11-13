@@ -1,0 +1,8 @@
+import { serveRead } from "@/server/api/handler";
+
+/** GET /api/v1/settlements: the partner read API (src/server/api/handler.ts). A key with the "settlements" scope; no cookie or session is read. */
+export const dynamic = "force-dynamic";
+
+export function GET(req: Request): Promise<Response> {
+  return serveRead(req, "settlements");
+}

@@ -12,8 +12,8 @@ export type Door =
   /** A fetch or a change with nobody signed in: 401, not a page. */
   | { kind: "unauthorized" };
 
-/** Pages anyone may open: the splash, the sign-in and sign-up pages, asking for a person, the "no desk yet" page and signing out. */
-const PUBLIC = [/^\/$/, /^\/sign-in(\/.*)?$/, /^\/sign-up(\/.*)?$/, /^\/enterprise(\/.*)?$/, /^\/no-workspace$/, /^\/auth\/leave$/, /^\/bridge\/cron$/, /^\/partners\/webhook\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/, /^\/partners\/cron$/, /^\/signals\/cron$/, /^\/icon\.svg$/];
+/** Pages anyone may open: the splash, the sign-in and sign-up pages, asking for a person, the "no desk yet" page and signing out. And the machine doors, which bring their own credential (a signature, a secret header, an API key) and never a session: the bridge and partner schedules, the partner webhook, and the read API. */
+const PUBLIC = [/^\/$/, /^\/sign-in(\/.*)?$/, /^\/sign-up(\/.*)?$/, /^\/enterprise(\/.*)?$/, /^\/no-workspace$/, /^\/auth\/leave$/, /^\/bridge\/cron$/, /^\/partners\/webhook\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/, /^\/partners\/cron$/, /^\/api\/v1\/(invoices|payments|settlements|loads)$/, /^\/signals\/cron$/, /^\/icon\.svg$/];
 
 export const isPublicPath = (path: string): boolean => PUBLIC.some((re) => re.test(path));
 

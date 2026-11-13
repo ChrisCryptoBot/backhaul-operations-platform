@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/db";
 import { NotSignedIn, authOn, sessionIdentity } from "./identity";
@@ -22,7 +23,30 @@ const ID = /^[A-Za-z0-9_-]{1,64}$/;
  * The workspace of the request being served. With sign-in on it is the signed-in person's workspace, and when nobody is signed in it is an error, never the demo's data. With
  * sign-in off it is the demo's, unless a development cookie names another, or when there is no request at all (a script, a test).
  */
+/**
+ * Explicit tenancy (money plan Wave 7, the read API). A request that does not come from a person (the partner read API, outbound deliveries) names its workspace from its own credential and
+ * runs inside `explicitTenancy`. Inside it `currentWorkspaceId()` throws, sign-in on or off: with sign-in off it would otherwise answer the demo's id without a word, so a read that forgot
+ * to pass its workspace would serve the demo fleet's rows to a stranger. Every function such code calls must be given the workspace; this makes forgetting a loud error, not a leak.
+ */
+const tenancy = new AsyncLocalStorage<{ workspaceId: string }>();
+
+export class ImplicitWorkspace extends Error {
+  constructor() {
+    super("This request names its workspace explicitly: pass workspaceId, never the request's default.");
+    this.name = "ImplicitWorkspace";
+  }
+}
+
+export function explicitTenancy<T>(workspaceId: string, fn: () => Promise<T>): Promise<T> {
+  if (!ID.test(workspaceId)) return Promise.reject(new Error("Not a workspace id."));
+  return tenancy.run({ workspaceId }, fn);
+}
+
+/** The workspace an explicit-tenancy request named, or null outside one. For checks and tests; code reads its own `workspaceId` parameter. */
+export const explicitWorkspaceId = (): string | null => tenancy.getStore()?.workspaceId ?? null;
+
 export function currentWorkspaceId(): string {
+  if (tenancy.getStore()) throw new ImplicitWorkspace();
   if (authOn()) {
     const id = sessionIdentity();
     if (!id) throw new NotSignedIn();

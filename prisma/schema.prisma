@@ -80,6 +80,7 @@ model Workspace {
   partnerEvents       PartnerEvent[]
   partnerOAuthTokens  PartnerOAuthToken[]
   partnerOAuthStates  PartnerOAuthState[]
+  partnerApiKeys      PartnerApiKey[]
   externalRefs        ExternalRef[]
   syncCursors         SyncCursor[]
   accountingAccounts  AccountingAccount[]
@@ -1136,6 +1137,32 @@ model AccountingAccount {
 }
 
 /// Every event a company's webhook has sent, once: the company's own event id is unique per provider, so a repeat is recognised and ignored. No body is kept (it can hold names and addresses): the kind and an outcome.
+/// A key a partner system uses to read this fleet's records through the read API (docs/MONEY_PLAN.md, Wave 7 step 2; src/lib/api-keys.ts). Only the SHA-256 of the whole key is kept: the
+/// key itself is shown once, when it is made. `prefix` (`tlk_live_ab12cd34`) finds the row and is what a screen shows, with `last4`.
+model PartnerApiKey {
+  id          String    @id @default(cuid())
+  workspaceId String    @map("workspace_id")
+  label       String
+  prefix      String    @unique
+  last4       String
+  hash        String
+  /// What it may read: invoices | payments | settlements | loads
+  scopes      String[]
+  createdBy   String?   @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  lastUsedAt  DateTime? @map("last_used_at")
+  revokedAt   DateTime? @map("revoked_at")
+  revokedBy   String?   @map("revoked_by")
+  /// The rate window (60 a minute): when this minute began and how many requests it has had. Moved in one UPDATE so a burst cannot slip past it.
+  windowStart DateTime? @map("window_start")
+  windowCount Int       @default(0) @map("window_count")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@map("partner_api_keys")
+}
+
 model PartnerEvent {
   id          String   @id @default(cuid())
   workspaceId String   @map("workspace_id")

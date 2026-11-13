@@ -1358,3 +1358,19 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 /* Settings, Integrations: the money-moving switch (Wave 7 step 1) */
 .mm-state { display: flex; flex-wrap: wrap; gap: var(--db-4); margin-top: 0; margin-bottom: var(--db-3); }
 .mm-card .tl-sub { margin-top: var(--db-2); margin-bottom: 0; }
+
+/* Settings, Integrations: read API keys (Wave 7 step 2) */
+.ak-usage { margin-top: var(--db-2); margin-bottom: var(--db-3); }
+.ak-usage code, .ak-table code { font-family: var(--db-font-mono, ui-monospace, monospace); font-size: var(--db-text-sm); }
+.ak-made { margin-top: var(--db-2); margin-bottom: var(--db-4); padding: var(--db-3); border: 1px solid var(--db-warn); }
+.ak-made-lead { margin-top: 0; margin-bottom: var(--db-2); }
+.ak-made-row { display: flex; gap: var(--db-2); align-items: center; }
+.ak-secret { flex: 1 1 auto; min-width: 0; font-family: var(--db-font-mono, ui-monospace, monospace); }
+.ak-table { margin-top: var(--db-2); margin-bottom: var(--db-3); }
+.ak-table tr[aria-disabled="true"] td { color: var(--db-fg-dim); }
+.ak-act { text-align: right; white-space: nowrap; }
+.ak-plan { margin-top: var(--db-3); margin-bottom: 0; }
+.ak-new { margin-top: var(--db-3); }
+.ak-scopes { display: flex; flex-wrap: wrap; gap: var(--db-4); border: 0; padding: 0; margin-top: var(--db-2); margin-bottom: var(--db-2); }
+.ak-scopes legend { margin-bottom: var(--db-2); }
+.ak-scope { display: inline-flex; gap: var(--db-2); align-items: center; }
