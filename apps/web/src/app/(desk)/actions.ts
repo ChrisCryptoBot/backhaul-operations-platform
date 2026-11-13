@@ -62,6 +62,7 @@ import { addRegion, archiveRegion, renameRegion, setMemberScope, setTerminalRegi
 import { sendTestEvent, type TestEventResult } from "@/server/partners/test-event";
 import { shareLoadLocation, type ShareResult } from "@/server/partners/tracking";
 import { syncFuelCards, type FuelSync } from "@/server/partners/fuel-store";
+import { commitFuelImport, previewFuelImport, removeFuelImport, type FuelImportMap, type FuelImportPreview, type FuelImportResult, type RemoveFuelImportResult } from "@/server/partners/fuel-import";
 import { calculateIfta, type IftaResult } from "@/server/partners/ifta";
 import { applyFactoringUpdate, factorInvoice, type FactorResult } from "@/server/partners/factoring";
 import { syncEld, type SyncResult } from "@/server/partners/eld";
@@ -1325,6 +1326,30 @@ export async function syncFuelCardsAction(days: number): Promise<FuelSync> {
   await requireCan("dispatch", "bill");
   const out = await syncFuelCards(Number.isFinite(days) ? days : 30);
   if (out.ok) revalidatePath("/fuel");
+  return out;
+}
+
+/** Reads a fuel CSV and says what an import would do: the column match, every row checked, nothing written. Dispatch or billing, as reading the cards is. */
+export async function previewFuelImportAction(text: string, mapping: FuelImportMap | null): Promise<FuelImportPreview> {
+  await requireCan("dispatch", "bill");
+  if (typeof text !== "string") return { ok: false, error: "That is not a file the desk can read." };
+  return previewFuelImport(text, mapping && typeof mapping === "object" ? mapping : null);
+}
+
+/** Imports the fuel purchases in a CSV that pass, as one batch with one entry in the audit log. */
+export async function commitFuelImportAction(text: string, mapping: FuelImportMap | null, fileName: string): Promise<FuelImportResult> {
+  await requireCan("dispatch", "bill");
+  if (typeof text !== "string") return { ok: false, error: "That is not a file the desk can read." };
+  const out = await commitFuelImport(text, mapping && typeof mapping === "object" ? mapping : null, typeof fileName === "string" ? fileName : "");
+  if (out.ok) revalidatePath("/fuel", "layout");
+  return out;
+}
+
+/** Takes a whole fuel file import away again; refused while a purchase from it is on a driver statement. */
+export async function removeFuelImportAction(batchId: string): Promise<RemoveFuelImportResult> {
+  await requireCan("dispatch", "bill");
+  const out = await removeFuelImport(typeof batchId === "string" ? batchId : "");
+  if (out.ok) revalidatePath("/fuel", "layout");
   return out;
 }
 

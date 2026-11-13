@@ -76,6 +76,28 @@ export type FuelSync = { ok: true; trucks: number; purchases: number; fresh: num
 const dayOf = (d: Date) => d.toISOString().slice(0, 10);
 const DAY = 86_400_000;
 
+/**
+ * Which of a truck's loads a purchase on a given day was bought on: the load whose stops, a day either side, cover the day (the nearest middle when two do), or null. Reads the truck's loads
+ * with a stop from five days before `since` on, once, and answers from memory. Shared by the card read and the CSV import.
+ */
+export async function loadTieFor(workspaceId: string, vehicleId: string, since: Date): Promise<(on: string) => string | null> {
+  const loads = await prisma.load.findMany({
+    where: { workspaceId, vehicleId, deletedAt: null, status: { in: ["accepted", "in_progress", "completed"] }, stops: { some: { timeWindowEarliest: { gte: new Date(since.getTime() - 5 * DAY) } } } },
+    select: { id: true, stops: { select: { timeWindowEarliest: true, timeWindowLatest: true } } }
+  });
+  const spans = loads
+    .map((l) => {
+      const times = l.stops.flatMap((s) => [s.timeWindowEarliest, s.timeWindowLatest]).filter((d): d is Date => d != null).map((d) => d.getTime());
+      return times.length > 0 ? { id: l.id, from: Math.min(...times) - DAY, to: Math.max(...times) + DAY } : null;
+    })
+    .filter((s): s is { id: string; from: number; to: number } => s != null);
+  return (on: string) => {
+    const at = postedOf(on).getTime();
+    const hit = spans.filter((s) => at >= s.from && at <= s.to).sort((a, b) => gap(at, (a.from + a.to) / 2) - gap(at, (b.from + b.to) / 2))[0];
+    return hit?.id ?? null;
+  };
+}
+
 /** The most days one read goes back. The card company's own limits are its own; this keeps one click from asking for years. */
 export const FUEL_MAX_DAYS = 120;
 
@@ -100,22 +122,7 @@ export async function syncFuelCards(days: number, now = new Date(), workspaceId 
       unreached.push(t.name ?? "a truck");
       continue;
     }
-    // This truck's loads around those days, to tie each purchase to the load it was bought on.
-    const loads = await prisma.load.findMany({
-      where: { workspaceId, vehicleId: t.id, deletedAt: null, status: { in: ["accepted", "in_progress", "completed"] }, stops: { some: { timeWindowEarliest: { gte: new Date(since.getTime() - 5 * DAY) } } } },
-      select: { id: true, stops: { select: { timeWindowEarliest: true, timeWindowLatest: true } } }
-    });
-    const spans = loads
-      .map((l) => {
-        const times = l.stops.flatMap((s) => [s.timeWindowEarliest, s.timeWindowLatest]).filter((d): d is Date => d != null).map((d) => d.getTime());
-        return times.length > 0 ? { id: l.id, from: Math.min(...times) - DAY, to: Math.max(...times) + DAY } : null;
-      })
-      .filter((s): s is { id: string; from: number; to: number } => s != null);
-    const loadFor = (on: string) => {
-      const at = postedOf(on).getTime();
-      const hit = spans.filter((s) => at >= s.from && at <= s.to).sort((a, b) => gap(at, (a.from + a.to) / 2) - gap(at, (b.from + b.to) / 2))[0];
-      return hit?.id ?? null;
-    };
+    const loadFor = await loadTieFor(workspaceId, t.id, since);
     const got = result.data.purchases;
     purchases += got.length;
     fresh += await storePurchases(provider, got, { workspaceId, vehicleId: t.id, loadFor });

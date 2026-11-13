@@ -1381,6 +1381,8 @@ model FuelTransaction {
   purchasedAt       DateTime? @map("purchased_at")
   /// settled (the default), pending, declined or void. Only settled purchases are offered on a statement or counted in fuel and fuel-tax totals.
   status            String    @default("settled")
+  /// The CSV import that brought this purchase in (provider "csv"), so the whole file can be taken away again. Null for a purchase read from a card company.
+  importBatchId     String?   @map("import_batch_id")
   gallons           Decimal?  @db.Decimal(10, 3)
   pricePerGallon    Decimal?  @map("price_per_gallon") @db.Decimal(8, 4)
   discountPerGallon Decimal?  @map("discount_per_gallon") @db.Decimal(8, 4)
@@ -1398,6 +1400,7 @@ model FuelTransaction {
   @@unique([workspaceId, provider, externalId])
   @@index([workspaceId, postedAt])
   @@index([workspaceId, purchaseState])
+  @@index([workspaceId, importBatchId])
   @@index([loadId])
   @@index([settlementId])
   @@map("fuel_transactions")

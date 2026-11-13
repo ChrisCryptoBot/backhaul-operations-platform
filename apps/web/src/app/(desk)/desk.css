@@ -1299,3 +1299,12 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .ded-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .ded-actions { white-space: nowrap; }
 .ded-sub { margin-top: 14px; }
+
+/* Fuel CSV import (Fuel, Import a file; docs/MONEY_PLAN.md, Wave 5 step 2). */
+.fimp .fimp-lead { margin-top: 0; }
+.fimp-file { position: relative; cursor: pointer; }
+.fimp-file input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.fimp-count { margin: 0 0 var(--db-3); }
+.fimp-wrap { max-height: none; }
+.fimp-gap { margin-top: var(--db-3); }
+.fimp-why { white-space: normal; min-width: 320px; }

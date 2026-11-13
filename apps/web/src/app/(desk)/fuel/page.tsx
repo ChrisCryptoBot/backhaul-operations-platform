@@ -97,6 +97,9 @@ export default async function FuelPage({ searchParams }: { searchParams?: { days
       <PageHead title="Fuel" sub="What the fuel cards were charged for: each purchase with its gallons, the card's discount, and the load and driver statement it belongs to.">
         <a className="tl-btn" href={`/export/fuel?days=${days}`}>Export CSV</a>
         <CanGate caps={["dispatch", "bill"]}>
+          <Link className="tl-btn" href="/fuel/import">
+            Import a file
+          </Link>
           <FuelSyncButton days={days} reason={cardReason} />
         </CanGate>
       </PageHead>
