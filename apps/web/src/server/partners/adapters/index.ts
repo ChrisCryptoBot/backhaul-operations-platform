@@ -6,6 +6,7 @@ import { highwayAdapter } from "./highway";
 import { motiveAdapter } from "./motive";
 import { p44Adapter } from "./project44";
 import { proMilesAdapter } from "./promiles";
+import { quickbooksAdapter } from "./quickbooks";
 import { wexAdapter } from "./wex";
 import { keyMode } from "./sandbox";
 import { triumphAdapter } from "./triumphpay";
@@ -25,7 +26,8 @@ const SHIPPED: { [K in Capability]?: Table<K> } = {
   tracking: { project44: p44Adapter },
   vetting: { highway: highwayAdapter },
   payroll: { gusto: gustoAdapter },
-  ifta: { promiles: proMilesAdapter }
+  ifta: { promiles: proMilesAdapter },
+  accounting: { quickbooks: quickbooksAdapter }
 };
 
 /** An adapter for a capability that picks the company's entry, and live or simulator, for each call. */

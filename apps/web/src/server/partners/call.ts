@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { PROVIDERS, SECRET_ENV, err, isCapability, providerConfigured, resolveProvider, type Capability, type PartnerResult } from "@/truelane/partners/contract";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { workspaceReader } from "./credentials";
+import type { QboAnswer, QboRequest } from "./adapters/quickbooks";
 import { recordHealth } from "./health";
 import { routed } from "./adapters";
 import type { Adapter } from "./adapters/types";
@@ -87,10 +88,13 @@ export type AdapterShapes = {
     in: { quarter: string; vehicles: Array<{ id: string; name: string | null }>; /** The quarter's delivered loads, each with its places and miles. */ trips?: Array<{ id: string; vehicleId: string; origin: string; destination: string; miles: number; mpg?: number | null }> };
     out: { jurisdictions: Array<{ state: string; miles: number; gallons: number }> };
   };
-  /** Accounting (QuickBooks Online first; docs/MONEY_PLAN.md, Wave 3). A placeholder until the push and pull are written: no company has an adapter yet, so every call answers "not implemented". */
+  /**
+   * Accounting (QuickBooks Online first; docs/MONEY_PLAN.md, Wave 3): one request to the accounting system, with the sign-in it goes under (adapters/quickbooks.ts has the shapes). `tenant`
+   * keeps one fleet's simulated books apart from another's; a live call ignores it. `at` is the desk's clock, so the simulator's change feed can be tested.
+   */
   accounting: {
-    in: { op: "company" };
-    out: { companyName: string | null };
+    in: { auth: { accessToken: string; realmId: string; tenant: string }; at: string; request: QboRequest };
+    out: QboAnswer;
   };
 };
 

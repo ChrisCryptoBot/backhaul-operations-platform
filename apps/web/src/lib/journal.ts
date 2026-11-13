@@ -55,6 +55,15 @@ export const dayIn = (zone: string) => {
   return (d: Date) => f.format(d);
 };
 
+/**
+ * While the factor owns an invoice: from the day it funded it until a chargeback (if any) gives it back. A payment or a write-off inside that window is the factor's, not the fleet's.
+ * The journal and the QuickBooks sync both ask this, so they never disagree on whose a payment was.
+ */
+export function factoringWindow(f: JInvoice["factoring"]): { chargedAt: Date | null; owns: (at: Date) => boolean } {
+  const chargedAt = f.chargeback != null ? f.updatedAt : null;
+  return { chargedAt, owns: (at: Date) => f.fundedAt != null && at.getTime() >= f.fundedAt.getTime() && !(chargedAt && at.getTime() >= chargedAt.getTime()) };
+}
+
 /** One entry from signed amounts by key (positive = debit), netted per key; empty keys dropped. Null when it does not balance. */
 function entry(id: string, day: string, source: JSource, ref: string, memo: string, signed: Array<[string, number]>): JEntry | null {
   const net = new Map<string, number>();
@@ -97,8 +106,7 @@ export function buildJournal(input: { invoices: JInvoice[]; settlements: JSettle
     if (inv.kind === "credit_memo") continue;
 
     const f = inv.factoring;
-    const chargedAt = f.chargeback != null ? f.updatedAt : null;
-    const factorOwns = (at: Date) => f.fundedAt != null && at.getTime() >= f.fundedAt.getTime() && !(chargedAt && at.getTime() >= chargedAt.getTime());
+    const { chargedAt, owns: factorOwns } = factoringWindow(f);
     let factoringOk = true;
 
     if (f.fundedAt) {

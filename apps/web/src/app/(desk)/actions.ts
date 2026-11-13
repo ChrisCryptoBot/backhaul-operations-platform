@@ -7,6 +7,7 @@ import { beginOAuth, disconnectOAuth, type BeginResult } from "@/server/partners
 import { originOf } from "@/server/partners/origin";
 import { journalFile, saveAccounts, type SaveAccountsResult } from "@/server/partners/accounting";
 import type { AccountsForm } from "@/lib/accounting-map";
+import { syncAccounting, type AccountingSyncResult } from "@/server/partners/qbo-sync";
 import { SLEEP_COOKIE, THEME_COOKIE, UI_COOKIE, asSleepMinutes, asTheme, asUi } from "@/lib/appearance";
 import { redirect, RedirectType } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -1391,4 +1392,14 @@ export async function checkJournalAction(from: string | null, to: string | null)
   await requireCan("bill");
   const out = await journalFile({ from: from ? String(from) : null, to: to ? String(to) : null });
   return out.ok ? { ok: true, entries: out.entries, rows: out.rows, notes: out.notes } : out;
+}
+
+/** Sync with QuickBooks now: push what changed, pull payments entered there. The billing office's. */
+export async function syncAccountingAction(): Promise<AccountingSyncResult> {
+  await requireCan("bill");
+  const access = await checkAccess("bill");
+  const out = await syncAccounting({ who: access.ok ? (access.identity.name ?? access.identity.email) : null });
+  revalidatePath("/settings");
+  if (out.ok && out.pulled > 0) revalidatePath("/invoices");
+  return out;
 }

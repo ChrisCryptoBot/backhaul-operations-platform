@@ -58,7 +58,7 @@ export async function requireMapped(keys: Iterable<string>, workspaceId = curren
 }
 
 const cents = (d: Prisma.Decimal | null | undefined): number | null => (d == null ? null : d.times(100).toDecimalPlaces(0).toNumber());
-const centsOf = (v: unknown): number => {
+export const centsOf = (v: unknown): number => {
   try {
     return new Prisma.Decimal(typeof v === "number" || typeof v === "string" ? v : 0).times(100).toDecimalPlaces(0).toNumber();
   } catch {

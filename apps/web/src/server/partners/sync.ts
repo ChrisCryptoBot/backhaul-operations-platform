@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { syncEld } from "./eld";
 import { vetDriverCarrier } from "./vetting";
 import { POLLED } from "./sync-policy";
+import { syncAccounting } from "./qbo-sync";
 
 /**
  * The partner schedule (docs/PARTNER_BACKBONE.md): the connections that are read on a clock rather than told by a webhook. A connection whose time has come is run once; how each call went
@@ -41,6 +42,13 @@ export async function runPartnerSync(opts: { now?: Date; workspaceId?: string; l
           else if (r.code === "upstream_error") sawFailure = true;
         }
         verdict = sawFailure ? "failed" : sawOk ? "ok" : "waiting";
+      } else if (c.capability === "accounting") {
+        // The first sync is a person's (Settings: Sync with QuickBooks), after they have looked at the accounts: the clock only keeps going what someone started.
+        const started = await prisma.syncCursor.count({ where: { workspaceId: c.workspaceId, provider: c.provider, stream: "changes", lastOkAt: { not: null } } });
+        if (started > 0) {
+          const r = await syncAccounting({ who: "the nightly sync" }, now, c.workspaceId);
+          verdict = r.ok ? "ok" : "waiting";
+        }
       }
     } catch {
       verdict = "failed";

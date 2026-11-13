@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import React from "react";
-import { checkJournalAction, saveAccountingAccountsAction, type JournalCheck } from "@/app/(desk)/actions";
+import { checkJournalAction, saveAccountingAccountsAction, syncAccountingAction, type JournalCheck } from "@/app/(desk)/actions";
+import type { AccountingSyncResult } from "@/server/partners/qbo-sync";
 import { ACCOUNT_KEYS, GROUP_LABEL, labelOfKey, type AccountGroup, type AccountsForm } from "@/lib/accounting-map";
 import { DateInput } from "./date-input";
 import { useToast } from "./kit/toast";
@@ -185,6 +186,71 @@ export function JournalExport({ canExport }: { canExport: boolean }) {
                 {result.problems.length > 20 ? <li>and {result.problems.length - 20} more.</li> : null}
               </ul>
             ) : null}
+          </div>
+        )
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Sync with QuickBooks now (docs/MONEY_PLAN.md, Wave 3): push what changed on the desk, pull payments a bookkeeper entered there. What it did is said in numbers; what it could not send is
+ * named, one line each. The first sync is always a person's: the nightly one only keeps going what someone started.
+ */
+export function AccountingSync({ signedIn, canSync, lastSync }: { signedIn: boolean; canSync: boolean; lastSync: string | null }) {
+  const router = useRouter();
+  const [busy, setBusy] = React.useState(false);
+  const [result, setResult] = React.useState<AccountingSyncResult | null>(null);
+  const [message, setMessage] = React.useState<string | null>(null);
+
+  async function sync() {
+    setBusy(true);
+    setMessage(null);
+    const got = await tried(() => syncAccountingAction());
+    setBusy(false);
+    if (!got.ok) return setMessage(got.message);
+    setResult(got.value);
+    router.refresh();
+  }
+
+  if (!signedIn) return <p className="tl-note">QuickBooks is not signed in. An admin signs in under Settings, Integrations; the journal below works without it.</p>;
+  return (
+    <div className="dlg-form">
+      <p className="tl-note">{lastSync ? `Last synced ${lastSync}. After the first sync, it also runs once a night.` : "Not synced yet. The first sync sends every invoice, payment, credit, factoring entry and 1099 statement the desk has; check the accounts first."}</p>
+      {canSync ? (
+        <div className="dlg-actions">
+          <button type="button" className="t-btn sm pri" disabled={busy} onClick={() => void sync()}>
+            {busy ? "Syncing..." : "Sync with QuickBooks now"}
+          </button>
+        </div>
+      ) : (
+        <p className="tl-note">The billing office runs the sync.</p>
+      )}
+      {message ? (
+        <p className="tl-note acct-bad" role="alert">
+          {message}
+        </p>
+      ) : null}
+      {result ? (
+        result.ok ? (
+          <div role="status">
+            <p className="tl-note">
+              {result.created} created, {result.matched} matched to what QuickBooks already had, {result.updated} updated, {result.voided} voided, {result.pulled} {result.pulled === 1 ? "payment" : "payments"} pulled from QuickBooks.
+              {result.created + result.matched + result.updated + result.voided + result.pulled === 0 ? " Nothing had changed." : ""}
+            </p>
+            {result.problems.length > 0 ? (
+              <ul className="acct-problems">
+                {result.problems.slice(0, 20).map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+                {result.problems.length > 20 ? <li>and {result.problems.length - 20} more.</li> : null}
+              </ul>
+            ) : null}
+          </div>
+        ) : (
+          <div role="alert">
+            <p className="tl-note acct-bad">{result.error}</p>
+            {result.unmapped.length > 0 ? <p className="tl-note">Missing: {result.unmapped.map(labelOfKey).join(", ")}.</p> : null}
           </div>
         )
       ) : null}

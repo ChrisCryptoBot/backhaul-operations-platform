@@ -10,7 +10,7 @@ import { currentWorkspaceId } from "@/server/tl/workspace";
  * A link is one to one, per company and kind of record: a desk record maps to one partner record and a partner record to one desk record. Linking either side to something else is refused
  * with what it is linked to now; changing a link is unlink then link, on purpose.
  */
-export const REF_ENTITIES = ["customer", "invoice", "payment", "credit_memo", "vendor", "bill", "bill_payment", "item", "account"] as const;
+export const REF_ENTITIES = ["customer", "invoice", "payment", "credit_memo", "vendor", "bill", "bill_payment", "item", "account", "journal_entry"] as const;
 export type RefEntity = (typeof REF_ENTITIES)[number];
 
 type Db = Prisma.TransactionClient | typeof prisma;

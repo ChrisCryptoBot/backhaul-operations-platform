@@ -171,7 +171,8 @@ export async function markLoadPaid(
     /** The same, as a code a report can count (src/lib/invoice-records.ts SHORT_CODES). */ shortCode?: string;
     /** The check number, ACH trace or remittance id. */ reference?: string;
     /** Who paid, when not the customer billed (a factor, a quick-pay service). */ payer?: string;
-    /** Where the payment was learned from: the desk (typed), or a factor's status file. */ source?: "desk" | "factor";
+    /** Where the payment was learned from: the desk (typed), a factor's status file, or the accounting system (a payment a bookkeeper entered there, pulled by the sync). */ source?: "desk" | "factor" | "accounting";
+    /** The outside system's own id for this payment: with the source it is unique, so the same payment pulled twice is recorded once. */ externalId?: string;
   } = {},
   workspaceId = currentWorkspaceId()
 ): Promise<PaidOut> {
@@ -221,7 +222,7 @@ export async function markLoadPaid(
     await tx.loadPayment.create({ data: { workspaceId, loadId, amount: dec(amount), paidAt, method: method || null } });
     const record = await openInvoiceOf(tx, workspaceId, loadId);
     if (record) {
-      await addInvoicePayment(tx, { workspaceId, invoiceId: record.id, amount, paidAt, method: method || null, reference: opts.reference, payer: opts.payer, source: opts.source ?? "desk" });
+      await addInvoicePayment(tx, { workspaceId, invoiceId: record.id, amount, paidAt, method: method || null, reference: opts.reference, payer: opts.payer, source: opts.source ?? "desk", externalId: opts.externalId });
       if (!partial) {
         await closeInvoiceRecord(tx, record.id, {
           paidAt,
@@ -724,7 +725,7 @@ async function reproject(tx: Prisma.TransactionClient, invoiceId: string, extra:
 export async function payInvoiceRecord(
   invoiceId: string,
   now: Date,
-  opts: { amount?: number; paidOn?: string; method?: string; shortAction?: ShortAction; shortReason?: string; shortCode?: string; reference?: string; payer?: string; source?: "desk" | "factor" },
+  opts: { amount?: number; paidOn?: string; method?: string; shortAction?: ShortAction; shortReason?: string; shortCode?: string; reference?: string; payer?: string; source?: "desk" | "factor" | "accounting"; externalId?: string },
   workspaceId = currentWorkspaceId()
 ): Promise<PaidOut> {
   const rec = await prisma.invoice.findFirst({ where: { id: invoiceId, workspaceId, kind: "invoice" }, include: { loads: true } });
@@ -754,7 +755,7 @@ export async function payInvoiceRecord(
   const done = await prisma.$transaction(async (tx) => {
     const claimed = await tx.invoice.updateMany({ where: { id: invoiceId, status: "open", paidTotal: rec.paidTotal }, data: { updatedAt: now } });
     if (claimed.count !== 1) return false;
-    await addInvoicePayment(tx, { workspaceId, invoiceId, amount, paidAt, method: method || null, reference: opts.reference, payer: opts.payer, source: opts.source ?? "desk" });
+    await addInvoicePayment(tx, { workspaceId, invoiceId, amount, paidAt, method: method || null, reference: opts.reference, payer: opts.payer, source: opts.source ?? "desk", externalId: opts.externalId });
     if (!partial) await closeInvoiceRecord(tx, invoiceId, { paidAt, writeOff: writeoff ? { amount: shortBy, reason: shortWhy, code: isShortCode(opts.shortCode) ? opts.shortCode : null } : null, factoringPaid: FACTORED_OPEN.includes(rec.factoringStatus), now });
     await reproject(tx, invoiceId, () => ({ paidMethod: method || null }));
     await recordAudit(

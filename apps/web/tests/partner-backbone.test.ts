@@ -102,7 +102,7 @@ describe("how a connection is doing", () => {
     expect(FAILURES_BEFORE_ERROR).toBe(3);
   });
   it("reads hours of service every 15 minutes and carrier checks once a day", () => {
-    expect(SYNC_EVERY_MINUTES).toEqual({ eld: 15, vetting: 1440 });
+    expect(SYNC_EVERY_MINUTES).toEqual({ eld: 15, vetting: 1440, accounting: 1440 });
   });
 });
 
@@ -169,7 +169,7 @@ describe("how each kind of partner reaches the desk", () => {
   });
 
   it("only the polled kinds are on the schedule, at their own rhythm", () => {
-    expect(POLLED).toEqual({ eld: 15, vetting: 1440 });
+    expect(POLLED).toEqual({ eld: 15, vetting: 1440, accounting: 1440 });
     expect(SYNC_POLICY.factoring.mode).toBe("events");
     expect(SYNC_POLICY.payroll.mode).toBe("events");
     expect(SYNC_POLICY.tracking.mode).toBe("events");

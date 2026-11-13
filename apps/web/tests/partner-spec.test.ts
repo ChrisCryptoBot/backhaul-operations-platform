@@ -56,7 +56,7 @@ describe("the partner integration spec matches the code", () => {
   });
 
   it("claims a simulator only for the companies that have one, and not_implemented for the rest", () => {
-    expect(Object.fromEntries((Object.keys(PROVIDERS) as Array<keyof typeof PROVIDERS>).map((c) => [c, shippedProviders(c)]))).toEqual({ factoring: ["triumphpay"], eld: ["motive"], fuel_card: ["wex"], tracking: ["project44"], vetting: ["highway"], payroll: ["gusto"], ifta: ["promiles"], accounting: [] });
+    expect(Object.fromEntries((Object.keys(PROVIDERS) as Array<keyof typeof PROVIDERS>).map((c) => [c, shippedProviders(c)]))).toEqual({ factoring: ["triumphpay"], eld: ["motive"], fuel_card: ["wex"], tracking: ["project44"], vetting: ["highway"], payroll: ["gusto"], ifta: ["promiles"], accounting: ["quickbooks"] });
     expect(doc).toContain("Samsara: answers `not_implemented`");
     expect(doc).toContain("FourKites: `not_implemented`");
     expect(doc).toContain("AtoB: `not_implemented`");

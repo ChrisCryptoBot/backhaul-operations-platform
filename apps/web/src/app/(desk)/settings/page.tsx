@@ -58,7 +58,8 @@ import { oauthStatus } from "@/server/partners/oauth";
 import { providerName } from "@/server/partners/call";
 import { ACCOUNT_KEYS } from "@/lib/accounting-map";
 import { accountMapOf } from "@/server/partners/accounting";
-import { AccountingAccountsForm, JournalExport } from "@/components/desk/accounting-accounts";
+import { AccountingAccountsForm, AccountingSync, JournalExport } from "@/components/desk/accounting-accounts";
+import { readCursor } from "@/server/partners/external-refs";
 import type { OAuthView } from "@/components/desk/integrations-panel";
 
 export const metadata = { title: "Settings · TrueLane" };
@@ -87,6 +88,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
     oauthViews.set(provider, { signedIn: st.signedIn, expired: st.status === "expired", accountId: st.accountId, renewsUntil: st.refreshExpiresAt ? dateTime(st.refreshExpiresAt) : null, connectedBy: st.connectedBy });
   }
   const accounts = await accountMapOf();
+  const qboSync = await readCursor("quickbooks", "changes");
   const accountRows = ACCOUNT_KEYS.map((k) => {
     const m = accounts[k.key] ?? null;
     return { key: k.key, account: m && !m.fallback ? m.account : "", number: m && !m.fallback ? (m.number ?? "") : "", fallback: k.fallback };
@@ -180,6 +182,9 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
           blank box uses the default shown in it. Pay for 1099 owner-operators is booked as a bill to the driver; a W-2 company driver&apos;s pay is booked by payroll, never here.
         </p>
         <AccountingAccountsForm rows={accountRows} canEdit={can(me.role, me.grants, "admin")} />
+      </Card>
+      <Card title="Sync with QuickBooks Online" className="tl-card">
+        <AccountingSync signedIn={oauthViews.get("quickbooks")?.signedIn ?? false} canSync={can(me.role, me.grants, "bill")} lastSync={qboSync.lastOkAt ? dateTime(qboSync.lastOkAt) : null} />
       </Card>
       <Card title="Journal for another accounting system" className="tl-card">
         <p className="tl-note acct-intro">
