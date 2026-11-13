@@ -330,3 +330,47 @@ export function buildDataHealth(i: { loads: readonly HealthLoad[]; trucks: reado
     counts: { loads: i.loads.length, trucks: i.trucks.length, drivers: i.drivers.length, trailers: i.trailers.length }
   };
 }
+
+// ── Fuel and fuel tax (money plan Wave 5 step 9) ─────────────────────────────────────────────────
+
+/** What the fuel read found in the window and the terminals in view, and where the last finished quarter's IFTA return stands (the return is the whole fleet's filing). */
+export type FuelTaxInput = {
+  /** Settled fuel purchases bought in the window (by `purchasedAt`, else the day posted). */
+  purchases: number;
+  /** Purchases in the window with an open exception flag, and the open flags on them. */
+  flaggedPurchases: number;
+  openFlags: number;
+  /** The flags could only be read for the newest purchases. */
+  flagsPartial: boolean;
+  /** Settled road diesel (or purchases that do not say what was pumped) with no state, on no truck; and settled purchases that do not say what was pumped. */
+  noState: number;
+  noTruck: number;
+  unknownProduct: number;
+  quarter: {
+    quarter: string;
+    dueDate: string;
+    filed: boolean;
+    changedSinceFiled: boolean;
+    rateState: string;
+    blockers: Array<{ code: string; count: number; text: string }>;
+  } | null;
+};
+
+export type FuelTaxIssue = { key: string; label: string; count: number; href: string };
+export type FuelTaxCheck = FuelTaxInput & { issues: FuelTaxIssue[]; /** Nothing in the window or the quarter needs a person. */ clean: boolean };
+
+/**
+ * Fuel and fuel-tax gaps as a list a person can work through, each linked to where it is fixed. Counts only: a purchase with an open flag, a state, truck or product missing, and for the last
+ * finished quarter's return: not filed with what blocks it, or filed and changed since. Nothing is estimated.
+ */
+export function fuelTaxCheck(i: FuelTaxInput): FuelTaxCheck {
+  const issues: FuelTaxIssue[] = [];
+  if (i.flaggedPurchases > 0) issues.push({ key: "open_flags", label: `Fuel purchases with an open exception flag (${i.openFlags} ${i.openFlags === 1 ? "flag" : "flags"})`, count: i.flaggedPurchases, href: "/fuel?flagged=1&days=90" });
+  if (i.noState > 0) issues.push({ key: "fuel_no_state", label: "Settled fuel with no state (no fuel-tax credit can go to it)", count: i.noState, href: "/fuel?days=90" });
+  if (i.noTruck > 0) issues.push({ key: "fuel_no_truck", label: "Settled fuel on no truck", count: i.noTruck, href: "/fuel?days=90" });
+  if (i.unknownProduct > 0) issues.push({ key: "fuel_unknown_product", label: "Settled purchases that do not say what was pumped", count: i.unknownProduct, href: "/fuel?days=90" });
+  const q = i.quarter;
+  if (q && !q.filed && q.blockers.length > 0) issues.push({ key: "ifta_blocked", label: `${q.quarter} IFTA return not filed: ${q.blockers.length} ${q.blockers.length === 1 ? "thing blocks" : "things block"} it`, count: q.blockers.length, href: `/ifta?quarter=${q.quarter}` });
+  if (q && q.filed && q.changedSinceFiled) issues.push({ key: "ifta_changed", label: `${q.quarter} IFTA return changed since it was filed`, count: 1, href: `/ifta?quarter=${q.quarter}` });
+  return { ...i, issues, clean: issues.length === 0 && !i.flagsPartial };
+}

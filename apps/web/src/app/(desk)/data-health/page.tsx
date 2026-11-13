@@ -3,7 +3,7 @@ import Link from "next/link";
 import React from "react";
 import { PageHead, Tabs } from "@/components/desk/ui";
 import { EmptyState } from "@/components/desk/kit/states";
-import { CrossChecks, GapList, HealthHero, HowItWorks } from "@/components/desk/data-health/parts";
+import { CrossChecks, FuelTaxChecks, GapList, HealthHero, HowItWorks } from "@/components/desk/data-health/parts";
 import { kpiHref, parseKpiParams } from "@/lib/kpi-params";
 import { KPI_PERIODS, windowLabel } from "@/lib/kpi-periods";
 import { requirePage } from "@/server/tl/access";
@@ -55,6 +55,7 @@ export default async function DataHealthPage({ searchParams }: { searchParams?: 
           <HealthHero h={h} />
           <GapList checks={h.completeness.checks} />
           <CrossChecks h={h} />
+          <FuelTaxChecks h={h} />
           <HowItWorks />
         </div>
       )}

@@ -77,7 +77,6 @@ model Workspace {
   externalRefs        ExternalRef[]
   syncCursors         SyncCursor[]
   accountingAccounts  AccountingAccount[]
-  iftaLines           IftaLine[]
   iftaMileage         IftaMileage[]
   iftaReturns         IftaReturn[]
   iftaRates           IftaRate[]
@@ -1341,28 +1340,6 @@ model ServiceUsage {
   @@index([service, createdAt])
   @@index([workspaceId, service, createdAt])
   @@map("service_usage")
-}
-
-/// A quarter's fuel-tax miles and gallons for one state (IFTA), as the mileage company worked them out from the quarter's delivered loads. Replaced as a whole each time the quarter is worked out,
-/// so it is always one answer: the state-by-state mileage store (docs/PARTNER_BACKBONE.md). `gallons` is fuel consumed from the miles, not fuel bought.
-model IftaLine {
-  id          String   @id @default(cuid())
-  workspaceId String   @map("workspace_id")
-  /// "2026-Q3".
-  quarter     String
-  state       String
-  miles       Decimal  @db.Decimal(12, 1)
-  gallons     Decimal  @db.Decimal(12, 2)
-  /// The company that worked it out.
-  source      String
-  /// How many delivered loads the quarter's miles came from.
-  loads       Int
-  computedAt  DateTime @map("computed_at")
-
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-
-  @@unique([workspaceId, quarter, state])
-  @@map("ifta_lines")
 }
 
 /// A quarter's miles in one US jurisdiction (IFTA) as the ELD reported them, one row per trip piece (money plan Wave 5 step 5a): loaded on a load (`loadId`) or empty (`loadId` null), with the

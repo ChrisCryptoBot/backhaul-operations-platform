@@ -187,6 +187,37 @@ export function CrossChecks({ h }: { h: HealthRead }) {
   );
 }
 
+/** Fuel and fuel tax (money plan Wave 5): open fuel flags, what the window's purchases are missing, and where the last finished quarter's IFTA return stands, each linked to where it is fixed. */
+export function FuelTaxChecks({ h }: { h: HealthRead }) {
+  const f = h.fuelTax;
+  const q = f.quarter;
+  return (
+    <Card title="Fuel and fuel tax">
+      <p>
+        <b>{f.purchases.toLocaleString("en-US")}</b> settled fuel {f.purchases === 1 ? "purchase" : "purchases"} in this window.{" "}
+        {f.issues.length === 0 ? "Nothing in them needs a person." : `${f.issues.length} ${f.issues.length === 1 ? "thing needs" : "things need"} a person:`}
+      </p>
+      {f.issues.length > 0 ? (
+        <ul className="tl-list">
+          {f.issues.map((i) => (
+            <li key={i.key}>
+              <Link href={i.href}>{i.label}</Link>: <b>{i.count.toLocaleString("en-US")}</b>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {q ? (
+        <p className="tl-sub">
+          {q.quarter} IFTA return (due {q.dueDate}, the whole fleet&apos;s filing whatever the view): {q.filed ? (q.changedSinceFiled ? "filed, and changed since" : "filed, unchanged since") : q.blockers.length > 0 ? `not filed; ${q.blockers.map((b) => b.code.replace(/_/g, " ")).join(", ")}` : "not filed, nothing blocks it"}.{" "}
+          <Link href={`/ifta?quarter=${q.quarter}`}>IFTA</Link>
+        </p>
+      ) : null}
+      {f.flagsPartial ? <p className="tl-sub">Fuel flags were read for the newest purchases only.</p> : null}
+      <p className="tl-sub">A purchase counts in the window by when it was bought (else the day it posted), in the terminals in view by its truck; a purchase on no truck shows only in the whole-fleet view.</p>
+    </Card>
+  );
+}
+
 export function HowItWorks() {
   return (
     <details className="kc-how">

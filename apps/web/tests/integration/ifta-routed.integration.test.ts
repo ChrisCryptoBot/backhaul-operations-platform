@@ -9,7 +9,7 @@ import { saveKeysAndConnect } from "@/server/partners/setup";
 /**
  * Wave 5 step 5b: the routed all-miles fallback, from test keys (the simulators, network closed). Trucks the ELD did not report have their loads routed stop by stop with the empty legs between
  * them; routing again (twice in a row or two at once) never doubles a piece; ELD first on the write (a truck with ELD rows is never routed, and loses stale routed rows) and on the read (a
- * truck routed before its ELD read counts once, from the ELD); nothing goes to ifta_lines.
+ * truck routed before its ELD read counts once, from the ELD).
  *   DATABASE_URL=postgresql://demo:demo@localhost:54330/demo_test RUN_DB_INTEGRATION=true npx vitest run tests/integration/ifta-routed.integration.test.ts
  */
 const run = process.env.RUN_DB_INTEGRATION === "true";
@@ -111,7 +111,7 @@ describe.skipIf(!run)("routed miles for trucks the ELD did not report", () => {
     await prisma.iftaMileage.deleteMany({ where: { workspaceId: W, source: "test" } });
   });
 
-  test("routing keeps each truck's legs stop by stop, loaded and empty, with no odometer, Canada counted and not kept, and nothing in ifta_lines", async () => {
+  test("routing keeps each truck's legs stop by stop, loaded and empty, with no odometer, Canada counted and not kept", async () => {
     const out = await calculateIfta(Q, W, NOW);
     if (!out.ok) throw new Error(out.error);
     expect(out).toMatchObject({ provider: "promiles", quarter: Q, trucks: 3, eldTrucks: 0, replaced: 0, canadaMiles: "115.0", noStart: 1, unrouted: 0, notYet: 0 });
@@ -136,7 +136,6 @@ describe.skipIf(!run)("routed miles for trucks the ELD did not report", () => {
     ]);
     // C: Michigan kept, Ontario counted only.
     expect((await rows({ vehicleId: truckC })).map((r) => [r.jurisdiction, r.miles.toFixed(1)])).toEqual([["MI", "115.0"]]);
-    expect(await prisma.iftaLine.count({ where: { workspaceId: W } })).toBe(0);
     const [event] = await audits();
     expect(event!.summary).toContain("routed by ProMiles for 3 trucks without ELD miles");
     expect(event!.summary).toContain("115.0 miles in Canada not counted (gap 15)");

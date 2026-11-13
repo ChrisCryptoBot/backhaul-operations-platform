@@ -477,7 +477,10 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
       ["Truck positions and billed miles (last 7 days)", "Finished loads with a truck", g.trips, null],
       ["Truck positions and billed miles (last 7 days)", "Measured (enough pings)", g.measured, null],
       ["Truck positions and billed miles (last 7 days)", "Agree with the billed loaded miles", g.agreed, null],
-      ["Truck positions and billed miles (last 7 days)", "Apart by more than 30%", g.apart, null]
+      ["Truck positions and billed miles (last 7 days)", "Apart by more than 30%", g.apart, null],
+      ["Fuel and fuel tax", "Settled fuel purchases in the window", h.fuelTax.purchases, null],
+      ...h.fuelTax.issues.map((i): CsvCell[] => ["Fuel and fuel tax", i.label, i.count, null]),
+      ...(h.fuelTax.quarter ? [["Fuel and fuel tax", `${h.fuelTax.quarter.quarter} IFTA return`, h.fuelTax.quarter.filed ? (h.fuelTax.quarter.changedSinceFiled ? "filed, changed since" : "filed") : `not filed, ${h.fuelTax.quarter.blockers.length} blocking`, null] as CsvCell[]] : [])
     ];
     return { filename: `truelane-desk-data-health-checks-${tag}.csv`, csv: toCsv(["Check", "Measure", "Loads", "Dollars"], rows) };
   }

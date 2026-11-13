@@ -1,5 +1,10 @@
 import { prisma } from "@/lib/db";
-import { buildDataHealth, type DataHealth, type HealthDriver, type HealthLoad, type HealthTrailer, type HealthTruck, type PingPoint, type PingTrip } from "@/lib/data-health";
+import { buildDataHealth, fuelTaxCheck, type DataHealth, type FuelTaxCheck, type HealthDriver, type HealthLoad, type HealthTrailer, type HealthTruck, type PingPoint, type PingTrip } from "@/lib/data-health";
+import { returnDrift } from "@/lib/ifta-return";
+import { recentQuarters } from "@/lib/ifta-rates-csv";
+import { countFlags, flagContextStart, readFlags } from "@/server/partners/fuel-flags";
+import { iftaFiling } from "@/server/partners/ifta-filing";
+import { iftaReturn } from "@/server/partners/ifta-return";
 import { DAY_MS, periodWindow, type KpiPeriod, type TimeWindow } from "@/lib/kpi-periods";
 import { terminalFilter, termList, type Terminals } from "@/lib/scope";
 import { invoiceRateTotal } from "@/truelane/lib/invoice";
@@ -14,7 +19,7 @@ import { workspaceTimezone } from "./zone";
  * whole fleet), so a region, a terminal or everything is one question. The position-ping check reads only the last week (that is all the pings the desk keeps) and at most the newest few dozen trips.
  */
 export type HealthQuery = { period: KpiPeriod; terminals?: readonly string[] | null };
-export type HealthRead = DataHealth & { window: TimeWindow; windowStart: number; truncated: boolean; pingDays: number };
+export type HealthRead = DataHealth & { window: TimeWindow; windowStart: number; truncated: boolean; pingDays: number; fuelTax: FuelTaxCheck };
 
 /** The most finished loads read for one answer (a fleet's "All time" is more than a screen can usefully check). */
 export const MAX_HEALTH_LOADS = 20_000;
@@ -130,6 +135,40 @@ async function pingTrips(workspaceId: string, loads: HealthLoad[], nowMs: number
   return trips;
 }
 
+/**
+ * Fuel and fuel tax (Wave 5 step 9): the window's purchases in the terminals in view (by the truck's terminal; a purchase on no truck only in the whole-fleet view), their open exception flags (read
+ * the way Fuel reads them), what is missing on them, and where the last finished quarter's IFTA return stands (the whole fleet's filing, whatever the view): not filed with its blockers, or filed
+ * and changed since. Counts only.
+ */
+async function fuelTaxRead(workspaceId: string, since: Date, terminals: readonly string[] | null, tz: string, now: Date): Promise<FuelTaxCheck> {
+  const scoped = terminals == null ? {} : { vehicle: { terminal: terminalFilter(terminals) } };
+  const rows = await prisma.fuelTransaction.findMany({
+    where: { workspaceId, ...scoped, OR: [{ purchasedAt: { gte: since } }, { purchasedAt: null, postedAt: { gte: since } }] },
+    select: { id: true, vehicleId: true, purchaseState: true, product: true, status: true },
+    take: UNIT_CAP * 5
+  });
+  const flags = await readFlags(flagContextStart(since, now), workspaceId);
+  const counts = countFlags(flags, rows.map((r) => r.id));
+  const settled = rows.filter((r) => r.status === "settled");
+  const tax = settled.filter((r) => r.product === "road_diesel" || r.product === "unknown");
+  const last = recentQuarters(now, tz)[1] ?? null;
+  let quarter: FuelTaxCheck["quarter"] = null;
+  if (last) {
+    const [r, filing] = await Promise.all([iftaReturn(last, now, workspaceId), iftaFiling(last, workspaceId)]);
+    if (r.ok) quarter = { quarter: last, dueDate: r.dueDate, filed: filing.filed != null, changedSinceFiled: filing.filed ? returnDrift(filing.filed, r).changed : false, rateState: r.rateState, blockers: r.blockers.map((b) => ({ code: b.code, count: b.count, text: b.text })) };
+  }
+  return fuelTaxCheck({
+    purchases: settled.length,
+    flaggedPurchases: counts.purchases,
+    openFlags: counts.open,
+    flagsPartial: counts.partial,
+    noState: tax.filter((r) => r.purchaseState == null).length,
+    noTruck: tax.filter((r) => r.vehicleId == null).length,
+    unknownProduct: settled.filter((r) => r.product === "unknown").length,
+    quarter
+  });
+}
+
 export async function getDataHealth(q: HealthQuery, now = new Date(), workspaceId = currentWorkspaceId()): Promise<HealthRead> {
   const tz = await workspaceTimezone(workspaceId);
   const terminals = termList(q.terminals ?? null)?.slice().sort() ?? null;
@@ -165,9 +204,9 @@ export async function getDataHealth(q: HealthQuery, now = new Date(), workspaceI
     const unitTrucks: HealthTruck[] = trucks.map((t) => ({ id: t.id, name: t.name ?? "Truck", hasProfile: t.costProfile != null, hasBase: !!t.homeBaseAddress?.trim() || t.homeBaseLat != null, hasMpg: t.mpg != null }));
     const unitDrivers: HealthDriver[] = drivers.map((d) => ({ id: d.id, name: d.name, hasCdlDate: d.cdlExpiry != null, hasMedicalDate: d.medicalCardExpiry != null, hasPhone: !!d.phone?.trim() }));
     const unitTrailers: HealthTrailer[] = trailers.map((t) => ({ id: t.id, number: t.number, hasRegistration: t.registrationExpiry != null, hasInspection: t.inspectionExpiry != null }));
-    const trips = await pingTrips(workspaceId, loads, now.getTime());
+    const [trips, fuelTax] = await Promise.all([pingTrips(workspaceId, loads, now.getTime()), fuelTaxRead(workspaceId, since, terminals, tz, now)]);
     const health = buildDataHealth({ loads, trucks: unitTrucks, drivers: unitDrivers, trailers: unitTrailers, hasCardData: cardRows > 0, trips });
-    return { ...health, window, windowStart, truncated, pingDays: PING_DAYS };
+    return { ...health, window, windowStart, truncated, pingDays: PING_DAYS, fuelTax };
   });
 }
 

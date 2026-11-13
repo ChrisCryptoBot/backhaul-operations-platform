@@ -17,6 +17,13 @@ import { issueCreditMemo, markLoadPaid } from "../src/server/tl/invoicing";
 import { applyFactoringUpdate, recordChargeback } from "../src/server/partners/factoring";
 import { saveFactoringTerms } from "../src/server/partners/factoring-terms";
 import { centralParts } from "../src/lib/zoned";
+import { placeParts } from "../src/lib/fuel-normalize";
+import { recentQuarters, sampleIftaRates } from "../src/lib/ifta-rates-csv";
+import { clearFuelFlag } from "../src/server/partners/fuel-flags";
+import { calculateIfta } from "../src/server/partners/ifta";
+import { fileIftaReturn } from "../src/server/partners/ifta-filing";
+import { quarterBounds, syncIftaMileage } from "../src/server/partners/ifta-mileage";
+import { commitIftaRates } from "../src/server/partners/ifta-rates";
 
 const prisma = new PrismaClient();
 const W = "demo-workspace";
@@ -180,11 +187,138 @@ async function seedInvoices() {
   must("chargeback", await recordChargeback(chargedBack!.id, "Customer did not pay within 90 days", ago(1), W));
 }
 
+// ── Fuel and fuel tax (Wave 5) ───────────────────────────────────────────────────────────────
+
+/** The provider every seeded fuel purchase carries, so a re-run takes exactly these away. */
+const SEED_FUEL = "seed-demo";
+const PRICE = 3.65;
+
+async function clearFuelTax() {
+  // A filed return's rows are only frozen against edits (a trigger on UPDATE); the seed's own are deleted whole, lines with them.
+  await prisma.iftaReturn.deleteMany({ where: { workspaceId: W } });
+  await prisma.iftaMileage.deleteMany({ where: { workspaceId: W } });
+  await prisma.iftaRate.deleteMany({ where: { workspaceId: W } });
+  await prisma.fuelFlagReview.deleteMany({ where: { workspaceId: W, fuelTransaction: { provider: SEED_FUEL } } });
+  await prisma.fuelTransaction.deleteMany({ where: { workspaceId: W, provider: SEED_FUEL } });
+}
+
+type Fill = { key: string; vehicleId: string | null; state: string | null; gallons: number; at: Date; taxPaid?: boolean; product?: string; status?: string; location?: string };
+
+async function writeFills(fills: Fill[]) {
+  await prisma.fuelTransaction.createMany({
+    data: fills.map((f) => ({
+      workspaceId: W,
+      provider: SEED_FUEL,
+      externalId: `SEED-${f.key}`,
+      vehicleId: f.vehicleId,
+      postedAt: new Date(Date.UTC(f.at.getUTCFullYear(), f.at.getUTCMonth(), f.at.getUTCDate(), 12)),
+      purchasedAt: f.at,
+      location: f.location ?? (f.state ? `Truck stop, ${f.state}` : null),
+      purchaseState: f.state,
+      product: f.product ?? "road_diesel",
+      taxPaid: f.taxPaid ?? true,
+      status: f.status ?? "settled",
+      gallons: f.gallons.toFixed(1),
+      pricePerGallon: PRICE.toFixed(4),
+      amount: (Math.round(f.gallons * PRICE * 100) / 100).toFixed(2)
+    }))
+  });
+}
+
+/**
+ * A quarter's fuel for each truck that delivered in it: tax-paid road diesel at the states its loads left from (about 85% of what its miles burn at 6.5 mpg, one fill a load, each on its own
+ * day, at most 200 gallons, under the trucks' 220-gallon tanks), and one bulk fill from the yard tank (no tax paid) for the rest. Deterministic: the same loads give the same fills.
+ */
+async function quarterFills(quarter: string, tag: string): Promise<{ fills: Fill[]; trucks: string[] }> {
+  const { from, to } = quarterBounds(quarter, ZONE)!;
+  const loads = await prisma.load.findMany({ where: { workspaceId: W, deletedAt: null, status: "completed", vehicleId: { not: null }, completedAt: { gte: from, lt: to } }, orderBy: [{ vehicleId: "asc" }, { completedAt: "asc" }], select: { id: true, vehicleId: true, originAddress: true, loadedMiles: true, completedAt: true } });
+  const fills: Fill[] = [];
+  const trucks = [...new Set(loads.map((l) => l.vehicleId!))];
+  for (const v of trucks) {
+    const mine = loads.filter((l) => l.vehicleId === v);
+    const miles = mine.reduce((s, l) => s + Number(l.loadedMiles), 0);
+    const burn = miles / 6.5;
+    mine.forEach((l, i) => {
+      const share = (Number(l.loadedMiles) / Math.max(1, miles)) * burn * 0.85;
+      if (share < 1) return;
+      fills.push({ key: `${tag}-${v.slice(-6)}-${i}`, vehicleId: v, state: placeParts(l.originAddress).state ?? "TX", gallons: Math.round(Math.min(share, 200) * 10) / 10, at: new Date(l.completedAt!.getTime() - (8 + i) * 3_600_000) });
+    });
+    const last = mine[mine.length - 1]!;
+    fills.push({ key: `${tag}-${v.slice(-6)}-bulk`, vehicleId: v, state: "TX", gallons: Math.round(Math.min(burn * 0.15, 200) * 10) / 10, at: new Date(last.completedAt!.getTime() + 4 * 3_600_000), taxPaid: false, location: "Yard tank, Dallas, TX" });
+  }
+  return { fills, trucks };
+}
+
+/** The quarter's rate table as a file (the sample generator's figures, imported as a real file would be, so the screen shows a filed state; the desk itself says it is demo data). */
+const ratesCsv = (quarter: string) => ["Jurisdiction,Diesel,Surcharge", ...sampleIftaRates(quarter).map((r) => `${r.jurisdiction},${r.rate},${r.surcharge === "0.0000" ? "" : r.surcharge}`)].join("\n");
+
+/**
+ * Fuel and fuel tax on the demo (Wave 5): the last finished quarter fuelled, its rates final, its miles read from the ELD for most trucks and routed for one, filed, and then a late receipt that
+ * shows as "changed since filed"; the current quarter fuelled with the odd ones (reefer, DEF, pending, declined) and an over-tank fill left flagged, on provisional rates, not filed. The ELD and
+ * the mileage company are reached through their simulators, connected for this run only (the demo desk itself stays unconnected).
+ */
+async function seedFuelTax() {
+  const [current, last] = recentQuarters(NOW, ZONE);
+  if (!current || !last) throw new Error("no quarters");
+  await clearFuelTax();
+
+  const q3 = await quarterFills(last, "P");
+  const q4 = await quarterFills(current, "C");
+  if (q3.trucks.length === 0 || q4.trucks.length === 0) throw new Error("no delivered loads in the last two quarters: run seed-demo.ts first");
+  const tanker = q3.trucks[0]!;
+  await prisma.vehicle.updateMany({ where: { workspaceId: W, id: { in: [...new Set([...q3.trucks, ...q4.trucks])] } }, data: { tankCapacityGallons: 220 } });
+  const { from: q3From } = quarterBounds(last, ZONE)!;
+  const { from: q4From } = quarterBounds(current, ZONE)!;
+  const day = (base: Date, d: number, h = 14) => new Date(base.getTime() + d * DAY + h * 3_600_000);
+  // The last quarter: one over-tank fill, cleared with a reason (saddle tanks), so the return can be filed.
+  q3.fills.push({ key: "P-overfill", vehicleId: tanker, state: "OK", gallons: 260, at: day(q3From, 40) });
+  // The current quarter: the purchases the return leaves out, and one over-tank fill left open (a blocker on the open return).
+  const t4 = q4.trucks[0]!;
+  q4.fills.push(
+    { key: "C-reefer", vehicleId: t4, state: "TN", gallons: 48, at: day(q4From, 9), product: "reefer_diesel" },
+    { key: "C-def", vehicleId: t4, state: "TN", gallons: 9, at: day(q4From, 9, 15), product: "def" },
+    { key: "C-pending", vehicleId: t4, state: "AR", gallons: 120, at: notAfterNow(day(q4From, 30)), status: "pending" },
+    { key: "C-declined", vehicleId: t4, state: "AR", gallons: 95, at: day(q4From, 11), status: "declined" },
+    { key: "C-overfill", vehicleId: t4, state: "MO", gallons: 275, at: day(q4From, 20) }
+  );
+  await writeFills([...q3.fills, ...q4.fills]);
+  const overfill = await prisma.fuelTransaction.findFirstOrThrow({ where: { workspaceId: W, provider: SEED_FUEL, externalId: "SEED-P-overfill" } });
+  must("clear overfill", await clearFuelFlag(overfill.id, "over_capacity", "Saddle tanks fitted in July: 300 gallons", NOW, W));
+
+  must(`rates ${last}`, await commitIftaRates(ratesCsv(last), null, last, "final", `ifta-rates-${last}.csv`, NOW, W));
+  must(`rates ${current}`, await commitIftaRates(ratesCsv(current), null, current, "provisional", `ifta-rates-${current}-provisional.csv`, NOW, W));
+
+  // The simulators, for this run only: keys in this process's environment and a connection row each, taken away again below unless the desk already had one.
+  process.env.MOTIVE_API_KEY = "sandbox_seed_demo";
+  process.env.PROMILES_API_KEY = "sandbox_seed_demo";
+  const made: string[] = [];
+  for (const [capability, provider] of [["eld", "motive"], ["ifta", "promiles"]] as const) {
+    const had = await prisma.partnerConnection.findUnique({ where: { workspaceId_capability_provider: { workspaceId: W, capability, provider } } });
+    if (!had) made.push((await prisma.partnerConnection.create({ data: { workspaceId: W, capability, provider, status: "connected", connectedAt: NOW } })).id);
+  }
+  try {
+    for (const q of [last, current]) {
+      must(`eld ${q}`, await syncIftaMileage(q, NOW, W));
+      // One truck the ELD did not report: its miles are routed from its loads.
+      const routedTruck = (await prisma.iftaMileage.findFirst({ where: { workspaceId: W, quarter: q, method: "eld" }, orderBy: { vehicleId: "desc" }, select: { vehicleId: true } }))?.vehicleId;
+      if (routedTruck) await prisma.iftaMileage.deleteMany({ where: { workspaceId: W, quarter: q, method: "eld", vehicleId: routedTruck } });
+      must(`route ${q}`, await calculateIfta(q, W, NOW));
+    }
+  } finally {
+    if (made.length > 0) await prisma.partnerConnection.deleteMany({ where: { id: { in: made } } });
+  }
+
+  // File the last quarter, then a receipt that settled late: the screen shows it as changed since filed.
+  must(`file ${last}`, await fileIftaReturn(last, {}, NOW, W));
+  await writeFills([{ key: "P-late", vehicleId: q3.trucks[q3.trucks.length - 1]!, state: "AR", gallons: 88, at: day(q4From, -3) }]);
+}
+
 async function main() {
   if (!(await prisma.workspace.findUnique({ where: { id: W } }))) throw new Error("no demo workspace: run seed-demo.ts first");
   await clearMoney();
   await seedPay();
   await seedInvoices();
+  await seedFuelTax();
   const [statements, ledger, invoices] = await Promise.all([
     prisma.settlement.groupBy({ by: ["status"], where: { workspaceId: W }, _count: { _all: true } }),
     prisma.driverLedgerEntry.groupBy({ by: ["kind"], where: { workspaceId: W }, _count: { _all: true } }),
@@ -195,6 +329,14 @@ async function main() {
   console.log("statements", statements.map((s) => `${s.status} ${s._count._all}`).join(", "));
   console.log("ledger", ledger.map((s) => `${s.kind} ${s._count._all}`).join(", "));
   console.log("invoices", invoices.map((s) => `${s.kind}/${s.status}/${s.factoringStatus} ${s._count._all}`).join(", "));
+  const [fuel, miles, returns] = await Promise.all([
+    prisma.fuelTransaction.groupBy({ by: ["product", "status", "taxPaid"], where: { workspaceId: W, provider: SEED_FUEL }, _count: { _all: true } }),
+    prisma.iftaMileage.groupBy({ by: ["quarter", "method"], where: { workspaceId: W }, _count: { _all: true }, _sum: { miles: true } }),
+    prisma.iftaReturn.findMany({ where: { workspaceId: W }, select: { quarter: true, status: true, total: true } })
+  ]);
+  console.log("fuel", fuel.map((s) => `${s.product}/${s.status}/${s.taxPaid ? "tax paid" : "bulk"} ${s._count._all}`).join(", "));
+  console.log("ifta miles", miles.map((s) => `${s.quarter} ${s.method} ${s._count._all} pieces ${s._sum.miles}`).join(", "));
+  console.log("ifta returns", returns.map((r) => `${r.quarter} ${r.status} ${r.total}`).join(", "));
 }
 
 main()
