@@ -73,7 +73,7 @@ export async function invoiceLoad(loadId: string, opts: { includeDetention?: boo
   const ready = invoiceReadiness({ ...load, quotedRevenue: basis.rate, paidLinehaul: numOrNull(load.actualRevenue), podStopsMissing: (await podStopsMissing([load.id], workspaceId)).get(load.id) ?? null });
   if (ready.blockers.length > 0) return { ok: false, detention: 0, error: ready.blockers[0] };
 
-  const thresholds = await getThresholds();
+  const thresholds = await getThresholds(workspaceId);
   // A TONU hauled nothing, so there is no detention to bill on it.
   const billable = basis.tonu ? 0 : detentionOfLoad(load, thresholds.detentionGraceMinutes).billable;
   const form: InvoiceForm = opts.form ?? { number: await suggestedInvoiceNumber(load, workspaceId), terms: "", detention: !!opts.includeDetention, lumper: "", layover: "", otherLabel: "", other: "" };
@@ -658,7 +658,7 @@ export async function invoiceLoads(loadIds: string[], form: { number?: string; t
     const ready = invoiceReadiness({ ...l, quotedRevenue: basis.rate, paidLinehaul: numOrNull(l.actualRevenue), podStopsMissing: podMissing.get(l.id) ?? null });
     if (ready.blockers.length > 0) return { ok: false, error: `${l.loadNumber ?? "A load"}: ${ready.blockers[0]}` };
   }
-  const thresholds = await getThresholds();
+  const thresholds = await getThresholds(workspaceId);
   const termsRaw = (form.terms ?? "").trim();
   const defaultTerms = loads[0]!.payTermsDays ?? (await customerTermsMap(workspaceId)).get((loads[0]!.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays;
   const terms = termsRaw === "" ? defaultTerms : /^\d{1,3}$/.test(termsRaw) ? Number.parseInt(termsRaw, 10) : -1;
