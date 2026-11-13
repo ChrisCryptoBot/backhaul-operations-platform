@@ -42,25 +42,55 @@ export type PurchaseOut = {
   status?: FuelStatus;
 };
 
+/**
+ * One load a truck ran, handed to the ELD call for its quarter's miles (money plan Wave 5 step 5a). The normalizer ties a piece the ELD drove between `pickupAt` and `deliveredAt` to this load
+ * (loaded); a piece outside every load is empty. The simulator also drives the truck from these: the empty run to the pickup, the loaded run, and the run home after the last one. Miles are exact
+ * decimal strings; times are epoch ms. A live adapter asks the company for what was driven and uses these only to tie pieces to loads.
+ */
+export type IftaTripHint = { loadId: string; origin: string; destination: string; pickupAt: number; deliveredAt: number; loadedMiles: string; pickupDeadheadMiles: string; returnDeadheadMiles: string };
+
+/** One piece of a quarter's ELD miles in one jurisdiction, in the desk's words. Odometers and miles are exact decimal strings (one place); times are ISO. */
+export type IftaMilePiece = { vehicleId: string; externalId: string; jurisdiction: string; loaded: boolean; loadId: string | null; startOdometer: string; endOdometer: string; miles: string; startedAt: string; endedAt: string };
+
+/** The desk's trucks as the `eld` reads (positions, hours, roster) take them. */
+type EldStatusIn = {
+  op?: "status";
+  vehicles: Array<{
+    id: string;
+    name: string | null;
+    eldVehicleId: string | null;
+    /** What the simulator needs to put a tractor on its lane: the open load's places and times, and where the tractor lives. A live adapter ignores both. */
+    trip?: SimTrip | null;
+    home?: { lat: number; lng: number } | null;
+  }>;
+  drivers?: Array<{ id: string; name: string; eldDriverId: string | null; vehicleId: string | null }>;
+  /** Also list everything the company has (its whole fleet and roster), for the one-click import. */
+  discover?: boolean;
+  /** The moment this read is for (epoch ms). A live adapter reads the company at the moment it is called; the simulator answers for this one, so a read at the same moment answers the same. */
+  asOf?: number;
+};
+
+/**
+ * A quarter's miles by jurisdiction from the ELD (Wave 5 step 5a). `from` and `to` are the quarter's bounds in the workspace's own calendar (ISO, `to` exclusive). `asOf` is the desk's clock and
+ * is REQUIRED: the simulator answers for it (nothing driven after it is reported) and never reads the wall clock.
+ */
+type EldIftaIn = {
+  op: "ifta_trips";
+  quarter: string;
+  from: string;
+  to: string;
+  asOf: number;
+  vehicles: Array<{ id: string; name: string | null; eldVehicleId: string | null; /** Where the truck lives, as a place line ("Dallas, TX"): the simulator's start and end. */ home?: string | null; trips?: IftaTripHint[] }>;
+};
+
+export type { EldStatusIn, EldIftaIn };
+
 /** What each capability's adapter reads and answers: the desk's own shapes, not any company's. */
 export type AdapterShapes = {
   factoring: { in: { loadId: string; loadNumber: string | null; invoiceNumber: string | null; amount: number; packet: string[] }; out: { referenceId: string; status: string } };
   eld: {
-    in: {
-      vehicles: Array<{
-        id: string;
-        name: string | null;
-        eldVehicleId: string | null;
-        /** What the simulator needs to put a tractor on its lane: the open load's places and times, and where the tractor lives. A live adapter ignores both. */
-        trip?: SimTrip | null;
-        home?: { lat: number; lng: number } | null;
-      }>;
-      drivers?: Array<{ id: string; name: string; eldDriverId: string | null; vehicleId: string | null }>;
-      /** Also list everything the company has (its whole fleet and roster), for the one-click import. */
-      discover?: boolean;
-      /** The moment this read is for (epoch ms). A live adapter reads the company at the moment it is called; the simulator answers for this one, so a read at the same moment answers the same. */
-      asOf?: number;
-    };
+    /** A read of positions, hours and the roster (no `op`, or `op: "status"`), or a quarter's miles by jurisdiction (`op: "ifta_trips"`), the way payroll's `op` works. */
+    in: EldStatusIn | EldIftaIn;
     out: {
       vehicles: Array<{
         id: string;
@@ -83,6 +113,16 @@ export type AdapterShapes = {
       roster?: {
         vehicles: Array<{ eldVehicleId: string; number: string; vin: string | null; make: string | null; model: string | null; year: number | null }>;
         drivers: Array<{ eldDriverId: string; name: string; licenseNumber: string | null; /** The company's vehicle this driver is assigned to. */ eldVehicleId?: string | null; driveMinutes: number; shiftMinutes: number; cycleMinutes: number }>;
+      };
+      /**
+       * With `op: "ifta_trips"` (then `vehicles` is empty): the quarter's US pieces; the desk trucks the ELD answered for (any piece at all, so a truck it reported nothing for is not here and
+       * keeps what it had); the Canadian miles counted and not kept (gap 15); and what was left out and why.
+       */
+      iftaTrips?: {
+        pieces: IftaMilePiece[];
+        answered: string[];
+        canada: Array<{ vehicleId: string; jurisdiction: string; miles: string }>;
+        skipped: { outsideQuarter: number; afterAsOf: number; unreadable: number; duplicate: number };
       };
     };
   };

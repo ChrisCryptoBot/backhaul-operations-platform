@@ -1,7 +1,7 @@
 import Link from "next/link";
 import React from "react";
 import { DataTable, type Column, type Row } from "@/components/desk/data-table";
-import { IftaCalcButton } from "@/components/desk/data-actions";
+import { IftaCalcButton, IftaEldMilesButton } from "@/components/desk/data-actions";
 import { CanGate } from "@/components/desk/kit/can-gate";
 import { EmptyState } from "@/components/desk/kit/states";
 import { PageHead, Stat } from "@/components/desk/ui";
@@ -9,6 +9,7 @@ import { dateTime } from "@/lib/desk-format";
 import { recentQuarters } from "@/lib/ifta-rates-csv";
 import { partnerState, providerName } from "@/server/partners/call";
 import { storedIfta } from "@/server/partners/ifta";
+import { iftaMileageSummary } from "@/server/partners/ifta-mileage";
 import { requirePage } from "@/server/tl/access";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { workspaceTimezone } from "@/server/tl/zone";
@@ -34,7 +35,7 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
   const tz = await workspaceTimezone(currentWorkspaceId());
   const options = recentQuarters(new Date(), tz);
   const quarter = options.includes(searchParams?.quarter ?? "") ? searchParams!.quarter! : options[0]!;
-  const [lines, mileage] = await Promise.all([storedIfta(quarter), partnerState("ifta")]);
+  const [lines, mileage, eld, eldMiles] = await Promise.all([storedIfta(quarter), partnerState("ifta"), partnerState("eld"), iftaMileageSummary(quarter)]);
   const miles = lines.reduce((s, l) => s + l.miles, 0);
   const gallons = lines.reduce((s, l) => s + l.gallons, 0);
   const worked = lines[0]?.computedAt ?? null;
@@ -50,6 +51,7 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
         <CanGate caps={["bill"]}>
           <Link className="tl-btn" href={`/ifta/rates?quarter=${quarter}`}>Tax rates</Link>
           <IftaCalcButton quarter={quarter} reason={mileage.reason} again={lines.length > 0} />
+          <IftaEldMilesButton quarter={quarter} reason={eld.reason} again={eldMiles.length > 0} />
         </CanGate>
       </PageHead>
       <div className="tl-tabs" role="tablist" aria-label="Quarter" style={{ display: "flex", gap: 6, marginBottom: 12 }}>
@@ -65,6 +67,12 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
         <Stat label="Delivered loads" value={lines[0] ? String(lines[0].loads) : "—"} />
         <Stat label="Worked out" value={worked ? dateTime(worked) : "—"} sub={lines[0] ? `by ${providerName(lines[0].source)}` : undefined} />
       </div>
+      {eldMiles.map((m) => (
+        <p key={m.source} className="tl-note ifta-eld-line">
+          <b>ELD miles ({providerName(m.source)}):</b> {n1(Number(m.miles))} miles in {m.states} {m.states === 1 ? "state" : "states"} for {m.trucks} {m.trucks === 1 ? "truck" : "trucks"} ({n1(Number(m.loadedMiles))} loaded, {n1(Number(m.emptyMiles))} empty), {m.pieces.toLocaleString("en-US")} {m.pieces === 1 ? "piece" : "pieces"}
+          {m.syncedAt ? `, read ${dateTime(m.syncedAt)}` : ""}. Kept for the return; the table below is still the mileage company&apos;s answer until the return screen.
+        </p>
+      ))}
       <DataTable
         id="ifta-table"
         label={`Miles by state, ${quarter}`}

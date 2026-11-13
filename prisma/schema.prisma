@@ -78,6 +78,7 @@ model Workspace {
   syncCursors         SyncCursor[]
   accountingAccounts  AccountingAccount[]
   iftaLines           IftaLine[]
+  iftaMileage         IftaMileage[]
   iftaRates           IftaRate[]
   fuelTransactions    FuelTransaction[]
   fuelFlagReviews     FuelFlagReview[]
@@ -201,6 +202,7 @@ model Vehicle {
   stays            UnitStay[]
   trailerMoves     TrailerMove[]
   fuelTransactions FuelTransaction[]
+  iftaMileage      IftaMileage[]
 
   @@index([workspaceId, archivedAt, name])
   @@index([workspaceId, terminal])
@@ -386,6 +388,7 @@ model Load {
   stopEvidence     StopEvidence[]
   invoiceLoads     InvoiceLoad[]
   invoiceLineRows  InvoiceLine[]
+  iftaMileage      IftaMileage[]
 
   // The lists a big fleet reads: by state, by day, by money, by customer, by number, and a truck's own loads. Trigram (search) indexes are in the
   // 20261106100000 migration only; Prisma cannot express them.
@@ -1359,6 +1362,43 @@ model IftaLine {
 
   @@unique([workspaceId, quarter, state])
   @@map("ifta_lines")
+}
+
+/// A quarter's miles in one US jurisdiction (IFTA) as the ELD reported them, one row per trip piece (money plan Wave 5 step 5a): loaded on a load (`loadId`) or empty (`loadId` null), with the
+/// start and end odometer and time, so the per-truck audit (step 7) has every mile's backing detail. A piece belongs to the quarter it starts in. A re-sync replaces the answered trucks' rows for
+/// the quarter under the workspace lock (server/partners/ifta-mileage.ts); the unique key on the company's piece id is the backstop against a doubled piece. Canadian provinces are counted in the
+/// sync's result and audit but not stored (gap 15). A piece whose load is later removed keeps `loaded` with `loadId` null.
+model IftaMileage {
+  id            String   @id @default(cuid())
+  workspaceId   String   @map("workspace_id")
+  vehicleId     String   @map("vehicle_id")
+  /// "2026-Q3".
+  quarter       String
+  /// Two-letter US code (DC included).
+  jurisdiction  String
+  /// The company that reported it ("motive").
+  source        String
+  /// The company's piece id and jurisdiction.
+  externalId    String   @map("external_id")
+  loadId        String?  @map("load_id")
+  loaded        Boolean
+  startOdometer Decimal  @map("start_odometer") @db.Decimal(12, 1)
+  endOdometer   Decimal  @map("end_odometer") @db.Decimal(12, 1)
+  /// What the ELD measured for the piece.
+  miles         Decimal  @db.Decimal(12, 1)
+  startedAt     DateTime @map("started_at")
+  endedAt       DateTime @map("ended_at")
+  syncBatchId   String   @map("sync_batch_id")
+  syncedAt      DateTime @map("synced_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  vehicle   Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+  load      Load?     @relation(fields: [loadId], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, source, externalId])
+  @@index([workspaceId, quarter, vehicleId])
+  @@index([loadId])
+  @@map("ifta_mileage")
 }
 
 /// A quarter's fuel-tax rate for one US jurisdiction (IFTA), per workspace: what the return (Wave 5 step 6) multiplies by. Loaded from a rate file (modelled on IFTA, Inc.'s quarterly rate

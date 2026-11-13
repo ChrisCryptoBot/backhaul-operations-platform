@@ -65,6 +65,7 @@ import { syncFuelCards, type FuelSync } from "@/server/partners/fuel-store";
 import { clearFuelFlag, reopenFuelFlag, type FlagReviewResult } from "@/server/partners/fuel-flags";
 import { commitFuelImport, previewFuelImport, removeFuelImport, type FuelImportMap, type FuelImportPreview, type FuelImportResult, type RemoveFuelImportResult } from "@/server/partners/fuel-import";
 import { calculateIfta, type IftaResult } from "@/server/partners/ifta";
+import { syncIftaMileage, type IftaMileageSync } from "@/server/partners/ifta-mileage";
 import { clearIftaRates, commitIftaRates, loadSampleIftaRates, previewIftaRates, type IftaClearResult, type IftaRateImportMap, type IftaRateImportResult, type IftaRatePreview, type IftaSampleResult } from "@/server/partners/ifta-rates";
 import { applyFactoringUpdate, factorInvoice, type FactorResult } from "@/server/partners/factoring";
 import { syncEld, type SyncResult } from "@/server/partners/eld";
@@ -1375,6 +1376,14 @@ export async function reopenFuelFlagAction(id: string, code: string): Promise<Fl
 export async function calculateIftaAction(quarter: string): Promise<IftaResult> {
   await requireCan("bill");
   const out = await calculateIfta(String(quarter));
+  if (out.ok) revalidatePath("/ifta");
+  return out;
+}
+
+/** Read a quarter's miles by state from the ELD and keep them, replacing what the trucks it answered for had. The billing office's work, like the IFTA calculation. */
+export async function syncIftaMileageAction(quarter: string): Promise<IftaMileageSync> {
+  await requireCan("bill");
+  const out = await syncIftaMileage(String(quarter));
   if (out.ok) revalidatePath("/ifta");
   return out;
 }

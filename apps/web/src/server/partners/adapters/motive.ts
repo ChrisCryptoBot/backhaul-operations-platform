@@ -1,8 +1,10 @@
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@/truelane/partners/contract";
 import { bearingDeg, interpolate } from "@/lib/geo-line";
-import type { AdapterShapes, SimTrip } from "../call";
+import { CA_PROVINCES, placeParts, stateCode, US_STATES } from "@/lib/fuel-normalize";
+import type { AdapterShapes, EldIftaIn, EldStatusIn, IftaMilePiece, IftaTripHint, SimTrip } from "../call";
 import { notImplemented } from "../not-implemented";
+import { CORRIDORS } from "./promiles";
 import { seedOf } from "./sandbox";
 import { NotLive, type Adapter, type ProviderAdapter } from "./types";
 
@@ -44,14 +46,41 @@ export type MotiveHos = {
   }>;
 };
 
+/**
+ * The IFTA trips report (money plan Wave 5 step 5a): what each vehicle drove in each jurisdiction over a date range, one entry per piece, with the odometer at each end. ASSUMED like the shapes
+ * above (modeled on how Motive describes its IFTA reports, not on its documentation): miles, not kilometres; times ISO; one entry per vehicle, jurisdiction and stretch of road. The company does
+ * not know the desk's loads; the normalizer ties a piece to a load by time.
+ */
+export type MotiveIftaTrips = {
+  ifta_trips: Array<{
+    ifta_trip: {
+      id: number | string;
+      /** The day the piece began (YYYY-MM-DD). */
+      date: string;
+      /** Two-letter state or province. */
+      jurisdiction: string;
+      vehicle: { id: number; number: string };
+      start_time: string;
+      end_time: string;
+      start_odometer: number;
+      end_odometer: number;
+      /** Miles driven in the piece. */
+      distance: number;
+    };
+  }>;
+};
+
 export interface MotiveClient {
   vehicleLocations(): Promise<MotiveLocations>;
   hosAvailability(): Promise<MotiveHos>;
   fleetRoster(): Promise<MotiveRoster>;
+  /** The IFTA trips report for these vehicles over these days (inclusive, the company's calendar days). */
+  iftaTrips(query: { start_date: string; end_date: string; vehicle_ids: number[] }): Promise<MotiveIftaTrips>;
 }
 
-type In = AdapterShapes["eld"]["in"];
+type In = EldStatusIn;
 type Out = AdapterShapes["eld"]["out"];
+type IftaOut = NonNullable<Out["iftaTrips"]>;
 
 /** The live client. No company is wired and no network is opened: both calls say so. */
 export const liveMotiveClient: MotiveClient = {
@@ -62,6 +91,9 @@ export const liveMotiveClient: MotiveClient = {
     throw new NotLive();
   },
   async fleetRoster() {
+    throw new NotLive();
+  },
+  async iftaTrips() {
     throw new NotLive();
   }
 };
@@ -121,6 +153,104 @@ export function normalizeRoster(roster: MotiveRoster, hos: MotiveHos): NonNullab
       return { eldDriverId: String(u.id), name: `${u.first_name} ${u.last_name}`.trim(), licenseNumber: u.license_number, eldVehicleId: u.vehicle_id != null ? String(u.vehicle_id) : null, driveMinutes: c ? minutesOf(c.drive_remaining) : 0, shiftMinutes: c ? minutesOf(c.shift_remaining) : 0, cycleMinutes: c ? minutesOf(c.cycle_remaining) : 0 };
     })
   };
+}
+
+/** A tenth of a mile, exact: odometers and miles are kept to one place. */
+const tenth = (n: number | string) => new Prisma.Decimal(n).toDecimalPlaces(1);
+const isoTime = (s: string) => {
+  const t = new Date(s).getTime();
+  return Number.isFinite(t) ? t : null;
+};
+
+/** The load a piece was driven on: the load whose pickup-to-delivery window holds the middle of the piece. None means the truck was empty. */
+export function loadOfPiece(hints: readonly IftaTripHint[], startedAt: number, endedAt: number): string | null {
+  const mid = startedAt + (endedAt - startedAt) / 2;
+  const on = hints.filter((h) => h.pickupAt <= mid && mid < h.deliveredAt).sort((a, b) => a.pickupAt - b.pickupAt || a.loadId.localeCompare(b.loadId));
+  return on[0]?.loadId ?? null;
+}
+
+/**
+ * The company's IFTA trips into the desk's pieces. A company vehicle is matched to a desk truck by the id it was linked with, else by name, and one desk truck takes one company vehicle (a second
+ * vehicle with the same name is left out, never added to the first). Then, piece by piece:
+ *   - a piece belongs to the quarter it STARTS in: one that starts before `from` or at/after `to` is left out (outsideQuarter), so a piece over the boundary is counted once, in its first quarter;
+ *   - one that ends after the desk's clock is left out (afterAsOf): the desk does not take what it could not have been told yet;
+ *   - an unknown jurisdiction, an unreadable time, an odometer that runs backwards or a negative distance is left out (unreadable), never guessed;
+ *   - the same piece twice (company id and jurisdiction) is kept once (duplicate);
+ *   - a Canadian province is counted for the truck and not kept (gap 15).
+ * A desk truck the company reported any piece for is "answered", whatever was left out of it. Miles and odometers are exact to a tenth.
+ */
+export function normalizeMotiveIfta(input: EldIftaIn, answer: MotiveIftaTrips): IftaOut {
+  const from = isoTime(input.from) ?? 0;
+  const to = isoTime(input.to) ?? 0;
+  const byEld = new Map<string, EldIftaIn["vehicles"][number]>();
+  for (const t of input.vehicles) if (t.eldVehicleId != null && !byEld.has(t.eldVehicleId)) byEld.set(t.eldVehicleId, t);
+  const claimed = new Map<string, string>(); // desk truck -> company vehicle id
+  const truckOf = (v: { id: number; number: string }) => {
+    const id = String(v.id);
+    const linked = byEld.get(id);
+    const truck = linked ?? input.vehicles.find((t) => t.eldVehicleId == null && t.name != null && t.name.trim().toLowerCase() === v.number.trim().toLowerCase());
+    if (!truck) return null;
+    const had = claimed.get(truck.id);
+    if (had != null && had !== id) return null;
+    claimed.set(truck.id, id);
+    return truck;
+  };
+
+  const pieces: IftaMilePiece[] = [];
+  const canada: IftaOut["canada"] = [];
+  const answered = new Set<string>();
+  const seen = new Set<string>();
+  const skipped = { outsideQuarter: 0, afterAsOf: 0, unreadable: 0, duplicate: 0 };
+  for (const { ifta_trip: p } of answer.ifta_trips) {
+    const truck = truckOf(p.vehicle);
+    if (!truck) continue;
+    answered.add(truck.id);
+    const code = stateCode(p.jurisdiction);
+    const s = isoTime(p.start_time);
+    const e = isoTime(p.end_time);
+    if (!code || s == null || e == null || e < s || !Number.isFinite(p.start_odometer) || !Number.isFinite(p.end_odometer) || !Number.isFinite(p.distance) || p.distance < 0 || p.end_odometer < p.start_odometer) {
+      skipped.unreadable += 1;
+      continue;
+    }
+    if (s < from || s >= to) {
+      skipped.outsideQuarter += 1;
+      continue;
+    }
+    if (e > input.asOf) {
+      skipped.afterAsOf += 1;
+      continue;
+    }
+    const externalId = `${String(p.id)}:${code}`;
+    if (seen.has(externalId)) {
+      skipped.duplicate += 1;
+      continue;
+    }
+    seen.add(externalId);
+    const miles = tenth(p.distance);
+    if (CA_PROVINCES[code] != null) {
+      canada.push({ vehicleId: truck.id, jurisdiction: code, miles: miles.toFixed(1) });
+      continue;
+    }
+    if (US_STATES[code] == null) {
+      skipped.unreadable += 1;
+      continue;
+    }
+    const loadId = loadOfPiece(truck.trips ?? [], s, e);
+    pieces.push({
+      vehicleId: truck.id,
+      externalId,
+      jurisdiction: code,
+      loaded: loadId != null,
+      loadId,
+      startOdometer: tenth(p.start_odometer).toFixed(1),
+      endOdometer: tenth(p.end_odometer).toFixed(1),
+      miles: miles.toFixed(1),
+      startedAt: new Date(s).toISOString(),
+      endedAt: new Date(e).toISOString()
+    });
+  }
+  pieces.sort((a, b) => a.vehicleId.localeCompare(b.vehicleId) || a.startedAt.localeCompare(b.startedAt) || a.externalId.localeCompare(b.externalId));
+  return { pieces, answered: [...answered].sort(), canada, skipped };
 }
 
 // ── The simulator ────────────────────────────────────────────────────────────────────────────
@@ -224,7 +354,13 @@ function simulateTractor(truck: In["vehicles"][number], fleet: (typeof SANDBOX_F
 }
 
 /** The company's own vehicle for a desk truck, matched the way the normalizer matches (its id, else its name). */
-const fleetOf = (truck: In["vehicles"][number]) => SANDBOX_FLEET.find((f) => (truck.eldVehicleId != null && String(f.id) === truck.eldVehicleId) || (truck.name != null && f.number.toLowerCase() === truck.name.trim().toLowerCase())) ?? null;
+const fleetOf = (truck: { name: string | null; eldVehicleId: string | null }) => SANDBOX_FLEET.find((f) => (truck.eldVehicleId != null && String(f.id) === truck.eldVehicleId) || (truck.name != null && f.number.toLowerCase() === truck.name.trim().toLowerCase())) ?? null;
+
+/** The company's id for a simulated desk truck: the fleet vehicle it is, else the numeric id it was linked with, else a stable number from the truck. */
+const simVehicleId = (truck: { id: string; name: string | null; eldVehicleId: string | null }) => {
+  const fleet = fleetOf(truck);
+  return fleet ? fleet.id : truck.eldVehicleId && /^\d+$/.test(truck.eldVehicleId) ? parseInt(truck.eldVehicleId, 10) : 10_000 + (seedOf(truck.id) % 89_999);
+};
 
 /**
  * A simulated fleet, in the company's shapes: one vehicle per desk truck (the company's id is stable for a truck), placed at a hub that changes every six hours with a little drift each quarter
@@ -238,7 +374,7 @@ export function sandboxMotivePayloads(input: In, now: Date): { locations: Motive
   const vehicle_locations = input.vehicles.map((truck) => {
     const seed = seedOf(truck.id);
     const fleet = fleetOf(truck);
-    const vehicleId = fleet ? fleet.id : truck.eldVehicleId && /^\d+$/.test(truck.eldVehicleId) ? parseInt(truck.eldVehicleId, 10) : 10_000 + (seed % 89_999);
+    const vehicleId = simVehicleId(truck);
     const sim = simulateTractor(truck, fleet, now.getTime(), q, seed);
     const desk = driverOfTruck.get(truck.id);
     let current_driver: MotiveLocations["vehicle_locations"][number]["vehicle_location"]["current_driver"] = null;
@@ -304,10 +440,110 @@ export function sandboxMotiveRoster(): MotiveRoster {
   };
 }
 
-/** The simulator as a client: the company's calls, answered from `sandboxMotivePayloads`. */
+
+// ── The simulator: a quarter's IFTA trips ────────────────────────────────────────────────────
+
+/** The simulated tractor's speed between places, for the time an empty run takes. */
+const SIM_MPH = 50;
+const durationOf = (miles: Prisma.Decimal) => whole(miles.div(SIM_MPH).times(HOUR).toNumber());
+
+/** The states a run passes through and each one's share, from ProMiles' simulated corridors (the same lanes, either way round), else half each end; a run inside one state is all that state's. */
+function runShares(from: string | null, to: string | null): Array<[string, number]> {
+  const a = placeParts(from).state ?? placeParts(to).state;
+  const b = placeParts(to).state ?? a;
+  if (!a || !b) return [];
+  if (a === b) return [[a, 1]];
+  const fwd = CORRIDORS[`${a}>${b}`];
+  if (fwd) return fwd;
+  const back = CORRIDORS[`${b}>${a}`];
+  if (back) return [...back].reverse();
+  return [[a, 0.5], [b, 0.5]];
+}
+
+type SimRun = { key: string; from: string | null; to: string | null; miles: Prisma.Decimal; start: number; end: number };
+
+/** The odometer a simulated truck starts the quarter's runs at: stable for a truck and a quarter, and a quarter later reads further on. */
+function startOdometer(truckId: string, quarter: string): Prisma.Decimal {
+  const m = /^(\d{4})-Q([1-4])$/.exec(quarter);
+  const index = m ? (parseInt(m[1]!, 10) * 4 + parseInt(m[2]!, 10)) % 40 : 0;
+  return new Prisma.Decimal(100_000 + (seedOf(`${truckId}:odo`) % 200_000) + index * 30_000);
+}
+
+/**
+ * A simulated IFTA trips report, in the company's shapes, from the trip hints the desk passes: for each truck, the empty run to each pickup (from the last delivery, or home), the loaded run, and
+ * the run home after the last delivery. Each run is split over the states its lane passes through, its miles exact to a tenth (the last state takes the rest, so a run's pieces add up to it) and
+ * its time shared out by miles; the odometer runs on piece to piece. Only what overlaps the asked days and was done by `asOf` is reported. Deterministic: the same input answers the same, and it
+ * never reads the wall clock (the adapter refuses a call without `asOf`).
+ */
+export function sandboxMotiveIftaTrips(input: EldIftaIn): MotiveIftaTrips {
+  const from = new Date(input.from).getTime();
+  const to = new Date(input.to).getTime();
+  const out: MotiveIftaTrips["ifta_trips"] = [];
+  for (const truck of input.vehicles) {
+    const hints = [...(truck.trips ?? [])].sort((a, b) => a.pickupAt - b.pickupAt || a.loadId.localeCompare(b.loadId));
+    if (hints.length === 0) continue;
+    const vehicleId = simVehicleId(truck);
+    const runs: SimRun[] = [];
+    let place: string | null = truck.home ?? null;
+    let lastEnd: number | null = null;
+    for (const h of hints) {
+      const empty = tenth(h.pickupDeadheadMiles);
+      if (empty.gt(0)) {
+        let start = h.pickupAt - durationOf(empty);
+        if (lastEnd != null && start < lastEnd) start = lastEnd;
+        if (start >= h.pickupAt) start = h.pickupAt - 60_000;
+        runs.push({ key: `e-${h.loadId}`, from: place ?? h.origin, to: h.origin, miles: empty, start, end: h.pickupAt });
+      }
+      const loaded = tenth(h.loadedMiles);
+      if (loaded.gt(0) && h.deliveredAt > h.pickupAt) runs.push({ key: `l-${h.loadId}`, from: h.origin, to: h.destination, miles: loaded, start: h.pickupAt, end: h.deliveredAt });
+      place = h.destination;
+      lastEnd = h.deliveredAt;
+    }
+    const last = hints[hints.length - 1]!;
+    const home = tenth(last.returnDeadheadMiles);
+    if (home.gt(0)) runs.push({ key: `r-${last.loadId}`, from: last.destination, to: truck.home ?? last.destination, miles: home, start: last.deliveredAt, end: last.deliveredAt + durationOf(home) });
+
+    let odometer = startOdometer(truck.id, input.quarter);
+    for (const run of runs) {
+      const shares = runShares(run.from, run.to);
+      let done = new Prisma.Decimal(0);
+      for (const [i, [state, share]] of shares.entries()) {
+        const miles = i === shares.length - 1 ? run.miles.minus(done) : run.miles.times(share).toDecimalPlaces(1, Prisma.Decimal.ROUND_DOWN);
+        const at = (d: Prisma.Decimal) => run.start + whole(d.div(run.miles).times(run.end - run.start).toNumber());
+        const start = at(done);
+        const end = i === shares.length - 1 ? run.end : at(done.plus(miles));
+        const startOdo = odometer;
+        odometer = odometer.plus(miles);
+        done = done.plus(miles);
+        if (end <= from || start >= to || end > input.asOf) continue;
+        out.push({
+          ifta_trip: {
+            id: `sim-${vehicleId}-${run.key}-${i}`,
+            date: new Date(start).toISOString().slice(0, 10),
+            jurisdiction: state,
+            vehicle: { id: vehicleId, number: truck.name ?? `Truck ${vehicleId}` },
+            start_time: new Date(start).toISOString(),
+            end_time: new Date(end).toISOString(),
+            start_odometer: startOdo.toNumber(),
+            end_odometer: odometer.toNumber(),
+            distance: miles.toNumber()
+          }
+        });
+      }
+    }
+  }
+  return { ifta_trips: out };
+}
+
+/** The simulator as a client: the company's calls, answered from `sandboxMotivePayloads`. A status read carries no trip hints, so its IFTA report has nothing driven. */
 export function sandboxMotiveClient(input: In, now: Date = new Date()): MotiveClient {
   const p = sandboxMotivePayloads(input, now);
-  return { vehicleLocations: async () => p.locations, hosAvailability: async () => p.hos, fleetRoster: async () => sandboxMotiveRoster() };
+  return { vehicleLocations: async () => p.locations, hosAvailability: async () => p.hos, fleetRoster: async () => sandboxMotiveRoster(), iftaTrips: async () => ({ ifta_trips: [] }) };
+}
+
+/** The simulator as a client for a quarter's miles: the IFTA report from `sandboxMotiveIftaTrips`, at the desk's clock only. */
+export function sandboxMotiveIftaClient(input: EldIftaIn): MotiveClient {
+  return { vehicleLocations: async () => ({ vehicle_locations: [] }), hosAvailability: async () => ({ users: [] }), fleetRoster: async () => sandboxMotiveRoster(), iftaTrips: async () => sandboxMotiveIftaTrips(input) };
 }
 
 // ── The adapter ──────────────────────────────────────────────────────────────────────────────
@@ -322,7 +558,32 @@ async function run(client: MotiveClient, provider: string, input: In) {
   }
 }
 
-const live: Adapter<In, Out> = ({ provider, input }) => run(liveMotiveClient, provider, input);
-const sandbox: Adapter<In, Out> = ({ provider, input }) => run(sandboxMotiveClient(input, input.asOf != null ? new Date(input.asOf) : new Date()), provider, input);
+/** The quarter's calendar days, first and last, as the company's report takes them. The exact bounds are applied by the normalizer. */
+const quarterDays = (quarter: string): { start_date: string; end_date: string } => {
+  const m = /^(\d{4})-Q([1-4])$/.exec(quarter)!;
+  const q = parseInt(m[2]!, 10);
+  const last = ["03-31", "06-30", "09-30", "12-31"][q - 1]!;
+  return { start_date: `${m[1]}-${String((q - 1) * 3 + 1).padStart(2, "0")}-01`, end_date: `${m[1]}-${last}` };
+};
 
-export const motiveAdapter: ProviderAdapter<In, Out> = { live, sandbox };
+/** A quarter's miles: ask the company's IFTA report for the linked trucks over the quarter's days and normalize it. A call without the desk's clock or a quarter is refused before anything is asked. */
+async function runIfta(client: MotiveClient, provider: string, input: EldIftaIn) {
+  if (typeof input.asOf !== "number" || !Number.isFinite(input.asOf)) return err("bad_request", "The desk's clock (asOf) is required for a quarter's miles.");
+  if (!/^\d{4}-Q[1-4]$/.test(input.quarter) || !Number.isFinite(new Date(input.from).getTime()) || !Number.isFinite(new Date(input.to).getTime())) return err("bad_request", "A quarter, like 2026-Q3, with its bounds.");
+  try {
+    // The trucks linked to the company by its id; none linked asks for the whole fleet, and the normalizer matches by name. The simulator answers from the trip hints whatever is asked.
+    const ids = input.vehicles.flatMap((v) => (v.eldVehicleId != null && /^\d+$/.test(v.eldVehicleId) ? [parseInt(v.eldVehicleId, 10)] : []));
+    const answer = await client.iftaTrips({ ...quarterDays(input.quarter), vehicle_ids: [...new Set(ids)] });
+    return ok({ vehicles: [], iftaTrips: normalizeMotiveIfta(input, answer) });
+  } catch (e) {
+    return e instanceof NotLive ? notImplemented(provider) : err("upstream_error", "Motive did not answer.");
+  }
+}
+
+type AnyIn = AdapterShapes["eld"]["in"];
+
+const live: Adapter<AnyIn, Out> = ({ provider, input }) => (input.op === "ifta_trips" ? runIfta(liveMotiveClient, provider, input) : run(liveMotiveClient, provider, input));
+const sandbox: Adapter<AnyIn, Out> = ({ provider, input }) =>
+  input.op === "ifta_trips" ? runIfta(sandboxMotiveIftaClient(input), provider, input) : run(sandboxMotiveClient(input, input.asOf != null ? new Date(input.asOf) : new Date()), provider, input);
+
+export const motiveAdapter: ProviderAdapter<AnyIn, Out> = { live, sandbox };

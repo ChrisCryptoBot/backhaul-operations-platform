@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import React from "react";
-import { calculateIftaAction, syncFuelCardsAction } from "@/app/(desk)/actions";
+import { calculateIftaAction, syncFuelCardsAction, syncIftaMileageAction } from "@/app/(desk)/actions";
 import { tried } from "./kit/tried";
 import { useToast } from "./kit/toast";
 
@@ -56,6 +56,36 @@ export function FuelSyncButton({ days, reason }: { days: number; reason: string 
 }
 
 /** Works out a quarter's miles by state from the quarter's delivered loads, and keeps the answer. */
+/** Read the quarter's miles by state from the ELD (money plan Wave 5 step 5a). The return screen that uses them is step 7; until then the result line says what was kept. */
+export function IftaEldMilesButton({ quarter, reason, again }: { quarter: string; reason: string | null; again: boolean }) {
+  const { pending, error, ask } = useAsk();
+  return (
+    <span className="ifta-eld-btn">
+      <button
+        type="button"
+        className="tl-btn"
+        disabled={pending || !!reason}
+        title={reason ?? undefined}
+        onClick={() =>
+          ask(async () => {
+            const out = await syncIftaMileageAction(quarter);
+            if (!out.ok) return { ok: false, error: out.error };
+            const parts = [
+              `${quarter}: ${Number(out.miles).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} ELD miles in ${out.states} ${out.states === 1 ? "state" : "states"} for ${out.trucks} ${out.trucks === 1 ? "truck" : "trucks"}`,
+              out.notAnswered > 0 ? `${out.notAnswered} with no ELD miles` : null,
+              Number(out.canadaMiles) > 0 ? `${out.canadaMiles} miles in Canada not counted` : null
+            ].filter(Boolean);
+            return { ok: true, text: `${parts.join("; ")}.` };
+          })
+        }>
+        {pending ? "Reading…" : again ? "Read ELD miles again" : "Read ELD miles"}
+      </button>
+      {reason ? <span className="tl-sub">{reason}</span> : null}
+      <Note error={error} />
+    </span>
+  );
+}
+
 export function IftaCalcButton({ quarter, reason, again }: { quarter: string; reason: string | null; again: boolean }) {
   const { pending, error, ask } = useAsk();
   return (
