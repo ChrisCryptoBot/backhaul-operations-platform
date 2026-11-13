@@ -480,7 +480,17 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
       ["Truck positions and billed miles (last 7 days)", "Apart by more than 30%", g.apart, null],
       ["Fuel and fuel tax", "Settled fuel purchases in the window", h.fuelTax.purchases, null],
       ...h.fuelTax.issues.map((i): CsvCell[] => ["Fuel and fuel tax", i.label, i.count, null]),
-      ...(h.fuelTax.quarter ? [["Fuel and fuel tax", `${h.fuelTax.quarter.quarter} IFTA return`, h.fuelTax.quarter.filed ? (h.fuelTax.quarter.changedSinceFiled ? "filed, changed since" : "filed") : `not filed, ${h.fuelTax.quarter.blockers.length} blocking`, null] as CsvCell[]] : [])
+      ...(h.fuelTax.quarter ? [["Fuel and fuel tax", `${h.fuelTax.quarter.quarter} IFTA return`, h.fuelTax.quarter.filed ? (h.fuelTax.quarter.changedSinceFiled ? "filed, changed since" : "filed") : `not filed, ${h.fuelTax.quarter.blockers.length} blocking`, null] as CsvCell[]] : []),
+      // Money integrity (Wave 6 step 2): the same rows the card shows. A check not done says "not checked" and why, never a count.
+      ...h.money.checks.flatMap((c): CsvCell[][] =>
+        c.state === "not_checked"
+          ? [[`Money: ${c.label}`, `Not checked: ${c.notCheckedWhy}`, null, null]]
+          : [
+              [`Money: ${c.label}`, "Records checked", c.checked, null],
+              [`Money: ${c.label}`, "Agree", c.passed, null],
+              [`Money: ${c.label}`, "Disagree", c.failed, null]
+            ]
+      )
     ];
     return { filename: `truelane-desk-data-health-checks-${tag}.csv`, csv: toCsv(["Check", "Measure", "Loads", "Dollars"], rows) };
   }

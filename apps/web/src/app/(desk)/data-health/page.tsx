@@ -3,7 +3,7 @@ import Link from "next/link";
 import React from "react";
 import { PageHead, Tabs } from "@/components/desk/ui";
 import { EmptyState } from "@/components/desk/kit/states";
-import { CrossChecks, FuelTaxChecks, GapList, HealthHero, HowItWorks } from "@/components/desk/data-health/parts";
+import { CrossChecks, FuelTaxChecks, GapList, HealthHero, HowItWorks, MoneyChecks } from "@/components/desk/data-health/parts";
 import { kpiHref, parseKpiParams } from "@/lib/kpi-params";
 import { KPI_PERIODS, windowLabel } from "@/lib/kpi-periods";
 import { requirePage } from "@/server/tl/access";
@@ -33,7 +33,7 @@ export default async function DataHealthPage({ searchParams }: { searchParams?: 
           <summary className="tl-btn">Export CSV</summary>
           <div className="menu-pop">
             <a href={csv("data-health")}>What is missing</a>
-            <a href={csv("data-health-checks")}>Cross-source checks</a>
+            <a href={csv("data-health-checks")}>Cross-source and money checks</a>
           </div>
         </details>
         <Link href={kpiHref("/data-health/report", params)} className="tl-btn">Readiness report</Link>
@@ -56,6 +56,7 @@ export default async function DataHealthPage({ searchParams }: { searchParams?: 
           <GapList checks={h.completeness.checks} />
           <CrossChecks h={h} />
           <FuelTaxChecks h={h} />
+          <MoneyChecks h={h} />
           <HowItWorks />
         </div>
       )}

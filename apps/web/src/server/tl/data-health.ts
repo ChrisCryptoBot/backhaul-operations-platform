@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { buildDataHealth, fuelTaxCheck, type DataHealth, type FuelTaxCheck, type HealthDriver, type HealthLoad, type HealthTrailer, type HealthTruck, type PingPoint, type PingTrip } from "@/lib/data-health";
 import { returnDrift } from "@/lib/ifta-return";
+import { decimalCents, MONEY_READ_CAP, moneyIntegrity, type MoneyFuelLine, type MoneyIntegrity, type MoneyInvoice, type MoneyStatement } from "@/lib/money-integrity";
 import { recentQuarters } from "@/lib/ifta-rates-csv";
 import { countFlags, flagContextStart, readFlags } from "@/server/partners/fuel-flags";
 import { iftaFiling } from "@/server/partners/ifta-filing";
@@ -19,7 +20,7 @@ import { workspaceTimezone } from "./zone";
  * whole fleet), so a region, a terminal or everything is one question. The position-ping check reads only the last week (that is all the pings the desk keeps) and at most the newest few dozen trips.
  */
 export type HealthQuery = { period: KpiPeriod; terminals?: readonly string[] | null };
-export type HealthRead = DataHealth & { window: TimeWindow; windowStart: number; truncated: boolean; pingDays: number; fuelTax: FuelTaxCheck };
+export type HealthRead = DataHealth & { window: TimeWindow; windowStart: number; truncated: boolean; pingDays: number; fuelTax: FuelTaxCheck; money: MoneyIntegrity };
 
 /** The most finished loads read for one answer (a fleet's "All time" is more than a screen can usefully check). */
 export const MAX_HEALTH_LOADS = 20_000;
@@ -28,6 +29,8 @@ export const MAX_PING_TRIPS = 60;
 /** The desk keeps pings for a week. */
 export const PING_DAYS = 7;
 const UNIT_CAP = 10_000;
+/** The most invoices (and, separately, final statements) the money checks read for one answer, newest first. */
+export const MAX_MONEY_INVOICES = MONEY_READ_CAP;
 
 type Raw = {
   id: string;
@@ -169,6 +172,83 @@ async function fuelTaxRead(workspaceId: string, since: Date, terminals: readonly
   });
 }
 
+/** A Decimal (or null) as whole cents, exactly: through its two-place text, never a float. */
+const c = (d: { toFixed(n: number): string } | null | undefined) => decimalCents(d == null ? null : d.toFixed(2));
+const ms = (d: Date | null | undefined) => (d ? d.getTime() : null);
+
+/**
+ * The money-integrity read (Wave 6 step 2; lib/money-integrity.ts has the rules): the invoices and credit memos issued in the window, the final statements finalized in it with their loads
+ * and the fuel they took off, and where QuickBooks stands. Money is the whole fleet's, whatever terminals are in view (an invoice or a statement belongs to no one terminal), and the card
+ * says so. Workspace-scoped, capped, exact cents.
+ */
+async function moneyRead(workspaceId: string, since: Date): Promise<MoneyIntegrity> {
+  const loadSel = { id: true, loadNumber: true, status: true, deletedAt: true, factoringStatus: true, invoicedAmount: true, paidAmount: true, paymentStatus: true } as const;
+  const [invRows, stRows, conn, cursor] = await Promise.all([
+    prisma.invoice.findMany({
+      where: { workspaceId, issuedAt: { gte: since } },
+      select: {
+        id: true, number: true, kind: true, status: true, createdAt: true, voidedAt: true, issuedAt: true, termsDays: true, paidAt: true, total: true, paidTotal: true, writeOffAmount: true,
+        factoringStatus: true, factoringFundedAt: true, factoringAdvance: true, factoringFee: true, factoringReserve: true, factoringReserveReleased: true, factoringChargeback: true, factoringReserveReleasedAt: true, factoringChargedBackAt: true,
+        lines: { select: { loadId: true, amount: true }, orderBy: [{ sort: "asc" }, { id: "asc" }] },
+        loads: { select: { load: { select: loadSel } } },
+        payments: { select: { amount: true } }
+      },
+      orderBy: [{ issuedAt: "desc" }, { id: "asc" }],
+      take: MAX_MONEY_INVOICES + 1
+    }),
+    prisma.settlement.findMany({
+      where: { workspaceId, status: "final", finalizedAt: { gte: since } },
+      select: { id: true, number: true, loads: { select: { load: { select: { id: true, loadNumber: true, status: true, deletedAt: true } } } }, lineRows: { where: { kind: "fuel", fuelTransactionId: { not: null } }, select: { fuelTransactionId: true, label: true } } },
+      orderBy: [{ finalizedAt: "desc" }, { id: "asc" }],
+      take: MAX_MONEY_INVOICES + 1
+    }),
+    prisma.partnerConnection.findFirst({ where: { workspaceId, capability: "accounting", provider: "quickbooks", status: { in: ["connected", "error"] } }, select: { id: true } }),
+    prisma.syncCursor.findUnique({ where: { workspaceId_provider_stream: { workspaceId, provider: "quickbooks", stream: "changes" } }, select: { lastOkAt: true } })
+  ]);
+  const truncated = invRows.length > MAX_MONEY_INVOICES || stRows.length > MAX_MONEY_INVOICES;
+  const invs = invRows.slice(0, MAX_MONEY_INVOICES);
+  const sts = stRows.slice(0, MAX_MONEY_INVOICES);
+  const refs = conn
+    ? new Set((await prisma.externalRef.findMany({ where: { workspaceId, provider: "quickbooks", entity: { in: ["invoice", "credit_memo"] }, localId: { in: invs.map((i) => i.id) } }, select: { localId: true } })).map((r) => r.localId))
+    : new Set<string>();
+  const fuelIds = [...new Set(sts.flatMap((s) => s.lineRows.map((r) => r.fuelTransactionId!)))];
+  const fuelOf = new Map((await prisma.fuelTransaction.findMany({ where: { workspaceId, id: { in: fuelIds } }, select: { id: true, settlementId: true } })).map((f) => [f.id, f.settlementId]));
+  const label = (l: { id: string; loadNumber: string | null }) => l.loadNumber ?? `Load ${l.id.slice(-6)}`;
+
+  const invoices: MoneyInvoice[] = invs.map((i) => ({
+    id: i.id,
+    number: i.number,
+    kind: i.kind,
+    status: i.status,
+    createdAt: i.createdAt.getTime(),
+    voidedAt: ms(i.voidedAt),
+    issuedAt: i.issuedAt,
+    termsDays: i.termsDays,
+    paidAt: i.paidAt,
+    totalCents: c(i.total)!,
+    paidTotalCents: c(i.paidTotal)!,
+    writeOffCents: c(i.writeOffAmount),
+    paymentsCents: i.payments.reduce((s, p) => s + c(p.amount)!, 0),
+    lines: i.lines.map((l) => ({ loadId: l.loadId, cents: c(l.amount)! })),
+    loads: i.loads.map(({ load: l }) => ({ loadId: l.id, label: label(l), status: l.status, deleted: l.deletedAt != null, factoringStatus: l.factoringStatus, invoicedCents: c(l.invoicedAmount), paidCents: c(l.paidAmount), paymentStatus: l.paymentStatus })),
+    factoring: {
+      status: i.factoringStatus,
+      fundedAt: ms(i.factoringFundedAt),
+      advanceCents: c(i.factoringAdvance),
+      feeCents: c(i.factoringFee),
+      reserveCents: c(i.factoringReserve),
+      releasedCents: c(i.factoringReserveReleased),
+      chargebackCents: c(i.factoringChargeback),
+      releasedAt: ms(i.factoringReserveReleasedAt),
+      chargedBackAt: ms(i.factoringChargedBackAt)
+    },
+    inQbo: refs.has(i.id)
+  }));
+  const statements: MoneyStatement[] = sts.map((s) => ({ id: s.id, number: s.number, loads: s.loads.map(({ load: l }) => ({ loadId: l.id, label: label(l), status: l.status, deleted: l.deletedAt != null })) }));
+  const fuelLines: MoneyFuelLine[] = sts.flatMap((s) => s.lineRows.map((r) => ({ fuelId: r.fuelTransactionId!, label: r.label, settlementId: s.id, settlementNumber: s.number, purchaseSettlementId: fuelOf.get(r.fuelTransactionId!) ?? null })));
+  return moneyIntegrity({ invoices, statements, fuelLines, qbo: { connected: conn != null, lastSyncAt: ms(cursor?.lastOkAt) }, truncated });
+}
+
 export async function getDataHealth(q: HealthQuery, now = new Date(), workspaceId = currentWorkspaceId()): Promise<HealthRead> {
   const tz = await workspaceTimezone(workspaceId);
   const terminals = termList(q.terminals ?? null)?.slice().sort() ?? null;
@@ -204,9 +284,9 @@ export async function getDataHealth(q: HealthQuery, now = new Date(), workspaceI
     const unitTrucks: HealthTruck[] = trucks.map((t) => ({ id: t.id, name: t.name ?? "Truck", hasProfile: t.costProfile != null, hasBase: !!t.homeBaseAddress?.trim() || t.homeBaseLat != null, hasMpg: t.mpg != null }));
     const unitDrivers: HealthDriver[] = drivers.map((d) => ({ id: d.id, name: d.name, hasCdlDate: d.cdlExpiry != null, hasMedicalDate: d.medicalCardExpiry != null, hasPhone: !!d.phone?.trim() }));
     const unitTrailers: HealthTrailer[] = trailers.map((t) => ({ id: t.id, number: t.number, hasRegistration: t.registrationExpiry != null, hasInspection: t.inspectionExpiry != null }));
-    const [trips, fuelTax] = await Promise.all([pingTrips(workspaceId, loads, now.getTime()), fuelTaxRead(workspaceId, since, terminals, tz, now)]);
+    const [trips, fuelTax, money] = await Promise.all([pingTrips(workspaceId, loads, now.getTime()), fuelTaxRead(workspaceId, since, terminals, tz, now), moneyRead(workspaceId, since)]);
     const health = buildDataHealth({ loads, trucks: unitTrucks, drivers: unitDrivers, trailers: unitTrailers, hasCardData: cardRows > 0, trips });
-    return { ...health, window, windowStart, truncated, pingDays: PING_DAYS, fuelTax };
+    return { ...health, window, windowStart, truncated, pingDays: PING_DAYS, fuelTax, money };
   });
 }
 

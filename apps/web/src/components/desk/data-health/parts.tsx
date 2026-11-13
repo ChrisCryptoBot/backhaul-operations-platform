@@ -2,6 +2,7 @@ import Link from "next/link";
 import React from "react";
 import { gradeOf, EXAMPLES, type CheckResult, type ModuleKey } from "@/lib/data-health";
 import { usd, pct } from "@/lib/desk-format";
+import { MONEY_READ_CAP } from "@/lib/money-integrity";
 import type { HealthRead } from "@/server/tl/data-health";
 import { Card } from "../ui";
 
@@ -228,5 +229,50 @@ export function HowItWorks() {
         estimated, and a field the desk cannot tell is never counted as filled in.
       </p>
     </details>
+  );
+}
+
+/** Money integrity (Wave 6 step 2): seven checks that the money records agree, each with what it applied to, what disagrees (named, linked), and what it could not check. Kept out of the score. */
+export function MoneyChecks({ h }: { h: HealthRead }) {
+  const m = h.money;
+  const n = (x: number) => x.toLocaleString("en-US");
+  return (
+    <Card title="Money records agree">
+      <p>
+        Invoices and credit memos issued in this window, and driver statements finalized in it (money is the whole fleet&apos;s, whatever the view).{" "}
+        {m.failed === 0 ? "Nothing that was checked disagrees." : `${n(m.failed)} ${m.failed === 1 ? "record disagrees" : "records disagree"}:`}
+        {m.notChecked > 0 ? ` ${m.notChecked} ${m.notChecked === 1 ? "check was" : "checks were"} not done, and say why.` : ""}
+      </p>
+      <ul className="tl-list dh-money">
+        {m.checks.map((c) => (
+          <li key={c.key} data-check={c.key}>
+            <b>{c.label}</b>:{" "}
+            {c.state === "not_checked" ? (
+              <span className="tl-sub">not checked. {c.notCheckedWhy}</span>
+            ) : c.checked === 0 ? (
+              <span className="tl-sub">nothing in this window to check.</span>
+            ) : c.failed === 0 ? (
+              <>{c.checked === 1 ? "the one checked agrees." : `all ${n(c.checked)} agree.`}</>
+            ) : (
+              <>
+                <b>{n(c.failed)}</b> of {n(c.checked)} disagree.
+              </>
+            )}
+            {c.examples.length > 0 ? (
+              <ul className="tl-list">
+                {c.examples.map((e) => (
+                  <li key={e.id}>
+                    <Link href={e.href}>{e.label}</Link>: {e.detail}
+                  </li>
+                ))}
+                {c.failed > c.examples.length ? <li className="tl-sub">and {n(c.failed - c.examples.length)} more (the CSV lists the counts).</li> : null}
+              </ul>
+            ) : null}
+            {c.limits && c.state === "checked" ? <p className="tl-sub">{c.limits}</p> : null}
+          </li>
+        ))}
+      </ul>
+      {m.truncated ? <p className="tl-sub">Only the newest {n(MONEY_READ_CAP)} invoices and statements were read; the counts are of those.</p> : null}
+    </Card>
   );
 }

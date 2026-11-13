@@ -168,6 +168,38 @@ export default async function DataReadinessReport({ searchParams }: { searchPara
           </tbody>
         </table>
 
+        <h2>Money records agree</h2>
+        <p className="rp-meta">Invoices and credit memos issued in the window and driver statements finalized in it, the whole fleet&apos;s. A check that could not be done says so; it is never counted as passed.</p>
+        <table aria-label="Money checks">
+          <thead>
+            <tr>
+              <th>Check</th>
+              <th>Found</th>
+              <th>First that disagree</th>
+            </tr>
+          </thead>
+          <tbody>
+            {h.money.checks.map((c) => (
+              <tr key={c.key}>
+                <td>{c.label}</td>
+                <td>
+                  {c.state === "not_checked"
+                    ? `Not checked. ${c.notCheckedWhy}`
+                    : c.checked === 0
+                      ? "Nothing in the window to check."
+                      : c.failed === 0
+                        ? c.checked === 1
+                          ? "The one checked agrees."
+                          : `All ${c.checked.toLocaleString("en-US")} agree.`
+                        : `${c.failed.toLocaleString("en-US")} of ${c.checked.toLocaleString("en-US")} disagree.`}
+                  {c.limits && c.state === "checked" ? ` ${c.limits}` : ""}
+                </td>
+                <td>{c.examples.slice(0, 3).map((e) => `${e.label}: ${e.detail}`).join("; ") || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
         <p className="rp-meta" style={{ marginTop: 16 }}>
           How this is worked out: a field counts as filled in when the desk holds a real value for it. Each check is counted over the items it applies to. A module&apos;s score is the share of its checked fields that are filled in; the headline weights Loads 40% and Stops, Trucks, Drivers and
           Trailers 15% each, over the modules that have anything to check. Nothing is estimated, and a field the desk cannot tell is never counted as filled in.
