@@ -6,7 +6,7 @@ import { toCompany } from "./company";
 import { prisma } from "@/lib/db";
 import type { AuditSnapshot } from "@/lib/audit-diff";
 import { rateConTotal, type PayKind } from "@/lib/pay";
-import { computeStatement, linePay, periodBounds, periodCovering, periodText, statementOf, validatePeriod, type Adjustment, type AdjustmentInput, type FuelLine, type SettlementLoad, type Statement, type StatementLine } from "@/lib/settlement";
+import { computeStatement, linePay, periodBounds, periodCovering, periodText, rowsTotalCents, statementOf, statementRows, validatePeriod, type Adjustment, type AdjustmentInput, type FuelLine, type SettlementLoad, type Statement, type StatementLine } from "@/lib/settlement";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { currentWorkspaceId } from "./workspace";
@@ -221,6 +221,29 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
       });
       if (claimed.count !== 1) throw new LostDraft();
       await tx.settlementLoad.createMany({ data: statement.lines.map((l) => ({ settlementId: id, loadId: l.loadId, amount: new Prisma.Decimal(l.amount ?? 0) })) });
+      // The statement as rows (rule J), from the same Statement the JSON above is written from. They must come to the total frozen with it, to the cent, or nothing is finalized.
+      const rows = statementRows(statement);
+      if (!new Prisma.Decimal(rowsTotalCents(rows)).equals(new Prisma.Decimal(statement.total).times(100).toDecimalPlaces(0))) throw new Error(`${s.number}: the statement rows do not add up to its total`);
+      if (rows.length > 0)
+        await tx.settlementLine.createMany({
+          data: rows.map((r) => ({
+            workspaceId,
+            settlementId: id,
+            sort: r.sort,
+            kind: r.kind,
+            label: r.label,
+            basis: r.basis,
+            amount: new Prisma.Decimal(r.amount),
+            loadId: r.loadId,
+            loadNumber: r.loadNumber,
+            deliveredAt: r.deliveredAt ? new Date(r.deliveredAt) : null,
+            payKind: r.payKind,
+            payRate: r.payRate == null ? null : new Prisma.Decimal(r.payRate),
+            hours: r.hours == null ? null : new Prisma.Decimal(r.hours),
+            fuelTransactionId: r.fuelTransactionId,
+            gallons: r.gallons == null ? null : new Prisma.Decimal(r.gallons)
+          }))
+        });
       // Each fuel purchase comes off one statement, once: taken from the state it was read in, so one a second statement took a moment ago stops this one rather than coming off twice.
       if (statement.fuel.length > 0) {
         const taken = await tx.fuelTransaction.updateMany({ where: { id: { in: statement.fuel.map((f) => f.id) }, workspaceId, settlementId: null }, data: { settlementId: id } });

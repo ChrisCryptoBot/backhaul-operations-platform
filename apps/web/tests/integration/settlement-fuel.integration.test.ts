@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { storePurchases } from "@/server/partners/fuel-store";
 import { listFuel } from "@/server/partners/fuel-store";
@@ -98,6 +99,14 @@ describe.skipIf(!run)("fuel deducted on driver statements", () => {
     expect((s.fuel as Array<{ amount: number }>).map((f) => f.amount).sort((x, y) => x - y)).toEqual([200.5, 300]);
     const taken = await prisma.fuelTransaction.findMany({ where: { settlementId: statementId } });
     expect(taken.map((t) => t.externalId).sort()).toEqual(["in-1", "in-2"]);
+    // Rule J: the same statement as rows, signed, in its own order, adding up to the total to the cent.
+    const rows = await prisma.settlementLine.findMany({ where: { settlementId: statementId }, orderBy: { sort: "asc" } });
+    expect(rows.map((r) => r.kind)).toEqual(["load", "fuel", "fuel", "adjustment"]);
+    expect(rows.filter((r) => r.kind === "fuel").map((r) => r.amount.toNumber()).sort((x, y) => x - y)).toEqual([-300, -200.5]);
+    expect(rows.filter((r) => r.kind !== "fuel").map((r) => [r.label, r.amount.toNumber()])).toEqual([[expect.stringContaining(", "), 400], ["Bonus", 25]]);
+    expect(rows.reduce((sum, r) => sum.plus(r.amount), new Prisma.Decimal(0)).toNumber()).toBe(-75.5);
+    expect(rows.filter((r) => r.kind === "fuel").map((r) => r.fuelTransactionId).sort()).toEqual([a, b].sort());
+    expect(rows.every((r) => r.workspaceId === W)).toBe(true);
     // Frozen: a change to the purchase afterwards does not change the statement.
     await prisma.fuelTransaction.update({ where: { id: a }, data: { amount: 1 } });
     const view = (await getSettlement(statementId, W))!;
@@ -132,6 +141,8 @@ describe.skipIf(!run)("fuel deducted on driver statements", () => {
   test("voiding gives every purchase back, and they can be deducted on a new statement", async () => {
     expect(await voidSettlement(statementId, "Wrong period", new Date(), W)).toMatchObject({ ok: true });
     expect(await prisma.fuelTransaction.count({ where: { settlementId: statementId } })).toBe(0);
+    // The voided statement keeps its rows: it stays on record as it was.
+    expect(await prisma.settlementLine.count({ where: { settlementId: statementId } })).toBe(4);
     expect((await eligibleFuel(driverId, "2026-11-01", "2026-11-07", W)).map((f) => f.amount).sort((x, y) => x - y)).toEqual([99.5, 200.5, 300]);
     // The Fuel list no longer says deducted for a voided statement.
     const list = await listFuel({ days: 400 }, new Date("2026-11-30T00:00:00Z"), W);

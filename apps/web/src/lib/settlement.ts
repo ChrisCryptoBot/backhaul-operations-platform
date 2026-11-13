@@ -250,6 +250,43 @@ export function periodCovering(deliveredAt: Array<Date | string>, tz?: string): 
   return { start: oldest < earliestAllowed ? earliestAllowed : oldest, end };
 }
 
+// ── Statement rows (docs/MONEY_PLAN.md, Wave 4 step 1, rule J) ──────────────────────────────────
+
+/** Where each kind of line starts in a statement's order, so the rows keep the statement's own order (loads, then fuel, then adjustments) and the backfill numbers them the same way. */
+export const ROW_SORT = { load: 0, fuel: 10000, adjustment: 20000 } as const;
+export type RowKind = keyof typeof ROW_SORT;
+
+/** One frozen row: signed (pay positive, money off negative), in dollars to the cent. */
+export type StatementRow = {
+  sort: number;
+  kind: RowKind;
+  label: string;
+  basis: string | null;
+  amount: number;
+  loadId: string | null;
+  loadNumber: string | null;
+  deliveredAt: string | null;
+  payKind: PayKind | null;
+  payRate: number | null;
+  hours: number | null;
+  fuelTransactionId: string | null;
+  gallons: number | null;
+};
+
+const none = { loadId: null, loadNumber: null, deliveredAt: null, payKind: null, payRate: null, hours: null, fuelTransactionId: null, gallons: null };
+
+/** A statement as the rows it is frozen into. Their amounts add up to `statement.total` to the cent. */
+export function statementRows(st: Pick<Statement, "lines" | "fuel" | "adjustments">): StatementRow[] {
+  return [
+    ...st.lines.map((l, i): StatementRow => ({ ...none, sort: ROW_SORT.load + i, kind: "load", label: `${l.loadNumber ?? "Load"}, ${l.lane}`, basis: l.basis, amount: round2(l.amount ?? 0), loadId: l.loadId, loadNumber: l.loadNumber, deliveredAt: l.deliveredAt, payKind: l.payKind, payRate: l.payRate, hours: l.hours })),
+    ...st.fuel.map((f, i): StatementRow => ({ ...none, sort: ROW_SORT.fuel + i, kind: "fuel", label: `Fuel card${f.location ? `, ${f.location}` : ""}`, basis: f.on, amount: -round2(f.amount), loadNumber: f.loadNumber, fuelTransactionId: f.id, gallons: f.gallons })),
+    ...st.adjustments.map((a, i): StatementRow => ({ ...none, sort: ROW_SORT.adjustment + i, kind: "adjustment", label: a.label, basis: null, amount: round2(a.amount) }))
+  ];
+}
+
+/** What the rows come to, in cents: the parity check against the statement's total. */
+export const rowsTotalCents = (rows: Array<{ amount: number }>) => rows.reduce((sum, r) => sum + cents(r.amount), 0);
+
 /** A statement as it was frozen: the same totals the editor shows, from the stored lines and adjustments. */
 export function statementOf(lines: StatementLine[], adjustments: Adjustment[], fuel: FuelLine[] = []): Statement {
   const loadsCents = lines.reduce((sum, l) => sum + (l.amount == null ? 0 : cents(l.amount)), 0);

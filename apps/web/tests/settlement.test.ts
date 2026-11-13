@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { PayKind } from "../src/lib/pay";
-import { addDays, basisText, computeStatement, linePay, parseHours, periodBounds, periodCovering, periodPresets, periodText, statementOf, validatePeriod, type SettlementLoad } from "../src/lib/settlement";
+import { addDays, basisText, computeStatement, linePay, parseHours, periodBounds, periodCovering, periodPresets, periodText, rowsTotalCents, statementOf, statementRows, validatePeriod, type SettlementLoad } from "../src/lib/settlement";
 import { payEstimate } from "../src/server/tl/projector";
 
 const load = (over: Partial<SettlementLoad> = {}): SettlementLoad => ({
@@ -176,5 +176,23 @@ describe("the period", () => {
     expect(long.end).toBe("2026-10-20");
     expect(long.start).toBe("2026-07-21");
     expect(validatePeriod(long.start, long.end).ok).toBe(true);
+  });
+});
+
+describe("a statement as rows (rule J)", () => {
+  const load = (id: string, kind: PayKind, rate: number, miles: number, rc = 0): SettlementLoad => ({ loadId: id, loadNumber: `Q-${id}`, origin: "Dallas, TX", destination: "Tulsa, OK", deliveredAt: "2026-11-03T15:00:00.000Z", loadedMiles: miles, payKind: kind, payRate: rate, rateConTotal: rc, assignedHours: null, brokerStatus: "paid" });
+  it("signs every line (pay up, fuel down, adjustments as typed), keeps the order, and adds up to the total to the cent", () => {
+    const fuel = [{ id: "f1", on: "2026-11-04", location: "Love's", gallons: 40.5, pricePerGallon: 3.33, discount: null, amount: 134.87, loadNumber: "Q-a" }];
+    const st = computeStatement({ loads: [load("a", "cpm", 0.051, 185), load("b", "percent", 27.5, 0, 1333.33)], hours: {}, adjustments: [{ label: "Bonus", amount: "25.10" }, { label: "Lease", amount: "-0.01" }], fuel });
+    const rows = statementRows(st);
+    expect(rows.map((r) => [r.sort, r.kind, r.amount])).toEqual([[0, "load", 9.44], [1, "load", st.lines[1]!.amount], [10000, "fuel", -134.87], [20000, "adjustment", 25.1], [20001, "adjustment", -0.01]]);
+    expect(rowsTotalCents(rows)).toBe(Math.round(st.total * 100));
+    expect(rows[0]).toMatchObject({ label: "Q-a, Dallas, TX → Tulsa, OK", payKind: "cpm", payRate: 0.051, loadId: "a" });
+    expect(rows[2]).toMatchObject({ label: "Fuel card, Love's", basis: "2026-11-04", fuelTransactionId: "f1", gallons: 40.5 });
+  });
+  it("a negative statement (money the driver owes) is rows too, and still adds up", () => {
+    const st = computeStatement({ loads: [load("a", "flat", 100, 0)], hours: {}, adjustments: [{ label: "Damage", amount: "-250.55" }] });
+    expect(rowsTotalCents(statementRows(st))).toBe(-15055);
+    expect(st.total).toBe(-150.55);
   });
 });
