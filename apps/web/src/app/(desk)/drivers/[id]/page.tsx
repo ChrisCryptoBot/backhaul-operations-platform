@@ -19,6 +19,8 @@ import { CanGate } from "@/components/desk/kit/can-gate";
 import { DriverCodeEdit } from "@/components/desk/driver-code-edit";
 import { addressText, profileGaps, tinStatusLabel, tinTypeLabel } from "@/lib/form1099";
 import { driverTaxValuesOf } from "@/server/tl/fleet";
+import { DriverDeductions } from "@/components/desk/driver-deductions";
+import { driverDeductions } from "@/server/tl/deductions";
 
 export const dynamic = "force-dynamic";
 
@@ -27,10 +29,11 @@ const late = (m: number | null) => (m == null ? null : m >= 120 ? `${Math.round(
 
 /** One driver: whether they can take a load, what they are on now, and how they have done on the loads they delivered. */
 export default async function DriverPage({ params }: { params: { id: string } }) {
-  const [d, statements, access] = await Promise.all([
+  const [d, statements, access, deductions] = await Promise.all([
     getDriverDetail(params.id),
     listDriverSettlements(params.id),
-    checkAccess("read")
+    checkAccess("read"),
+    driverDeductions(params.id)
   ]);
   if (!d) notFound();
   const me = access.ok ? access.identity : null;
@@ -242,6 +245,15 @@ export default async function DriverPage({ params }: { params: { id: string } })
           </p>
         ) : null}
       </Card>
+
+      <DriverDeductions
+        driverId={p.id}
+        employee={deductions.employee}
+        escrowHeldCents={deductions.escrowHeldCents}
+        rules={deductions.rules}
+        ledger={deductions.ledger.map((e) => ({ ...e, at: e.at.toISOString() }))}
+        canEdit={canBill}
+      />
 
       <Card title="Changes" className="tl-card">
         {history.rows.length === 0 ? (

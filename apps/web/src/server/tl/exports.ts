@@ -29,6 +29,7 @@ import { listHistory } from "./history";
 import { LOAD_STATUS } from "@/lib/desk-format";
 import { asInvoiceShow, INVOICE_SORT_KEYS, listBoardRows, listInvoiceRows, type BoardRow, type InvoiceScope } from "./queries";
 import { listSettlements } from "./settlement";
+import { DEDUCTION_ROW_LABEL } from "@/lib/deductions";
 import { contractor1099, form1099Csv } from "./form1099";
 import { currentTerminal } from "./terminal";
 import { currentAllowed } from "./scope";
@@ -239,7 +240,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
       return {
         filename: cut ? name(`settlements-first-${cap}`) : name("settlements"),
         csv: toCsv(
-          ["Statement", "Status", "Driver", "Period start", "Period end", "Loads", "Pay for loads", "Fuel card deducted", "Adjustments", "Total", "Finalized", "Paid", "Payment method", "Payroll sent", "Payroll reference", "Voided", "Void reason"],
+          ["Statement", "Status", "Driver", "Period start", "Period end", "Loads", "Pay for loads", "Fuel card deducted", "Adjustments", "Deductions and escrow", "Total", "Finalized", "Paid", "Payment method", "Payroll sent", "Payroll reference", "Voided", "Void reason"],
           rows.map((s): CsvCell[] => [
             s.number,
             SETTLEMENT_STATUS[s.status] ?? s.status,
@@ -250,6 +251,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
             two(s.loadsTotal),
             two(s.fuelTotal),
             two(s.adjustmentsTotal),
+            two(s.deductionsTotal),
             two(s.total),
             ymd(s.finalizedAt),
             ymd(s.paidAt),
@@ -293,6 +295,15 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
             break;
           }
           lines.push([...head, "Adjustment", null, null, null, a.label, two(a.amount)]);
+        }
+        if (cut) break;
+        // Deductions and escrow held are negative, an escrow release positive, as on the statement. The basis names the kind of deduction, or why escrow was released.
+        for (const d of s.statement.deductions) {
+          if (lines.length >= cap) {
+            cut = true;
+            break;
+          }
+          lines.push([...head, DEDUCTION_ROW_LABEL[d.kind], null, null, null, d.basis ? `${d.label}: ${d.basis}` : d.label, two(d.amount)]);
         }
         if (cut) break;
       }

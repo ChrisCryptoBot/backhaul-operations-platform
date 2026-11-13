@@ -1,6 +1,7 @@
 import { usd } from "./desk-format";
 import { percentOf, percentText, type PayKind } from "./pay";
 import { parseCentralLocal, toCentralLocal } from "./zoned";
+import { DEDUCTION_ROW_LABEL, needsNegativeConfirm, type DeductionLine } from "./deductions";
 
 /**
  * A driver's pay statement: the loads they delivered in a period, what each pays them under the pay it was assigned with, the typed hours for
@@ -102,15 +103,20 @@ export type Statement = {
   fuelTotal: number;
   loadsTotal: number;
   adjustmentsTotal: number;
-  /** Net pay: pay for the loads, less fuel, plus the adjustments (a deduction among them is negative). */
+  /** Recurring deductions, escrow held and escrow released (Wave 4 step 3), signed, and what they come to (signed). */
+  deductions: DeductionLine[];
+  deductionsTotal: number;
+  /** Rule K: deductions or escrow take this statement below zero, so finalizing it needs a person to confirm. */
+  needsConfirm: boolean;
+  /** Net pay: pay for the loads, less fuel, plus the adjustments (a deduction among them is negative), plus the deduction lines (signed). */
   total: number;
   errors: Record<string, string>;
   blockers: string[];
   cautions: string[];
 };
 
-export function computeStatement(input: { loads: SettlementLoad[]; hours: Record<string, string>; adjustments: AdjustmentInput[]; fuel?: FuelLine[] }): Statement {
-  const errors: Record<string, string> = {};
+export function computeStatement(input: { loads: SettlementLoad[]; hours: Record<string, string>; adjustments: AdjustmentInput[]; fuel?: FuelLine[]; deductions?: DeductionLine[]; deductionErrors?: Record<string, string> }): Statement {
+  const errors: Record<string, string> = { ...(input.deductionErrors ?? {}) };
   const blockers: string[] = [];
   const cautions: string[] = [];
 
@@ -154,19 +160,23 @@ export function computeStatement(input: { loads: SettlementLoad[]; hours: Record
   const adjustmentCents = adjustments.reduce((sum, a) => sum + cents(a.amount), 0);
   const fuel = input.fuel ?? [];
   const fuelCents = fuel.reduce((sum, f) => sum + cents(f.amount), 0);
-  const totalCents = loadsCents - fuelCents + adjustmentCents;
+  const deductions = input.deductions ?? [];
+  const deductionCents = deductions.reduce((sum, d) => sum + cents(d.amount), 0);
+  const totalCents = loadsCents - fuelCents + adjustmentCents + deductionCents;
+  const needsConfirm = needsNegativeConfirm(totalCents, deductions);
 
   for (const l of lines) if (l.amount == null && !errors[`hours.${l.loadId}`]) blockers.push(`Enter the hours for ${l.loadNumber ?? "an hourly load"}.`);
   if (Object.keys(errors).length > 0) blockers.unshift("Fix what is marked.");
-  if (lines.length === 0 && adjustments.length === 0) blockers.push("There is nothing to pay on this statement.");
+  if (lines.length === 0 && adjustments.length === 0 && !deductions.some((d) => d.kind === "escrow_release")) blockers.push("There is nothing to pay on this statement.");
 
-  if (totalCents < 0) cautions.push("The deductions come to more than the pay, so this statement is a negative amount: money the driver owes.");
+  if (needsConfirm) cautions.push("The deductions and escrow take this statement below zero. Finalizing it needs you to confirm that the driver ends up owing; or skip a deduction this time.");
+  else if (totalCents < 0) cautions.push("The deductions come to more than the pay, so this statement is a negative amount: money the driver owes.");
   const short = lines.filter((l) => l.brokerStatus === "paid_short").length;
   if (short > 0) cautions.push(`${short} of these ${short === 1 ? "loads was" : "loads were"} paid short by the customer. A percent is worked on the agreed rate, so the driver is paid on the full rate; adjust it below if you share the loss.`);
   const unpaid = lines.filter((l) => l.brokerStatus !== "paid" && l.brokerStatus !== "paid_short").length;
   if (unpaid > 0) cautions.push(`${unpaid} of these ${unpaid === 1 ? "loads is" : "loads are"} not paid by the customer yet. Pay the driver on your own terms; the statement does not wait for it.`);
 
-  return { lines, adjustments, fuel, fuelTotal: dollars(fuelCents), loadsTotal: dollars(loadsCents), adjustmentsTotal: dollars(adjustmentCents), total: dollars(totalCents), errors, blockers, cautions };
+  return { lines, adjustments, fuel, fuelTotal: dollars(fuelCents), loadsTotal: dollars(loadsCents), adjustmentsTotal: dollars(adjustmentCents), deductions, deductionsTotal: dollars(deductionCents), needsConfirm, total: dollars(totalCents), errors, blockers, cautions };
 }
 
 // ── The period ─────────────────────────────────────────────────────────────────────────────────
@@ -253,7 +263,7 @@ export function periodCovering(deliveredAt: Array<Date | string>, tz?: string): 
 // ── Statement rows (docs/MONEY_PLAN.md, Wave 4 step 1, rule J) ──────────────────────────────────
 
 /** Where each kind of line starts in a statement's order, so the rows keep the statement's own order (loads, then fuel, then adjustments) and the backfill numbers them the same way. */
-export const ROW_SORT = { load: 0, fuel: 10000, adjustment: 20000 } as const;
+export const ROW_SORT = { load: 0, fuel: 10000, adjustment: 20000, deduction: 30000, escrow: 30000, escrow_release: 30000 } as const;
 export type RowKind = keyof typeof ROW_SORT;
 
 /** One frozen row: signed (pay positive, money off negative), in dollars to the cent. */
@@ -271,16 +281,19 @@ export type StatementRow = {
   hours: number | null;
   fuelTransactionId: string | null;
   gallons: number | null;
+  deductionId: string | null;
 };
 
-const none = { loadId: null, loadNumber: null, deliveredAt: null, payKind: null, payRate: null, hours: null, fuelTransactionId: null, gallons: null };
+const none = { loadId: null, loadNumber: null, deliveredAt: null, payKind: null, payRate: null, hours: null, fuelTransactionId: null, gallons: null, deductionId: null };
 
 /** A statement as the rows it is frozen into. Their amounts add up to `statement.total` to the cent. */
-export function statementRows(st: Pick<Statement, "lines" | "fuel" | "adjustments">): StatementRow[] {
+export function statementRows(st: Pick<Statement, "lines" | "fuel" | "adjustments"> & { deductions?: DeductionLine[] }): StatementRow[] {
   return [
     ...st.lines.map((l, i): StatementRow => ({ ...none, sort: ROW_SORT.load + i, kind: "load", label: `${l.loadNumber ?? "Load"}, ${l.lane}`, basis: l.basis, amount: round2(l.amount ?? 0), loadId: l.loadId, loadNumber: l.loadNumber, deliveredAt: l.deliveredAt, payKind: l.payKind, payRate: l.payRate, hours: l.hours })),
     ...st.fuel.map((f, i): StatementRow => ({ ...none, sort: ROW_SORT.fuel + i, kind: "fuel", label: `Fuel card${f.location ? `, ${f.location}` : ""}`, basis: f.on, amount: -round2(f.amount), loadNumber: f.loadNumber, fuelTransactionId: f.id, gallons: f.gallons })),
-    ...st.adjustments.map((a, i): StatementRow => ({ ...none, sort: ROW_SORT.adjustment + i, kind: "adjustment", label: a.label, basis: null, amount: round2(a.amount) }))
+    ...st.adjustments.map((a, i): StatementRow => ({ ...none, sort: ROW_SORT.adjustment + i, kind: "adjustment", label: a.label, basis: null, amount: round2(a.amount) })),
+    // Deductions, escrow held and escrow released share one block, in the statement's order.
+    ...(st.deductions ?? []).map((d, i): StatementRow => ({ ...none, sort: ROW_SORT[d.kind] + i, kind: d.kind, label: d.label, basis: d.basis, amount: round2(d.amount), deductionId: d.deductionId }))
   ];
 }
 
@@ -288,9 +301,14 @@ export function statementRows(st: Pick<Statement, "lines" | "fuel" | "adjustment
 export const rowsTotalCents = (rows: Array<{ amount: number }>) => rows.reduce((sum, r) => sum + cents(r.amount), 0);
 
 /** A statement as it was frozen: the same totals the editor shows, from the stored lines and adjustments. */
-export function statementOf(lines: StatementLine[], adjustments: Adjustment[], fuel: FuelLine[] = []): Statement {
+export function statementOf(lines: StatementLine[], adjustments: Adjustment[], fuel: FuelLine[] = [], deductions: DeductionLine[] = []): Statement {
   const loadsCents = lines.reduce((sum, l) => sum + (l.amount == null ? 0 : cents(l.amount)), 0);
   const adjustmentCents = adjustments.reduce((sum, a) => sum + cents(a.amount), 0);
   const fuelCents = fuel.reduce((sum, f) => sum + cents(f.amount), 0);
-  return { lines, adjustments, fuel, fuelTotal: dollars(fuelCents), loadsTotal: dollars(loadsCents), adjustmentsTotal: dollars(adjustmentCents), total: dollars(loadsCents - fuelCents + adjustmentCents), errors: {}, blockers: [], cautions: [] };
+  const deductionCents = deductions.reduce((sum, d) => sum + cents(d.amount), 0);
+  const totalCents = loadsCents - fuelCents + adjustmentCents + deductionCents;
+  return { lines, adjustments, fuel, fuelTotal: dollars(fuelCents), loadsTotal: dollars(loadsCents), adjustmentsTotal: dollars(adjustmentCents), deductions, deductionsTotal: dollars(deductionCents), needsConfirm: false, total: dollars(totalCents), errors: {}, blockers: [], cautions: [] };
 }
+
+/** What a deduction-step row is called in a file or on a sheet: "Deduction", "Escrow held", "Escrow released". */
+export const deductionRowLabel = (kind: DeductionLine["kind"]) => DEDUCTION_ROW_LABEL[kind];

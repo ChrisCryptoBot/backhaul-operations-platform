@@ -38,6 +38,7 @@ import type { CompanyValues } from "@/lib/company";
 import { saveKpiNote, setLaneTarget, type InputResult } from "@/server/tl/kpi-inputs";
 import { applySchedule, clearSchedule, removeTimeOff, saveSchedule, saveTimeOff, type ShiftResult, type TimeOffInput } from "@/server/tl/shifts";
 import { addTerminal, archiveTerminal, renameTerminal, setDriverCode, setDriversHome, type TerminalResult } from "@/server/tl/terminal-list";
+import { saveDeduction, setDeductionActive, type DeductionSave } from "@/server/tl/deductions";
 import { saveCostProfile, saveDriver, saveDriverTax, saveTruck, setDriverActive, setTruckArchived, type ActResult, type SaveResult } from "@/server/tl/fleet";
 import type { DriverTaxValues, DriverValues, ProfileKey, TruckValues } from "@/lib/fleet-forms";
 import type { Thresholds } from "@/lib/thresholds";
@@ -1068,10 +1069,25 @@ export async function saveSettlementAction(id: string, draft: Draft): Promise<Se
   return out;
 }
 
-export async function finalizeSettlementAction(id: string, draft: Draft, confirmedTotal: number | null = null): Promise<SettleResult> {
+export async function finalizeSettlementAction(id: string, draft: Draft, confirmedTotal: number | null = null, confirmNegative = false): Promise<SettleResult> {
   await requireCan("bill");
-  const out = await finalizeSettlement(id, draft, new Date(), undefined, confirmedTotal);
+  const out = await finalizeSettlement(id, draft, new Date(), undefined, confirmedTotal, confirmNegative === true);
   if (out.ok) refreshSettlements(id);
+  return out;
+}
+
+/** A driver's recurring deductions and escrow: part of making their statements (bill). */
+export async function saveDeductionAction(values: Record<string, string>, driverId: string, id: string | null): Promise<DeductionSave> {
+  await requireCan("bill");
+  const out = await saveDeduction(values, driverId, id);
+  if (out.ok && out.changed) revalidatePath("/", "layout");
+  return out;
+}
+
+export async function setDeductionActiveAction(id: string, active: boolean): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireCan("bill");
+  const out = await setDeductionActive(id, active);
+  if (out.ok) revalidatePath("/", "layout");
   return out;
 }
 

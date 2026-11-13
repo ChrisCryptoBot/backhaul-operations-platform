@@ -60,6 +60,7 @@ for m in \
   20261214000000_accounting_oauth_sync \
   20261215000000_accounting_accounts \
   20261216000000_settlement_lines \
-  20261217000000_driver_tax_profile; do
+  20261217000000_driver_tax_profile \
+  20261218000000_driver_deductions; do
   npx prisma migrate resolve --applied "$m" --schema=./prisma/schema.prisma
 done

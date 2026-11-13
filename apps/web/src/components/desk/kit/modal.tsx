@@ -70,12 +70,12 @@ export function Modal({ open, onClose, eyebrow, title, children, footer, wide, x
 }
 
 /** Confirm a consequential action. With `askReason`, the person gives a reason that is handed to onConfirm (and recorded by the caller). */
-export function ConfirmDialog({ open, onClose, onConfirm, title, eyebrow, confirmLabel = "Confirm", destructive, askReason, children }: { open: boolean; onClose: () => void; onConfirm: (reason: string) => void; title: string; eyebrow?: string; confirmLabel?: string; destructive?: boolean; askReason?: boolean; children?: React.ReactNode }) {
+export function ConfirmDialog({ open, onClose, onConfirm, title, eyebrow, confirmLabel = "Confirm", destructive, askReason, confirmDisabled, children }: { open: boolean; onClose: () => void; onConfirm: (reason: string) => void; title: string; eyebrow?: string; confirmLabel?: string; destructive?: boolean; askReason?: boolean; /** Holds the confirm button until something in the body is done (a box ticked). */ confirmDisabled?: boolean; children?: React.ReactNode }) {
   const [reason, setReason] = React.useState("");
   React.useEffect(() => {
     if (open) setReason("");
   }, [open]);
-  const blocked = askReason === true && reason.trim().length < 3;
+  const blocked = (askReason === true && reason.trim().length < 3) || confirmDisabled === true;
   return (
     <Modal
       open={open}

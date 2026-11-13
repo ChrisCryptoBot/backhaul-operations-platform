@@ -61,8 +61,8 @@ describe("the statement shows its fuel, and the sheet prints it", () => {
     }
   });
 
-  it("with no fuel the sheet still says Gross pay and one total line", () => {
-    expect(src("src/app/(desk)/settlements/[id]/page.tsx")).toContain('st.fuel.length > 0 ? "Net pay" : "Gross pay"');
+  it("with no fuel and no deductions the sheet still says Gross pay and one total line", () => {
+    expect(src("src/app/(desk)/settlements/[id]/page.tsx")).toContain('st.fuel.length > 0 || st.deductions.length > 0 ? "Net pay" : "Gross pay"');
     expect(src("src/components/desk/statement-fuel.tsx")).toContain("Total to ${driverName}");
   });
 

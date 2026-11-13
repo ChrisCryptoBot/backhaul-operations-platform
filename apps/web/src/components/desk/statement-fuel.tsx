@@ -1,6 +1,7 @@
 import React from "react";
 import { dayYear, gallons, usd } from "@/lib/desk-format";
 import type { FuelLine } from "@/lib/settlement";
+import { DEDUCTION_ROW_LABEL, type DeductionLine } from "@/lib/deductions";
 
 /** A purchase's day is a calendar date: read it at noon UTC so no clock moves it to a neighbouring day. */
 const dayOf = (on: string) => dayYear(new Date(`${on}T12:00:00Z`), "UTC");
@@ -48,32 +49,77 @@ export function FuelLedger({ fuel, total, caption = "Fuel card purchases deducte
   );
 }
 
-/** The statement's bottom line: pay for the loads, less fuel, plus the adjustments, and the net. With no fuel it is the single total line it always was. */
-export function NetPay({ driverName, loadsTotal, fuelTotal, adjustmentsTotal, total, hasFuel, label = "Total" }: { driverName: string; loadsTotal: number; fuelTotal: number; adjustmentsTotal: number; total: number; hasFuel: boolean; label?: string }) {
+/**
+ * Recurring deductions, escrow held and escrow released on a statement (Wave 4 step 3), each signed as it is on the statement, and what they come to. Nothing here when there are none.
+ */
+export function DeductionLedger({ deductions, total }: { deductions: DeductionLine[]; total: number }) {
+  if (deductions.length === 0) return null;
   return (
     <>
-      <h2>{hasFuel ? "Net pay" : label}</h2>
-      <table aria-label={hasFuel ? "Net pay" : label}>
+      <h2>Deductions and escrow</h2>
+      <table aria-label="Deductions and escrow">
         <tbody>
-          {hasFuel ? (
+          {deductions.map((d, i) => (
+            <tr key={i}>
+              <td>
+                {d.label}
+                <div className="rp-meta">
+                  {DEDUCTION_ROW_LABEL[d.kind]}
+                  {d.basis ? ` · ${d.basis}` : ""}
+                </div>
+              </td>
+              <td className={`num ${d.amount < 0 ? "rp-bad" : ""}`}>{usd(d.amount, 2)}</td>
+            </tr>
+          ))}
+          <tr>
+            <td>
+              <b>Deductions and escrow</b>
+            </td>
+            <td className={`num ${total < 0 ? "rp-bad" : ""}`}>
+              <b>{usd(total, 2)}</b>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+/** The statement's bottom line: pay for the loads, less fuel, plus the adjustments and the deductions, and the net. With neither fuel nor deductions it is the single total line it always was. */
+export function NetPay({ driverName, loadsTotal, fuelTotal, adjustmentsTotal, deductionsTotal = 0, total, hasFuel, hasDeductions = false, label = "Total" }: { driverName: string; loadsTotal: number; fuelTotal: number; adjustmentsTotal: number; deductionsTotal?: number; total: number; hasFuel: boolean; hasDeductions?: boolean; label?: string }) {
+  const net = hasFuel || hasDeductions;
+  return (
+    <>
+      <h2>{net ? "Net pay" : label}</h2>
+      <table aria-label={net ? "Net pay" : label}>
+        <tbody>
+          {net ? (
             <>
               <tr>
                 <td>Pay for loads</td>
                 <td className="num">{usd(loadsTotal, 2)}</td>
               </tr>
-              <tr>
-                <td>Fuel card</td>
-                <td className="num rp-bad">{usd(-fuelTotal, 2)}</td>
-              </tr>
+              {hasFuel ? (
+                <tr>
+                  <td>Fuel card</td>
+                  <td className="num rp-bad">{usd(-fuelTotal, 2)}</td>
+                </tr>
+              ) : null}
               <tr>
                 <td>Adjustments</td>
                 <td className={`num ${adjustmentsTotal < 0 ? "rp-bad" : ""}`}>{usd(adjustmentsTotal, 2)}</td>
               </tr>
+              {hasDeductions ? (
+                <tr>
+                  <td>Deductions and escrow</td>
+                  <td className={`num ${deductionsTotal < 0 ? "rp-bad" : ""}`}>{usd(deductionsTotal, 2)}</td>
+                </tr>
+              ) : null}
             </>
           ) : null}
           <tr>
             <td>
-              <b>{hasFuel ? `Net pay to ${driverName}` : `Total to ${driverName}`}</b>
+              <b>{net ? `Net pay to ${driverName}` : `Total to ${driverName}`}</b>
             </td>
             <td className="num">
               <b>{usd(total, 2)}</b>

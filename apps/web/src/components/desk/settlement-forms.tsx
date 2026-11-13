@@ -8,7 +8,8 @@ import type { Company } from "@/lib/company";
 import { shortDate, usd } from "@/lib/desk-format";
 import { paidMethodLabel } from "@/lib/pay-method";
 import { computeStatement, MAX_ADJUSTMENTS, validatePeriod, type AdjustmentInput, type FuelLine, type PeriodPreset, type SettlementLoad } from "@/lib/settlement";
-import { FuelLedger, NetPay } from "./statement-fuel";
+import { DeductionLedger, FuelLedger, NetPay } from "./statement-fuel";
+import { deductionKindLabel, deductionLines, NO_CHOICES, type DeductionChoices, type DeductionOption } from "@/lib/deductions";
 
 import { DateInput } from "./date-input";
 import { DocHead } from "./doc-head";
@@ -180,6 +181,9 @@ export function SettlementEditor({
   initialAdjustments,
   fuelOptions = [],
   initialFuel = [],
+  deductionOptions = [],
+  initialDeductions = NO_CHOICES,
+  escrowHeldCents = 0,
   canEdit = true,
   who = "Accounting or Admin"
 }: {
@@ -194,13 +198,17 @@ export function SettlementEditor({
   /** The fuel card purchases that could come off this driver's pay, and the ids already picked. */
   fuelOptions?: FuelLine[];
   initialFuel?: string[];
+  /** The driver's recurring deductions this statement is offered, the choices made so far, and the escrow held before it (Wave 4 step 3). */
+  deductionOptions?: DeductionOption[];
+  initialDeductions?: DeductionChoices;
+  escrowHeldCents?: number;
   canEdit?: boolean;
   who?: string;
 }) {
   const router = useRouter();
   const toast = useToast();
   // The hours and adjustments typed are kept until the draft is saved, finalized or started over.
-  const [form, setForm, kept] = useDraft<{ hours: typeof initialHours; rows: AdjustmentInput[]; fuel?: string[] }>(`settlement:${id}`, { hours: initialHours, fuel: initialFuel, rows: initialAdjustments.length > 0 ? initialAdjustments : [{ label: "", amount: "" }] });
+  const [form, setForm, kept] = useDraft<{ hours: typeof initialHours; rows: AdjustmentInput[]; fuel?: string[]; deductions?: DeductionChoices }>(`settlement:${id}`, { hours: initialHours, fuel: initialFuel, deductions: initialDeductions, rows: initialAdjustments.length > 0 ? initialAdjustments : [{ label: "", amount: "" }] });
   const { hours, rows } = form;
   // Only purchases that are still on offer count: one picked in a kept draft that has since gone to another statement is left out, as the server leaves it out.
   const offered = new Set(fuelOptions.map((f) => f.id));
@@ -213,10 +221,15 @@ export function SettlementEditor({
   const [confirm, setConfirm] = React.useState<null | "finalize" | "discard">(null);
   const [message, setMessage] = React.useState<string | null>(null);
   const [serverErrors, setServerErrors] = React.useState<Record<string, string>>({});
+  const [confirmNegative, setConfirmNegative] = React.useState(false);
 
-  const st = computeStatement({ loads, hours, adjustments: rows, fuel: fuelOptions.filter((f) => pickedFuel.includes(f.id)) });
+  // The deductions: what is skipped this time (with why) and an escrow release (with why). Worked out by the same function the server finalizes with.
+  const choices = form.deductions ?? initialDeductions;
+  const setChoices = (u: (c: DeductionChoices) => DeductionChoices) => setForm((f) => ({ ...f, deductions: u(f.deductions ?? initialDeductions) }));
+  const ded = deductionLines(deductionOptions, choices, escrowHeldCents);
+  const st = computeStatement({ loads, hours, adjustments: rows, fuel: fuelOptions.filter((f) => pickedFuel.includes(f.id)), deductions: ded.lines, deductionErrors: ded.errors });
   const errors = { ...(tried ? st.errors : {}), ...serverErrors };
-  const draft = { hours, adjustments: rows, fuel: pickedFuel };
+  const draft = { hours, adjustments: rows, fuel: pickedFuel, deductions: choices };
   const setRow = (i: number, patch: Partial<AdjustmentInput>) => setRows((r) => r.map((x, k) => (k === i ? { ...x, ...patch } : x)));
 
   async function save(then?: () => void) {
@@ -250,7 +263,7 @@ export function SettlementEditor({
     setConfirm(null);
     setBusy("finalize");
     try {
-      const got = await attempt(() => finalizeSettlementAction(id, draft, st.total));
+      const got = await attempt(() => finalizeSettlementAction(id, draft, st.total, st.needsConfirm && confirmNegative));
       if (!got.ok) return setMessage(got.message);
       const out = got.value;
       if (out.ok) {
@@ -413,6 +426,73 @@ export function SettlementEditor({
             </section>
           ) : null}
 
+          {deductionOptions.length > 0 || escrowHeldCents > 0 ? (
+            <section className="tl-card">
+              <h2>Deductions and escrow</h2>
+              <p className="tl-note st-ded-note">
+                {driverName}&apos;s recurring deductions, proposed for this statement. Skip one this time with a reason. Escrow is {driverName}&apos;s money held for them: {usd(escrowHeldCents / 100, 2)} held before this statement.
+              </p>
+              {deductionOptions.length > 0 ? (
+                <table className="tl-table" aria-label="Recurring deductions on this statement">
+                  <thead>
+                    <tr>
+                      <th scope="col">Deduction</th>
+                      <th scope="col">So far</th>
+                      <th scope="col" className="num">This statement</th>
+                      <th scope="col">Skip this time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deductionOptions.map((o) => {
+                      const skipped = choices.skips[o.deductionId] != null;
+                      const err = errors[`skip.${o.deductionId}`];
+                      return (
+                        <tr key={o.deductionId}>
+                          <td>
+                            {o.label}
+                            <div className="tl-sub">
+                              {deductionKindLabel(o.kind)} · {usd(o.perStatementCents / 100, 2)} a statement
+                              {o.goalCents != null ? ` · ${o.kind === "escrow" ? "goal" : "cap"} ${usd(o.goalCents / 100, 2)}` : ""}
+                            </div>
+                            {o.note ? <div className="tl-sub">{o.note}</div> : null}
+                          </td>
+                          <td>{o.kind === "escrow" ? `${usd(o.soFarCents / 100, 2)} held` : `${usd(o.soFarCents / 100, 2)} taken`}</td>
+                          <td className="num">{skipped || o.proposedCents === 0 ? <span className="dim">—</span> : usd(-o.proposedCents / 100, 2)}</td>
+                          <td>
+                            {o.proposedCents > 0 ? (
+                              <>
+                                <label className="st-ded-skip">
+                                  <input type="checkbox" checked={skipped} onChange={(e) => setChoices((c) => { const skips = { ...c.skips }; if (e.target.checked) skips[o.deductionId] = ""; else delete skips[o.deductionId]; return { ...c, skips }; })} /> Skip
+                                </label>
+                                {skipped ? (
+                                  <Fld label="Why" error={err}>
+                                    <input value={choices.skips[o.deductionId] ?? ""} onChange={(e) => setChoices((c) => ({ ...c, skips: { ...c.skips, [o.deductionId]: e.target.value } }))} placeholder="Short week" autoComplete="off" />
+                                  </Fld>
+                                ) : null}
+                              </>
+                            ) : (
+                              <span className="dim">Nothing to take</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              ) : null}
+              {escrowHeldCents > 0 ? (
+                <div className="dlg-two st-ded-release">
+                  <Fld label="Release escrow ($)" error={errors["release.amount"]} hint={`Up to ${usd(escrowHeldCents / 100, 2)}. Paid back as a line on this statement.`}>
+                    <input value={choices.release?.amount ?? ""} onChange={(e) => setChoices((c) => ({ ...c, release: { amount: e.target.value, reason: c.release?.reason ?? "" } }))} inputMode="decimal" placeholder="0.00" autoComplete="off" />
+                  </Fld>
+                  <Fld label="Why it is released" error={errors["release.reason"]}>
+                    <input value={choices.release?.reason ?? ""} onChange={(e) => setChoices((c) => ({ ...c, release: { amount: c.release?.amount ?? "", reason: e.target.value } }))} placeholder="Lease ended, truck returned" autoComplete="off" />
+                  </Fld>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
           <section className="tl-card">
             <h2>Statement</h2>
             <dl className="rc-facts">
@@ -430,9 +510,15 @@ export function SettlementEditor({
                 <dt>Adjustments</dt>
                 <dd>{usd(st.adjustmentsTotal, 2)}</dd>
               </div>
+              {st.deductions.length > 0 ? (
+                <div>
+                  <dt>Deductions and escrow</dt>
+                  <dd>{usd(st.deductionsTotal, 2)}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt>
-                  <b>{st.fuel.length > 0 ? `Net pay to ${driverName}` : `Total to ${driverName}`}</b>
+                  <b>{st.fuel.length > 0 || st.deductions.length > 0 ? `Net pay to ${driverName}` : `Total to ${driverName}`}</b>
                 </dt>
                 <dd>
                   <b>{usd(st.total, 2)}</b>
@@ -461,7 +547,12 @@ export function SettlementEditor({
           </section>
         </ReadOnlyGate>
 
-        <ConfirmDialog open={confirm === "finalize"} onClose={() => busy == null && setConfirm(null)} onConfirm={() => void finalize()} eyebrow="Finalize" title={`Finalize ${number} for ${usd(st.total, 2)}?`} confirmLabel="Finalize">
+        <ConfirmDialog open={confirm === "finalize"} onClose={() => busy == null && setConfirm(null)} onConfirm={() => void finalize()} confirmDisabled={st.needsConfirm && !confirmNegative} eyebrow="Finalize" title={`Finalize ${number} for ${usd(st.total, 2)}?`} confirmLabel="Finalize">
+          {st.needsConfirm ? (
+            <label className="st-ded-confirm">
+              <input type="checkbox" checked={confirmNegative} onChange={(e) => setConfirmNegative(e.target.checked)} /> The deductions take this statement below zero, to {usd(st.total, 2)}. I confirm {driverName} ends up owing it.
+            </label>
+          ) : null}
           <p className="tl-note">
             {driverName}: {loads.length} {loads.length === 1 ? "load" : "loads"}
             {st.adjustments.length > 0 ? ` and ${st.adjustments.length} ${st.adjustments.length === 1 ? "adjustment" : "adjustments"}` : ""}. The lines and the total are frozen, and these loads cannot go on another statement. If it is wrong later, an admin can void it with a reason before it is paid.
@@ -473,7 +564,7 @@ export function SettlementEditor({
       </div>
 
       <article className="rp print-only">
-        <DocHead kicker="Pay statement" number={number} company={company} heroLabel={st.fuel.length > 0 ? "Net pay" : "Gross pay"} hero={usd(st.total, 2)} sub={`${driverName} · ${periodLabel}`} stamp={{ text: "Draft", tone: "plain" }} />
+        <DocHead kicker="Pay statement" number={number} company={company} heroLabel={st.fuel.length > 0 || st.deductions.length > 0 ? "Net pay" : "Gross pay"} hero={usd(st.total, 2)} sub={`${driverName} · ${periodLabel}`} stamp={{ text: "Draft", tone: "plain" }} />
         <table style={{ marginTop: 14 }} aria-label="Draft statement details">
           <tbody>
             <tr>
@@ -538,7 +629,8 @@ export function SettlementEditor({
           </>
         ) : null}
         <FuelLedger fuel={st.fuel} total={st.fuelTotal} />
-        <NetPay driverName={driverName} loadsTotal={st.loadsTotal} fuelTotal={st.fuelTotal} adjustmentsTotal={st.adjustmentsTotal} total={st.total} hasFuel={st.fuel.length > 0} />
+        <DeductionLedger deductions={st.deductions} total={st.deductionsTotal} />
+        <NetPay driverName={driverName} loadsTotal={st.loadsTotal} fuelTotal={st.fuelTotal} adjustmentsTotal={st.adjustmentsTotal} deductionsTotal={st.deductionsTotal} total={st.total} hasFuel={st.fuel.length > 0} hasDeductions={st.deductions.length > 0} />
         <p className="rp-foot">{st.fuel.length > 0 ? "Draft net pay: pay for the loads, less the fuel card purchases picked, plus the adjustments above." : "Draft gross pay for the loads and adjustments above."} Not yet finalized.</p>
       </article>
     </>

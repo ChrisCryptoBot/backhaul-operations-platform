@@ -41,7 +41,7 @@ export default async function Contractor1099Page({ searchParams }: { searchParam
 
       <p className="tl-note f1099-note" role="note">
         <b>{r.note}</b> Gross compensation is the pay on the statements before fuel, deductions and advances: the 1099-NEC box 1 figure, and the one checked against the threshold. A negative
-        adjustment is money taken off and does not lower it. Net paid is every line, what the statements came to. Only the last four digits of a TIN are kept here; the full number stays with
+        adjustment, a deduction and escrow held are money taken off and do not lower it; escrow released is the driver&apos;s own money paid back, so it is in net paid only. Net paid is every line, what the statements came to. Only the last four digits of a TIN are kept here; the full number stays with
         the payroll company.
       </p>
 

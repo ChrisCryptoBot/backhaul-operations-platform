@@ -166,7 +166,7 @@ export function form1099Csv(r: Form1099Report): string {
     x.overThreshold && x.gaps.length > 0 ? x.gaps.join("; ") : null
   ]);
   const notes: CsvCell[][] = [
-    [`Tax year ${r.year}. ${r.note} Gross compensation is pay before fuel, deductions and advances (1099-NEC box 1); a negative adjustment is money off and does not lower it. Net paid is every line, the statements' totals. Contractors only; paid in the year by the day in ${r.zone}.`],
+    [`Tax year ${r.year}. ${r.note} Gross compensation is pay before fuel, deductions and advances (1099-NEC box 1); a negative adjustment, a deduction and escrow held are money off and do not lower it; escrow released pays back the driver's own money and is in net paid only. Net paid is every line, the statements' totals. Contractors only; paid in the year by the day in ${r.zone}.`],
     ...(r.unpaid.count > 0 ? [[`Finalized, not paid yet (not counted): ${r.unpaid.count} statements, ${r.unpaid.total.toFixed(2)}.`] as CsvCell[]] : [])
   ];
   return toCsv(FORM_1099_HEADER, [...rows, [], ...notes]);

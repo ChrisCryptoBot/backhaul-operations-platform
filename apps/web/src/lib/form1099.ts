@@ -5,9 +5,10 @@
  *   - gross compensation paid: what a 1099-NEC box 1 reports, and what the threshold is checked against. Pay lines only, before fuel, deductions and advances.
  *   - net cash paid: every row of the statement, which is the statement's total.
  *
- * A row kind is either pay (counts in gross) or money off (never lowers gross). Adjustments are typed by hand and signed today, so a positive one is pay (a bonus) and a negative one is
- * money off (it does not lower gross). Step 3 brings typed kinds (deduction, advance_repaid, escrow): each new kind only needs adding to one of the sets below. A kind in neither set is
- * named as unknown so it is never silently counted as pay.
+ * A row kind is pay (counts in gross), money off (never lowers gross) or pass-through (the driver's own money coming back: net only, never gross). Adjustments are typed by hand and signed, so
+ * a positive one is pay (a bonus) and a negative one is money off. Deductions and escrow held (step 3) are money off. An escrow release is pass-through: it pays back earnings that were already
+ * counted in gross when they were withheld, so counting it again would report them twice. Advances and their repayment (step 4) will be pass-through too. A kind in none of the sets is named
+ * as unknown so it is never silently counted as pay.
  *
  * Money is counted in whole cents (integers), so a sum never drifts by a fraction of a cent.
  */
@@ -29,15 +30,18 @@ export function thresholdNote(taxYear: number): string {
 export const GROSS_KINDS: readonly string[] = ["load"];
 /** Pay when positive, money off when negative (typed by hand, signed). */
 export const SIGNED_KINDS: readonly string[] = ["adjustment"];
-/** Always money off: never lowers gross. */
-export const MONEY_OFF_KINDS: readonly string[] = ["fuel"];
+/** Always money off: never lowers gross. Deductions and escrow held were earned (in gross) and then withheld. */
+export const MONEY_OFF_KINDS: readonly string[] = ["fuel", "deduction", "escrow"];
+/** The driver's own money passing back through a statement: counts in net paid only, never in gross and never as unknown. Step 4 adds advance and advance_repaid here. */
+export const PASS_THROUGH_KINDS: readonly string[] = ["escrow_release"];
 
-export type LineClass = "gross" | "off" | "unknown";
+export type LineClass = "gross" | "off" | "pass" | "unknown";
 
 export function classifyLine(kind: string, cents: number): LineClass {
   if (GROSS_KINDS.includes(kind)) return "gross";
   if (SIGNED_KINDS.includes(kind)) return cents > 0 ? "gross" : "off";
   if (MONEY_OFF_KINDS.includes(kind)) return "off";
+  if (PASS_THROUGH_KINDS.includes(kind)) return "pass";
   return "unknown";
 }
 
@@ -53,22 +57,24 @@ export function toCents(amount: string): number | null {
 
 export const fromCents = (c: number): number => c / 100;
 
-export type Tally = { grossCents: number; netCents: number; offCents: number; unknownKinds: string[] };
+export type Tally = { grossCents: number; netCents: number; offCents: number; passCents: number; unknownKinds: string[] };
 
 /** Gross and net for a set of rows. Net is the sum of every row; gross is the pay rows; off is the money taken off (zero or negative). */
 export function tallyLines(lines: ReadonlyArray<{ kind: string; cents: number }>): Tally {
   let grossCents = 0;
   let netCents = 0;
   let offCents = 0;
+  let passCents = 0;
   const unknown = new Set<string>();
   for (const l of lines) {
     netCents += l.cents;
     const c = classifyLine(l.kind, l.cents);
     if (c === "gross") grossCents += l.cents;
     else if (c === "off") offCents += l.cents;
+    else if (c === "pass") passCents += l.cents;
     else unknown.add(l.kind);
   }
-  return { grossCents, netCents, offCents, unknownKinds: [...unknown].sort() };
+  return { grossCents, netCents, offCents, passCents, unknownKinds: [...unknown].sort() };
 }
 
 export type TaxProfile = {

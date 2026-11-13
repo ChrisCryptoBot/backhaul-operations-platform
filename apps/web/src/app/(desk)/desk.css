@@ -1290,3 +1290,12 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .f1099-note { margin: 0 0 14px; max-width: 80ch; }
 .f1099-flag { color: var(--db-warn); font-size: var(--db-text-sm); }
 .f1099-tbl td { max-width: none; }
+
+/* Recurring deductions and escrow (driver page and the statement editor; docs/MONEY_PLAN.md, Wave 4 step 3). */
+.st-ded-note { margin-bottom: 10px; max-width: 72ch; }
+.st-ded-skip { display: inline-flex; align-items: center; gap: 6px; }
+.st-ded-release { margin-top: 12px; }
+.st-ded-confirm { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px; }
+.ded-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ded-actions { white-space: nowrap; }
+.ded-sub { margin-top: 14px; }
