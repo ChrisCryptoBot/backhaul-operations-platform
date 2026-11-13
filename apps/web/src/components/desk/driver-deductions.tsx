@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React from "react";
-import { saveDeductionAction, setDeductionActiveAction } from "@/app/(desk)/actions";
-import { BLANK_DEDUCTION, DEDUCTION_KINDS, DEDUCTION_ROW_LABEL, deductionKindLabel, validateDeduction, type DeductionRowKind, type DeductionRule, type DeductionValues } from "@/lib/deductions";
+import { recordAdvanceAction, saveDeductionAction, setAdvanceActiveAction, setDeductionActiveAction } from "@/app/(desk)/actions";
+import { ADVANCE_METHODS, advanceLabel, BLANK_ADVANCE, BLANK_DEDUCTION, DEDUCTION_KINDS, deductionKindLabel, LEDGER_KIND_LABEL, validateAdvance, validateDeduction, type AdvanceRecord, type AdvanceValues, type DeductionRule, type DeductionValues } from "@/lib/deductions";
 import { dayYear, usd } from "@/lib/desk-format";
 import { Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
@@ -15,6 +15,7 @@ import { DraftNote, useDraft } from "./kit/use-draft";
  * statement while it runs; it is stopped, never deleted, because the ledger names it.
  */
 export type DeductionCardRule = { rule: DeductionRule; soFarCents: number };
+export type AdvanceCardRow = { advance: AdvanceRecord; owedCents: number };
 export type DeductionCardEntry = { id: string; kind: string; label: string; amount: number; reason: string | null; statementId: string | null; statementNumber: string | null; at: string };
 
 const money = (c: number) => usd(c / 100, 2);
@@ -134,6 +135,122 @@ function EditDeduction({ driverId, rule }: { driverId: string; rule?: DeductionR
   );
 }
 
+/** Record money given ahead of pay. Payout's act (it is money out); the advance and its ledger entry are written together on the server. */
+function AdvanceDialog({ open, onClose, driverId, today }: { open: boolean; onClose: () => void; driverId: string; today: string }) {
+  const router = useRouter();
+  const toast = useToast();
+  const [pending, start] = React.useTransition();
+  const [values, setValues, draft] = useDraft<AdvanceValues>(`advance:${driverId}`, { ...BLANK_ADVANCE, givenOn: today });
+  const [tried, setTried] = React.useState(false);
+  const [serverErrors, setServerErrors] = React.useState<Partial<Record<keyof AdvanceValues, string>>>({});
+  const [message, setMessage] = React.useState("");
+  React.useEffect(() => {
+    if (open) {
+      setTried(false);
+      setServerErrors({});
+      setMessage("");
+    }
+  }, [open]);
+  const check = validateAdvance(values, today);
+  const errors = { ...(tried && !check.ok ? check.errors : {}), ...serverErrors };
+  const set = (k: keyof AdvanceValues) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setValues((v) => ({ ...v, [k]: e.target.value }));
+  return (
+    <Modal open={open} onClose={onClose} eyebrow="Advance" title="Record an advance">
+      <DraftNote draft={draft} what="this advance" />
+      <form
+        className="dlg-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setTried(true);
+          if (!check.ok) return;
+          start(async () => {
+            const out = await recordAdvanceAction(values, driverId);
+            if (out.ok) {
+              draft.saved();
+              toast({ text: "Advance recorded. Its repayment is proposed on the next draft statement.", tone: "ok" });
+              router.refresh();
+              onClose();
+            } else {
+              setServerErrors(out.errors ?? {});
+              setMessage(out.error ?? "");
+            }
+          });
+        }}>
+        <div className="dlg-two">
+          <Fld label="Amount given ($)" error={errors.amount}>
+            <input data-autofocus value={values.amount} onChange={set("amount")} inputMode="decimal" placeholder="500.00" autoComplete="off" />
+          </Fld>
+          <Fld label="Given on" error={errors.givenOn}>
+            <input type="date" value={values.givenOn} max={today} onChange={set("givenOn")} />
+          </Fld>
+          <Fld label="How" error={errors.method}>
+            <select value={values.method} onChange={set("method")}>
+              {ADVANCE_METHODS.map((m) => (
+                <option key={m.key} value={m.key}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </Fld>
+          <Fld label="Repaid per statement ($)" error={errors.repay} hint="Proposed on each statement until it is cleared.">
+            <input value={values.repay} onChange={set("repay")} inputMode="decimal" placeholder="100.00" autoComplete="off" />
+          </Fld>
+        </div>
+        <Fld label="Note, optional" error={errors.note}>
+          <input value={values.note} onChange={set("note")} placeholder="Tires in Amarillo" autoComplete="off" maxLength={120} />
+        </Fld>
+        {message ? (
+          <p className="tl-note warn" role="alert">
+            {message}
+          </p>
+        ) : null}
+        <div className="dlg-actions">
+          <button type="button" className="tl-btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="tl-btn primary" disabled={pending} aria-busy={pending || undefined}>
+            {pending ? "Saving…" : "Record advance"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function RecordAdvance({ driverId, today }: { driverId: string; today: string }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <>
+      <button type="button" className="tl-btn sm" onClick={() => setOpen(true)}>
+        Record an advance
+      </button>
+      <AdvanceDialog open={open} onClose={() => setOpen(false)} driverId={driverId} today={today} />
+    </>
+  );
+}
+
+function PauseResume({ advance }: { advance: AdvanceRecord }) {
+  const router = useRouter();
+  const toast = useToast();
+  const [pending, start] = React.useTransition();
+  return (
+    <button
+      type="button"
+      className="tl-btn ghost sm"
+      disabled={pending}
+      onClick={() =>
+        start(async () => {
+          const out = await setAdvanceActiveAction(advance.id, !advance.active);
+          if (!out.ok) return toast({ text: out.error, tone: "bad" });
+          toast({ text: advance.active ? "Repayment paused." : "Repayment resumed.", tone: "ok" });
+          router.refresh();
+        })
+      }>
+      {advance.active ? "Pause repayment" : "Resume repayment"}
+    </button>
+  );
+}
+
 function StopStart({ rule }: { rule: DeductionRule }) {
   const router = useRouter();
   const toast = useToast();
@@ -156,15 +273,20 @@ function StopStart({ rule }: { rule: DeductionRule }) {
   );
 }
 
-export function DriverDeductions({ driverId, employee, escrowHeldCents, rules, ledger, canEdit }: { driverId: string; employee: boolean; escrowHeldCents: number; rules: DeductionCardRule[]; ledger: DeductionCardEntry[]; canEdit: boolean }) {
+export function DriverDeductions({ driverId, employee, escrowHeldCents, owedCents = 0, rules, advances = [], ledger, canEdit, canRecordAdvance = false, today = "" }: { driverId: string; employee: boolean; escrowHeldCents: number; owedCents?: number; rules: DeductionCardRule[]; advances?: AdvanceCardRow[]; ledger: DeductionCardEntry[]; canEdit: boolean; canRecordAdvance?: boolean; today?: string }) {
   return (
     <section className="tl-card f1099-gap">
       <div className="ded-head">
-        <h2>Deductions and escrow · {money(escrowHeldCents)} held</h2>
-        {canEdit && !employee ? <EditDeduction driverId={driverId} /> : null}
+        <h2>
+          Deductions, escrow and advances · {money(escrowHeldCents)} held · {money(owedCents)} owed
+        </h2>
+        <div className="ded-actions">
+          {canRecordAdvance && !employee ? <RecordAdvance driverId={driverId} today={today} /> : null}
+          {canEdit && !employee ? <EditDeduction driverId={driverId} /> : null}
+        </div>
       </div>
       {employee ? (
-        <p className="tl-note">A W-2 employee&apos;s deductions run through payroll, not the driver statement.</p>
+        <p className="tl-note">A W-2 employee&apos;s deductions and advances run through payroll, not the driver statement.</p>
       ) : rules.length === 0 ? (
         <p className="tl-note">No recurring deductions. A truck lease, insurance, ELD or escrow added here is proposed on every draft statement.</p>
       ) : (
@@ -206,6 +328,37 @@ export function DriverDeductions({ driverId, employee, escrowHeldCents, rules, l
           </tbody>
         </table>
       )}
+      {advances.length > 0 ? (
+        <>
+          <h3 className="ded-sub">Advances</h3>
+          <table className="tl-table" aria-label="Advances">
+            <thead>
+              <tr>
+                <th>Advance</th>
+                <th className="num">Repaid per statement</th>
+                <th className="num">Still owed</th>
+                {canEdit ? <th /> : null}
+              </tr>
+            </thead>
+            <tbody>
+              {advances.map(({ advance: a, owedCents: owed }) => (
+                <tr key={a.id}>
+                  <td>
+                    {advanceLabel(a)}
+                    <div className="tl-sub">
+                      {owed === 0 ? "Cleared" : a.active ? "Repaying" : "Repayment paused"}
+                      {a.note ? ` · ${a.note}` : ""}
+                    </div>
+                  </td>
+                  <td className="num">{money(a.repayCents)}</td>
+                  <td className="num">{money(owed)}</td>
+                  {canEdit ? <td className="ded-actions">{owed > 0 ? <PauseResume advance={a} /> : null}</td> : null}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      ) : null}
       {ledger.length > 0 ? (
         <>
           <h3 className="ded-sub">Ledger · latest {ledger.length}</h3>
@@ -215,7 +368,7 @@ export function DriverDeductions({ driverId, employee, escrowHeldCents, rules, l
                 <tr key={e.id}>
                   <td>{dayYear(e.at)}</td>
                   <td>
-                    {DEDUCTION_ROW_LABEL[e.kind as DeductionRowKind] ?? e.kind} · {e.label}
+                    {LEDGER_KIND_LABEL[e.kind] ?? e.kind} · {e.label}
                     {e.reason ? <div className="tl-sub">{e.reason}</div> : null}
                   </td>
                   <td>{e.statementId ? <Link href={`/settlements/${e.statementId}`}>{e.statementNumber}</Link> : <span className="dim">—</span>}</td>

@@ -38,7 +38,7 @@ import type { CompanyValues } from "@/lib/company";
 import { saveKpiNote, setLaneTarget, type InputResult } from "@/server/tl/kpi-inputs";
 import { applySchedule, clearSchedule, removeTimeOff, saveSchedule, saveTimeOff, type ShiftResult, type TimeOffInput } from "@/server/tl/shifts";
 import { addTerminal, archiveTerminal, renameTerminal, setDriverCode, setDriversHome, type TerminalResult } from "@/server/tl/terminal-list";
-import { saveDeduction, setDeductionActive, type DeductionSave } from "@/server/tl/deductions";
+import { recordAdvance, saveDeduction, setAdvanceActive, setDeductionActive, type AdvanceSave, type DeductionSave } from "@/server/tl/deductions";
 import { saveCostProfile, saveDriver, saveDriverTax, saveTruck, setDriverActive, setTruckArchived, type ActResult, type SaveResult } from "@/server/tl/fleet";
 import type { DriverTaxValues, DriverValues, ProfileKey, TruckValues } from "@/lib/fleet-forms";
 import type { Thresholds } from "@/lib/thresholds";
@@ -1087,6 +1087,22 @@ export async function saveDeductionAction(values: Record<string, string>, driver
 export async function setDeductionActiveAction(id: string, active: boolean): Promise<{ ok: true } | { ok: false; error: string }> {
   await requireCan("bill");
   const out = await setDeductionActive(id, active);
+  if (out.ok) revalidatePath("/", "layout");
+  return out;
+}
+
+/** Money given to a driver ahead of their pay: money out, so payout's act, like marking a statement paid. */
+export async function recordAdvanceAction(values: Record<string, string>, driverId: string): Promise<AdvanceSave> {
+  await requireCan("payout");
+  const out = await recordAdvance(values, driverId);
+  if (out.ok) revalidatePath("/", "layout");
+  return out;
+}
+
+/** Pause or resume an advance's repayment: part of making statements (bill). */
+export async function setAdvanceActiveAction(id: string, active: boolean): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireCan("bill");
+  const out = await setAdvanceActive(id, active);
   if (out.ok) revalidatePath("/", "layout");
   return out;
 }

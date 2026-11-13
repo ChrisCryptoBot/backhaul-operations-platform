@@ -7,7 +7,7 @@ import { discardSettlementAction, finalizeSettlementAction, markSettlementPaidAc
 import type { Company } from "@/lib/company";
 import { shortDate, usd } from "@/lib/desk-format";
 import { paidMethodLabel } from "@/lib/pay-method";
-import { computeStatement, MAX_ADJUSTMENTS, validatePeriod, type AdjustmentInput, type FuelLine, type PeriodPreset, type SettlementLoad } from "@/lib/settlement";
+import { computeStatement, isNetPay, MAX_ADJUSTMENTS, payNote, validatePeriod, type AdjustmentInput, type FuelLine, type PeriodPreset, type SettlementLoad } from "@/lib/settlement";
 import { DeductionLedger, FuelLedger, NetPay } from "./statement-fuel";
 import { deductionKindLabel, deductionLines, NO_CHOICES, type DeductionChoices, type DeductionOption } from "@/lib/deductions";
 
@@ -428,9 +428,9 @@ export function SettlementEditor({
 
           {deductionOptions.length > 0 || escrowHeldCents > 0 ? (
             <section className="tl-card">
-              <h2>Deductions and escrow</h2>
+              <h2>Deductions, escrow and advances</h2>
               <p className="tl-note st-ded-note">
-                {driverName}&apos;s recurring deductions, proposed for this statement. Skip one this time with a reason. Escrow is {driverName}&apos;s money held for them: {usd(escrowHeldCents / 100, 2)} held before this statement.
+                {driverName}&apos;s recurring deductions and advance repayments, proposed for this statement. Skip one this time with a reason. Escrow is {driverName}&apos;s money held for them: {usd(escrowHeldCents / 100, 2)} held before this statement.
               </p>
               {deductionOptions.length > 0 ? (
                 <table className="tl-table" aria-label="Recurring deductions on this statement">
@@ -451,12 +451,12 @@ export function SettlementEditor({
                           <td>
                             {o.label}
                             <div className="tl-sub">
-                              {deductionKindLabel(o.kind)} · {usd(o.perStatementCents / 100, 2)} a statement
-                              {o.goalCents != null ? ` · ${o.kind === "escrow" ? "goal" : "cap"} ${usd(o.goalCents / 100, 2)}` : ""}
+                              {o.source === "advance" ? "Advance" : deductionKindLabel(o.kind)} · {usd(o.perStatementCents / 100, 2)} a statement
+                              {o.source === "rule" && o.goalCents != null ? ` · ${o.kind === "escrow" ? "goal" : "cap"} ${usd(o.goalCents / 100, 2)}` : ""}
                             </div>
                             {o.note ? <div className="tl-sub">{o.note}</div> : null}
                           </td>
-                          <td>{o.kind === "escrow" ? `${usd(o.soFarCents / 100, 2)} held` : `${usd(o.soFarCents / 100, 2)} taken`}</td>
+                          <td>{`${usd(o.soFarCents / 100, 2)} ${o.source === "advance" ? "owed" : o.kind === "escrow" ? "held" : "taken"}`}</td>
                           <td className="num">{skipped || o.proposedCents === 0 ? <span className="dim">—</span> : usd(-o.proposedCents / 100, 2)}</td>
                           <td>
                             {o.proposedCents > 0 ? (
@@ -512,7 +512,7 @@ export function SettlementEditor({
               </div>
               {st.deductions.length > 0 ? (
                 <div>
-                  <dt>Deductions and escrow</dt>
+                  <dt>Deductions, escrow and advances</dt>
                   <dd>{usd(st.deductionsTotal, 2)}</dd>
                 </div>
               ) : null}
@@ -529,7 +529,7 @@ export function SettlementEditor({
             {st.cautions.map((c) => (
               <p key={c} className="tl-note">{c}</p>
             ))}
-            <p className="tl-note">{st.fuel.length > 0 ? "Net pay: pay for the loads, less the fuel card purchases picked, plus the adjustments above." : "This is gross pay for the loads and adjustments above."} Taxes and payroll deductions are not worked out here.</p>
+            <p className="tl-note">{payNote(st)} Taxes and payroll withholding are not worked out here.</p>
             {message ? <p className="tl-note warn" role="alert">{message}</p> : null}
             {canEdit ? (
               <div className="dlg-row" style={{ marginTop: 12 }}>
@@ -564,7 +564,7 @@ export function SettlementEditor({
       </div>
 
       <article className="rp print-only">
-        <DocHead kicker="Pay statement" number={number} company={company} heroLabel={st.fuel.length > 0 || st.deductions.length > 0 ? "Net pay" : "Gross pay"} hero={usd(st.total, 2)} sub={`${driverName} · ${periodLabel}`} stamp={{ text: "Draft", tone: "plain" }} />
+        <DocHead kicker="Pay statement" number={number} company={company} heroLabel={isNetPay(st) ? "Net pay" : "Gross pay"} hero={usd(st.total, 2)} sub={`${driverName} · ${periodLabel}`} stamp={{ text: "Draft", tone: "plain" }} />
         <table style={{ marginTop: 14 }} aria-label="Draft statement details">
           <tbody>
             <tr>
@@ -631,7 +631,7 @@ export function SettlementEditor({
         <FuelLedger fuel={st.fuel} total={st.fuelTotal} />
         <DeductionLedger deductions={st.deductions} total={st.deductionsTotal} />
         <NetPay driverName={driverName} loadsTotal={st.loadsTotal} fuelTotal={st.fuelTotal} adjustmentsTotal={st.adjustmentsTotal} deductionsTotal={st.deductionsTotal} total={st.total} hasFuel={st.fuel.length > 0} hasDeductions={st.deductions.length > 0} />
-        <p className="rp-foot">{st.fuel.length > 0 ? "Draft net pay: pay for the loads, less the fuel card purchases picked, plus the adjustments above." : "Draft gross pay for the loads and adjustments above."} Not yet finalized.</p>
+        <p className="rp-foot">Draft. {payNote(st)} Not yet finalized.</p>
       </article>
     </>
   );

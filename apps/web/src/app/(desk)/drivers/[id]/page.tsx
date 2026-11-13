@@ -250,7 +250,11 @@ export default async function DriverPage({ params }: { params: { id: string } })
         driverId={p.id}
         employee={deductions.employee}
         escrowHeldCents={deductions.escrowHeldCents}
+        owedCents={deductions.owedCents}
         rules={deductions.rules}
+        advances={deductions.advances}
+        canRecordAdvance={!!me && can(me.role, me.grants, "payout")}
+        today={deductions.today}
         ledger={deductions.ledger.map((e) => ({ ...e, at: e.at.toISOString() }))}
         canEdit={canBill}
       />

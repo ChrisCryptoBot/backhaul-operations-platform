@@ -49,10 +49,10 @@ describe("gross and net from the rows", () => {
   });
 
   test("a kind the rules do not know is counted in net, never in gross, and named", () => {
-    const t = tallyLines([c("load", "10"), c("bonus_pool", "-5"), c("advance", "50")]);
+    const t = tallyLines([c("load", "10"), c("bonus_pool", "-5"), c("toll_split", "50")]);
     expect(t.grossCents).toBe(1000);
     expect(t.netCents).toBe(5500);
-    expect(t.unknownKinds).toEqual(["advance", "bonus_pool"]);
+    expect(t.unknownKinds).toEqual(["bonus_pool", "toll_split"]);
   });
 
   test("sums are exact to the cent (no floating drift)", () => {

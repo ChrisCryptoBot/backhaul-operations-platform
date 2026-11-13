@@ -240,7 +240,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
       return {
         filename: cut ? name(`settlements-first-${cap}`) : name("settlements"),
         csv: toCsv(
-          ["Statement", "Status", "Driver", "Period start", "Period end", "Loads", "Pay for loads", "Fuel card deducted", "Adjustments", "Deductions and escrow", "Total", "Finalized", "Paid", "Payment method", "Payroll sent", "Payroll reference", "Voided", "Void reason"],
+          ["Statement", "Status", "Driver", "Period start", "Period end", "Loads", "Pay for loads", "Fuel card deducted", "Adjustments", "Deductions, escrow and advances", "Total", "Finalized", "Paid", "Payment method", "Payroll sent", "Payroll reference", "Voided", "Void reason"],
           rows.map((s): CsvCell[] => [
             s.number,
             SETTLEMENT_STATUS[s.status] ?? s.status,
@@ -297,7 +297,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
           lines.push([...head, "Adjustment", null, null, null, a.label, two(a.amount)]);
         }
         if (cut) break;
-        // Deductions and escrow held are negative, an escrow release positive, as on the statement. The basis names the kind of deduction, or why escrow was released.
+        // Deductions, escrow and advances held are negative, an escrow release positive, as on the statement. The basis names the kind of deduction, or why escrow was released.
         for (const d of s.statement.deductions) {
           if (lines.length >= cap) {
             cut = true;

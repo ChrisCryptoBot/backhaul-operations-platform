@@ -32,8 +32,12 @@ export const GROSS_KINDS: readonly string[] = ["load"];
 export const SIGNED_KINDS: readonly string[] = ["adjustment"];
 /** Always money off: never lowers gross. Deductions and escrow held were earned (in gross) and then withheld. */
 export const MONEY_OFF_KINDS: readonly string[] = ["fuel", "deduction", "escrow"];
-/** The driver's own money passing back through a statement: counts in net paid only, never in gross and never as unknown. Step 4 adds advance and advance_repaid here. */
-export const PASS_THROUGH_KINDS: readonly string[] = ["escrow_release"];
+/**
+ * Money passing through a statement that is not earnings: counts in net paid only, never in gross and never as unknown. An escrow release pays back the driver's own withheld earnings. An
+ * advance is cash fronted ahead of pay, and its repayment returns that cash out of net pay: neither is compensation, so neither moves box 1. ("advance" is listed for an advance paid as a
+ * statement line; today an advance is given outside a statement and only its repayment is a row.)
+ */
+export const PASS_THROUGH_KINDS: readonly string[] = ["escrow_release", "advance", "advance_repaid"];
 
 export type LineClass = "gross" | "off" | "pass" | "unknown";
 

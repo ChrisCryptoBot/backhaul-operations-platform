@@ -56,8 +56,8 @@ export function DeductionLedger({ deductions, total }: { deductions: DeductionLi
   if (deductions.length === 0) return null;
   return (
     <>
-      <h2>Deductions and escrow</h2>
-      <table aria-label="Deductions and escrow">
+      <h2>Deductions, escrow and advances</h2>
+      <table aria-label="Deductions, escrow and advances">
         <tbody>
           {deductions.map((d, i) => (
             <tr key={i}>
@@ -73,7 +73,7 @@ export function DeductionLedger({ deductions, total }: { deductions: DeductionLi
           ))}
           <tr>
             <td>
-              <b>Deductions and escrow</b>
+              <b>Deductions, escrow and advances</b>
             </td>
             <td className={`num ${total < 0 ? "rp-bad" : ""}`}>
               <b>{usd(total, 2)}</b>
@@ -111,7 +111,7 @@ export function NetPay({ driverName, loadsTotal, fuelTotal, adjustmentsTotal, de
               </tr>
               {hasDeductions ? (
                 <tr>
-                  <td>Deductions and escrow</td>
+                  <td>Deductions, escrow and advances</td>
                   <td className={`num ${deductionsTotal < 0 ? "rp-bad" : ""}`}>{usd(deductionsTotal, 2)}</td>
                 </tr>
               ) : null}

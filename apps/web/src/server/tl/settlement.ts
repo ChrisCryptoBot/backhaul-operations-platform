@@ -229,7 +229,7 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
   if (statement.needsConfirm && !confirmNegative) return { ok: false, error: `The deductions take ${s.number} below zero, to ${money(statement.total)}. Confirm that ${s.driver.name} ends up owing, or skip a deduction this time.` };
 
   const period = periodText(ymd(s.periodStart), ymd(s.periodEnd));
-  const after: AuditSnapshot = { Statement: s.number, Driver: s.driver.name, Period: period, Loads: statement.lines.length, "Pay for loads": money(statement.loadsTotal), Adjustments: money(statement.adjustmentsTotal), ...(statement.fuel.length > 0 ? { "Fuel card": `-${money(statement.fuelTotal)}` } : {}), ...(statement.deductions.length > 0 ? { "Deductions and escrow": money(statement.deductionsTotal) } : {}), ...(statement.needsConfirm ? { "Below zero": "Confirmed" } : {}), Total: money(statement.total) };
+  const after: AuditSnapshot = { Statement: s.number, Driver: s.driver.name, Period: period, Loads: statement.lines.length, "Pay for loads": money(statement.loadsTotal), Adjustments: money(statement.adjustmentsTotal), ...(statement.fuel.length > 0 ? { "Fuel card": `-${money(statement.fuelTotal)}` } : {}), ...(statement.deductions.length > 0 ? { "Deductions, escrow and advances": money(statement.deductionsTotal) } : {}), ...(statement.needsConfirm ? { "Below zero": "Confirmed" } : {}), Total: money(statement.total) };
   const hours: Record<string, string> = {};
   for (const [k, v] of Object.entries(draft.hours)) if (statement.lines.some((l) => l.loadId === k) && v.trim() !== "") hours[k] = v.trim();
   try {
@@ -278,13 +278,14 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
             hours: r.hours == null ? null : new Prisma.Decimal(r.hours),
             fuelTransactionId: r.fuelTransactionId,
             gallons: r.gallons == null ? null : new Prisma.Decimal(r.gallons),
-            deductionId: r.deductionId
+            deductionId: r.deductionId,
+            advanceId: r.advanceId
           }))
         });
-      // The driver's ledger: one entry per deduction, escrow and release line, tied to this statement so voiding it removes exactly these.
+      // The driver's ledger: one entry per deduction, escrow, release and advance repayment line, tied to this statement so voiding it removes exactly these.
       if (statement.deductions.length > 0)
         await tx.driverLedgerEntry.createMany({
-          data: statement.deductions.map((d) => ({ workspaceId, driverId: s.driverId, deductionId: d.deductionId, settlementId: id, kind: d.kind, label: d.label, amount: new Prisma.Decimal(d.amount), reason: d.kind === "escrow_release" ? d.basis : null }))
+          data: statement.deductions.map((d) => ({ workspaceId, driverId: s.driverId, deductionId: d.deductionId, advanceId: d.advanceId, settlementId: id, kind: d.kind, label: d.label, amount: new Prisma.Decimal(d.amount), reason: d.kind === "escrow_release" ? d.basis : null }))
         });
       // Each fuel purchase comes off one statement, once: taken from the state it was read in, so one a second statement took a moment ago stops this one rather than coming off twice.
       if (statement.fuel.length > 0) {
@@ -313,6 +314,12 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
 class DeductionsMoved extends Error {
   constructor() {
     super("the deductions or the escrow balance moved");
+  }
+}
+
+class AdvanceBroken extends Error {
+  constructor() {
+    super("an advance balance would leave its bounds");
   }
 }
 
@@ -356,10 +363,23 @@ export async function voidSettlement(id: string, reason: string, now = new Date(
       await tx.fuelTransaction.updateMany({ where: { settlementId: id, workspaceId }, data: { settlementId: null } });
       // The ledger entries this statement made go with it (its statement rows stay, rule J). Escrow it held that a later statement already paid back would leave less than nothing held.
       await tx.$queryRaw`select id from drivers where id = ${s.driverId} for update`;
+      const mine = await tx.driverLedgerEntry.findMany({ where: { settlementId: id, workspaceId }, select: { advanceId: true } });
       const removed = await tx.driverLedgerEntry.deleteMany({ where: { settlementId: id, workspaceId } });
       if (removed.count > 0) {
         const held = await tx.driverLedgerEntry.aggregate({ where: { workspaceId, driverId: s.driverId, kind: { in: ["escrow", "escrow_release"] } }, _sum: { amount: true } });
         if (new Prisma.Decimal(held._sum.amount ?? 0).gt(0)) throw new EscrowSpent();
+        // Each advance this statement repaid must still read between nothing owed and the whole advance: the repayment going back can never leave more owed than was given.
+        const touched = [...new Set(mine.flatMap((e) => (e.advanceId ? [e.advanceId] : [])))];
+        if (touched.length > 0) {
+          const [owed, given] = await Promise.all([
+            tx.driverLedgerEntry.groupBy({ by: ["advanceId"], where: { workspaceId, advanceId: { in: touched } }, _sum: { amount: true } }),
+            tx.driverAdvance.findMany({ where: { id: { in: touched }, workspaceId }, select: { id: true, amount: true } })
+          ]);
+          for (const a of given) {
+            const o = new Prisma.Decimal(owed.find((g) => g.advanceId === a.id)?._sum.amount ?? 0);
+            if (o.lt(0) || o.gt(a.amount)) throw new AdvanceBroken();
+          }
+        }
       }
       for (const f of freed) await recordAudit({ entity: "settlement", action: "load_released", loadId: f.load.id, loadNumber: f.load.loadNumber, summary: `Released from ${s.number}: it can be paid on another statement`, reason: why, before: { Statement: s.number }, after: { Statement: null }, at: now, workspaceId }, tx);
       await recordAudit(
@@ -369,6 +389,7 @@ export async function voidSettlement(id: string, reason: string, now = new Date(
     });
   } catch (e) {
     if (e instanceof PaidAlready) return { ok: false, error: `${s.number} was just paid or sent to payroll, so it cannot be voided.` };
+    if (e instanceof AdvanceBroken) return { ok: false, error: `Voiding ${s.number} would leave an advance owing less than nothing or more than was given. Check ${s.driver.name}'s advances before voiding it.` };
     if (e instanceof EscrowSpent) return { ok: false, error: `Escrow held on ${s.number} was already paid back to ${s.driver.name} on a later statement. Void that one first.` };
     throw e;
   }
@@ -539,7 +560,7 @@ async function frozenDeductions(ids: readonly string[]): Promise<Map<string, Ded
   const rows = await prisma.settlementLine.findMany({ where: { settlementId: { in: [...ids] }, kind: { in: [...DEDUCTION_ROW_KINDS] } }, orderBy: [{ settlementId: "asc" }, { sort: "asc" }] });
   for (const r of rows) {
     const list = out.get(r.settlementId) ?? [];
-    list.push({ deductionId: r.deductionId, kind: r.kind as DeductionRowKind, label: r.label, basis: r.basis, amount: new Prisma.Decimal(r.amount).toNumber() });
+    list.push({ deductionId: r.deductionId, advanceId: r.advanceId, kind: r.kind as DeductionRowKind, label: r.label, basis: r.basis, amount: new Prisma.Decimal(r.amount).toNumber() });
     out.set(r.settlementId, list);
   }
   return out;

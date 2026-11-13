@@ -12,6 +12,7 @@ import { paidMethodLabel } from "@/lib/pay-method";
 import { can, whoCan } from "@/lib/roles";
 import { checkAccess } from "@/server/tl/access";
 import { getSettlement } from "@/server/tl/settlement";
+import { isNetPay, payNote } from "@/lib/settlement";
 import { currentTerminal } from "@/server/tl/terminal";
 
 export const dynamic = "force-dynamic";
@@ -112,7 +113,7 @@ export default async function StatementPage({ params }: { params: { id: string }
           kicker="Pay statement"
           number={s.number}
           company={s.company}
-          heroLabel={st.fuel.length > 0 || st.deductions.length > 0 ? "Net pay" : "Gross pay"}
+          heroLabel={isNetPay(st) ? "Net pay" : "Gross pay"}
           hero={usd(st.total, 2)}
           sub={`${s.driver.name} · ${s.periodLabel}`}
           stamp={stamp}
@@ -211,7 +212,7 @@ export default async function StatementPage({ params }: { params: { id: string }
 
         <NetPay driverName={s.driver.name} loadsTotal={st.loadsTotal} fuelTotal={st.fuelTotal} adjustmentsTotal={st.adjustmentsTotal} deductionsTotal={st.deductionsTotal} total={st.total} hasFuel={st.fuel.length > 0} hasDeductions={st.deductions.length > 0} />
         <p className="rp-foot">
-          {st.fuel.length > 0 || st.deductions.length > 0 ? `Net pay: pay for the loads${st.fuel.length > 0 ? ", less the fuel card purchases" : ""}, plus the adjustments${st.deductions.length > 0 ? ", less the deductions and escrow held (escrow released is paid back)" : ""} above.` : "Gross pay for the loads and adjustments above."} Taxes and payroll withholding are not worked out here.
+          {payNote(st)} Taxes and payroll withholding are not worked out here.
         </p>
       </article>
     </>

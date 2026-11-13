@@ -7,6 +7,9 @@
  * A draft proposes each active rule as a line. The dispatcher can skip one for this statement, with a reason. Releasing escrow is a person's act, with a reason, paid as a positive line, never more
  * than is held. Rule K: a deduction never takes a statement below zero unless a person confirms it (the server refuses the finalize otherwise), and escrow is the driver's money, never income.
  *
+ * Advances (step 4): money given ahead of pay (cash, check, transfer, fuel card) is owed back, and each statement proposes a set repayment until it is cleared, never more than is owed.
+ * A repayment is a proposed line like a deduction: skippable with a reason, and counted by rule K when it takes a statement below zero.
+ *
  * Money is whole cents here.
  */
 
@@ -21,10 +24,24 @@ export type DeductionKind = (typeof DEDUCTION_KINDS)[number]["key"];
 export const isDeductionKind = (v: unknown): v is DeductionKind => typeof v === "string" && DEDUCTION_KINDS.some((k) => k.key === v);
 export const deductionKindLabel = (k: string) => DEDUCTION_KINDS.find((x) => x.key === k)?.label ?? k;
 
-/** The statement row kinds this step adds. Money off: deduction, escrow. A release gives back the driver's own money. */
-export type DeductionRowKind = "deduction" | "escrow" | "escrow_release";
-export const DEDUCTION_ROW_KINDS: readonly DeductionRowKind[] = ["deduction", "escrow", "escrow_release"];
-export const DEDUCTION_ROW_LABEL: Record<DeductionRowKind, string> = { deduction: "Deduction", escrow: "Escrow held", escrow_release: "Escrow released" };
+/** The statement row kinds steps 3 and 4 add. Money off: deduction, escrow, advance repaid. A release gives back the driver's own money. */
+export type DeductionRowKind = "deduction" | "escrow" | "escrow_release" | "advance_repaid";
+export const DEDUCTION_ROW_KINDS: readonly DeductionRowKind[] = ["deduction", "escrow", "escrow_release", "advance_repaid"];
+export const DEDUCTION_ROW_LABEL: Record<DeductionRowKind, string> = { deduction: "Deduction", escrow: "Escrow held", escrow_release: "Escrow released", advance_repaid: "Advance repaid" };
+/** A ledger entry's kind in words: the statement kinds, and the advance itself (given outside a statement). */
+export const LEDGER_KIND_LABEL: Record<string, string> = { ...DEDUCTION_ROW_LABEL, advance: "Advance given" };
+
+export const ADVANCE_METHODS = [
+  { key: "cash", label: "Cash" },
+  { key: "check", label: "Check" },
+  { key: "transfer", label: "Transfer" },
+  { key: "fuel_card", label: "Fuel card" },
+  { key: "other", label: "Other" }
+] as const;
+export const advanceMethodLabel = (k: string) => ADVANCE_METHODS.find((m) => m.key === k)?.label ?? k;
+
+/** An advance: what was given, when and how, and the set amount each statement repays. Cents. */
+export type AdvanceRecord = { id: string; amountCents: number; repayCents: number; givenOn: string; method: string; active: boolean; note: string | null };
 
 export type DeductionRule = {
   id: string;
@@ -40,19 +57,21 @@ export type DeductionRule = {
   active: boolean;
 };
 
-/** What the ledger says so far for one driver: taken per non-escrow rule (positive cents), and the escrow held (positive cents). */
-export type LedgerBalances = { takenByRule: Record<string, number>; escrowHeldCents: number };
+/** What the ledger says so far for one driver: taken per non-escrow rule (positive cents), the escrow held (positive cents), and what is owed on each advance (positive cents). */
+export type LedgerBalances = { takenByRule: Record<string, number>; escrowHeldCents: number; owedByAdvance?: Record<string, number> };
 
 /** A rule as a draft offers it: what it would take on this statement and why it is less than the rule's amount, when it is. */
 export type DeductionOption = {
+  /** The rule or the advance it comes from (the key a skip is stored under). */
   deductionId: string;
-  kind: DeductionKind;
+  source: "rule" | "advance";
+  kind: DeductionKind | "advance";
   label: string;
   perStatementCents: number;
   /** What it takes on this statement (0 when its goal or cap is met). */
   proposedCents: number;
   goalCents: number | null;
-  /** Escrow: held so far. Others: taken so far. */
+  /** Escrow: held so far. Advance: still owed. Others: taken so far. */
   soFarCents: number;
   note: string | null;
 };
@@ -62,7 +81,7 @@ export type DeductionChoices = { skips: Record<string, string>; release: { amoun
 export const NO_CHOICES: DeductionChoices = { skips: {}, release: null };
 
 /** One line on a statement from this step: signed (money off negative, a release positive), in dollars to the cent. */
-export type DeductionLine = { deductionId: string | null; kind: DeductionRowKind; label: string; basis: string | null; amount: number };
+export type DeductionLine = { deductionId: string | null; advanceId: string | null; kind: DeductionRowKind; label: string; basis: string | null; amount: number };
 
 const usd = (c: number) => `$${(c / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -78,14 +97,32 @@ export function proposeDeductions(rules: readonly DeductionRule[], balances: Led
       if (r.kind === "escrow") {
         const room = r.goalCents == null ? r.amountCents : Math.max(0, r.goalCents - held);
         const proposed = Math.min(r.amountCents, room);
-        const option = { deductionId: r.id, kind: r.kind, label: r.label, perStatementCents: r.amountCents, proposedCents: proposed, goalCents: r.goalCents, soFarCents: held, note: proposed === 0 ? `Escrow has reached its ${usd(r.goalCents ?? 0)} goal.` : proposed < r.amountCents ? `Only ${usd(proposed)} to reach the ${usd(r.goalCents ?? 0)} goal.` : null };
+        const option: DeductionOption = { deductionId: r.id, source: "rule", kind: r.kind, label: r.label, perStatementCents: r.amountCents, proposedCents: proposed, goalCents: r.goalCents, soFarCents: held, note: proposed === 0 ? `Escrow has reached its ${usd(r.goalCents ?? 0)} goal.` : proposed < r.amountCents ? `Only ${usd(proposed)} to reach the ${usd(r.goalCents ?? 0)} goal.` : null };
         held += proposed;
         return option;
       }
       const taken = balances.takenByRule[r.id] ?? 0;
       const room = r.goalCents == null ? r.amountCents : Math.max(0, r.goalCents - taken);
       const proposed = Math.min(r.amountCents, room);
-      return { deductionId: r.id, kind: r.kind, label: r.label, perStatementCents: r.amountCents, proposedCents: proposed, goalCents: r.goalCents, soFarCents: taken, note: proposed === 0 ? `Its ${usd(r.goalCents ?? 0)} cap has been taken.` : proposed < r.amountCents ? `Only ${usd(proposed)} left under its ${usd(r.goalCents ?? 0)} cap.` : null };
+      return { deductionId: r.id, source: "rule", kind: r.kind, label: r.label, perStatementCents: r.amountCents, proposedCents: proposed, goalCents: r.goalCents, soFarCents: taken, note: proposed === 0 ? `Its ${usd(r.goalCents ?? 0)} cap has been taken.` : proposed < r.amountCents ? `Only ${usd(proposed)} left under its ${usd(r.goalCents ?? 0)} cap.` : null };
+    });
+}
+
+const monthDay = (ymd: string) => new Date(`${ymd}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+/** "Advance of $500.00, Oct 3, 2026 (cash)". */
+export const advanceLabel = (a: Pick<AdvanceRecord, "amountCents" | "givenOn" | "method">) => `Advance of ${usd(a.amountCents)}, ${monthDay(a.givenOn)} (${advanceMethodLabel(a.method).toLowerCase()})`;
+
+/**
+ * The advances a draft repays: each one still owed, given by the end of the period and not paused, proposing its set repayment or what is left, whichever is less. Never more than is owed,
+ * so an advance cannot be over-recovered.
+ */
+export function proposeAdvances(advances: readonly AdvanceRecord[], balances: LedgerBalances, end: string): DeductionOption[] {
+  return advances
+    .filter((a) => a.active && a.givenOn <= end && (balances.owedByAdvance?.[a.id] ?? 0) > 0)
+    .map((a) => {
+      const owed = balances.owedByAdvance?.[a.id] ?? 0;
+      const proposed = Math.min(a.repayCents, owed);
+      return { deductionId: a.id, source: "advance", kind: "advance", label: advanceLabel(a), perStatementCents: a.repayCents, proposedCents: proposed, goalCents: a.amountCents, soFarCents: owed, note: proposed < a.repayCents ? `Only ${usd(proposed)} left to repay.` : null };
     });
 }
 
@@ -111,7 +148,8 @@ export function deductionLines(options: readonly DeductionOption[], choices: Ded
       continue;
     }
     if (o.proposedCents <= 0) continue;
-    lines.push({ deductionId: o.deductionId, kind: o.kind === "escrow" ? "escrow" : "deduction", label: o.label, basis: deductionKindLabel(o.kind), amount: -o.proposedCents / 100 });
+    if (o.source === "advance") lines.push({ deductionId: null, advanceId: o.deductionId, kind: "advance_repaid", label: o.label, basis: "Advance repaid", amount: -o.proposedCents / 100 });
+    else lines.push({ deductionId: o.deductionId, advanceId: null, kind: o.kind === "escrow" ? "escrow" : "deduction", label: o.label, basis: deductionKindLabel(o.kind), amount: -o.proposedCents / 100 });
   }
   const r = choices.release;
   if (r && (r.amount.trim() !== "" || r.reason.trim() !== "")) {
@@ -120,7 +158,7 @@ export function deductionLines(options: readonly DeductionOption[], choices: Ded
     // Only what was held before this statement can be paid back on it.
     else if (c > escrowHeldCents) errors["release.amount"] = `Only ${usd(escrowHeldCents)} is held in escrow.`;
     if (r.reason.trim().length < MIN_REASON) errors["release.reason"] = "Say why the escrow is released.";
-    if (c != null && c <= escrowHeldCents && r.reason.trim().length >= MIN_REASON) lines.push({ deductionId: null, kind: "escrow_release", label: "Escrow released", basis: r.reason.trim(), amount: c / 100 });
+    if (c != null && c <= escrowHeldCents && r.reason.trim().length >= MIN_REASON) lines.push({ deductionId: null, advanceId: null, kind: "escrow_release", label: "Escrow released", basis: r.reason.trim(), amount: c / 100 });
   }
   return { lines, errors };
 }
@@ -138,6 +176,30 @@ export function typedChoices(v: unknown): DeductionChoices {
 
 /** Rule K: a statement with money-off deduction or escrow lines that comes to less than zero needs a person to confirm it. */
 export const needsNegativeConfirm = (totalCents: number, lines: readonly DeductionLine[]): boolean => totalCents < 0 && lines.some((l) => l.amount < 0);
+
+// ── Recording an advance ──────────────────────────────────────────────────────────────────────
+
+export type AdvanceValues = { amount: string; givenOn: string; method: string; repay: string; note: string };
+export const BLANK_ADVANCE: AdvanceValues = { amount: "", givenOn: "", method: "cash", repay: "", note: "" };
+export type AdvanceCheck = { ok: true; value: AdvanceValues; amountCents: number; repayCents: number } | { ok: false; errors: Partial<Record<keyof AdvanceValues, string>> };
+
+/** `today` is the workspace's calendar day; an advance is recorded once it was given, so a day ahead of it is refused. */
+export function validateAdvance(input: Record<string, unknown>, today: string): AdvanceCheck {
+  const s = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+  const v: AdvanceValues = { amount: s(input.amount), givenOn: s(input.givenOn), method: s(input.method), repay: s(input.repay), note: s(input.note).replace(/\s+/g, " ") };
+  const errors: Partial<Record<keyof AdvanceValues, string>> = {};
+  const amount = parseRelease(v.amount);
+  if (amount == null) errors.amount = "Dollars and cents, above 0.";
+  const repay = parseRelease(v.repay);
+  if (repay == null) errors.repay = "Dollars and cents per statement, above 0.";
+  else if (amount != null && repay > amount) errors.repay = "No more than the advance.";
+  if (!realDay(v.givenOn)) errors.givenOn = "The day it was given.";
+  else if (v.givenOn > today) errors.givenOn = "That day has not come yet.";
+  if (!ADVANCE_METHODS.some((m) => m.key === v.method)) errors.method = "Pick how it was given.";
+  if (v.note.length > 120) errors.note = "120 characters at most.";
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+  return { ok: true, value: v, amountCents: amount!, repayCents: repay! };
+}
 
 // ── Setting a rule up ─────────────────────────────────────────────────────────────────────────
 
