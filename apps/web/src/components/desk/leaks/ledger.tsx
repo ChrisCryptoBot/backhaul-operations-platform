@@ -16,6 +16,7 @@ const GROUPS: Array<{ key: LeakGroup; title: string; note: string }> = [
   { key: "billed_miss", title: "Owed and not billed", note: "Work the desk says is owed and no invoice carries." },
   { key: "choice", title: "Given up on purpose", note: "A person decided not to bill it; the reason is in the audit log." },
   { key: "cost", title: "Burned running empty", note: "Miles driven with nothing on: at the truck's own floor frozen on the load, or for an imported load at the cost a mile given at intake." },
+  { key: "money", title: "Cost of money and partner records", note: "Fees for being paid early (a cost, never taken off gross), fuel bought with no card discount, IFTA filed high; chargebacks shown, not added." },
   { key: "lens", title: "Another way to see the same dollars", note: "Not added to the total: it already contains the empty miles above." }
 ];
 
@@ -43,7 +44,7 @@ export function LeakHero({ ledger }: { ledger: LeakLedger }) {
   ];
   return (
     <section aria-label="Headline numbers">
-      <Tip as="div" focusable className="km-hero" tip={tipOf("Leaked in the period", c.lines.filter((l) => l.counted).map((l): [string, string] => [l.label, money(l.dollars)]), "The counted lines added together. The below-floor lens is not in it.")}>
+      <Tip as="div" focusable className="km-hero" tip={tipOf("Leaked in the period", c.lines.filter((l) => l.counted).map((l): [string, string] => [l.label, money(l.dollars)]), "The counted lines added together. The below-floor lens and factor chargebacks are not in it.")}>
         <div className="km-label">Leaked this period</div>
         <div className="km-herorow">
           <span className="km-big">{usd(c.total)}</span>
@@ -53,6 +54,12 @@ export function LeakHero({ ledger }: { ledger: LeakLedger }) {
           {c.items} {c.items === 1 ? "item" : "items"} in {c.lines.filter((l) => l.counted && (!l.intake || l.items > 0)).length} lines{c.unpriced > 0 ? `, ${c.unpriced} that could not be priced and are not in the dollars` : ""}
           {p ? ` · ${money(p.total)} in the period before` : ""}
         </div>
+        {c.money.items > 0 ? (
+          <div className="km-sub" data-testid="money-share">
+            {money(c.money.dollars)} of it is cost of money and partner records ({c.money.items} {c.money.items === 1 ? "item" : "items"}
+            {c.money.unpriced > 0 ? `, ${c.money.unpriced} not priced` : ""}).
+          </div>
+        ) : null}
         {c.intake.items > 0 ? (
           <div className="km-sub" data-testid="intake-share">
             {money(c.intake.dollars)} of it is priced from the intake you gave, <b>not frozen at booking</b> ({c.intake.items} {c.intake.items === 1 ? "item" : "items"}
@@ -145,6 +152,12 @@ export function LeakLines({ ledger }: { ledger: LeakLedger }) {
           ) : null}
         </tfoot>
       </table>
+      {ledger.fleetOnly.items > 0 ? (
+        <p className="tl-sub" data-testid="fleet-only">
+          {ledger.fleetOnly.items} partner {ledger.fleetOnly.items === 1 ? "record" : "records"} in this period belong to the whole fleet, not to the terminals in view (an invoice whose loads span terminals or that has none, fuel on no truck or on a truck with no terminal,
+          an IFTA return), so {ledger.fleetOnly.items === 1 ? "it is" : "they are"} left out of these figures. Choose all terminals to see {ledger.fleetOnly.items === 1 ? "it" : "them"}.
+        </p>
+      ) : null}
     </Card>
   );
 }
@@ -152,7 +165,9 @@ export function LeakLines({ ledger }: { ledger: LeakLedger }) {
 /** Twelve trailing weeks, one column per counted line. */
 export function LeakWeeks({ ledger }: { ledger: LeakLedger }) {
   // The intake's columns appear only when a week has dollars in them, so a desk with no imported loads sees the same table as before.
-  const cols = LEAKS.filter((l) => l.counted && (!l.intake || ledger.weeks.some((w) => w.byKey[l.key] > 0)));
+  // The partner lines share one column (the files keep a column each), shown when a week has any.
+  const cols = LEAKS.filter((l) => l.counted && l.group !== "money" && (!l.intake || ledger.weeks.some((w) => w.byKey[l.key] > 0)));
+  const moneyCol = ledger.weeks.some((w) => w.money > 0);
   const max = Math.max(0, ...ledger.weeks.map((w) => w.total));
   return (
     <Card title="Twelve weeks">
@@ -166,6 +181,11 @@ export function LeakWeeks({ ledger }: { ledger: LeakLedger }) {
                 {c.intake ? <span className="tl-sub" style={{ display: "block", fontWeight: 400 }}>at the intake</span> : null}
               </th>
             ))}
+            {moneyCol ? (
+              <th className="num" title="Factoring fees, quick-pay and factor fees taken short, and IFTA filed high, added together">
+                Cost of money
+              </th>
+            ) : null}
             <th className="num">Total</th>
           </tr>
         </thead>
@@ -176,6 +196,7 @@ export function LeakWeeks({ ledger }: { ledger: LeakLedger }) {
               {cols.map((c) => (
                 <td key={c.key} className="num">{w.byKey[c.key] > 0 ? money(w.byKey[c.key]) : <span className="dim">—</span>}</td>
               ))}
+              {moneyCol ? <td className="num">{w.money > 0 ? money(w.money) : <span className="dim">—</span>}</td> : null}
               <td className="num">
                 <b>{w.total > 0 ? money(w.total) : "—"}</b>
                 {max > 0 ? <span className="lk-bar" aria-hidden="true" style={{ display: "inline-block", marginLeft: 8, width: `${Math.round((w.total / max) * 48)}px`, height: 6, background: "var(--label)" }} /> : null}
@@ -263,11 +284,11 @@ export function LeakTop({ ledger }: { ledger: LeakLedger }) {
               <tr key={`${t.key}:${t.loadId ?? t.label}:${i}`}>
                 <td>{shortDate(new Date(t.at))}</td>
                 <td>{leakMeta(t.key).label}</td>
-                <td>{t.loadId ? <Link href={`/loads/${t.loadId}`}>{t.label}</Link> : t.label}</td>
+                <td>{t.href ? <Link href={t.href}>{t.label}</Link> : t.loadId ? <Link href={`/loads/${t.loadId}`}>{t.label}</Link> : t.label}</td>
                 <td>{t.lane ?? <span className="dim">—</span>}</td>
                 <td>{t.customer ?? <span className="dim">—</span>}</td>
                 <td>{t.truck ?? <span className="dim">—</span>}</td>
-                <td className="tl-sub" style={{ maxWidth: "34ch" }}>{t.basisNote ?? <span className="dim">{t.intake ? "intake" : "frozen on the load, or recorded"}</span>}</td>
+                <td className="tl-sub" style={{ maxWidth: "34ch" }}>{t.basisNote ?? <span className="dim">{t.intake ? "intake" : t.partner ? "partner record" : "frozen on the load, or recorded"}</span>}</td>
                 <td className="num">{money(t.dollars)}</td>
               </tr>
             ))}

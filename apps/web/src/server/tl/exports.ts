@@ -59,6 +59,9 @@ const ymdIn = (d: Date | null | undefined, tz: string): string | null => (d ? ne
 const utcYmd = (d: Date | null | undefined): string | null => (d ? d.toISOString().slice(0, 10) : null);
 const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
+/** Where a leak line's dollars come from, in the leak files' "Priced from" column. */
+const pricedFrom = (x: { intake: boolean; partner: boolean }) => (x.intake ? "the carrier's intake, not frozen at booking" : x.partner ? "a partner record kept on the desk (the factor's figures, a fuel card purchase, a filed IFTA return)" : "a figure frozen on the load or recorded on it");
+
 const SETTLEMENT_STATUS: Record<string, string> = { draft: "Draft", final: "Finalized", void: "Void" };
 
 export async function buildExport(kind: string, query: Query, now = new Date(), opts: { maxRows?: number } = {}): Promise<{ filename: string; csv: string } | null> {
@@ -423,7 +426,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
         filename: `truelane-desk-leaks-${tag}.csv`,
         csv: toCsv(
           ["Leak", "Dollars", "Items", "Items not priced", "Empty miles not priced", "Counted in the total", "Priced from", "Basis"],
-          l.current.lines.map((x): CsvCell[] => [x.label, two(x.dollars), x.items, x.unpriced, two(x.unpricedMiles), x.counted ? "yes" : "no", x.intake ? "the carrier's intake, not frozen at booking" : "a figure frozen on the load or recorded on it", x.basis])
+          l.current.lines.map((x): CsvCell[] => [x.label, two(x.dollars), x.items, x.unpriced, two(x.unpricedMiles), x.counted ? "yes" : "no", pricedFrom(x), x.basis])
         )
       };
     }
@@ -440,7 +443,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
       filename: `truelane-desk-leaks-items-${tag}.csv`,
       csv: toCsv(
         ["Date", "Leak", "Load or trailer", "Lane", "Customer", "Truck", "Priced from", "Intake figure used", "Dollars"],
-        l.top.map((t): CsvCell[] => [ymd(new Date(t.at)), leakMeta(t.key).label, t.label, t.lane, t.customer, t.truck, t.intake ? "the carrier's intake, not frozen at booking" : "a figure frozen on the load or recorded on it", t.basisNote, two(t.dollars)])
+        l.top.map((t): CsvCell[] => [ymd(new Date(t.at)), leakMeta(t.key).label, t.label, t.lane, t.customer, t.truck, pricedFrom(t), t.basisNote, two(t.dollars)])
       )
     };
   }

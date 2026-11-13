@@ -27,6 +27,20 @@ The headline total adds the counted lines. The lens lines are shown beside them 
 
 Wording rules held: every line prints its basis; unpriced items are counted and listed apart from the dollars; nothing is estimated from a market rate; money adds in whole cents. An intake line with nothing behind it is left off the screen (a desk with no imported loads never sees one) but is in the files with its basis.
 
+### Partner records (money plan Wave 6 step 3, 2026-11-13)
+
+Gap 6 is settled as rule 2: a fee for being paid early is a cost of money, never taken off gross. These lines read stored partner records in whole cents (`Decimal.toFixed(2)`), each record priced in one counted line at most (`recordId`).
+
+| Leak | Group | Basis (and the date that places it in a week) | Unpriced when |
+|---|---|---|---|
+| Factoring fees | cost of money | `Invoice.factoringFee` on an invoice the factor funded and has not charged back, by `factoringFundedAt` | never |
+| Quick-pay and factor fees taken short | cost of money | `writeOffAmount` coded `quick_pay_fee` / `factor_fee`, by `paidAt`; **not** counted on an invoice that carries a factoring fee (counted once, on the fee) or that the factor owned when it closed (as the journal) | never |
+| Fuel bought with no card discount | cost of money | settled purchases whose `discount` (or, with none, `discountPerGallon`) is recorded as zero, by `purchasedAt` else `postedAt`; a purchase whose source said nothing is not counted | always: no expected discount is stored, so nothing is estimated |
+| IFTA returns filed higher than the recalculation | cost of money | filed `IftaReturn.total` less the quarter recalculated now (`iftaReturn`), when above zero (tax overpaid or a credit not claimed), by `filedAt`. A filed quarter's rates are locked, so only data that arrived after filing moves it | the recalculation's rates are not all final, or one is missing |
+| Factor chargebacks | lens, **not added** | the gross recourse stored in `factoringChargeback`, by `factoringChargedBackAt`; not reduced when the customer pays later (each item says what has been paid since) | never |
+
+Terminal scope: an invoice is a terminal's when every load on it is; a fuel purchase when its truck's terminal is; one wholly another terminal's drops out. What belongs to no one terminal (an invoice whose loads span terminals or that has none, fuel on no truck or a truck with no terminal, every IFTA return) is left out of a scoped view and counted in a note (`fleetOnly`). On screen the weekly table folds the counted partner lines into one "Cost of money" column; the files keep one column per line. Tests: `tests/leaks-partner.test.ts`, `tests/integration/leaks-partner.integration.test.ts`.
+
 ## The Leak Read intake
 
 `/leaks/intake` (the `bill` capability; action `saveLeakIntakeAction`; audit `leak_intake_saved` with the figures before and after). One document on the workspace (`workspaces.leak_intake`, migration `20261207000000_leak_intake`; pure rules in `lib/leak-intake.ts`, stored by `server/tl/leak-intake.ts`):

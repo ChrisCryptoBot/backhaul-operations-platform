@@ -2,7 +2,9 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { DAY_MS, WEEK_MS, periodWindow, previousWindow, type KpiPeriod } from "@/lib/kpi-periods";
 import { termsFor, type LeakIntake } from "@/lib/leak-intake";
-import { LEAKS, NO_COVERAGE, buildLeakLedger, dwellForgone, loadLeaks, type LeakItem, type LeakLedger, type LedgerCoverage, type OpenDwell } from "@/lib/leaks";
+import { LEAKS, NO_COVERAGE, buildLeakLedger, dwellForgone, loadLeaks, partnerLeaks, type LeakItem, type LeakLedger, type LedgerCoverage, type OpenDwell, type PartnerFuel, type PartnerIfta, type PartnerInvoice } from "@/lib/leaks";
+import { decimalCents } from "@/lib/money-integrity";
+import { iftaReturn } from "@/server/partners/ifta-return";
 import { batchOfChannel } from "@/lib/load-import";
 import { dwell } from "@/lib/telematics";
 import { detentionOfLoad, waivedDetentionLoads } from "./detention";
@@ -140,6 +142,102 @@ async function openDwell(workspaceId: string, terminals: readonly string[] | nul
   return { dollars: cents.toDecimalPlaces(2).toNumber(), trailers: rows.length, rows: rows.slice(0, 10) };
 }
 
+const c = (d: { toFixed(n: number): string } | null | undefined) => decimalCents(d == null ? null : d.toFixed(2));
+const ms = (d: Date | null | undefined) => (d ? d.getTime() : null);
+
+/**
+ * Partner records since `since` (money plan Wave 6 step 3; lib/leaks.ts partnerLeaks has the rules): invoices funded, closed or charged back in the reach, fuel purchases whose discount was recorded
+ * as zero, and IFTA returns filed in it with the same quarter recalculated now. With terminals in view, an invoice is that scope's when every load on it is in the scope, and a fuel purchase
+ * when its truck's terminal is; one wholly another terminal's is left out, as its loads are. What belongs to no one terminal (an invoice with loads both in and out of the scope, or none; a purchase
+ * on no truck, or on a truck with no terminal; every IFTA return, the whole fleet's filing) is left out and counted in `fleetOnly`, so a fleet figure is never shown as one terminal's. Exact cents.
+ */
+async function partnerItems(workspaceId: string, since: Date, terminals: readonly string[] | null, now: Date): Promise<{ items: LeakItem[]; fleetOnly: LeakItem[] }> {
+  const [invRows, fuelRows, filed] = await Promise.all([
+    prisma.invoice.findMany({
+      where: {
+        workspaceId,
+        kind: "invoice",
+        status: { not: "void" },
+        OR: [{ factoringFundedAt: { gte: since }, factoringFee: { gt: 0 } }, { paidAt: { gte: since }, writeOffCode: { in: ["quick_pay_fee", "factor_fee"] } }, { factoringChargedBackAt: { gte: since } }]
+      },
+      select: {
+        id: true, number: true, status: true, billToName: true, factoringFee: true, factoringFundedAt: true, factoringChargeback: true, factoringChargedBackAt: true, paidAt: true, writeOffAmount: true, writeOffCode: true,
+        payments: { where: { source: { not: "credit" } }, select: { amount: true, paidAt: true } },
+        loads: { select: { load: { select: { id: true, originAddress: true, destinationAddress: true, vehicle: { select: { name: true } } } } } }
+      },
+      take: 20_000
+    }),
+    prisma.fuelTransaction.findMany({
+      where: {
+        workspaceId,
+        status: "settled",
+        AND: [{ OR: [{ discount: 0 }, { discount: null, discountPerGallon: 0 }] }, { OR: [{ purchasedAt: { gte: since } }, { purchasedAt: null, postedAt: { gte: since } }] }]
+      },
+      select: { id: true, location: true, purchasedAt: true, postedAt: true, vehicle: { select: { name: true, terminal: true } } },
+      take: 50_000
+    }),
+    prisma.iftaReturn.findMany({ where: { workspaceId, status: "filed", filedAt: { gte: since } }, select: { id: true, quarter: true, filedAt: true, total: true }, orderBy: { filedAt: "asc" } })
+  ]);
+
+  // Which of the invoices' loads are in the scope (the same rule every scoped read uses).
+  const loadIds = [...new Set(invRows.flatMap((i) => i.loads.map((l) => l.load.id)))];
+  const inScope =
+    terminals == null || loadIds.length === 0
+      ? null
+      : new Set((await prisma.$queryRaw<Array<{ id: string }>>`select l.id from loads l where l.workspace_id = ${workspaceId} and l.id = any(${loadIds})${terminalSetSql(terminals, workspaceId)}`).map((r) => r.id));
+  /** in: the scope's; out: wholly elsewhere; fleet: no one terminal's. */
+  const invoiceScope = (ids: string[]): "in" | "out" | "fleet" => {
+    if (terminals == null) return "in";
+    if (ids.length === 0) return "fleet";
+    const n = ids.filter((id) => inScope?.has(id)).length;
+    return n === ids.length ? "in" : n === 0 ? "out" : "fleet";
+  };
+
+  const invoices: Array<PartnerInvoice & { scope: "in" | "out" | "fleet" }> = invRows.map((i) => {
+    const only = i.loads.length === 1 ? i.loads[0]!.load : null;
+    const chargedAt = ms(i.factoringChargedBackAt);
+    return {
+      id: i.id,
+      number: i.number,
+      status: i.status,
+      customer: i.billToName,
+      feeCents: c(i.factoringFee),
+      fundedAt: ms(i.factoringFundedAt),
+      chargebackCents: c(i.factoringChargeback),
+      chargedBackAt: chargedAt,
+      paidAt: ms(i.paidAt),
+      writeOffCents: c(i.writeOffAmount),
+      writeOffCode: i.writeOffCode,
+      paidSinceChargebackCents: chargedAt == null ? 0 : i.payments.filter((p) => p.paidAt.getTime() >= chargedAt).reduce((s, p) => s + c(p.amount)!, 0),
+      place: only ? { loadId: only.id, lane: `${only.originAddress ?? "?"} → ${only.destinationAddress ?? "?"}`, truck: only.vehicle?.name ?? null } : null,
+      scope: invoiceScope(i.loads.map((l) => l.load.id))
+    };
+  });
+  const fuel: Array<PartnerFuel & { scope: "in" | "out" | "fleet" }> = fuelRows.map((f) => ({
+    id: f.id,
+    label: f.location?.trim() || "Fuel purchase",
+    at: (f.purchasedAt ?? f.postedAt).getTime(),
+    truck: f.vehicle?.name ?? null,
+    scope: terminals == null ? "in" : f.vehicle?.terminal == null ? "fleet" : terminals.includes(f.vehicle.terminal) ? "in" : "out"
+  }));
+  const ifta: PartnerIfta[] = [];
+  for (const r of filed) {
+    const live = await iftaReturn(r.quarter, now, workspaceId);
+    ifta.push({
+      id: r.id,
+      quarter: r.quarter,
+      filedAt: r.filedAt.getTime(),
+      filedTotal: r.total.toFixed(2),
+      liveTotal: live.ok ? live.total : null,
+      liveRatesFinal: live.ok && live.rateState === "final",
+      liveMissingRate: live.ok && live.blockers.some((b) => b.code === "missing_rate")
+    });
+  }
+  const scopedOnly = { invoices: invoices.filter((i) => i.scope === "in"), fuel: fuel.filter((f) => f.scope === "in"), ifta: terminals == null ? ifta : [] };
+  const fleetOnly = { invoices: invoices.filter((i) => i.scope === "fleet"), fuel: fuel.filter((f) => f.scope === "fleet"), ifta: terminals == null ? [] : ifta };
+  return { items: partnerLeaks(scopedOnly), fleetOnly: partnerLeaks(fleetOnly) };
+}
+
 const answers = answerCache<LeakLedger>();
 /** Tests clear it between cases. */
 export const clearLeakCache = () => answers.clear();
@@ -152,15 +250,16 @@ export async function getLeakLedger(q: LeakQuery, now = new Date(), workspaceId 
   return answers.remember([workspaceId, q.period, compare, terminals, clockBucket(now.getTime(), 3_600_000), thresholds, tz, intake], workspaceId, async () => {
     const since = new Date(ledgerSince(q.period, compare, now.getTime(), tz));
     const windowStart = periodWindow(q.period, now.getTime(), tz).start;
-    const [rows, detention, dwellLost, open, coverage] = await Promise.all([
+    const [rows, detention, dwellLost, open, coverage, partner] = await Promise.all([
       getKpiRows(workspaceId, { since, finishedOnly: true, terminals }),
       detentionItems(workspaceId, since, terminals, intake),
       dwellItems(workspaceId, since, terminals),
       openDwell(workspaceId, terminals, now.getTime()),
-      coverageOf(workspaceId, new Date(windowStart ?? since.getTime()), terminals)
+      coverageOf(workspaceId, new Date(windowStart ?? since.getTime()), terminals),
+      partnerItems(workspaceId, since, terminals, now)
     ]);
-    const items: LeakItem[] = [...rows.flatMap((r) => loadLeaks(leakLoadOf(r), intake)), ...detention, ...dwellLost];
-    return buildLeakLedger(items, { period: q.period, compare, openDwell: open, coverage }, now.getTime(), tz);
+    const items: LeakItem[] = [...rows.flatMap((r) => loadLeaks(leakLoadOf(r), intake)), ...detention, ...dwellLost, ...partner.items];
+    return buildLeakLedger(items, { period: q.period, compare, openDwell: open, coverage, fleetOnly: partner.fleetOnly }, now.getTime(), tz);
   });
 }
 
