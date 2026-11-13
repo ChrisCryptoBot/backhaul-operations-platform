@@ -238,6 +238,11 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
           }))}
           signedInResult={signin}
         />
+        {sandboxAllowed() && admin ? (
+          <p className="tl-sub sc-link">
+            <Link href="/partners/showcase">Partner showcase</Link>: one load through every simulator, a signed webhook and the read API, in a fleet of its own. <Link href="/partners/issues">Partner issues</Link>
+          </p>
+        ) : null}
       </Card>
       <Card title="Factoring terms" className="tl-card">
         <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>

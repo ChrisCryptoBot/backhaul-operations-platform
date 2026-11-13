@@ -88,6 +88,8 @@ import { saveFactoringTerms, type SaveTermsResult } from "@/server/partners/fact
 import { setMoneyMoving, type SwitchResult } from "@/server/partners/gates";
 import { createApiKey, revokeApiKey, type CreatedKey, type RevokeResult } from "@/server/api/keys";
 import { authOn as signInOn } from "@/server/tl/identity";
+import { resetShowcase, runShowcaseStep, type ShowcaseResult } from "@/server/partners/showcase";
+import { isShowcaseStep } from "@/lib/showcase";
 import { replayInbound, resolveIssue, retryDelivery, retrySync, type ReplayResult, type RetryResult as DeliveryRetryResult } from "@/server/partners/issues";
 import { createEndpoint, rotateEndpointSecret, sendTestEvent as sendWebhookTest, setEndpointActive, type MadeEndpoint, type SwitchedEndpoint, type TestResult as WebhookTestResult } from "@/server/webhooks/endpoints";
 import { recordChargeback, type ChargebackResult } from "@/server/partners/factoring";
@@ -1043,6 +1045,19 @@ export async function resolvePartnerIssueAction(kind: string, id: string, resolu
   const out = await resolveIssue({ kind, id: String(id).slice(0, 64), resolution: resolution as "resolved" | "dismissed", note }, await adminName(), new Date(), currentWorkspaceId());
   if (out.ok) refreshIssues();
   return out;
+}
+
+/** The partner showcase (Wave 7 step 5): start its fleet again. An admin's, and only where the simulator is allowed (the server refuses on a live desk). */
+export async function resetShowcaseAction(): Promise<ShowcaseResult> {
+  await requireCan("admin");
+  return resetShowcase(new Date());
+}
+
+/** The partner showcase: run one step of the walkthrough in the showcase fleet. */
+export async function runShowcaseStepAction(step: string): Promise<ShowcaseResult> {
+  await requireCan("admin");
+  if (!isShowcaseStep(step)) return { ok: false, error: "That is not a step of the showcase." };
+  return runShowcaseStep(step, new Date());
 }
 
 /** Send the invoices that are ready to the factor as one batch of files (schedule of accounts and packets), by the SFTP or email the factoring terms name. */

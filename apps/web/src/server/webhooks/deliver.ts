@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { allowed } from "@/lib/partner-gates";
+import { SHOWCASE_WORKSPACE_ID } from "@/lib/showcase";
 import { effectivePlan } from "@/lib/plans";
 import { DEAD_BEFORE_DISABLE, LEASE_MS, MAX_ATTEMPTS, TEST_EVENT, backoffMinutes } from "@/lib/webhook-events";
 import { HEADER_EVENT_ID, HEADER_SIGNATURE, HEADER_TIMESTAMP, signatureHeader } from "@/lib/webhook-sign";
@@ -20,7 +21,8 @@ import { pinnedTransport, systemResolver, type Resolver, type Transport } from "
  *   3. The outcome is written only if this run still holds the lease. 2xx is sent. Anything else waits 5, 15, 60 minutes then six hours; the eighth failure is dead, and three dead in a row
  *      switch the endpoint off (audited). A test event is tried once and never counts against the endpoint.
  */
-export type DeliverDeps = { now?: Date; transport?: Transport; resolver?: Resolver; production?: boolean; limit?: number; only?: string };
+/** `workspaceId` limits a run to one fleet (the showcase delivers its own rows to its built-in receiver); a run without it never takes the showcase's rows. */
+export type DeliverDeps = { now?: Date; transport?: Transport; resolver?: Resolver; production?: boolean; limit?: number; only?: string; workspaceId?: string };
 export type DeliverResult = { claimed: number; sent: number; failed: number; dead: number; disabled: number; skipped: number };
 
 type Claimed = { id: string; workspace_id: string; endpoint_id: string; event_id: string; type: string; payload: unknown; attempts: number; lease_until: Date };
@@ -34,13 +36,15 @@ export async function deliverDue(deps: DeliverDeps = {}): Promise<DeliverResult>
   const lease = new Date(now.getTime() + LEASE_MS);
   const limit = deps.limit ?? 50;
   const only = deps.only ? Prisma.sql`AND x."id" = ${deps.only}` : Prisma.empty;
+  // The showcase's rows go only to its built-in receiver, delivered by the showcase itself; the schedule leaves them alone.
+  const fleet = deps.workspaceId ? Prisma.sql`AND x."workspace_id" = ${deps.workspaceId}` : deps.only ? Prisma.empty : Prisma.sql`AND x."workspace_id" <> ${SHOWCASE_WORKSPACE_ID}`;
   const rows = await prisma.$queryRaw<Claimed[]>`
     UPDATE "webhook_deliveries" d SET "lease_until" = ${lease}
     WHERE d."id" IN (
       SELECT x."id" FROM "webhook_deliveries" x JOIN "webhook_endpoints" e ON e."id" = x."endpoint_id"
       WHERE x."status" IN ('pending', 'failed') AND x."next_attempt_at" <= ${now}
         AND (x."lease_until" IS NULL OR x."lease_until" < ${now})
-        AND e."active" AND e."disabled_at" IS NULL ${only}
+        AND e."active" AND e."disabled_at" IS NULL ${only} ${fleet}
       ORDER BY x."next_attempt_at", x."id"
       LIMIT ${limit}
       FOR UPDATE OF x SKIP LOCKED)

@@ -45,7 +45,7 @@ describe("the plan's room check", () => {
   it("sees the paths it is guarding (a scan that finds nothing proves nothing)", () => {
     // fleet.ts: driver add, driver reactivate, truck add, truck restore; trailers.ts: add, restore; import.ts: three createMany; members.ts: add a person (a seat); eld-import.ts: the fleet an ELD lists
     expect(found.length).toBeGreaterThanOrEqual(10);
-    expect(new Set(found.map((s) => s.file))).toEqual(new Set([path.join("server", "tl", "fleet.ts"), path.join("server", "tl", "trailers.ts"), path.join("server", "tl", "import.ts"), path.join("server", "tl", "members.ts"), path.join("server", "partners", "eld-import.ts")]));
+    expect(new Set(found.map((s) => s.file))).toEqual(new Set([path.join("server", "tl", "fleet.ts"), path.join("server", "tl", "trailers.ts"), path.join("server", "tl", "import.ts"), path.join("server", "tl", "members.ts"), path.join("server", "partners", "eld-import.ts"), path.join("server", "partners", "showcase.ts")]));
   });
 
   it("is taken, under the workspace lock, before every create and every bring-back", () => {

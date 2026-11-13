@@ -1391,3 +1391,33 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .pi-sub { display: block; overflow-wrap: anywhere; }
 .pi-settle-row { display: flex; gap: var(--db-2); align-items: center; }
 .pi-settle-row input { flex: 1 1 auto; min-width: 0; }
+
+/* Partner showcase (Wave 7 step 5): a walkthrough laid out for a screen recording. State is a chip and a whole-card outline, never an edge strip. */
+.sc-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--db-3); margin-top: 0; margin-bottom: var(--db-4); }
+.sc-bar .tl-sub { flex: 1 1 320px; min-width: 0; }
+.sc-bar-actions { display: flex; gap: var(--db-2); }
+.sc-sim { display: inline-flex; align-items: center; gap: 6px; font-family: var(--db-font-head); font-size: var(--db-text-sm); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; color: var(--db-warn); border: 1px solid color-mix(in srgb, var(--db-warn) 45%, transparent); padding: 3px 10px; }
+.sc-sim.sm { padding: 2px 8px; font-size: 11px; }
+.sc-rail { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: var(--db-2); list-style: none; padding: 0; margin-top: 0; margin-bottom: var(--db-4); }
+.sc-rail-btn { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 4px; background: none; border: 0; color: inherit; cursor: pointer; padding: 4px 0; min-width: 0; }
+.sc-rail-n { display: grid; place-items: center; width: 26px; height: 26px; border: 1px solid var(--db-border); font-family: var(--db-font-head); font-size: var(--db-text-sm); color: var(--db-fg-dim); }
+.sc-rail-t { font-size: 11px; line-height: 1.2; text-align: center; color: var(--db-fg-dim); overflow-wrap: anywhere; }
+.sc-rail-step.is-done .sc-rail-n { background: var(--db-pos-fill); border-color: var(--db-pos-fill); color: var(--db-bg); }
+.sc-rail-step.is-running .sc-rail-n { border-color: var(--db-warn); color: var(--db-warn); }
+.sc-rail-step.is-error .sc-rail-n { border-color: var(--db-neg); color: var(--db-neg); }
+.sc-rail-step.is-done .sc-rail-t, .sc-rail-step.is-running .sc-rail-t { color: var(--db-fg); }
+.sc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 520px), 1fr)); gap: var(--db-4); }
+.sc-card { margin-top: 0; margin-bottom: 0; display: flex; flex-direction: column; gap: var(--db-2); scroll-margin-top: 90px; }
+.sc-card.is-running { outline: 2px solid color-mix(in srgb, var(--db-warn) 70%, transparent); outline-offset: 2px; }
+.sc-head { display: flex; align-items: flex-start; gap: var(--db-3); }
+.sc-n { flex: none; display: grid; place-items: center; width: 30px; height: 30px; background: var(--db-bg); border: 1px solid var(--db-border); font-family: var(--db-font-head); font-weight: 600; }
+.sc-title { flex: 1 1 auto; min-width: 0; }
+.sc-title h3 { margin-top: 0; margin-bottom: 2px; font-family: var(--db-font-head); font-size: var(--db-text-lg); letter-spacing: 0.02em; }
+.sc-does { margin-top: 0; margin-bottom: 0; }
+.sc-figs { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--db-2) var(--db-4); margin-top: var(--db-2); margin-bottom: 0; }
+.sc-fig { min-width: 0; }
+.sc-fig dt { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--db-fg-dim); }
+.sc-fig dd { margin-left: 0; margin-top: 2px; margin-bottom: 0; font-family: var(--db-font-head); font-size: var(--db-text-lg); font-weight: 600; overflow-wrap: anywhere; }
+.sc-code { margin-top: var(--db-2); margin-bottom: 0; max-height: 300px; overflow: auto; padding: var(--db-3); background: var(--db-bg); border: 1px solid var(--db-border-soft); font-family: var(--db-font-mono, ui-monospace, monospace); font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.sc-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--db-2); margin-top: auto; padding-top: var(--db-2); }
+.sc-link { margin-top: var(--db-3); margin-bottom: 0; }
