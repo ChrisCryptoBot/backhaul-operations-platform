@@ -128,5 +128,17 @@ export async function resealCredentials(): Promise<ResealResult> {
       out.resealed += 1;
     }
   }
+  // OAuth sign-ins (QuickBooks) are sealed the same way and were left out until Wave 7 step 4. Moved only from the row as read (its version unchanged), so a refresh that lands meanwhile
+  // (which seals its new tokens under the current key anyway) is never overwritten with the old ones.
+  const tokens = await prisma.partnerOAuthToken.findMany({ select: { id: true, sealed: true, version: true } });
+  for (const r of tokens) {
+    const opened = unsealWithKeys(r.sealed, keys);
+    if (!opened) out.unreadable += 1;
+    else if (!opened.usedPrevious) out.current += 1;
+    else {
+      const w = await prisma.partnerOAuthToken.updateMany({ where: { id: r.id, version: r.version, sealed: r.sealed }, data: { sealed: seal(opened.values, keys.current) } });
+      out.resealed += w.count;
+    }
+  }
   return out;
 }

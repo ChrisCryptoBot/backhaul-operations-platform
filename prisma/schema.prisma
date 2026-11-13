@@ -1212,6 +1212,11 @@ model WebhookDelivery {
   lastError     String?   @map("last_error")
   sentAt        DateTime? @map("sent_at")
   createdAt     DateTime  @default(now()) @map("created_at")
+  /// A person settled a failed or dead delivery on Partner issues: resolved | dismissed, with what they said (Wave 7 step 4).
+  resolvedAt     DateTime? @map("resolved_at")
+  resolvedBy     String?   @map("resolved_by")
+  resolution     String?
+  resolutionNote String?   @map("resolution_note")
 
   workspace Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   endpoint  WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
@@ -1228,15 +1233,26 @@ model PartnerEvent {
   provider    String
   eventId     String   @map("event_id")
   kind        String
-  /// applied | ignored | failed
+  /// received (being applied) | applied | ignored | failed
   outcome     String
   detail      String?
   receivedAt  DateTime @default(now()) @map("received_at")
+  /// The verified body, kept only while it may be needed again (D6, Wave 7 step 4): an event being applied, one that failed, or one ignored for a reason a person can fix (an invoice
+  /// number the desk does not know). Cleared when it applies. At most 256 KB (the webhook limit).
+  payload     String?
+  /// When it was last tried (first received, a company's redelivery, or a replay from the desk).
+  attemptedAt DateTime? @map("attempted_at")
+  /// A person settled it on Partner issues: resolved | dismissed, with what they said.
+  resolvedAt  DateTime? @map("resolved_at")
+  resolvedBy  String?   @map("resolved_by")
+  resolution  String?
+  resolutionNote String? @map("resolution_note")
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@unique([provider, eventId])
   @@index([workspaceId, receivedAt])
+  @@index([workspaceId, outcome])
   @@map("partner_events")
 }
 

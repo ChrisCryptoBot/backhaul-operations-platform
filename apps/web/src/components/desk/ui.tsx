@@ -8,7 +8,7 @@ import { ScopeChip } from "./scope-menu";
 /** The two-letter code each module carries in the rail and on its page head. A page whose title is not here simply has no code. */
 const CODES: Record<string, string> = {
   "Quote a load": "QT", Loads: "LD", "Dispatch queue": "DQ", Messages: "MS", Planner: "PL", Alerts: "AL", "Rate confirmations": "RC", Drivers: "DR", Trucks: "TK", Trailers: "TR",
-  Customers: "CU", Lanes: "LN", Invoices: "IV", Settlements: "ST", Payroll: "PY", "KPI dashboard": "KP", "Audit log": "AU", Settings: "SE", Fuel: "FU", IFTA: "IF", Schedules: "SC", "Radar map": "MP", "Leak ledger": "LK"
+  Customers: "CU", Lanes: "LN", Invoices: "IV", Settlements: "ST", Payroll: "PY", "KPI dashboard": "KP", "Audit log": "AU", Settings: "SE", Fuel: "FU", IFTA: "IF", Schedules: "SC", "Radar map": "MP", "Leak ledger": "LK", "Partner issues": "PI"
 };
 
 /**

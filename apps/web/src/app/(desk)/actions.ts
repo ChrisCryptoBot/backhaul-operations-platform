@@ -88,6 +88,7 @@ import { saveFactoringTerms, type SaveTermsResult } from "@/server/partners/fact
 import { setMoneyMoving, type SwitchResult } from "@/server/partners/gates";
 import { createApiKey, revokeApiKey, type CreatedKey, type RevokeResult } from "@/server/api/keys";
 import { authOn as signInOn } from "@/server/tl/identity";
+import { replayInbound, resolveIssue, retryDelivery, retrySync, type ReplayResult, type RetryResult as DeliveryRetryResult } from "@/server/partners/issues";
 import { createEndpoint, rotateEndpointSecret, sendTestEvent as sendWebhookTest, setEndpointActive, type MadeEndpoint, type SwitchedEndpoint, type TestResult as WebhookTestResult } from "@/server/webhooks/endpoints";
 import { recordChargeback, type ChargebackResult } from "@/server/partners/factoring";
 import { cancelFactoringBatch, retryFactoringBatch, sendFactoringBatch, type BatchResult, type RetryResult } from "@/server/partners/factoring-batch";
@@ -1002,6 +1003,45 @@ export async function sendWebhookTestAction(id: string): Promise<WebhookTestResu
   await requireCan("admin");
   const out = await sendWebhookTest(String(id).slice(0, 64), await adminName(), new Date(), currentWorkspaceId());
   if (out.ok) refreshWebhooks();
+  return out;
+}
+
+const refreshIssues = () => {
+  revalidatePath("/partners/issues");
+  revalidatePath("/settings");
+  revalidatePath("/audit");
+};
+
+/** Partner issues (Wave 7 step 4): run a kept company event again, under its own key. An admin's. */
+export async function replayPartnerEventAction(id: string): Promise<ReplayResult> {
+  await requireCan("admin");
+  const out = await replayInbound(String(id).slice(0, 64), await adminName(), new Date(), currentWorkspaceId());
+  if (out.ok) refreshIssues();
+  return out;
+}
+
+/** Partner issues: send a failed or dead webhook delivery again (the same event). An admin's. */
+export async function retryWebhookDeliveryAction(id: string): Promise<DeliveryRetryResult> {
+  await requireCan("admin");
+  const out = await retryDelivery(String(id).slice(0, 64), await adminName(), new Date(), currentWorkspaceId());
+  if (out.ok) refreshIssues();
+  return out;
+}
+
+/** Partner issues: ask a stalled connection again now. An admin's. */
+export async function retryPartnerSyncAction(capability: string, provider: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireCan("admin");
+  const out = await retrySync(String(capability).slice(0, 40), String(provider).slice(0, 40), await adminName(), new Date(), currentWorkspaceId());
+  if (out.ok) refreshIssues();
+  return out;
+}
+
+/** Partner issues: settle an inbound event or an outbound delivery, resolved or dismissed, with a reason. An admin's. */
+export async function resolvePartnerIssueAction(kind: string, id: string, resolution: string, note: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireCan("admin");
+  if (kind !== "inbound" && kind !== "outbound") return { ok: false, error: "Unknown kind of issue." };
+  const out = await resolveIssue({ kind, id: String(id).slice(0, 64), resolution: resolution as "resolved" | "dismissed", note }, await adminName(), new Date(), currentWorkspaceId());
+  if (out.ok) refreshIssues();
   return out;
 }
 

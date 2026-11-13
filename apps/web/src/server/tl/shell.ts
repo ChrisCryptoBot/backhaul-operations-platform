@@ -1,6 +1,7 @@
 import { checkAccess } from "./access";
 import { notQuote } from "@/lib/quote-status";
 import { prisma } from "@/lib/db";
+import { issueCount } from "@/server/partners/issues";
 import type { Role } from "@/lib/roles";
 import { authOn, demoIdentity, sessionIdentity } from "./identity";
 import { computeAnalytics } from "@/truelane/lib/analytics";
@@ -39,7 +40,7 @@ export type ShellScope = {
 };
 
 export type ShellData = {
-  counts: { needsDriver: number; sentWaiting: number; onTheRoad: number; readyToInvoice: number; overdue: number; alertsBlock: number; alertsWarn: number; unreadMessages: number };
+  counts: { needsDriver: number; sentWaiting: number; onTheRoad: number; readyToInvoice: number; overdue: number; alertsBlock: number; alertsWarn: number; unreadMessages: number; partnerIssues: number };
   totals: { open: number; needsDriver: number; gross: number; avgRpm: number | null; emptyShare: number | null };
   /** The terminals trucks and drivers are assigned to. The counts above are the whole fleet's (the screens' own lists honour the scope). */
   terminals: string[];
@@ -78,7 +79,7 @@ export function buildShellData(rows: ShellRow[], now: number = Date.now(), alert
   const dh = deadheadPct(finished.map((l) => ({ drivenMiles: drivenMiles(milesIn(l)), deadheadMiles: deadheadMilesOf(milesIn(l)) })));
 
   return {
-    counts: { needsDriver, sentWaiting, onTheRoad, readyToInvoice, overdue, alertsBlock: alertCounts.block, alertsWarn: alertCounts.warn, unreadMessages: 0 },
+    counts: { needsDriver, sentWaiting, onTheRoad, readyToInvoice, overdue, alertsBlock: alertCounts.block, alertsWarn: alertCounts.warn, unreadMessages: 0, partnerIssues: 0 },
     totals: { open: open.length, needsDriver, gross: analytics.summary.grossRevenue, avgRpm: analytics.summary.avgRpm, emptyShare: dh == null ? null : dh / 100 },
     terminals: [],
     scope: { label: "All terminals", kind: "all", names: null, chosen: true, limited: false, menu: { regions: [], unassigned: [], total: { trucks: 0, drivers: 0 }, canAll: true } },
@@ -102,7 +103,7 @@ export async function getShellData(workspaceId = currentWorkspaceId(), stand?: P
   const scope = await currentScope(workspaceId, stand);
   const terminal = termsOf(scope);
   const base = { workspaceId, deletedAt: null, AND: [inTerminal(terminal)] };
-  const [open, needsDriver, sentWaiting, onTheRoad, readyToInvoice, owed, alerts, totals, terminals, unreadMessages, workspace] = await Promise.all([
+  const [open, needsDriver, sentWaiting, onTheRoad, readyToInvoice, owed, alerts, totals, terminals, unreadMessages, workspace, partnerIssues] = await Promise.all([
     prisma.load.count({ where: { ...base, status: { in: OPEN } } }),
     prisma.load.count({ where: { ...base, status: "draft", OR: [{ assignment: null }, { assignment: { status: { in: ["draft", "declined"] } } }] } }),
     prisma.load.count({ where: { ...base, ...notQuote, assignment: { status: "dispatched" } } }),
@@ -113,7 +114,9 @@ export async function getShellData(workspaceId = currentWorkspaceId(), stand?: P
     finishedTotals(workspaceId, new Date(now), terminal),
     listTerminals(workspaceId),
     unreadMessageCount(workspaceId, terminal),
-    prisma.workspace.findUnique({ where: { id: workspaceId }, select: { name: true, timezone: true } })
+    prisma.workspace.findUnique({ where: { id: workspaceId }, select: { name: true, timezone: true } }),
+    // Partner issues (Wave 7 step 4), a few counts; a failure here never stops the shell.
+    issueCount(workspaceId).catch(() => 0)
   ]);
   const menu = await scopeMenu(scope, workspaceId);
   const who = sessionIdentity();
@@ -121,7 +124,7 @@ export async function getShellData(workspaceId = currentWorkspaceId(), stand?: P
   const billing = (await checkAccess("billing_details")).ok;
   const overdue = owed.overdueCount;
   return {
-    counts: { needsDriver, sentWaiting, onTheRoad, readyToInvoice, overdue, alertsBlock: alerts.counts.block, alertsWarn: alerts.counts.warn, unreadMessages },
+    counts: { needsDriver, sentWaiting, onTheRoad, readyToInvoice, overdue, alertsBlock: alerts.counts.block, alertsWarn: alerts.counts.warn, unreadMessages, partnerIssues },
     totals: { open, needsDriver, gross: totals.gross, avgRpm: totals.avgRpm, emptyShare: totals.emptyShare },
     terminals,
     scope: { label: scope.label, kind: scope.kind, names: scope.names, chosen: scope.chosen, limited: scope.limited, menu },

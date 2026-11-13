@@ -76,6 +76,7 @@ const NAV: Array<{ label: string; items: Item[] }> = [
     label: "System",
     items: [
       { href: "/audit", label: "Audit log", code: "AU" },
+      { href: "/partners/issues", label: "Partner issues", code: "PI", pill: (c) => (c.partnerIssues > 0 ? { n: c.partnerIssues, tone: "warn" } : null), roles: ["admin", "accounting"] },
       { href: "/settings", label: "Settings", code: "SE" }
     ]
   }

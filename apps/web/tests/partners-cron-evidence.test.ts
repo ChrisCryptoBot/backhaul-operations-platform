@@ -10,9 +10,12 @@ vi.mock("@/server/partners/sync", () => ({ runPartnerSync: async () => (calls.pu
 vi.mock("@/server/partners/credentials", () => ({ resealCredentials: async () => (calls.push("reseal"), 0) }));
 vi.mock("@/server/partners/retention", () => ({
   purgeOldEvents: async () => (calls.push("purge events"), 0),
+  purgeOldDeliveries: async () => (calls.push("purge deliveries"), 2),
   purgeOldPings: async () => (calls.push("purge pings"), 11),
   purgeOldStays: async () => (calls.push("purge stays"), 0)
 }));
+vi.mock("@/server/webhooks/deliver", () => ({ deliverDue: async () => (calls.push("deliver webhooks"), { claimed: 0, sent: 0, failed: 0, dead: 0, disabled: 0, skipped: 0 }) }));
+vi.mock("@/server/partners/payroll", () => ({ pollPayrollStatus: async () => (calls.push("payroll"), null) }));
 vi.mock("@/server/tl/detention-evidence", () => ({ freezeRecentDeliveries: async () => (calls.push("freeze evidence"), { created: 3, improved: 1, unchanged: 0, noCoordinates: 0, noFixes: 0, loads: 2, failed: 0 }) }));
 
 import { POST } from "@/app/(public)/partners/cron/route";
@@ -27,7 +30,7 @@ describe("the partner heartbeat and the detention evidence", () => {
     process.env.PARTNER_CRON_SECRET = "s3cret-value";
     const res = await POST(new NextRequest("http://localhost:3102/partners/cron", { method: "POST", headers: { "x-partner-cron": "s3cret-value" } }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true, pingsPurged: 11, evidenceFrozen: 4 });
+    expect(await res.json()).toMatchObject({ ok: true, pingsPurged: 11, deliveriesPurged: 2, evidenceFrozen: 4, webhooks: { claimed: 0 } });
     expect(calls.indexOf("freeze evidence")).toBeGreaterThan(-1);
     expect(calls.indexOf("freeze evidence")).toBeLessThan(calls.indexOf("purge pings"));
   });

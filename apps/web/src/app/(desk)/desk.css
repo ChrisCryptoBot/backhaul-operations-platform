@@ -1383,3 +1383,11 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .wh-addr .tl-sub, .wh-why, .wh-evt, .wh-answer .tl-sub { display: block; overflow-wrap: anywhere; }
 .wh-addr .tl-sub { margin-top: 2px; }
 .wh-sub-head { margin-top: var(--db-4); margin-bottom: var(--db-2); }
+
+/* Partner issues (Wave 7 step 4) */
+.pi-lead { margin-top: 0; margin-bottom: var(--db-3); max-width: 80ch; }
+.pi-table code { font-family: var(--db-font-mono, ui-monospace, monospace); font-size: var(--db-text-sm); }
+.pi-why { overflow-wrap: anywhere; }
+.pi-sub { display: block; overflow-wrap: anywhere; }
+.pi-settle-row { display: flex; gap: var(--db-2); align-items: center; }
+.pi-settle-row input { flex: 1 1 auto; min-width: 0; }
