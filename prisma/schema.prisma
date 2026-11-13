@@ -79,6 +79,7 @@ model Workspace {
   accountingAccounts  AccountingAccount[]
   iftaLines           IftaLine[]
   iftaMileage         IftaMileage[]
+  iftaReturns         IftaReturn[]
   iftaRates           IftaRate[]
   fuelTransactions    FuelTransaction[]
   fuelFlagReviews     FuelFlagReview[]
@@ -1402,6 +1403,69 @@ model IftaMileage {
   @@index([workspaceId, quarter, vehicleId])
   @@index([loadId])
   @@map("ifta_mileage")
+}
+
+/// A filed IFTA return, frozen as it was worked out at the moment of filing (money plan Wave 5 step 8; server/partners/ifta-filing.ts). At most one FILED return per workspace and quarter (a partial
+/// unique index in the migration). Reopening keeps the row ("reopened", who, when, why) and frees the quarter; filing again is an amendment (`amendsId`). A database trigger refuses any edit of
+/// the figures. `rateState` is provisional | mixed | final; anything short of final was confirmed by the person filing.
+model IftaReturn {
+  id                   String    @id @default(cuid())
+  workspaceId          String    @map("workspace_id")
+  /// "2026-Q3".
+  quarter              String
+  /// "filed" | "reopened".
+  status               String    @default("filed")
+  filedAt              DateTime  @map("filed_at")
+  filedBy              String    @map("filed_by")
+  /// YYYY-MM-DD.
+  dueDate              String    @map("due_date")
+  rateState            String    @map("rate_state")
+  provisionalConfirmed Boolean   @default(false) @map("provisional_confirmed")
+  miles                Decimal   @db.Decimal(14, 1)
+  gallons              Decimal   @db.Decimal(14, 3)
+  taxPaidGallons       Decimal   @map("tax_paid_gallons") @db.Decimal(14, 3)
+  bulkGallons          Decimal   @map("bulk_gallons") @db.Decimal(14, 3)
+  /// Blank on a return with no miles and no fuel.
+  mpg                  Decimal?  @db.Decimal(8, 2)
+  tax                  Decimal   @db.Decimal(14, 2)
+  surcharge            Decimal   @db.Decimal(14, 2)
+  total                Decimal   @db.Decimal(14, 2)
+  trucks               Int
+  /// The reopened return this one amends.
+  amendsId             String?   @map("amends_id")
+  reopenedAt           DateTime? @map("reopened_at")
+  reopenedBy           String?   @map("reopened_by")
+  reopenReason         String?   @map("reopen_reason")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  workspace Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  amends    IftaReturn?      @relation("IftaAmends", fields: [amendsId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  amendedBy IftaReturn[]     @relation("IftaAmends")
+  lines     IftaReturnLine[]
+
+  @@index([workspaceId, quarter])
+  @@map("ifta_returns")
+}
+
+/// One jurisdiction of a filed IFTA return, frozen with it.
+model IftaReturnLine {
+  id             String  @id @default(cuid())
+  returnId       String  @map("return_id")
+  jurisdiction   String
+  miles          Decimal @db.Decimal(14, 1)
+  taxableGallons Decimal @map("taxable_gallons") @db.Decimal(14, 0)
+  taxPaidGallons Decimal @map("tax_paid_gallons") @db.Decimal(14, 0)
+  netGallons     Decimal @map("net_gallons") @db.Decimal(14, 0)
+  rate           Decimal @db.Decimal(8, 4)
+  surchargeRate  Decimal @map("surcharge_rate") @db.Decimal(8, 4)
+  tax            Decimal @db.Decimal(14, 2)
+  surcharge      Decimal @db.Decimal(14, 2)
+  total          Decimal @db.Decimal(14, 2)
+
+  return IftaReturn @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  @@unique([returnId, jurisdiction])
+  @@map("ifta_return_lines")
 }
 
 /// A quarter's fuel-tax rate for one US jurisdiction (IFTA), per workspace: what the return (Wave 5 step 6) multiplies by. Loaded from a rate file (modelled on IFTA, Inc.'s quarterly rate

@@ -1336,3 +1336,11 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .ifta-miles { margin-top: var(--db-4); margin-bottom: var(--db-3); }
 .ifta-miles h3, .ifta-section { margin-top: var(--db-4); margin-bottom: var(--db-2); }
 .ifta-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; }
+.ifta-filed { margin-top: var(--db-3); margin-bottom: var(--db-3); padding: 12px 14px; display: grid; gap: 8px; }
+.ifta-reopen-row { display: flex; }
+.ifta-filed h3 { margin: 0; }
+.ifta-tofile { margin-top: var(--db-3); margin-bottom: var(--db-3); }
+.ifta-file { display: grid; gap: 6px; justify-items: start; }
+.ifta-confirm { display: flex; gap: 8px; align-items: center; }
+.ifta-reopen { display: grid; gap: 6px; width: min(70ch, 100%); }
+.ifta-reopen textarea { width: 100%; }

@@ -6,9 +6,11 @@ import { CanGate } from "@/components/desk/kit/can-gate";
 import { EmptyState } from "@/components/desk/kit/states";
 import { PageHead, Stat } from "@/components/desk/ui";
 import { dateTime, dayYear } from "@/lib/desk-format";
-import { daysUntil, RATE_STATE_LABEL, returnMoney, type Blocker } from "@/lib/ifta-return";
+import { IftaFileButton, IftaReopenForm } from "@/components/desk/ifta-filing-panel";
+import { daysUntil, RATE_STATE_LABEL, returnDrift, returnMoney, type Blocker, type DriftField } from "@/lib/ifta-return";
 import { recentQuarters } from "@/lib/ifta-rates-csv";
 import { partnerState, providerName } from "@/server/partners/call";
+import { iftaFiling } from "@/server/partners/ifta-filing";
 import { iftaQuarterMiles } from "@/server/partners/ifta-mileage";
 import { iftaReturn } from "@/server/partners/ifta-return";
 import { requirePage } from "@/server/tl/access";
@@ -41,6 +43,14 @@ const TRUCKS: Column[] = [
   { key: "purchases", label: "Purchases", group: "The quarter", align: "num" }
 ];
 
+const DRIFT: Column[] = [
+  { key: "where", label: "Where", group: "Changed", sticky: true, width: 110 },
+  { key: "what", label: "Figure", group: "Changed" },
+  { key: "filed", label: "Filed", group: "Numbers", align: "num" },
+  { key: "now", label: "Now", group: "Numbers", align: "num" },
+  { key: "change", label: "Change", group: "Numbers", align: "num", accentBand: true }
+];
+
 const n1 = (s: string | null) => (s == null ? "—" : Number(s).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }));
 const n0 = (s: string | null) => (s == null ? "—" : Number(s).toLocaleString("en-US", { maximumFractionDigits: 0 }));
 const trucks = (n: number) => `${n} ${n === 1 ? "truck" : "trucks"}`;
@@ -70,8 +80,26 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
   const tz = await workspaceTimezone(currentWorkspaceId());
   const options = recentQuarters(new Date(), tz);
   const quarter = options.includes(searchParams?.quarter ?? "") ? searchParams!.quarter! : options[0]!;
-  const [r, q, router, eld] = await Promise.all([iftaReturn(quarter), iftaQuarterMiles(quarter), partnerState("ifta"), partnerState("eld")]);
+  const [r, q, router, eld, filing] = await Promise.all([iftaReturn(quarter), iftaQuarterMiles(quarter), partnerState("ifta"), partnerState("eld"), iftaFiling(quarter)]);
   if (!r.ok) throw new Error(r.error);
+  const filed = filing.filed;
+  const drift = filed ? returnDrift(filed, r) : null;
+  const reopened = filing.history.filter((h) => h.status === "reopened");
+  const totalWords = (t: string | null) => (t == null ? "not worked out" : t.startsWith("-") ? `${returnMoney(t.slice(1))} credit` : `${returnMoney(t)} due`);
+  const fileBlocked =
+    r.blockers.length > 0
+      ? "Clear what blocks the return first (listed below)."
+      : r.flagsPartial
+        ? "The fuel flags could only be read in part."
+        : r.rateState === "none"
+          ? "Import the quarter's rate table first."
+          : r.rateState === "sample"
+            ? "Sample rates are never filed."
+            : r.total == null
+              ? "The return is not fully worked out."
+              : null;
+  const signed = (d: string | null) => (d == null ? "—" : d.startsWith("-") ? d : `+${d}`);
+  const driftRow = (f: DriftField, where: string): Row => ({ id: `${where}-${f.field}`, cells: { where: <b>{where}</b>, what: f.label, filed: f.filed ?? "—", now: f.now ?? "—", change: signed(f.delta) } });
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const left = daysUntil(r.dueDate, today);
   const due = r.total == null ? null : Number(r.total);
@@ -150,6 +178,51 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
         />
       </div>
 
+      {filed ? (
+        <section className="tl-card ifta-filed" aria-label="Filed return">
+          <h3>
+            Filed {dayYear(filed.filedAt)} by {filed.filedBy}
+            {filed.amends ? " (amended)" : ""}: {totalWords(filed.total)}
+          </h3>
+          <p className="tl-note">
+            {filed.lines.length} {filed.lines.length === 1 ? "jurisdiction" : "jurisdictions"}, {n1(filed.miles)} miles, fleet MPG {filed.mpg ?? "—"}; rates {filed.rateState === "final" ? "final" : `${filed.rateState === "mixed" ? "partly final" : "provisional"} (confirmed when filed)`}. Miles, rates and fuel files for this quarter are locked while it is filed.
+          </p>
+          {drift?.changed ? (
+            <>
+              <p className="tl-note warn">
+                <span className="t-st" data-tone="warn">
+                  Changed since filed
+                </span>{" "}
+                Worked out now, the return is {totalWords(r.total)} against {totalWords(filed.total)} filed. If the change is real, reopen the return and file it again.
+              </p>
+              <DataTable
+                id="ifta-drift"
+                label={`What changed since ${quarter} was filed`}
+                columns={DRIFT}
+                rows={[
+                  ...drift.header.map((f) => driftRow(f, "Return")),
+                  ...drift.lines.flatMap((l) => (l.kind === "changed" ? l.fields.map((f) => driftRow(f, l.jurisdiction)) : [driftRow({ field: "line", label: l.kind === "added" ? "New since filed" : "Gone since filed", filed: l.kind === "removed" ? (l.fields.find((f) => f.field === "total")?.filed ?? null) : null, now: l.kind === "added" ? (l.fields.find((f) => f.field === "total")?.now ?? null) : null, delta: null }, l.jurisdiction)]))
+                ]}
+              />
+            </>
+          ) : (
+            <p className="tl-note ok">Unchanged since filed: worked out now, every figure matches what was filed.</p>
+          )}
+          <div className="ifta-reopen-row">
+            <CanGate caps={["bill"]}>
+              <IftaReopenForm quarter={quarter} />
+            </CanGate>
+          </div>
+        </section>
+      ) : (
+        <section className="ifta-tofile" aria-label="File this return">
+          {reopened.length > 0 ? <p className="tl-note">Reopened {dayYear(reopened[0]!.reopenedAt!)} by {reopened[0]!.reopenedBy}: {reopened[0]!.reopenReason}. Filing again records an amendment.</p> : null}
+          <CanGate caps={["bill"]}>
+            <IftaFileButton quarter={quarter} blocked={fileBlocked} provisional={r.rateState === "provisional" || r.rateState === "mixed"} amount={totalWords(r.total)} />
+          </CanGate>
+        </section>
+      )}
+
       {r.blockers.length > 0 ? (
         <section className="tl-card ifta-blockers" aria-label="Before this return can be filed">
           <h3>Before this return can be filed</h3>
@@ -166,7 +239,7 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
           </ul>
           {r.flagsPartial ? <p className="tl-note">Fuel flags were read from the newest purchases only; there are more than one reading takes.</p> : null}
         </section>
-      ) : r.lines.length > 0 ? (
+      ) : !filed && r.lines.length > 0 ? (
         <p className="tl-note ok ifta-eld-line">Nothing stands in the way of this return.{r.rateState !== "final" ? " The rates are not all final yet." : ""}</p>
       ) : null}
 

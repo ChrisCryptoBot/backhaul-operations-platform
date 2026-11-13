@@ -66,6 +66,7 @@ import { clearFuelFlag, reopenFuelFlag, type FlagReviewResult } from "@/server/p
 import { commitFuelImport, previewFuelImport, removeFuelImport, type FuelImportMap, type FuelImportPreview, type FuelImportResult, type RemoveFuelImportResult } from "@/server/partners/fuel-import";
 import { calculateIfta, type IftaResult } from "@/server/partners/ifta";
 import { syncIftaMileage, type IftaMileageSync } from "@/server/partners/ifta-mileage";
+import { fileIftaReturn, reopenIftaReturn, type FileResult, type ReopenResult } from "@/server/partners/ifta-filing";
 import { clearIftaRates, commitIftaRates, loadSampleIftaRates, previewIftaRates, type IftaClearResult, type IftaRateImportMap, type IftaRateImportResult, type IftaRatePreview, type IftaSampleResult } from "@/server/partners/ifta-rates";
 import { applyFactoringUpdate, factorInvoice, type FactorResult } from "@/server/partners/factoring";
 import { syncEld, type SyncResult } from "@/server/partners/eld";
@@ -1385,6 +1386,22 @@ export async function syncIftaMileageAction(quarter: string): Promise<IftaMileag
   await requireCan("bill");
   const out = await syncIftaMileage(String(quarter));
   if (out.ok) revalidatePath("/ifta");
+  return out;
+}
+
+/** Mark a quarter's IFTA return filed: refused while anything blocks it; provisional rates need `confirmProvisional`. The billing office's. */
+export async function fileIftaReturnAction(quarter: string, confirmProvisional: boolean): Promise<FileResult> {
+  await requireCan("bill");
+  const out = await fileIftaReturn(String(quarter), { confirmProvisional: confirmProvisional === true });
+  if (out.ok) revalidatePath("/ifta", "layout");
+  return out;
+}
+
+/** Reopen a filed IFTA return for a real correction, with why. The billing office's. */
+export async function reopenIftaReturnAction(quarter: string, reason: string): Promise<ReopenResult> {
+  await requireCan("bill");
+  const out = await reopenIftaReturn(String(quarter), typeof reason === "string" ? reason : "");
+  if (out.ok) revalidatePath("/ifta", "layout");
   return out;
 }
 

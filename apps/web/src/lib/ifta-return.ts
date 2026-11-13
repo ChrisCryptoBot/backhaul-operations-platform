@@ -230,3 +230,79 @@ export const returnMoney = (s: string | null): string => {
   const [whole, cents] = abs.split(".");
   return `${neg ? "-" : ""}$${whole!.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${cents}`;
 };
+
+/** The quarter an instant falls in, in the workspace's own calendar ("2026-Q3"). */
+export function quarterOf(d: Date, tz: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit" }).formatToParts(d);
+  const year = parts.find((p) => p.type === "year")!.value;
+  const month = parseInt(parts.find((p) => p.type === "month")!.value, 10);
+  return `${year}-Q${Math.floor((month - 1) / 3) + 1}`;
+}
+
+/** What was filed, as the drift check reads it back (exact decimal strings, the snapshot's own places). */
+export type FiledSnapshot = {
+  miles: string;
+  gallons: string;
+  taxPaidGallons: string;
+  bulkGallons: string;
+  mpg: string | null;
+  tax: string;
+  surcharge: string;
+  total: string;
+  lines: Array<{ jurisdiction: string; miles: string; taxableGallons: string; taxPaidGallons: string; netGallons: string; rate: string; surchargeRate: string; tax: string; surcharge: string; total: string }>;
+};
+
+export type DriftField = { field: string; label: string; filed: string | null; now: string | null; delta: string | null };
+export type ReturnDrift = { changed: boolean; header: DriftField[]; lines: Array<{ jurisdiction: string; kind: "changed" | "added" | "removed"; fields: DriftField[] }> };
+
+const HEADER_FIELDS = [
+  ["miles", "Miles"],
+  ["gallons", "Road diesel gallons"],
+  ["taxPaidGallons", "Tax-paid gallons"],
+  ["bulkGallons", "Bulk gallons"],
+  ["mpg", "Fleet MPG"],
+  ["tax", "Tax"],
+  ["surcharge", "Surcharge"],
+  ["total", "Total"]
+] as const;
+const LINE_FIELDS = [
+  ["miles", "Miles"],
+  ["taxableGallons", "Taxable gallons"],
+  ["taxPaidGallons", "Tax-paid gallons"],
+  ["netGallons", "Net gallons"],
+  ["rate", "Rate"],
+  ["surchargeRate", "Surcharge rate"],
+  ["tax", "Tax"],
+  ["surcharge", "Surcharge"],
+  ["total", "Total"]
+] as const;
+
+const same = (a: string | null, b: string | null) => (a == null || b == null ? a === b : D(a).equals(b));
+const field = (key: string, label: string, filed: string | null, now: string | null): DriftField => ({ field: key, label, filed, now, delta: filed != null && now != null ? D(now).minus(filed).toString() : null });
+
+/**
+ * What changed between a filed return and the same quarter worked out now (late receipts settled, a rate replaced, miles re-read): every header figure and jurisdiction field that differs,
+ * jurisdictions that appeared or left, each with the filed number, the number now and the change. Equal as exact decimals counts as unchanged ("13.8" and "13.80" are the same).
+ */
+type LineKey = (typeof LINE_FIELDS)[number][0];
+type HeaderKey = (typeof HEADER_FIELDS)[number][0];
+/** The return as worked out now, only what the drift check compares (a live IftaReturnMath fits). */
+export type LiveForDrift = Record<HeaderKey, string | null> & { lines: ReadonlyArray<Record<LineKey, string | null> & { jurisdiction: string }> };
+
+export function returnDrift(filed: FiledSnapshot, live: LiveForDrift): ReturnDrift {
+  const header = HEADER_FIELDS.filter(([k]) => !same(filed[k], live[k])).map(([k, label]) => field(k, label, filed[k], live[k]));
+  const was = new Map(filed.lines.map((l) => [l.jurisdiction, l]));
+  const now = new Map(live.lines.map((l) => [l.jurisdiction, l]));
+  const lines: ReturnDrift["lines"] = [];
+  for (const j of [...new Set([...was.keys(), ...now.keys()])].sort()) {
+    const a = was.get(j);
+    const b = now.get(j);
+    if (a && !b) lines.push({ jurisdiction: j, kind: "removed", fields: LINE_FIELDS.map(([k, label]) => field(k, label, a[k], null)) });
+    else if (!a && b) lines.push({ jurisdiction: j, kind: "added", fields: LINE_FIELDS.map(([k, label]) => field(k, label, null, b[k])) });
+    else if (a && b) {
+      const fields = LINE_FIELDS.filter(([k]) => !same(a[k], b[k])).map(([k, label]) => field(k, label, a[k], b[k]));
+      if (fields.length > 0) lines.push({ jurisdiction: j, kind: "changed", fields });
+    }
+  }
+  return { changed: header.length > 0 || lines.length > 0, header, lines };
+}

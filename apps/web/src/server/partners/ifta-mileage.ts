@@ -12,6 +12,7 @@ import { lockWorkspace } from "@/server/tl/plan";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { workspaceTimezone } from "@/server/tl/zone";
 import { callPartner, providerName, type IftaTripHint } from "./call";
+import { filedRefusal, isQuarterFiled } from "./ifta-lock";
 
 /** The most loads one quarter's read is worked from. A quarter with more says so rather than quietly leaving the rest out. */
 export const IFTA_MAX_LOADS = 20_000;
@@ -141,6 +142,8 @@ async function hintsFor(workspaceId: string, bounds: { from: Date; to: Date }): 
 
 export async function syncIftaMileage(quarter: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<IftaMileageSync> {
   if (!isIftaQuarter(quarter)) return { ok: false, error: BAD_QUARTER, code: "bad_request" };
+  // A filed quarter's miles are what was filed (Wave 5 step 8): asked here before the ELD is called, and again under the lock.
+  if (await isQuarterFiled(prisma, workspaceId, quarter)) return { ok: false, error: filedRefusal(quarter), code: "filed" };
   const tz = await workspaceTimezone(workspaceId);
   const bounds = quarterBounds(quarter, tz)!;
   const hints = await hintsFor(workspaceId, bounds);
@@ -180,7 +183,8 @@ export async function syncIftaMileage(quarter: string, now = new Date(), workspa
   const replaced = await prisma.$transaction(
     async (tx) => {
       await lockWorkspace(tx, workspaceId);
-      // Wave 5 step 8: once a filed return (IftaReturn) holds this quarter, refuse here, or warn and require a confirm, before the miles it was worked out from are replaced.
+      // A filed return holds this quarter (Wave 5 step 8): its miles are what was filed.
+      if (await isQuarterFiled(tx, workspaceId, quarter)) return null;
       // A load removed since the read keeps its pieces as loaded with no load.
       const loadIds = [...new Set(pieces.flatMap((p) => (p.loadId ? [p.loadId] : [])))];
       const live = new Set<string>();
@@ -252,6 +256,7 @@ export async function syncIftaMileage(quarter: string, now = new Date(), workspa
     },
     { timeout: 60_000 }
   );
+  if (replaced == null) return { ok: false, error: filedRefusal(quarter), code: "filed" };
   return { ok: true, provider, batchId, quarter, trucks: answered.length, notAnswered, pieces: pieces.length, replaced, states, miles: miles.toFixed(1), loadedMiles: loadedMiles.toFixed(1), emptyMiles: emptyMiles.toFixed(1), canadaMiles: canadaMiles.toFixed(1), skipped };
 }
 
@@ -309,6 +314,7 @@ type RoutedPiece = { vehicleId: string; externalId: string; jurisdiction: string
  */
 export async function routeIftaMiles(quarter: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<IftaRouteResult> {
   if (!isIftaQuarter(quarter)) return { ok: false, error: BAD_QUARTER, code: "bad_request" };
+  if (await isQuarterFiled(prisma, workspaceId, quarter)) return { ok: false, error: filedRefusal(quarter), code: "filed" };
   const tz = await workspaceTimezone(workspaceId);
   const bounds = quarterBounds(quarter, tz)!;
   const loads = await quarterLoads(workspaceId, bounds);
@@ -372,7 +378,8 @@ export async function routeIftaMiles(quarter: string, now = new Date(), workspac
   const out = await prisma.$transaction(
     async (tx) => {
       await lockWorkspace(tx, workspaceId);
-      // Wave 5 step 8: once a filed return (IftaReturn) holds this quarter, refuse here, or warn and require a confirm, before the routed miles it was worked out from are replaced.
+      // A filed return holds this quarter (Wave 5 step 8): its routed miles are what was filed.
+      if (await isQuarterFiled(tx, workspaceId, quarter)) return null;
       // ELD first, again under the lock: a truck the ELD reported since the read above is not routed.
       const eld = await coveredNow(tx);
       const kept = pieces.filter((p) => !eld.has(p.vehicleId));
@@ -456,6 +463,7 @@ export async function routeIftaMiles(quarter: string, now = new Date(), workspac
     },
     { timeout: 60_000 }
   );
+  if (out == null) return { ok: false, error: filedRefusal(quarter), code: "filed" };
   return {
     ok: true,
     provider,

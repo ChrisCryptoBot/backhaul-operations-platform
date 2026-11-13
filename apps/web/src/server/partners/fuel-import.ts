@@ -6,6 +6,8 @@ import { nextStatus, type FuelProduct } from "@/lib/fuel-normalize";
 import { IMPORT_MAX_ROWS, parseCsv, type ProblemRow } from "@/lib/import-csv";
 import { recordAudit } from "@/server/tl/audit";
 import { lockWorkspace } from "@/server/tl/plan";
+import { quarterOf } from "@/lib/ifta-return";
+import { filedQuarters, filedRefusal } from "./ifta-lock";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { workspaceTimezone } from "@/server/tl/zone";
 import { loadTieFor } from "./fuel-store";
@@ -200,16 +202,20 @@ export type RemoveFuelImportResult = { ok: true; removed: number } | { ok: false
 /**
  * Take a whole fuel file import away. Refused while any of its purchases is deducted on a driver statement (a final statement holds it; voiding the statement gives it back first): removing
  * the file must never leave a pay deduction pointing at nothing. The purchases are locked before the check, so a statement finalized at the same moment cannot take one in between.
- * (Wave 5 step 8 adds the same refusal for a purchase on a filed fuel-tax return.)
+ * The same holds for a purchase in a quarter a filed fuel-tax return holds (Wave 5 step 8).
  */
 export async function removeFuelImport(batchId: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<RemoveFuelImportResult> {
   if (!/^[0-9a-f]{16}$/.test(batchId)) return { ok: false, error: "That import is not on this desk." };
   const made = await prisma.auditEvent.findFirst({ where: { workspaceId, action: "fuel_csv_imported", entityId: batchId }, select: { id: true } });
   if (!made) return { ok: false, error: "That import is not on this desk." };
+  const tz = await workspaceTimezone(workspaceId);
   return prisma.$transaction(async (tx) => {
     await lockWorkspace(tx, workspaceId);
-    const rows = await tx.$queryRaw<Array<{ id: string; settlement_id: string | null }>>`select id, settlement_id from fuel_transactions where workspace_id = ${workspaceId} and import_batch_id = ${batchId} for update`;
+    const rows = await tx.$queryRaw<Array<{ id: string; settlement_id: string | null; purchased_at: Date | null; posted_at: Date }>>`select id, settlement_id, purchased_at, posted_at from fuel_transactions where workspace_id = ${workspaceId} and import_batch_id = ${batchId} for update`;
     if (rows.length === 0) return { ok: false as const, error: "Nothing of that import is left on the desk." };
+    // A purchase in a filed IFTA quarter is part of what was filed (Wave 5 step 8): the file stays while that return holds the quarter.
+    const filed = await filedQuarters(tx, workspaceId, [...new Set(rows.map((r) => quarterOf(r.purchased_at ?? r.posted_at, tz)))]);
+    if (filed.size > 0) return { ok: false as const, error: `This file has purchases in a filed quarter. ${filedRefusal([...filed])}` };
     const held = rows.filter((r) => r.settlement_id != null);
     if (held.length > 0) {
       const numbers = await tx.settlement.findMany({ where: { id: { in: [...new Set(held.map((r) => r.settlement_id!))] } }, select: { number: true }, orderBy: { number: "asc" }, take: 3 });

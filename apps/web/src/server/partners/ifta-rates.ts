@@ -19,6 +19,7 @@ import {
 import { parseCsv, type ProblemRow } from "@/lib/import-csv";
 import { recordAudit } from "@/server/tl/audit";
 import { lockWorkspace } from "@/server/tl/plan";
+import { filedRefusal, isQuarterFiled } from "./ifta-lock";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 
 /**
@@ -153,7 +154,8 @@ export async function commitIftaRates(text: string, mapping: IftaRateImportMap |
 
   const replaced = await prisma.$transaction(async (tx) => {
     await lockWorkspace(tx, workspaceId);
-    // Wave 5 step 8: once a filed return (IftaReturn) holds this quarter, refuse here, or warn and require a confirm, before the rates it was worked out with are replaced.
+    // A filed return holds this quarter: its rates are part of what was filed (Wave 5 step 8).
+    if (await isQuarterFiled(tx, workspaceId, quarter)) return null;
     const before = await kept(quarter, workspaceId, tx);
     await tx.iftaRate.deleteMany({ where: { workspaceId, quarter } });
     await tx.iftaRate.createMany({
@@ -181,6 +183,7 @@ export async function commitIftaRates(text: string, mapping: IftaRateImportMap |
     );
     return before.count;
   });
+  if (replaced == null) return { ok: false, error: filedRefusal(quarter) };
   return { ok: true, created: c.good.length, replaced, canada: c.canada, skipped: c.problemCount, batchId };
 }
 
@@ -192,6 +195,7 @@ export async function loadSampleIftaRates(quarter: string, now = new Date(), wor
   const sample = sampleIftaRates(quarter);
   return prisma.$transaction(async (tx) => {
     await lockWorkspace(tx, workspaceId);
+    if (await isQuarterFiled(tx, workspaceId, quarter)) return { ok: false as const, error: filedRefusal(quarter) };
     const real = await tx.iftaRate.count({ where: { workspaceId, quarter, isSample: false } });
     if (real > 0) return { ok: false as const, error: `${quarter} has ${plural(real, "rate", "rates")} from a rate file. Sample rates never replace real ones; clear the quarter first if you mean to.` };
     // Sample rates only ever land over nothing or over sample rates. Wave 5 step 8: a return worked out with sample rates must not be marked filed.
@@ -209,7 +213,8 @@ export async function clearIftaRates(quarter: string, now = new Date(), workspac
   if (!isIftaQuarter(quarter)) return { ok: false, error: BAD_QUARTER };
   return prisma.$transaction(async (tx) => {
     await lockWorkspace(tx, workspaceId);
-    // Wave 5 step 8: once a filed return (IftaReturn) holds this quarter, refuse here (its rates are part of what was filed).
+    // A filed return holds this quarter: its rates are part of what was filed (Wave 5 step 8).
+    if (await isQuarterFiled(tx, workspaceId, quarter)) return { ok: false as const, error: filedRefusal(quarter) };
     const before = await kept(quarter, workspaceId, tx);
     if (before.count === 0) return { ok: false as const, error: `${quarter} has no rates to clear.` };
     const res = await tx.iftaRate.deleteMany({ where: { workspaceId, quarter } });

@@ -68,7 +68,8 @@ $migrations = @(
   "20261223000000_fuel_flag_reviews",
   "20261224000000_ifta_rates",
   "20261225000000_ifta_mileage",
-  "20261226000000_ifta_mileage_routed"
+  "20261226000000_ifta_mileage_routed",
+  "20261227000000_ifta_returns"
 )
 foreach ($m in $migrations) {
   npx prisma migrate resolve --applied $m --schema=./prisma/schema.prisma
