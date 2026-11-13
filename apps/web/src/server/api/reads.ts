@@ -30,12 +30,11 @@ function paged<T extends { id: string; createdAt: Date }>(rows: T[], limit: numb
   return { data: page.map(shape), next: more && last ? encodeCursor({ t: last.createdAt, id: last.id }) : null };
 }
 
-export async function listInvoices(workspaceId: string, page: Page): Promise<ListOut> {
-  const where: Prisma.InvoiceWhereInput = { workspaceId, ...afterCursor(page.after) };
-  const rows = await prisma.invoice.findMany({ where, orderBy: ORDER, take: page.limit + 1, include: { loads: { select: { loadId: true }, orderBy: { loadId: "asc" } } } });
-  return paged(rows, page.limit, (r) => ({
+/** The invoice and credit memo shape, shared by the read API and the outbound webhooks (src/server/webhooks/emit.ts), so a receiver sees one shape everywhere. */
+export const INVOICE_INCLUDE = { loads: { select: { loadId: true }, orderBy: { loadId: "asc" as const } } };
+export const shapeInvoice = (r: Prisma.InvoiceGetPayload<{ include: typeof INVOICE_INCLUDE }>): Record<string, unknown> => ({
     id: r.id,
-    object: "invoice",
+    object: r.kind === "credit_memo" ? "credit_memo" : "invoice",
     number: r.number,
     kind: r.kind,
     status: r.status,
@@ -61,12 +60,9 @@ export async function listInvoices(workspaceId: string, page: Page): Promise<Lis
     load_ids: r.loads.map((l) => l.loadId),
     created_at: iso(r.createdAt),
     updated_at: iso(r.updatedAt)
-  }));
-}
+});
 
-export async function listPayments(workspaceId: string, page: Page): Promise<ListOut> {
-  const rows = await prisma.invoicePayment.findMany({ where: { workspaceId, ...afterCursor(page.after) }, orderBy: ORDER, take: page.limit + 1 });
-  return paged(rows, page.limit, (r) => ({
+export const shapePayment = (r: Prisma.InvoicePaymentGetPayload<object>): Record<string, unknown> => ({
     id: r.id,
     object: "payment",
     invoice_id: r.invoiceId,
@@ -77,17 +73,10 @@ export async function listPayments(workspaceId: string, page: Page): Promise<Lis
     payer: r.payer,
     source: r.source,
     created_at: iso(r.createdAt)
-  }));
-}
+});
 
-export async function listSettlements(workspaceId: string, page: Page): Promise<ListOut> {
-  const rows = await prisma.settlement.findMany({
-    where: { workspaceId, status: { in: ["final", "void"] }, ...afterCursor(page.after) },
-    orderBy: ORDER,
-    take: page.limit + 1,
-    select: { id: true, number: true, driverId: true, status: true, periodStart: true, periodEnd: true, total: true, finalizedAt: true, voidedAt: true, paidAt: true, paidMethod: true, payrollSentAt: true, payrollReference: true, createdAt: true, updatedAt: true }
-  });
-  return paged(rows, page.limit, (r) => ({
+export const SETTLEMENT_SELECT = { id: true, number: true, driverId: true, status: true, periodStart: true, periodEnd: true, total: true, finalizedAt: true, voidedAt: true, paidAt: true, paidMethod: true, payrollSentAt: true, payrollReference: true, createdAt: true, updatedAt: true } as const;
+export const shapeSettlement = (r: Prisma.SettlementGetPayload<{ select: typeof SETTLEMENT_SELECT }>): Record<string, unknown> => ({
     id: r.id,
     object: "settlement",
     number: r.number,
@@ -105,7 +94,27 @@ export async function listSettlements(workspaceId: string, page: Page): Promise<
     payroll_sent_at: r.payrollReference && !r.payrollReference.startsWith("pending:") ? iso(r.payrollSentAt) : null,
     created_at: iso(r.createdAt),
     updated_at: iso(r.updatedAt)
-  }));
+});
+
+export async function listInvoices(workspaceId: string, page: Page): Promise<ListOut> {
+  const where: Prisma.InvoiceWhereInput = { workspaceId, ...afterCursor(page.after) };
+  const rows = await prisma.invoice.findMany({ where, orderBy: ORDER, take: page.limit + 1, include: INVOICE_INCLUDE });
+  return paged(rows, page.limit, shapeInvoice);
+}
+
+export async function listPayments(workspaceId: string, page: Page): Promise<ListOut> {
+  const rows = await prisma.invoicePayment.findMany({ where: { workspaceId, ...afterCursor(page.after) }, orderBy: ORDER, take: page.limit + 1 });
+  return paged(rows, page.limit, shapePayment);
+}
+
+export async function listSettlements(workspaceId: string, page: Page): Promise<ListOut> {
+  const rows = await prisma.settlement.findMany({
+    where: { workspaceId, status: { in: ["final", "void"] }, ...afterCursor(page.after) },
+    orderBy: ORDER,
+    take: page.limit + 1,
+    select: SETTLEMENT_SELECT
+  });
+  return paged(rows, page.limit, shapeSettlement);
 }
 
 export async function listLoads(workspaceId: string, page: Page): Promise<ListOut> {

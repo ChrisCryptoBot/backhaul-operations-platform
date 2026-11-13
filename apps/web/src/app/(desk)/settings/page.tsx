@@ -65,6 +65,8 @@ import { MoneyMovingCard } from "@/components/desk/money-moving-card";
 import { checkFeature, moneyMovingState } from "@/server/partners/gates";
 import { ApiKeysCard } from "@/components/desk/api-keys-card";
 import { listApiKeys } from "@/server/api/keys";
+import { WebhooksCard } from "@/components/desk/webhooks-card";
+import { listWebhooks } from "@/server/webhooks/endpoints";
 
 export const metadata = { title: "Settings · TrueLane" };
 
@@ -88,6 +90,8 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
   // The read API's keys are the admin's: nobody else is shown that they exist.
   const apiKeys = admin ? await listApiKeys(currentWorkspaceId()) : null;
   const readApi = admin ? await checkFeature("read_api", currentWorkspaceId()) : null;
+  const webhooks = admin ? await listWebhooks(currentWorkspaceId()) : null;
+  const outbound = admin ? await checkFeature("outbound_webhooks", currentWorkspaceId()) : null;
   // Companies signed in to by OAuth (QuickBooks): where each sign-in stands, never a token. And the fleet's accounting accounts (rules D and E).
   // Read for every viewer: the sign-in view carries no token, and the accounts are names, so a billing user checking the journal sees the accounts as they are, not as blanks.
   const oauthViews = new Map<string, OAuthView>();
@@ -254,6 +258,17 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
             canEdit={admin}
             planRefusal={readApi && !readApi.ok ? readApi.error : null}
             origin={integrationsOrigin}
+          />
+        </Card>
+      ) : null}
+      {webhooks ? (
+        <Card title="Outbound webhooks" className="tl-card">
+          <WebhooksCard
+            endpoints={webhooks.endpoints.map((e) => ({ ...e, disabledAt: e.disabledAt ? dateTime(e.disabledAt) : null, createdAt: dateTime(e.createdAt) }))}
+            deliveries={webhooks.deliveries.map((d) => ({ ...d, createdAt: dateTime(d.createdAt), sentAt: d.sentAt ? dateTime(d.sentAt) : null, nextAttemptAt: dateTime(d.nextAttemptAt) }))}
+            canEdit={admin}
+            planRefusal={outbound && !outbound.ok ? outbound.error : null}
+            keyMissing={!credentialsAvailable()}
           />
         </Card>
       ) : null}

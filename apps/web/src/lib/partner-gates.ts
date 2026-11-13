@@ -24,7 +24,7 @@ export const FEATURE_PLAN: Record<Feature, PlanKey> = {
   outbound_webhooks: "pro"
 };
 
-export const FEATURE_LABEL: Record<Feature, string> = { ...CAPABILITY_LABEL, read_api: "The read API", outbound_webhooks: "Outbound webhooks" };
+export const FEATURE_LABEL: Record<Feature, string> = { ...CAPABILITY_LABEL, read_api: "The read API", outbound_webhooks: "Sending webhooks" };
 
 export const isFeature = (v: unknown): v is Feature => typeof v === "string" && (FEATURES as readonly string[]).includes(v);
 

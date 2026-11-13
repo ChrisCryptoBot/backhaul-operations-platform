@@ -9,6 +9,7 @@ import { rateConTotal, type PayKind } from "@/lib/pay";
 import { computeStatement, linePay, periodBounds, periodCovering, periodText, rowsTotalCents, statementOf, statementRows, validatePeriod, type Adjustment, type AdjustmentInput, type FuelLine, type SettlementLoad, type Statement, type StatementLine } from "@/lib/settlement";
 import { DEDUCTION_ROW_KINDS, deductionLines, NO_CHOICES, typedChoices, type DeductionChoices, type DeductionLine, type DeductionOption, type DeductionRowKind } from "@/lib/deductions";
 import { recordAudit } from "./audit";
+import { emitStatement } from "@/server/webhooks/emit";
 import { draftDeductionOptions } from "./deductions";
 import { num, numOrNull } from "./convert";
 import { currentWorkspaceId } from "./workspace";
@@ -298,6 +299,7 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
       for (const l of statement.lines) {
         await recordAudit({ entity: "settlement", action: "load_settled", loadId: l.loadId, loadNumber: l.loadNumber, summary: `Paid to ${s.driver.name} on ${s.number}: ${money(l.amount ?? 0)}`, before: null, after: { Statement: s.number, Pay: money(l.amount ?? 0) }, at: now, workspaceId }, tx);
       }
+      await emitStatement(tx, workspaceId, id, "finalized", now);
       await recordAudit(
         { entity: "settlement", action: "statement_finalized", summary: `${s.number} finalized for ${s.driver.name}: ${statement.lines.length} ${statement.lines.length === 1 ? "load" : "loads"}, ${money(statement.total)}`, before: { Status: "Draft" }, after, at: now, workspaceId },
         tx
@@ -384,6 +386,7 @@ export async function voidSettlement(id: string, reason: string, now = new Date(
         }
       }
       for (const f of freed) await recordAudit({ entity: "settlement", action: "load_released", loadId: f.load.id, loadNumber: f.load.loadNumber, summary: `Released from ${s.number}: it can be paid on another statement`, reason: why, before: { Statement: s.number }, after: { Statement: null }, at: now, workspaceId }, tx);
+      await emitStatement(tx, workspaceId, id, "voided", now);
       await recordAudit(
         { entity: "settlement", action: "statement_voided", summary: `${s.number} voided for ${s.driver.name} (${money(total)}); its loads can be paid again`, reason: why, before: { Status: "Final", Total: money(total) }, after: { Status: "Void" }, at: now, workspaceId },
         tx

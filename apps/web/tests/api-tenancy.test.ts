@@ -8,7 +8,8 @@ import { describe, expect, test } from "vitest";
  * tests/api-keys.test.ts proves that.)
  */
 const root = path.join(__dirname, "..", "src");
-const DIRS = [path.join(root, "app", "(public)", "api"), path.join(root, "server", "api")];
+// The outbound webhooks (Wave 7 step 3) run from the schedule with no person at all, so they are held to the same rule.
+const DIRS = [path.join(root, "app", "(public)", "api"), path.join(root, "server", "api"), path.join(root, "server", "webhooks")];
 const walk = (dir: string, out: string[] = []): string[] => {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, e.name);
@@ -25,6 +26,7 @@ describe("the read API never reads a person's session or the default workspace",
     const names = files.map(rel).sort();
     for (const s of ["invoices", "payments", "settlements", "loads"]) expect(names).toContain(`app/(public)/api/v1/${s}/route.ts`);
     for (const f of ["handler.ts", "keys.ts", "reads.ts"]) expect(names).toContain(`server/api/${f}`);
+    for (const f of ["emit.ts", "deliver.ts", "endpoints.ts", "transport.ts"]) expect(names).toContain(`server/webhooks/${f}`);
   });
 
   test("no file names currentWorkspaceId, cookies, next/headers, the Clerk SDK, or the desk's session and access helpers", () => {
@@ -46,11 +48,12 @@ describe("the read API never reads a person's session or the default workspace",
     expect(hits).toEqual([]);
   });
 
-  test("every function in src/server/api that takes a workspace takes it without a default", () => {
+  test("every function in src/server/api and src/server/webhooks that takes a workspace takes it without a default", () => {
     const loose: string[] = [];
-    for (const f of files.filter((p) => rel(p).startsWith("server/api/"))) {
+    for (const f of files.filter((p) => rel(p).startsWith("server/"))) {
       const text = fs.readFileSync(f, "utf8");
-      if (/workspaceId\s*(:\s*string\s*)?=(?!=)/.test(text.replace(/const workspaceId = auth\.workspaceId;/g, ""))) loose.push(rel(f));
+      // a parameter with a default (workspaceId: string = ..., or workspaceId = ...) in a function's parameter list
+      if (/[(,]\s*workspaceId\s*(:\s*string\s*)?=(?!=)/.test(text)) loose.push(rel(f));
     }
     expect(loose).toEqual([]);
   });

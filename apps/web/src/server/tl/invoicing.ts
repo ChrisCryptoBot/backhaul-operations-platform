@@ -18,6 +18,7 @@ import { inTerminal } from "./terminal-sql";
 import { balanceOf, isShortCode } from "@/lib/invoice-records";
 import { customerKey, MAX_LOADS_PER_INVOICE } from "@/lib/customer-key";
 import { addInvoicePayment, closeInvoiceRecord, createInvoiceRecord, openInvoiceOf, projectionOf, removeLastInvoicePayment, voidInvoiceRecord } from "./invoice-records";
+import { emitInvoice, emitPayment } from "@/server/webhooks/emit";
 
 /**
  * Invoice a delivered load, mark an invoice paid (in full or short), and take a payment back. Each writes its audit event with the change.
@@ -437,6 +438,7 @@ export async function issueCreditMemo(loadId: string, input: { amount: number; r
         },
         select: { id: true }
       });
+      await emitInvoice(tx, workspaceId, memo.id, "created", now);
       await tx.loadPayment.create({ data: { workspaceId, loadId, amount: dec(amount), paidAt: now, method: "credit" } });
       await addInvoicePayment(tx, { workspaceId, invoiceId: record.id, amount, paidAt: now, method: "credit", source: "credit", externalId: memo.id, note: why });
       // Never with a factor here (refused above), so closing it releases no factor reserve.
@@ -477,7 +479,11 @@ export async function voidCreditMemo(memoId: string, reason: string, now = new D
   return prisma.$transaction(async (tx) => {
     const v = await tx.invoice.updateMany({ where: { id: memoId, status: { not: "void" } }, data: { status: "void", voidedAt: now, voidReason: why } });
     if (v.count !== 1) return { ok: false, error: "That credit memo was just changed. Reload." };
+    await emitInvoice(tx, workspaceId, memoId, "voided", now);
+    // The credit's payment on the original invoice goes with it: each one is told as reversed, as it was, before it is removed.
+    const creditPays = await tx.invoicePayment.findMany({ where: { invoiceId: originalId, source: "credit", externalId: memoId } });
     await tx.invoicePayment.deleteMany({ where: { invoiceId: originalId, source: "credit", externalId: memoId } });
+    for (const cp of creditPays) await emitPayment(tx, workspaceId, cp, "reversed", now);
     const sum = await tx.invoicePayment.aggregate({ where: { invoiceId: originalId }, _sum: { amount: true } });
     const paid = sum._sum.amount ?? new Prisma.Decimal(0);
     await tx.invoice.update({ where: { id: originalId }, data: { paidTotal: paid, status: "open", paidAt: null, writeOffAmount: null, writeOffReason: null, writeOffCode: null } });
@@ -791,6 +797,7 @@ async function voidSharedInvoice(invoiceId: string, why: string, now: Date, work
   const ok = await prisma.$transaction(async (tx) => {
     const v = await tx.invoice.updateMany({ where: { id: invoiceId, status: "open", paidTotal: 0 }, data: { status: "void", voidedAt: now, voidReason: why } });
     if (v.count !== 1) return false;
+    await emitInvoice(tx, workspaceId, invoiceId, "voided", now);
     for (const l of rec.loads) {
       const load = await tx.load.findUnique({ where: { id: l.loadId }, select: { loadNumber: true, invoicedAmount: true } });
       await tx.load.update({ where: { id: l.loadId }, data: { paymentStatus: null, invoicedAt: null, invoicedAmount: null, invoiceNumber: null, invoiceLines: Prisma.JsonNull, paidAmount: null, paidAt: null } });
@@ -841,6 +848,7 @@ async function creditSharedInvoice(invoiceId: string, input: { amount: number; l
         },
         select: { id: true }
       });
+      await emitInvoice(tx, workspaceId, memo.id, "created", now);
       await addInvoicePayment(tx, { workspaceId, invoiceId, amount: input.amount, paidAt: now, method: "credit", source: "credit", externalId: memo.id, note: why });
       // Never with a factor here (refused above), so closing it releases no factor reserve.
       if (closes) await closeInvoiceRecord(tx, invoiceId, { paidAt: now, writeOff: null, factoringPaid: false, now });

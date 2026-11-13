@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { lineKindOf, projectToLoads, type ShortCode } from "@/lib/invoice-records";
+import { emitInvoice, emitPayment } from "@/server/webhooks/emit";
 
 /**
  * The write side of invoices as their own records (docs/MONEY_PLAN.md, Wave 1). Every function here runs inside the caller's transaction, beside the write to the load,
@@ -47,6 +48,8 @@ export async function createInvoiceRecord(tx: Tx, i: NewInvoice): Promise<string
     },
     select: { id: true }
   });
+  // Outbound webhook (Wave 7): queued in this same transaction, so it exists exactly when the invoice does.
+  await emitInvoice(tx, i.workspaceId, inv.id, "created");
   return inv.id;
 }
 
@@ -65,7 +68,7 @@ export type PaymentIn = {
 
 /** Record money received and bring the invoice's total received up to date. Closing is the caller's choice (closeInvoiceRecord). */
 export async function addInvoicePayment(tx: Tx, p: PaymentIn): Promise<void> {
-  await tx.invoicePayment.create({
+  const row = await tx.invoicePayment.create({
     data: {
       workspaceId: p.workspaceId,
       invoiceId: p.invoiceId,
@@ -80,6 +83,8 @@ export async function addInvoicePayment(tx: Tx, p: PaymentIn): Promise<void> {
     }
   });
   await refreshPaidTotal(tx, p.invoiceId);
+  // Every payment, from any path (the desk, a factor's status file, QuickBooks, a credit memo), passes here: payment.applied is queued with it.
+  await emitPayment(tx, p.workspaceId, row, "applied");
 }
 
 /** Close an invoice as paid, with what was written off when it closed short and why. */
@@ -110,7 +115,10 @@ export async function closeInvoiceRecord(tx: Tx, invoiceId: string, c: { paidAt:
 /** Take the newest payment back: the invoice is open again with what the others add up to, and no write-off. */
 export async function removeLastInvoicePayment(tx: Tx, invoiceId: string, opts: { factoringBackToFunded: boolean; now: Date }): Promise<void> {
   const last = await tx.invoicePayment.findFirst({ where: { invoiceId }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
-  if (last) await tx.invoicePayment.delete({ where: { id: last.id } });
+  if (last) {
+    await tx.invoicePayment.delete({ where: { id: last.id } });
+    await emitPayment(tx, last.workspaceId, last, "reversed", opts.now);
+  }
   await refreshPaidTotal(tx, invoiceId);
   await tx.invoice.update({
     where: { id: invoiceId },
@@ -120,7 +128,8 @@ export async function removeLastInvoicePayment(tx: Tx, invoiceId: string, opts: 
 
 /** An invoice taken back keeps its record (its number stays used); it is void, with the reason. */
 export async function voidInvoiceRecord(tx: Tx, invoiceId: string, reason: string, now: Date): Promise<void> {
-  await tx.invoice.update({ where: { id: invoiceId }, data: { status: "void", voidedAt: now, voidReason: reason } });
+  const inv = await tx.invoice.update({ where: { id: invoiceId }, data: { status: "void", voidedAt: now, voidReason: reason }, select: { workspaceId: true } });
+  await emitInvoice(tx, inv.workspaceId, invoiceId, "voided", now);
 }
 
 /** The factoring words on the record follow the load's (the load stays the one the screens read during the move). */

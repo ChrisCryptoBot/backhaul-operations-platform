@@ -88,6 +88,7 @@ import { saveFactoringTerms, type SaveTermsResult } from "@/server/partners/fact
 import { setMoneyMoving, type SwitchResult } from "@/server/partners/gates";
 import { createApiKey, revokeApiKey, type CreatedKey, type RevokeResult } from "@/server/api/keys";
 import { authOn as signInOn } from "@/server/tl/identity";
+import { createEndpoint, rotateEndpointSecret, sendTestEvent as sendWebhookTest, setEndpointActive, type MadeEndpoint, type SwitchedEndpoint, type TestResult as WebhookTestResult } from "@/server/webhooks/endpoints";
 import { recordChargeback, type ChargebackResult } from "@/server/partners/factoring";
 import { cancelFactoringBatch, retryFactoringBatch, sendFactoringBatch, type BatchResult, type RetryResult } from "@/server/partners/factoring-batch";
 import { importFactorStatus, type ImportResult as FactorStatusResult } from "@/server/partners/factor-status-import";
@@ -959,6 +960,48 @@ export async function revokeApiKeyAction(id: string): Promise<RevokeResult> {
     revalidatePath("/settings");
     revalidatePath("/audit");
   }
+  return out;
+}
+
+/** Who an admin action is by, for the audit trail. */
+async function adminName(): Promise<string> {
+  const access = await checkAccess("admin");
+  return access.ok ? access.identity.name || access.identity.email || "Admin" : "Admin";
+}
+const refreshWebhooks = () => {
+  revalidatePath("/settings");
+  revalidatePath("/audit");
+};
+
+/** An outbound webhook address (Wave 7 step 3): an admin's, on a plan with webhooks. The signing secret comes back here once. */
+export async function createWebhookAction(url: string, label: string, events: string[]): Promise<MadeEndpoint> {
+  await requireCan("admin");
+  const out = await createEndpoint({ url, label, events }, await adminName(), new Date(), currentWorkspaceId());
+  if (out.ok) refreshWebhooks();
+  return out;
+}
+
+/** A new signing secret for a webhook: the old one stops working at once. Shown once. */
+export async function rotateWebhookSecretAction(id: string): Promise<MadeEndpoint> {
+  await requireCan("admin");
+  const out = await rotateEndpointSecret(String(id).slice(0, 64), await adminName(), new Date(), currentWorkspaceId());
+  if (out.ok) refreshWebhooks();
+  return out;
+}
+
+/** Switch a webhook on or off. */
+export async function setWebhookActiveAction(id: string, on: boolean): Promise<SwitchedEndpoint> {
+  await requireCan("admin");
+  const out = await setEndpointActive(String(id).slice(0, 64), on === true, await adminName(), new Date(), currentWorkspaceId());
+  if (out.ok && out.changed) refreshWebhooks();
+  return out;
+}
+
+/** Send a test event to a webhook now. */
+export async function sendWebhookTestAction(id: string): Promise<WebhookTestResult> {
+  await requireCan("admin");
+  const out = await sendWebhookTest(String(id).slice(0, 64), await adminName(), new Date(), currentWorkspaceId());
+  if (out.ok) refreshWebhooks();
   return out;
 }
 

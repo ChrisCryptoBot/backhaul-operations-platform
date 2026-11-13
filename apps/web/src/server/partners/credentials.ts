@@ -117,5 +117,16 @@ export async function resealCredentials(): Promise<ResealResult> {
       out.resealed += 1;
     }
   }
+  // Webhook signing secrets (Wave 7) are sealed the same way and rotate with them. Each row moves only from the envelope it was read in, so a secret made new meanwhile is not overwritten.
+  const endpoints = await prisma.webhookEndpoint.findMany({ select: { id: true, sealedSecret: true } });
+  for (const r of endpoints) {
+    const opened = unsealWithKeys(r.sealedSecret, keys);
+    if (!opened) out.unreadable += 1;
+    else if (!opened.usedPrevious) out.current += 1;
+    else {
+      await prisma.webhookEndpoint.updateMany({ where: { id: r.id, sealedSecret: r.sealedSecret }, data: { sealedSecret: seal(opened.values, keys.current) } });
+      out.resealed += 1;
+    }
+  }
   return out;
 }
