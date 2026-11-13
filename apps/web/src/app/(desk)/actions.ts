@@ -5,6 +5,8 @@ import { revalidatePath } from "next/cache";
 import { cookies, headers } from "next/headers";
 import { beginOAuth, disconnectOAuth, type BeginResult } from "@/server/partners/oauth";
 import { originOf } from "@/server/partners/origin";
+import { journalFile, saveAccounts, type SaveAccountsResult } from "@/server/partners/accounting";
+import type { AccountsForm } from "@/lib/accounting-map";
 import { SLEEP_COOKIE, THEME_COOKIE, UI_COOKIE, asSleepMinutes, asTheme, asUi } from "@/lib/appearance";
 import { redirect, RedirectType } from "next/navigation";
 import { prisma } from "@/lib/db";
@@ -1369,4 +1371,24 @@ export async function signOutPartnerAction(provider: string): Promise<{ ok: true
   const out = await disconnectOAuth(String(provider));
   revalidatePath("/settings");
   return out;
+}
+
+/** Save the fleet's accounting accounts (rules D and E). A blank account goes back to its default. Admin only. */
+export async function saveAccountingAccountsAction(form: AccountsForm): Promise<SaveAccountsResult> {
+  await requireCan("admin");
+  const access = await checkAccess("admin");
+  const clean: AccountsForm = {};
+  if (form && typeof form === "object") for (const [k, v] of Object.entries(form)) if (v && typeof v === "object") clean[String(k)] = { account: String((v as { account?: unknown }).account ?? ""), number: String((v as { number?: unknown }).number ?? "") };
+  const out = await saveAccounts(clean, access.ok ? (access.identity.name ?? access.identity.email) : null);
+  if (out.ok) revalidatePath("/settings");
+  return out;
+}
+
+export type JournalCheck = { ok: true; entries: number; rows: number; notes: string[] } | { ok: false; error: string; problems: string[]; unmapped: string[] };
+
+/** What the journal for these days would hold, or why it cannot be given out yet: checked before the file is downloaded. The billing office's. */
+export async function checkJournalAction(from: string | null, to: string | null): Promise<JournalCheck> {
+  await requireCan("bill");
+  const out = await journalFile({ from: from ? String(from) : null, to: to ? String(to) : null });
+  return out.ok ? { ok: true, entries: out.entries, rows: out.rows, notes: out.notes } : out;
 }

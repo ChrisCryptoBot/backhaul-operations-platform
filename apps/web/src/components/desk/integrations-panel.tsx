@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React from "react";
 import Link from "next/link";
-import { connectPartnerAction, disconnectPartnerAction, importEldFleetAction, removePartnerKeysAction, retryPartnerAction, savePartnerKeysAction, sendTestEventAction } from "@/app/(desk)/actions";
+import { beginPartnerSignInAction, connectPartnerAction, disconnectPartnerAction, signOutPartnerAction, importEldFleetAction, removePartnerKeysAction, retryPartnerAction, savePartnerKeysAction, sendTestEventAction } from "@/app/(desk)/actions";
 import { tried } from "./kit/tried";
 import { useToast } from "./kit/toast";
 
@@ -29,11 +29,20 @@ export type IntegrationItem = {
   fields: KeyField[];
   /** Where the company posts its events for this fleet, once connected. */
   webhookPath: string | null;
+  /** For a company that connects by signing in (QuickBooks): where the sign-in stands. Never a token. Null for a company that takes keys. */
+  oauth: OAuthView | null;
 };
+
+export type OAuthView = { signedIn: boolean; expired: boolean; accountId: string | null; renewsUntil: string | null; connectedBy: string | null };
 
 const WHY: Record<string, string> = { upstream_error: "The company did not answer." };
 
 function stateOf(r: IntegrationItem): { word: string; tone: "ok" | "warn" | "bad" | undefined } {
+  if (r.oauth?.expired) return { word: "Sign in again", tone: "bad" };
+  if (r.oauth?.signedIn && r.status === "connected") return { word: "Signed in", tone: "ok" };
+  // Signed in, but its calls are failing: that is the company or the network, not the sign-in.
+  if (r.status === "error") return { word: "Needs attention", tone: "bad" };
+  if (r.oauth && r.status !== "connected") return r.configured ? { word: "Ready to sign in", tone: "warn" } : { word: "Keys needed", tone: undefined };
   if (r.status === "connected") return { word: "Connected", tone: "ok" };
   if (r.status === "error") return { word: "Needs attention", tone: "bad" };
   if (r.status === "revoked") return { word: "Disconnected", tone: undefined };
@@ -45,7 +54,23 @@ function stateOf(r: IntegrationItem): { word: string; tone: "ok" | "warn" | "bad
  * the address the company posts its events to, and the buttons that move it. Secrets are typed here and sent once: they are never kept in the browser (no draft, no storage), and the
  * boxes are emptied the moment they are saved. The live link to a company is its own piece of work: a connected company says so honestly until its link is switched on.
  */
-export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the keys.", sandboxOn = false, origin }: { items: IntegrationItem[]; canKeep: boolean; whyNot?: string; /** The built-in simulator may run on this desk (the demo desk). */ sandboxOn?: boolean; origin: string }) {
+export function IntegrationsPanel({
+  items,
+  canKeep,
+  whyNot = "An admin sets the keys.",
+  sandboxOn = false,
+  origin,
+  signedInResult = null
+}: {
+  items: IntegrationItem[];
+  canKeep: boolean;
+  whyNot?: string;
+  /** The built-in simulator may run on this desk (the demo desk). */
+  sandboxOn?: boolean;
+  origin: string;
+  /** What a company's sign-in said when it sent the person back here. */
+  signedInResult?: { name: string; ok: boolean; why: string | null } | null;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
@@ -55,6 +80,14 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
   /** What the last test event did, by company: the receipt a person can point at. */
   const [receipts, setReceipts] = React.useState<Record<string, { what: string; result: string; loadId: string | null }>>({});
   const key = (r: IntegrationItem) => `${r.capability}:${r.provider}`;
+  // What the sign-in said is shown once: the address loses its words, so a reload or the next change (signing out) does not show it again.
+  const [signinNote, setSigninNote] = React.useState(signedInResult);
+  React.useEffect(() => {
+    if (!signedInResult) return;
+    const url = new URL(window.location.href);
+    for (const k of ["signin", "result", "why"]) url.searchParams.delete(k);
+    window.history.replaceState(window.history.state, "", url.toString());
+  }, [signedInResult]);
 
   const run = (label: string, fn: () => Promise<{ ok: boolean; error?: string }>) =>
     start(async () => {
@@ -62,6 +95,7 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
       if (!got.ok) return setError(got.message);
       if (!got.value.ok) return setError(got.value.error ?? "That did not work.");
       setError("");
+      setSigninNote(null);
       toast({ text: label, tone: "ok" });
       router.refresh();
     });
@@ -76,6 +110,16 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
       setReceipts((m) => ({ ...m, [key(r)]: { what, result, loadId } }));
       toast({ text: what, tone: "ok" });
       router.refresh();
+    });
+
+  /** Off to the company's sign-in page (the simulator comes straight back to the desk's callback). */
+  const signIn = (r: IntegrationItem) =>
+    start(async () => {
+      const got = await tried(() => beginPartnerSignInAction(r.provider));
+      if (!got.ok) return setError(got.message);
+      if (!got.value.ok) return setError(got.value.error);
+      setError("");
+      window.location.assign(got.value.url);
     });
 
   const saveKeys = (r: IntegrationItem) => {
@@ -96,6 +140,11 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
 
   return (
     <>
+      {signinNote ? (
+        <p className={signinNote.ok ? "tl-note" : "tl-note acct-bad"} role={signinNote.ok ? "status" : "alert"}>
+          {signinNote.ok ? `Signed in to ${signinNote.name}.` : `The sign-in to ${signinNote.name} did not work: ${signinNote.why ?? "start again."}`}
+        </p>
+      ) : null}
       <table className="t-tbl" aria-label="Partner companies">
         <thead>
           <tr>
@@ -117,7 +166,8 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
                   <td>
                     <span className="t-st" data-tone={st.tone}>{st.word}</span>
                     {r.status === "error" ? <span className="t-dim"> · {WHY[r.lastError ?? ""] ?? "Calls are failing."} ({r.failures} in a row)</span> : null}
-                    {r.status === "connected" ? <span className="t-dim"> · {r.lastSyncedAt ? `answered ${r.lastSyncedAt}` : "not called yet"}</span> : null}
+                    {r.oauth?.signedIn && r.oauth.accountId ? <span className="t-dim"> · company {r.oauth.accountId}</span> : null}
+                    {r.status === "connected" && !r.oauth ? <span className="t-dim"> · {r.lastSyncedAt ? `answered ${r.lastSyncedAt}` : "not called yet"}</span> : null}
                     {r.sandbox ? <span className="t-st" data-tone="warn" title="These are test keys. Calls go to the built-in simulator and nothing leaves the desk.">Simulator</span> : null}
                     {r.overdue ? <span className="t-st" data-tone="warn" title="This one is read on a clock and has not answered for longer than it should.">Overdue</span> : null}
                   </td>
@@ -129,10 +179,11 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
                 </tr>
                 {isOpen ? (
                   <tr id={`int-${key(r)}`}>
-                    <td colSpan={4}>
+                    <td colSpan={4} className="int-detail">
                       <div style={{ display: "grid", gap: 10, padding: "8px 0 12px", maxWidth: 640 }}>
                         <div>
-                          <div className="t-lbl">This fleet&apos;s keys for {r.name}</div>
+                          <div className="t-lbl">{r.oauth ? `The app's keys for ${r.name}` : <>This fleet&apos;s keys for {r.name}</>}</div>
+                          {r.oauth ? <p className="t-note">{r.name} connects by signing in to it, not by a key. These are the keys of the app the sign-in goes through: normally set on the server; a fleet types its own only if it has its own app with {r.name}.</p> : null}
                           {canKeep ? (
                             <form
                               onSubmit={(e) => {
@@ -180,7 +231,18 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
                           </div>
                         ) : null}
                         {r.rhythm ? <p className="t-note">{r.rhythm}</p> : null}
-                        {sandboxOn ? <p className="t-note">To try {r.name} without an account, type a key that starts with sandbox_ (any text after it). It runs the built-in simulator, connects at once, and nothing leaves the desk.</p> : null}
+                        {sandboxOn ? <p className="t-note">To try {r.name} without an account, type a key that starts with sandbox_ (any text after it). It runs the built-in simulator{r.oauth ? ": Sign in then comes straight back signed in to a test company" : ", connects at once"}, and nothing leaves the desk.</p> : null}
+                        {r.oauth ? (
+                          <div className="int-signin" role="status">
+                            {r.oauth.expired ? <p className="t-note">The sign-in to {r.name} has run out or was refused. Sign in again to carry on; nothing is sent until then.</p> : null}
+                            {r.oauth.signedIn ? (
+                              <p className="t-note">
+                                Signed in to company {r.oauth.accountId}
+                                {r.oauth.connectedBy ? ` by ${r.oauth.connectedBy}` : ""}. The sign-in renews itself each time it is used{r.oauth.renewsUntil ? `; left unused until ${r.oauth.renewsUntil}, it runs out and someone signs in again` : ""}. No token is ever shown here.
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
                         <p className="t-note">
                           {r.status === "connected" || r.status === "error"
                             ? `The keys and the webhook address are ready. The live call to ${r.name} is not switched on yet, so nothing is sent to them.`
@@ -193,7 +255,25 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
                           </p>
                         ) : null}
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          {r.status === "connected" || r.status === "error" ? (
+                          {r.oauth ? (
+                            <>
+                              {!r.oauth.signedIn || r.oauth.expired ? (
+                                <button type="button" className="t-btn sm pri" disabled={pending || !r.configured || !canKeep} title={r.configured ? undefined : "The app's keys are needed first."} onClick={() => signIn(r)}>
+                                  {r.oauth.expired ? `Sign in to ${r.name} again` : `Sign in to ${r.name}`}
+                                </button>
+                              ) : null}
+                              {r.oauth.signedIn && !r.oauth.expired && r.status === "error" ? (
+                                <button type="button" className="t-btn sm pri" disabled={pending || !canKeep} onClick={() => run("Trying again.", () => retryPartnerAction(r.capability, r.provider))}>
+                                  Retry
+                                </button>
+                              ) : null}
+                              {r.oauth.signedIn || r.oauth.expired || r.status === "connected" || r.status === "error" ? (
+                                <button type="button" className="t-btn sm" disabled={pending || !canKeep} onClick={() => run(`Signed out of ${r.name}.`, () => signOutPartnerAction(r.provider))}>
+                                  Sign out
+                                </button>
+                              ) : null}
+                            </>
+                          ) : r.status === "connected" || r.status === "error" ? (
                             <>
                               {r.sandbox && canKeep ? (
                                 <button type="button" className="t-btn sm" disabled={pending} title="Runs a signed simulator event through the desk's own receiver. Nothing leaves the desk." onClick={() => testEvent(r)}>
@@ -244,7 +324,7 @@ export function IntegrationsPanel({ items, canKeep, whyNot = "An admin sets the 
         </tbody>
       </table>
       {error ? (
-        <p className="t-note" role="alert" style={{ marginTop: 8, color: "var(--neg)" }}>
+        <p className="t-note int-err" role="alert">
           {error}
         </p>
       ) : null}

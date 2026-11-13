@@ -10,6 +10,7 @@ import { providerName } from "./call";
 import { credentialKey, credentialKeys, newWebhookToken, seal, unsealWithKeys } from "./credentials-core";
 import { workspaceReader } from "./credentials";
 import { capabilityOf } from "./setup";
+import { disconnectPartner } from "./connections";
 
 /**
  * A fleet's OAuth sign-in to a partner company (QuickBooks Online first; docs/MONEY_PLAN.md, Wave 3), beside the pasted keys of credentials.ts.
@@ -180,18 +181,12 @@ async function expire(id: string, provider: string, workspaceId: string, why: st
   });
 }
 
-/** Sign out of the company: the tokens are forgotten and the connection is marked not connected. (Telling the company to revoke them is part of the live adapter, written with it.) */
+/** Sign out of the company: the same as Disconnect (connections.ts), which forgets the tokens with the connection, so the two can never disagree. (Telling the company to revoke the tokens is part of the live adapter, written with it.) */
 export async function disconnectOAuth(provider: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<{ ok: true; changed: boolean }> {
   const capability = capabilityOf(provider);
-  const removed = await prisma.partnerOAuthToken.deleteMany({ where: { workspaceId, provider } });
-  const was = capability ? await prisma.partnerConnection.findUnique({ where: { workspaceId_capability_provider: { workspaceId, capability, provider } } }) : null;
-  if (capability && was && was.status !== "revoked") {
-    await prisma.$transaction(async (tx) => {
-      await tx.partnerConnection.update({ where: { id: was.id }, data: { status: "revoked" } });
-      await recordAudit({ entity: "partner", action: "partner_connected", summary: `${providerName(provider)} signed out for ${CAPABILITY_LABEL[capability].toLowerCase()}`, before: { Connection: "Connected" }, after: { Connection: "Not connected" }, at: now, workspaceId }, tx);
-    });
-  }
-  return { ok: true, changed: removed.count > 0 || (was != null && was.status !== "revoked") };
+  if (!capability) return { ok: true, changed: false };
+  const out = await disconnectPartner(capability, provider, now, workspaceId);
+  return { ok: true, changed: out.ok && out.changed };
 }
 
 export type OAuthStatus = { signedIn: boolean; accountId: string | null; status: string | null; accessExpiresAt: Date | null; refreshExpiresAt: Date | null; lastError: string | null; connectedBy: string | null };

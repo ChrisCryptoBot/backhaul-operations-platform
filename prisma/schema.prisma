@@ -76,6 +76,7 @@ model Workspace {
   partnerOAuthStates PartnerOAuthState[]
   externalRefs       ExternalRef[]
   syncCursors        SyncCursor[]
+  accountingAccounts AccountingAccount[]
   iftaLines          IftaLine[]
   fuelTransactions   FuelTransaction[]
   vehiclePings       VehiclePing[]
@@ -966,6 +967,24 @@ model SyncCursor {
   @@map("sync_cursors")
 }
 
+/// A fleet's own name (and number) for an account its money is booked to (docs/MONEY_PLAN.md, rules D and E): an invoice line kind's income account, an expense, or a balance account.
+/// A key with no row uses its default name (src/lib/accounting-map.ts); a key with neither is unmapped, and a sync or journal that needs it stops.
+model AccountingAccount {
+  id          String   @id @default(cuid())
+  workspaceId String   @map("workspace_id")
+  key         String
+  account     String
+  number      String?
+  updatedBy   String?  @map("updated_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, key])
+  @@map("accounting_accounts")
+}
+
 /// Every event a company's webhook has sent, once: the company's own event id is unique per provider, so a repeat is recognised and ignored. No body is kept (it can hold names and addresses): the kind and an outcome.
 model PartnerEvent {
   id          String   @id @default(cuid())
@@ -1649,6 +1668,8 @@ model Invoice {
   factoringChargeback        Decimal? @map("factoring_chargeback") @db.Decimal(12, 2)
   /// When the notice of assignment (the factor's remit-to) was put on this invoice's PDF.
   noaAppliedAt               DateTime? @map("noa_applied_at")
+  /// When the factor funded it (the advance was paid): the journal dates the advance and the fee by it. Kept after a chargeback.
+  factoringFundedAt          DateTime? @map("factoring_funded_at")
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
 

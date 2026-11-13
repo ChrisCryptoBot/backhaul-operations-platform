@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { prisma } from "@/lib/db";
 import { sandboxExchanger, type OAuthExchanger } from "@/server/partners/adapters/oauth-exchange";
-import { connectPartner } from "@/server/partners/connections";
+import { connectPartner, disconnectPartner } from "@/server/partners/connections";
 import { advanceCursor, cursorFailed, linkRef, readCursor, refByExternal, refOf, refsOf, unlinkRef } from "@/server/partners/external-refs";
 import { accessTokenFor, beginOAuth, completeOAuth, disconnectOAuth, oauthStatus } from "@/server/partners/oauth";
 
@@ -130,7 +130,9 @@ describe.skipIf(!run)("signing in to QuickBooks, the external-id map and the cur
     delete process.env.DESK_AUTH;
     expect(await beginOAuth("motive", { origin: ORIGIN }, NOW, OTHER)).toMatchObject({ ok: false });
 
-    expect(await disconnectOAuth("quickbooks", NOW, W)).toEqual({ ok: true, changed: true });
+    // The plain Disconnect (connections.ts) takes the tokens with it: a disconnected company is never called with a token left behind.
+    expect(await prisma.partnerOAuthToken.count({ where: { workspaceId: W } })).toBe(1);
+    expect(await disconnectPartner("accounting", "quickbooks", NOW, W)).toEqual({ ok: true, changed: true });
     expect(await prisma.partnerOAuthToken.count({ where: { workspaceId: W } })).toBe(0);
     expect((await prisma.partnerConnection.findUniqueOrThrow({ where: { workspaceId_capability_provider: { workspaceId: W, capability: "accounting", provider: "quickbooks" } } })).status).toBe("revoked");
     expect(await accessTokenFor("quickbooks", NOW, W)).toMatchObject({ ok: false, code: "not_connected" });

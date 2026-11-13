@@ -1269,3 +1269,17 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .rp-dim { opacity: 0.6; }
 .dlg-foot-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 16px; }
 .fp-money { display: flex; flex-wrap: wrap; gap: 4px 24px; margin: 8px 0 0; }
+
+/* Accounting accounts and the journal (Settings, Integrations; docs/MONEY_PLAN.md, Wave 3). */
+.acct-tbl { margin-bottom: var(--db-3); }
+.acct-tbl td { max-width: none; }
+.acct-tbl td:first-child { width: 38%; }
+.acct-tbl input { width: 100%; min-width: 0; }
+.acct-tbl .t-st { margin-left: 8px; }
+.acct-tbl .acct-num { max-width: 120px; }
+.acct-bad { color: var(--db-neg); }
+.acct-problems { margin: 4px 0 0 18px; font-size: var(--db-text-sm); }
+.int-signin { display: grid; gap: 4px; }
+.int-err { margin-top: 8px; color: var(--neg); }
+.acct-intro { margin-bottom: 14px; max-width: 72ch; }
+.t-tbl td.int-detail { white-space: normal; max-width: none; height: auto; overflow: visible; }

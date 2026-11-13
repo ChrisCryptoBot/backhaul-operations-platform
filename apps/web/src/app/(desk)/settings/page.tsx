@@ -53,11 +53,18 @@ import { CARRIER_ZONES, clockName } from "@/lib/tz";
 import { workspaceTimezone } from "@/server/tl/zone";
 import { SettingsTabs, type SettingsTab } from "@/components/desk/settings-tabs";
 import { currentWorkspaceId } from "@/server/tl/workspace";
+import { OAUTH_PROVIDERS } from "@/lib/oauth";
+import { oauthStatus } from "@/server/partners/oauth";
+import { providerName } from "@/server/partners/call";
+import { ACCOUNT_KEYS } from "@/lib/accounting-map";
+import { accountMapOf } from "@/server/partners/accounting";
+import { AccountingAccountsForm, JournalExport } from "@/components/desk/accounting-accounts";
+import type { OAuthView } from "@/components/desk/integrations-panel";
 
 export const metadata = { title: "Settings · TrueLane" };
 
 /** Settings: appearance (interface, theme, idle sleep mode) and the thresholds the desk judges by. Appearance buttons save straight away. */
-export default async function SettingsPage({ searchParams }: { searchParams?: { tab?: string } }) {
+export default async function SettingsPage({ searchParams }: { searchParams?: { tab?: string; signin?: string; result?: string; why?: string } }) {
   const jar = cookies();
   const ui = asUi(jar.get(UI_COOKIE)?.value);
   const theme = asTheme(jar.get(THEME_COOKIE)?.value);
@@ -72,6 +79,19 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
   const integrationsOrigin = host ? `${headers().get("x-forwarded-proto") ?? "https"}://${host}` : "";
   const [row, kpi, company, plan, partners, members] = await Promise.all([getStoredThresholds(), getDeskKpi({ period: "4w", compare: false }), getCompany(), planSummary(), partnerStatus(), listMembers()]);
   const signalSettings = await getSignalSettings();
+  // Companies signed in to by OAuth (QuickBooks): where each sign-in stands, never a token. And the fleet's accounting accounts (rules D and E).
+  // Read for every viewer: the sign-in view carries no token, and the accounts are names, so a billing user checking the journal sees the accounts as they are, not as blanks.
+  const oauthViews = new Map<string, OAuthView>();
+  for (const provider of Object.keys(OAUTH_PROVIDERS)) {
+    const st = await oauthStatus(provider);
+    oauthViews.set(provider, { signedIn: st.signedIn, expired: st.status === "expired", accountId: st.accountId, renewsUntil: st.refreshExpiresAt ? dateTime(st.refreshExpiresAt) : null, connectedBy: st.connectedBy });
+  }
+  const accounts = await accountMapOf();
+  const accountRows = ACCOUNT_KEYS.map((k) => {
+    const m = accounts[k.key] ?? null;
+    return { key: k.key, account: m && !m.fallback ? m.account : "", number: m && !m.fallback ? (m.number ?? "") : "", fallback: k.fallback };
+  });
+  const signin = searchParams?.signin && OAUTH_PROVIDERS[searchParams.signin] ? { name: providerName(searchParams.signin), ok: searchParams.result === "ok", why: searchParams.why ? searchParams.why.slice(0, 200) : null } : null;
   const terminals = admin ? await terminalRows() : [];
   const regionData = admin ? await regionRows() : { regions: [], unassigned: [] };
   const seats = plan.units.find((u) => u.kind === "member")!;
@@ -151,6 +171,25 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
       </Card>
     </>
   );
+  // The accounts and the journal: the admin sets the accounts (under Integrations); the billing office reads them and downloads the journal (its own tab when it is not an admin).
+  const accountingCards = (
+    <>
+      <Card title="Accounting accounts" className="tl-card">
+        <p className="tl-note acct-intro">
+          Where each kind of money is booked in this fleet&apos;s books: every invoice line to an income account, and the expenses and balance accounts the journal and the QuickBooks sync use. A
+          blank box uses the default shown in it. Pay for 1099 owner-operators is booked as a bill to the driver; a W-2 company driver&apos;s pay is booked by payroll, never here.
+        </p>
+        <AccountingAccountsForm rows={accountRows} canEdit={can(me.role, me.grants, "admin")} />
+      </Card>
+      <Card title="Journal for another accounting system" className="tl-card">
+        <p className="tl-note acct-intro">
+          A double-entry journal of invoices, payments, credit memos, factoring (advances, fees, reserve, chargebacks), 1099 statements and fuel card purchases, for any accounting system that is not
+          QuickBooks. Every entry balances, and what customers owe adds up to the invoice records.
+        </p>
+        <JournalExport canExport={can(me.role, me.grants, "bill")} />
+      </Card>
+    </>
+  );
   const integrationsTab = (
     <>
       <Card title="Integrations" className="tl-card">
@@ -177,8 +216,10 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
             overdue: r.overdue,
             sandbox: r.sandbox,
             fields: keyStatus.get(r.provider) ?? [],
-            webhookPath: hooks.get(`${r.capability}:${r.provider}`) ?? null
+            webhookPath: hooks.get(`${r.capability}:${r.provider}`) ?? null,
+            oauth: oauthViews.get(r.provider) ?? null
           }))}
+          signedInResult={signin}
         />
       </Card>
       <Card title="Factoring terms" className="tl-card">
@@ -188,6 +229,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
         </p>
         <FactoringTermsForm initial={termsForm(factoringTerms)} canEdit={can(me.role, me.grants, "admin")} />
       </Card>
+      {accountingCards}
     </>
   );
   const displayTab = (
@@ -310,6 +352,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
   // The same tabs the load drawer has. The company, the plan, the team and the integrations are the admin's, so everyone else is not even shown them.
   const tabs: SettingsTab[] = [
     ...(admin ? [{ key: "company", label: "Company", panel: companyTab }, { key: "plan", label: "Plan", panel: planTab }, { key: "team", label: "Team", panel: teamTab }, { key: "terminals", label: "Terminals", panel: terminalsTab }, { key: "regions", label: "Regions", panel: regionsTab }, { key: "integrations", label: "Integrations", panel: integrationsTab }] : []),
+    ...(!admin && can(me.role, me.grants, "bill") ? [{ key: "accounting", label: "Accounting", panel: accountingCards }] : []),
     { key: "display", label: "Display", panel: displayTab },
     { key: "rules", label: "Rules", panel: rulesTab }
   ];

@@ -89,7 +89,10 @@ export async function connectPartner(capability: string, provider: string, accou
 
 export async function disconnectPartner(capability: string, provider: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<ConnectResult> {
   const was = await prisma.partnerConnection.findUnique({ where: { workspaceId_capability_provider: { workspaceId, capability, provider } } });
-  if (!was || was.status !== "connected") return { ok: true, changed: false };
+  // A company signed in to by OAuth keeps its tokens beside the connection: they go with it, so a disconnected company can never be called with a token left behind (server/partners/oauth.ts).
+  const tokens = isOAuthProvider(provider) ? (await prisma.partnerOAuthToken.deleteMany({ where: { workspaceId, provider } })).count : 0;
+  // A connection in error can be disconnected too: it is still connected, only failing.
+  if (!was || (was.status !== "connected" && was.status !== "error")) return { ok: true, changed: tokens > 0 };
   await prisma.$transaction(async (tx) => {
     await tx.partnerConnection.update({ where: { id: was.id }, data: { status: "revoked" } });
     await recordAudit({ entity: "partner", action: "partner_connected", summary: `${providerName(provider)} disconnected for ${(CAPABILITY_LABEL[capability as Capability] ?? capability).toLowerCase()}`, before: { Connection: "Connected" }, after: { Connection: "Not connected" }, at: now, workspaceId }, tx);

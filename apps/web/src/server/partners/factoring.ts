@@ -200,6 +200,8 @@ export async function applyFactoringUpdate(loadId: string, status: string, refer
       if (out.count !== loadIds.length) throw new ClaimLost();
       if (rec) {
         await setInvoiceFactoring(tx, rec.id, { status, ...(referenceId ? { referenceId } : {}), now });
+        // The day the advance was paid: the journal dates the advance and the fee by it (docs/MONEY_PLAN.md, Wave 3).
+        if (status === "funded") await tx.invoice.update({ where: { id: rec.id }, data: { factoringFundedAt: now } });
         if (status === "funded" && terms?.advancePct) {
           const e = economicsOf(rec.total, { advancePct: terms.advancePct, feePct: terms.feePct });
           if (e) await tx.invoice.update({ where: { id: rec.id }, data: { factoringAdvance: e.advance, factoringFee: e.fee, factoringReserve: e.reserveHeld } });
