@@ -6,7 +6,7 @@ import { CanGate } from "@/components/desk/kit/can-gate";
 import { EmptyState } from "@/components/desk/kit/states";
 import { PageHead, Stat } from "@/components/desk/ui";
 import { dateTime } from "@/lib/desk-format";
-import { centralParts } from "@/lib/zoned";
+import { recentQuarters } from "@/lib/ifta-rates-csv";
 import { partnerState, providerName } from "@/server/partners/call";
 import { storedIfta } from "@/server/partners/ifta";
 import { requirePage } from "@/server/tl/access";
@@ -25,23 +25,6 @@ const COLUMNS: Column[] = [
 
 const n1 = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 
-/** The four quarters ending with the one the carrier's clock is in, newest first: "2026-Q4", "2026-Q3", ... */
-function quarters(now: Date, tz: string): string[] {
-  const p = centralParts(now.getTime(), tz);
-  let y = p.y;
-  let q = Math.floor(p.m0 / 3) + 1;
-  const out: string[] = [];
-  for (let i = 0; i < 4; i++) {
-    out.push(`${y}-Q${q}`);
-    q -= 1;
-    if (q === 0) {
-      q = 4;
-      y -= 1;
-    }
-  }
-  return out;
-}
-
 /**
  * IFTA: a quarter's miles by state, from the quarter's delivered loads, worked out by the mileage company and kept here (one answer per quarter, replaced each time it is worked out). The
  * numbers are the loaded miles of each delivered load split over the states its route runs through; the fuel bought in each state, which IFTA nets against the gallons used, is on the Fuel screen.
@@ -49,7 +32,7 @@ function quarters(now: Date, tz: string): string[] {
 export default async function IftaPage({ searchParams }: { searchParams?: { quarter?: string } }) {
   await requirePage("read");
   const tz = await workspaceTimezone(currentWorkspaceId());
-  const options = quarters(new Date(), tz);
+  const options = recentQuarters(new Date(), tz);
   const quarter = options.includes(searchParams?.quarter ?? "") ? searchParams!.quarter! : options[0]!;
   const [lines, mileage] = await Promise.all([storedIfta(quarter), partnerState("ifta")]);
   const miles = lines.reduce((s, l) => s + l.miles, 0);
@@ -65,6 +48,7 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
       <PageHead title="IFTA" sub="A quarter's miles by state, from the quarter's delivered loads. The fuel bought in each state is on the Fuel screen.">
         <a className="tl-btn" href={`/export/ifta?quarter=${quarter}`} aria-disabled={lines.length === 0}>Export CSV</a>
         <CanGate caps={["bill"]}>
+          <Link className="tl-btn" href={`/ifta/rates?quarter=${quarter}`}>Tax rates</Link>
           <IftaCalcButton quarter={quarter} reason={mileage.reason} again={lines.length > 0} />
         </CanGate>
       </PageHead>

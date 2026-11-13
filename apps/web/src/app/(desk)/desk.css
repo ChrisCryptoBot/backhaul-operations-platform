@@ -1318,3 +1318,11 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .fflag-form { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
 .fflag-note { flex: 1 1 240px; }
 .fuel-flagnote { margin: 12px 0; max-width: 90ch; }
+
+/* IFTA tax rates (money plan Wave 5 step 4) */
+.irate-tabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.irate-note { margin: 12px 0; max-width: 90ch; }
+.irate-status { display: inline-flex; align-items: center; gap: 8px; }
+.irate { margin-top: var(--db-3); }
+.irate h3 { margin: var(--db-4) 0 var(--db-2); }
+.irate-preview { max-height: 420px; overflow: auto; }

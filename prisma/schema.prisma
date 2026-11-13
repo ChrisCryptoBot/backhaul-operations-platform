@@ -78,6 +78,7 @@ model Workspace {
   syncCursors         SyncCursor[]
   accountingAccounts  AccountingAccount[]
   iftaLines           IftaLine[]
+  iftaRates           IftaRate[]
   fuelTransactions    FuelTransaction[]
   fuelFlagReviews     FuelFlagReview[]
   vehiclePings        VehiclePing[]
@@ -1358,6 +1359,35 @@ model IftaLine {
 
   @@unique([workspaceId, quarter, state])
   @@map("ifta_lines")
+}
+
+/// A quarter's fuel-tax rate for one US jurisdiction (IFTA), per workspace: what the return (Wave 5 step 6) multiplies by. Loaded from a rate file (modelled on IFTA, Inc.'s quarterly rate
+/// table, an assumption) or as labelled sample rates for a demo. A file replaces the whole quarter. US dollars a gallon only; Canadian rows are counted and skipped (gap 15).
+/// `rate` and `surcharge` stay apart: the fuel-bought credit applies to `rate` only, never to `surcharge`.
+model IftaRate {
+  id            String   @id @default(cuid())
+  workspaceId   String   @map("workspace_id")
+  /// "2026-Q3".
+  quarter       String
+  /// Two-letter US code (DC included).
+  jurisdiction  String
+  /// Base diesel rate, dollars a gallon.
+  rate          Decimal  @db.Decimal(8, 4)
+  /// A separate surcharge rate, dollars a gallon (0 where the state has none). No credit for fuel bought.
+  surcharge     Decimal  @default(0) @db.Decimal(8, 4)
+  /// "provisional" | "final".
+  status        String
+  /// Made-up rates for a demo: shown as "sample, not for filing".
+  isSample      Boolean  @default(false) @map("is_sample")
+  /// The file the rate came from ("sample" for sample rates).
+  sourceFile    String?  @map("source_file")
+  importBatchId String?  @map("import_batch_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, quarter, jurisdiction])
+  @@map("ifta_rates")
 }
 
 /// A fuel card purchase, as the card company reported it: kept so fuel can be listed, tied to the load it was bought for and followed to the driver statement that load is on. One row per

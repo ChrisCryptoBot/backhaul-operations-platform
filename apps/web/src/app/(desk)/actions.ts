@@ -65,6 +65,7 @@ import { syncFuelCards, type FuelSync } from "@/server/partners/fuel-store";
 import { clearFuelFlag, reopenFuelFlag, type FlagReviewResult } from "@/server/partners/fuel-flags";
 import { commitFuelImport, previewFuelImport, removeFuelImport, type FuelImportMap, type FuelImportPreview, type FuelImportResult, type RemoveFuelImportResult } from "@/server/partners/fuel-import";
 import { calculateIfta, type IftaResult } from "@/server/partners/ifta";
+import { clearIftaRates, commitIftaRates, loadSampleIftaRates, previewIftaRates, type IftaClearResult, type IftaRateImportMap, type IftaRateImportResult, type IftaRatePreview, type IftaSampleResult } from "@/server/partners/ifta-rates";
 import { applyFactoringUpdate, factorInvoice, type FactorResult } from "@/server/partners/factoring";
 import { syncEld, type SyncResult } from "@/server/partners/eld";
 import { importFuelForLoad, saveFuelCard, type FuelCardResult, type SaveFuelCard } from "@/server/partners/fuel-card";
@@ -1375,6 +1376,38 @@ export async function calculateIftaAction(quarter: string): Promise<IftaResult> 
   await requireCan("bill");
   const out = await calculateIfta(String(quarter));
   if (out.ok) revalidatePath("/ifta");
+  return out;
+}
+
+/** Reads an IFTA rate file for a quarter and says what it would keep; writes nothing. The billing office only, like the IFTA calculation. */
+export async function previewIftaRatesAction(text: string, mapping: IftaRateImportMap | null, quarter: string, status: string): Promise<IftaRatePreview> {
+  await requireCan("bill");
+  if (typeof text !== "string") return { ok: false, error: "That is not a file the desk can read." };
+  return previewIftaRates(text, mapping && typeof mapping === "object" ? mapping : null, String(quarter), status === "final" ? "final" : "provisional");
+}
+
+/** Imports an IFTA rate file, replacing the quarter's rates whole, with one entry in the audit log. */
+export async function commitIftaRatesAction(text: string, mapping: IftaRateImportMap | null, quarter: string, status: string, fileName: string): Promise<IftaRateImportResult> {
+  await requireCan("bill");
+  if (typeof text !== "string") return { ok: false, error: "That is not a file the desk can read." };
+  const out = await commitIftaRates(text, mapping && typeof mapping === "object" ? mapping : null, String(quarter), status === "final" ? "final" : "provisional", typeof fileName === "string" ? fileName : "");
+  if (out.ok) revalidatePath("/ifta", "layout");
+  return out;
+}
+
+/** Loads made-up sample rates for a quarter (a demo), never over real ones. */
+export async function loadSampleIftaRatesAction(quarter: string): Promise<IftaSampleResult> {
+  await requireCan("bill");
+  const out = await loadSampleIftaRates(String(quarter));
+  if (out.ok) revalidatePath("/ifta", "layout");
+  return out;
+}
+
+/** Clears a quarter's rates. */
+export async function clearIftaRatesAction(quarter: string): Promise<IftaClearResult> {
+  await requireCan("bill");
+  const out = await clearIftaRates(String(quarter));
+  if (out.ok) revalidatePath("/ifta", "layout");
   return out;
 }
 
