@@ -6,6 +6,8 @@
  * journal that carries one can run. A kind that is unmapped stops the sync before anything is sent.
  * Rule E: a 1099 owner-operator's statement is a bill to the driver as a vendor (Driver Pay expense, Accounts Payable). A W-2 company driver's pay is never booked here: it goes only through
  * payroll, so taxes and withholding are not counted twice.
+ * Wave 4 step 7: a 1099 statement's deductions (lease, insurance, ELD charged back) are Deduction Income; escrow held for a driver is the driver's money, a liability (Driver Escrow), never
+ * income, and a release takes it back down; an advance is an asset (Driver Advances) the fleet holds until the driver repays it on statements.
  */
 export type AccountGroup = "income" | "expense" | "balance";
 export type AccountKey = {
@@ -27,6 +29,7 @@ export const ACCOUNT_KEYS: readonly AccountKey[] = [
   { key: "tonu", group: "income", label: "Truck ordered, not used", fallback: "Accessorial Income" },
   { key: "other", group: "income", label: "Other charges", fallback: null },
   { key: "credit", group: "income", label: "Credits and allowances", fallback: null },
+  { key: "deduction_income", group: "income", label: "Driver deductions charged back (lease, insurance, ELD)", fallback: "Driver Deduction Income" },
   { key: "driver_pay_1099", group: "expense", label: "Driver pay (1099 owner-operators)", fallback: "Driver Pay" },
   { key: "fuel", group: "expense", label: "Fuel", fallback: "Fuel" },
   { key: "factoring_fee", group: "expense", label: "Factoring fees", fallback: "Factoring Fees" },
@@ -35,11 +38,13 @@ export const ACCOUNT_KEYS: readonly AccountKey[] = [
   { key: "cash", group: "balance", label: "Money received", fallback: "Undeposited Funds" },
   { key: "factor_reserve", group: "balance", label: "Reserve the factor holds", fallback: "Factoring Reserve" },
   { key: "accounts_payable", group: "balance", label: "What the fleet owes drivers", fallback: "Accounts Payable" },
-  { key: "fuel_card_payable", group: "balance", label: "What the fuel card is owed", fallback: "Fuel Card Payable" }
+  { key: "fuel_card_payable", group: "balance", label: "What the fuel card is owed", fallback: "Fuel Card Payable" },
+  { key: "escrow_liability", group: "balance", label: "Escrow held for drivers (their money)", fallback: "Driver Escrow" },
+  { key: "driver_advances", group: "balance", label: "Advances drivers still owe", fallback: "Driver Advances" }
 ];
 
 export const ACCOUNT_KEY_SET: ReadonlySet<string> = new Set(ACCOUNT_KEYS.map((k) => k.key));
-export const GROUP_LABEL: Record<AccountGroup, string> = { income: "Income, by invoice line", expense: "Expenses", balance: "Balance accounts" };
+export const GROUP_LABEL: Record<AccountGroup, string> = { income: "Income, by invoice line and driver deductions", expense: "Expenses", balance: "Balance accounts" };
 
 export type MappedAccount = { account: string; number: string | null; fallback: boolean };
 export type AccountMap = Record<string, MappedAccount | null>;

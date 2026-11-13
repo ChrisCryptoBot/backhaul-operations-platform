@@ -62,7 +62,7 @@ describe.skipIf(!run)("the journal and the accounts", () => {
     expect(await markLoadPaid(loads.F!, new Date("2026-12-01T18:00:00Z"), { payer: "Apex Capital", source: "factor", shortAction: "balance" } as never, W)).toMatchObject({ ok: true });
     // A 1099 driver's finalized statement with fuel taken off, and the fuel card purchase itself.
     const d = await prisma.driver.create({ data: { workspaceId: W, name: "Sam Owner", payrollWorkerType: "contractor" } as never });
-    await prisma.settlement.create({ data: { workspaceId: W, driverId: d.id, number: "ST-1", status: "final", periodStart: new Date("2026-11-16"), periodEnd: new Date("2026-11-22"), total: new Prisma.Decimal("1500.00"), fuel: [{ id: "x", amount: 300 }] as never, finalizedAt: new Date("2026-11-23T18:00:00Z") } });
+    await prisma.settlement.create({ data: { workspaceId: W, driverId: d.id, number: "ST-1", status: "final", periodStart: new Date("2026-11-16"), periodEnd: new Date("2026-11-22"), total: new Prisma.Decimal("1500.00"), fuel: [{ id: "x", amount: 300 }] as never, finalizedAt: new Date("2026-11-23T18:00:00Z"), lineRows: { create: [{ workspaceId: W, sort: 0, kind: "load", label: "Load", amount: 1800 }, { workspaceId: W, sort: 10000, kind: "fuel", label: "Fuel card", amount: -300 }] } } });
     await prisma.fuelTransaction.create({ data: { workspaceId: W, provider: "wex", externalId: "t-1", postedAt: new Date("2026-11-18T18:00:00Z"), amount: new Prisma.Decimal("300.00"), location: "Amarillo, TX" } });
   });
   afterAll(async () => {

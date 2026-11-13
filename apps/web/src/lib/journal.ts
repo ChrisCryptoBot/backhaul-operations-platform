@@ -13,8 +13,13 @@ import type { AccountMap } from "./accounting-map";
  *   factored (funded)      the advance in cash and the reserve held by the factor, receivables down by the whole invoice; the fee out of the reserve to Factoring Fees; when the customer pays,
  *                          the reserve the factor releases comes in as cash. A chargeback undoes the funding: the invoice is the fleet's to collect again and the advance goes back.
  *                          (A chargeback clears the fee and reserve on the record, so a charged-back invoice is booked with no fee: what the record says now.)
- *   1099 statement         rule E: driver pay (what the loads paid, before the fuel card came off) to Driver Pay, the fuel the driver bore back out of Fuel, and the net to Accounts Payable;
- *                          paid, payables down and cash out. A W-2 driver's statement is never booked here (payroll books it), and one whose driver is not marked either way is left out and said.
+ *   1099 statement         rule E, from the statement's frozen rows (SettlementLine), each row to its account by kind (statementPostings below, which the QuickBooks bill uses too): loads and
+ *                          adjustments to Driver Pay, the fuel the driver bore back out of Fuel, deductions to Deduction Income, escrow held to Driver Escrow (a liability, never income) and a
+ *                          release back out of it, an advance repaid out of Driver Advances (the asset), and the net to Accounts Payable; paid, payables down and cash out. The rows must add up
+ *                          to the statement's total or nothing is booked. A W-2 driver's statement is never booked here (payroll books it), and one whose driver is not marked either way is
+ *                          left out and said. A voided statement is not booked: the journal is made from the records as they stand, so its entry is gone from the next export.
+ *   advance given          an advance recorded outside a statement (cash, check, transfer, fuel card) is the asset going up: Driver Advances against cash, or against the fuel card for one
+ *                          given on the card. Its repayments come off later statements (above), so the asset returns to nothing as the advance is cleared.
  *   fuel card purchase     to Fuel, owed to the fuel card.
  */
 export type JInvoice = {
@@ -30,10 +35,52 @@ export type JInvoice = {
   payments: Array<{ id: string; amount: number; paidAt: Date; source: string }>;
   factoring: { fundedAt: Date | null; advance: number | null; fee: number | null; reserveReleased: number | null; chargeback: number | null; updatedAt: Date | null };
 };
-export type JSettlement = { id: string; number: string; driver: string; workerType: string | null; finalizedAt: Date; total: number; fuel: number; paidAt: Date | null };
+/** A statement with its frozen rows (cents, signed as on the statement). */
+export type JSettlement = { id: string; number: string; driver: string; workerType: string | null; finalizedAt: Date; total: number; rows: Array<{ kind: string; amount: number }>; paidAt: Date | null };
+/** An advance given outside a statement. `method` decides what paid it out: the fuel card, or cash for every other way. */
+export type JAdvance = { id: string; driver: string; workerType: string | null; givenOn: string; method: string; amount: number; label: string };
+
+/**
+ * Which account each kind of statement row is booked to. Every row is booked at its own signed amount (pay positive is a debit, money off negative is a credit), so a statement's postings
+ * plus Accounts Payable for the net always balance. A kind not here stops the booking rather than guessing.
+ */
+export const ROW_ACCOUNT: Record<string, string> = {
+  load: "driver_pay_1099",
+  // Typed by hand and signed: a bonus adds to driver pay, a negative one takes it down (what it was is the fleet's to say; it has no account of its own).
+  adjustment: "driver_pay_1099",
+  fuel: "fuel",
+  deduction: "deduction_income",
+  escrow: "escrow_liability",
+  escrow_release: "escrow_liability",
+  advance_repaid: "driver_advances"
+};
+export const ROW_ACCOUNT_DESCRIPTION: Record<string, string> = {
+  driver_pay_1099: "Driver pay (loads and adjustments)",
+  fuel: "Fuel card, taken off the statement",
+  deduction_income: "Deductions charged back (lease, insurance, ELD)",
+  escrow_liability: "Escrow held for the driver, less any released",
+  driver_advances: "Advance repaid"
+};
+
+/**
+ * A statement's postings by account, netted per account (cents, positive = debit), with Accounts Payable for the net. The journal and the QuickBooks bill both come from this, so they agree to
+ * the cent. Refused (problem) when a row's kind has no account or the rows do not add up to the total.
+ */
+export function statementPostings(s: Pick<JSettlement, "number" | "total" | "rows">): { postings: Array<[string, number]>; net: number } | { problem: string } {
+  const unknown = [...new Set(s.rows.map((r) => r.kind).filter((k) => !ROW_ACCOUNT[k]))];
+  if (unknown.length > 0) return { problem: `${s.number}: a line of a kind the books do not know (${unknown.join(", ")}).` };
+  const net = s.rows.reduce((sum, r) => sum + r.amount, 0);
+  if (net !== s.total) return { problem: `${s.number}: its lines come to ${(net / 100).toFixed(2)}, not the ${(s.total / 100).toFixed(2)} on the statement.` };
+  const by = new Map<string, number>();
+  for (const r of s.rows) by.set(ROW_ACCOUNT[r.kind]!, (by.get(ROW_ACCOUNT[r.kind]!) ?? 0) + r.amount);
+  return { postings: [...[...by.entries()].filter(([, v]) => v !== 0), ["accounts_payable", -net]], net };
+}
+
+/** What paid an advance out: the fuel card owes for one given on the card; every other way is cash. */
+export const advanceCreditKey = (method: string) => (method === "fuel_card" ? "fuel_card_payable" : "cash");
 export type JFuel = { id: string; postedAt: Date; amount: number; location: string | null };
 
-export type JSource = "invoice" | "credit_memo" | "payment" | "write_off" | "factoring_funded" | "factoring_fee" | "factoring_release" | "factoring_chargeback" | "settlement" | "settlement_paid" | "fuel";
+export type JSource = "invoice" | "credit_memo" | "payment" | "write_off" | "factoring_funded" | "factoring_fee" | "factoring_release" | "factoring_chargeback" | "settlement" | "settlement_paid" | "advance" | "fuel";
 export type JLine = { key: string; debit: number; credit: number };
 export type JEntry = { id: string; day: string; source: JSource; ref: string; memo: string; lines: JLine[] };
 
@@ -76,7 +123,7 @@ function entry(id: string, day: string, source: JSource, ref: string, memo: stri
   return lines.length === 0 ? null : { id, day, source, ref, memo, lines };
 }
 
-export function buildJournal(input: { invoices: JInvoice[]; settlements: JSettlement[]; fuel: JFuel[] }, opts: { zone: string; from?: string | null; to?: string | null }): JournalOut {
+export function buildJournal(input: { invoices: JInvoice[]; settlements: JSettlement[]; fuel: JFuel[]; advances?: JAdvance[] }, opts: { zone: string; from?: string | null; to?: string | null }): JournalOut {
   const day = dayIn(opts.zone);
   const inRange = (d: string) => (!opts.from || d >= opts.from) && (!opts.to || d <= opts.to);
   const all: JEntry[] = [];
@@ -154,8 +201,18 @@ export function buildJournal(input: { invoices: JInvoice[]; settlements: JSettle
       unset.push(s.number);
       continue;
     }
-    push(entry(`settlement:${s.id}`, day(s.finalizedAt), "settlement", s.number, `Statement ${s.number}, ${s.driver}`, [["driver_pay_1099", s.total + s.fuel], ["fuel", -s.fuel], ["accounts_payable", -s.total]]));
-    if (s.paidAt) push(entry(`settlement_paid:${s.id}`, day(s.paidAt), "settlement_paid", s.number, `Paid statement ${s.number}, ${s.driver}`, [["accounts_payable", s.total], ["cash", -s.total]]));
+    const p = statementPostings(s);
+    if ("problem" in p) {
+      problems.push(p.problem);
+      continue;
+    }
+    push(entry(`settlement:${s.id}`, day(s.finalizedAt), "settlement", s.number, `Statement ${s.number}, ${s.driver}`, p.postings), `${s.number}: its entry does not balance.`);
+    if (s.paidAt) push(entry(`settlement_paid:${s.id}`, day(s.paidAt), "settlement_paid", s.number, `Paid statement ${s.number}, ${s.driver}`, [["accounts_payable", p.net], ["cash", -p.net]]));
+  }
+  for (const a of input.advances ?? []) {
+    // Rule E again: a W-2 driver's advance is payroll's (the desk refuses one anyway).
+    if (a.workerType !== "contractor") continue;
+    push(entry(`advance:${a.id}`, a.givenOn, "advance", a.label, `${a.label}, ${a.driver}`, [["driver_advances", a.amount], [advanceCreditKey(a.method), -a.amount]]), `${a.label}: its entry does not balance.`);
   }
   if (w2.length > 0) notes.push(`${w2.length} ${w2.length === 1 ? "statement is" : "statements are"} for company drivers (W-2): their pay is booked by payroll, not here.`);
   if (unset.length > 0) notes.push(`${unset.length} ${unset.length === 1 ? "statement was" : "statements were"} left out because the driver is not marked as a contractor or an employee (${unset.slice(0, 5).join(", ")}${unset.length > 5 ? ", ..." : ""}). Mark the driver on their page.`);

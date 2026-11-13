@@ -71,7 +71,7 @@ describe.skipIf(!run)("the QuickBooks sync, against the simulator", () => {
     const owner = await prisma.driver.create({ data: { workspaceId: W, name: "Sam Owner", payrollWorkerType: "contractor" } as never });
     const employee = await prisma.driver.create({ data: { workspaceId: W, name: "Pat Employee", payrollWorkerType: "employee" } as never });
     for (const [d, n] of [[owner, "ST-1"], [employee, "ST-2"]] as const)
-      await prisma.settlement.create({ data: { workspaceId: W, driverId: d.id, number: n, status: "final", periodStart: new Date("2026-11-16"), periodEnd: new Date("2026-11-22"), total: new Prisma.Decimal("1500.00"), fuel: [{ id: "x", amount: 300 }] as never, finalizedAt: later(3) } });
+      await prisma.settlement.create({ data: { workspaceId: W, driverId: d.id, number: n, status: "final", periodStart: new Date("2026-11-16"), periodEnd: new Date("2026-11-22"), total: new Prisma.Decimal("1500.00"), fuel: [{ id: "x", amount: 300 }] as never, finalizedAt: later(3), lineRows: { create: [{ workspaceId: W, sort: 0, kind: "load", label: "Load", amount: 1800 }, { workspaceId: W, sort: 10000, kind: "fuel", label: "Fuel card", amount: -300 }] } } });
 
     // A bookkeeper typed QINV-C into QuickBooks before the desk synced (for $450, against the existing customer).
     const at = T0.toISOString();

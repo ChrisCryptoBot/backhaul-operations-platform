@@ -177,6 +177,9 @@ const ACCOUNT_TYPE: Record<string, string> = {
   "Factoring Reserve": "Other Current Asset",
   "Accounts Payable": "Accounts Payable",
   "Fuel Card Payable": "Other Current Liability",
+  // Escrow is the driver's money the fleet holds (a liability); an advance is money the driver owes back (an asset).
+  "Driver Escrow": "Other Current Liability",
+  "Driver Advances": "Other Current Asset",
   Checking: "Bank"
 };
 /** A test company's chart of accounts: every default account name, a discounts account, and a bank; and one customer typed in by a bookkeeper before the desk ever synced. */

@@ -97,7 +97,7 @@ describe("the journal", () => {
   });
 
   it("books a 1099 statement as a bill (rule E), leaves a W-2 one to payroll, and says when a driver is not marked", () => {
-    const s = (o: Partial<JSettlement> & { id: string }): JSettlement => ({ number: o.id.toUpperCase(), driver: "Sam", workerType: "contractor", finalizedAt: at("2026-11-07T18:00:00Z"), total: 150000, fuel: 30000, paidAt: at("2026-11-10T18:00:00Z"), ...o });
+    const s = (o: Partial<JSettlement> & { id: string }): JSettlement => ({ number: o.id.toUpperCase(), driver: "Sam", workerType: "contractor", finalizedAt: at("2026-11-07T18:00:00Z"), total: 150000, rows: [{ kind: "load", amount: 180000 }, { kind: "fuel", amount: -30000 }], paidAt: at("2026-11-10T18:00:00Z"), ...o });
     const out = buildJournal({ invoices: [], settlements: [s({ id: "s1" }), s({ id: "s2", workerType: "employee" }), s({ id: "s3", workerType: null })], fuel: [{ id: "t1", postedAt: at("2026-11-04T18:00:00Z"), amount: 30000, location: "Love's, Amarillo" }] }, { zone: ZONE });
     expect(out.entries.map((e) => e.source)).toEqual(["fuel", "settlement", "settlement_paid"]);
     expect(out.entries.find((e) => e.source === "settlement")!.lines).toEqual([{ key: "driver_pay_1099", debit: 180000, credit: 0 }, { key: "fuel", debit: 0, credit: 30000 }, { key: "accounts_payable", debit: 0, credit: 150000 }]);

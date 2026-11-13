@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ACCOUNT_KEYS, checkAccountsForm, resolveAccounts, unmappedOf, unmappedSentence, type AccountMap, type AccountsForm } from "@/lib/accounting-map";
-import { buildJournal, journalCsv, type JInvoice, type JSettlement } from "@/lib/journal";
+import { buildJournal, journalCsv, type JAdvance, type JInvoice, type JSettlement } from "@/lib/journal";
+import { advanceLabel } from "@/lib/deductions";
 import { recordAudit } from "@/server/tl/audit";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { workspaceTimezone } from "@/server/tl/zone";
@@ -79,13 +80,14 @@ export async function journalFile(span: { from?: string | null; to?: string | nu
   if (from && to && from > to) return { ok: false, error: "The first day is after the last.", problems: [], unmapped: [] };
   const zone = await workspaceTimezone(workspaceId);
 
-  const [invoices, settlements, fuel] = await Promise.all([
+  const [invoices, settlements, fuel, advances] = await Promise.all([
     prisma.invoice.findMany({
       where: { workspaceId, status: { not: "void" }, kind: { in: ["invoice", "credit_memo"] } },
       include: { lines: { select: { kind: true, amount: true } }, payments: { select: { id: true, amount: true, paidAt: true, source: true } } }
     }),
-    prisma.settlement.findMany({ where: { workspaceId, status: "final", voidedAt: null, finalizedAt: { not: null } }, include: { driver: { select: { name: true, payrollWorkerType: true } } } }),
-    prisma.fuelTransaction.findMany({ where: { workspaceId }, select: { id: true, postedAt: true, amount: true, location: true } })
+    prisma.settlement.findMany({ where: { workspaceId, status: "final", voidedAt: null, finalizedAt: { not: null } }, include: { driver: { select: { name: true, payrollWorkerType: true } }, lineRows: { select: { kind: true, amount: true }, orderBy: { sort: "asc" } } } }),
+    prisma.fuelTransaction.findMany({ where: { workspaceId }, select: { id: true, postedAt: true, amount: true, location: true } }),
+    prisma.driverAdvance.findMany({ where: { workspaceId }, include: { driver: { select: { name: true, payrollWorkerType: true } } } })
   ]);
 
   const jInvoices: JInvoice[] = invoices.map((i) => ({
@@ -108,11 +110,13 @@ export async function journalFile(span: { from?: string | null; to?: string | nu
     workerType: s.driver.payrollWorkerType,
     finalizedAt: s.finalizedAt!,
     total: cents(s.total) ?? 0,
-    fuel: (Array.isArray(s.fuel) ? (s.fuel as Array<{ amount?: unknown }>) : []).reduce((sum, f) => sum + centsOf(f?.amount), 0),
+    // The frozen rows (Wave 4 step 1), never the statement's JSON: every kind of line the statement carries is booked.
+    rows: s.lineRows.map((r) => ({ kind: r.kind, amount: cents(r.amount)! })),
     paidAt: s.paidAt
   }));
+  const jAdvances: JAdvance[] = advances.map((a) => ({ id: a.id, driver: a.driver.name, workerType: a.driver.payrollWorkerType, givenOn: a.givenOn.toISOString().slice(0, 10), method: a.method, amount: cents(a.amount)!, label: advanceLabel({ amountCents: cents(a.amount)!, givenOn: a.givenOn.toISOString().slice(0, 10), method: a.method }) }));
 
-  const out = buildJournal({ invoices: jInvoices, settlements: jSettlements, fuel: fuel.map((f) => ({ id: f.id, postedAt: f.postedAt, amount: cents(f.amount)!, location: f.location })) }, { zone, from, to });
+  const out = buildJournal({ invoices: jInvoices, settlements: jSettlements, advances: jAdvances, fuel: fuel.map((f) => ({ id: f.id, postedAt: f.postedAt, amount: cents(f.amount)!, location: f.location })) }, { zone, from, to });
   if (out.problems.length > 0) return { ok: false, error: `${out.problems.length} ${out.problems.length === 1 ? "record cannot" : "records cannot"} be booked as they stand.`, problems: out.problems, unmapped: [] };
   const map = await requireMapped(out.keys, workspaceId);
   if (!map.ok) return { ok: false, error: map.error, problems: [], unmapped: map.unmapped };

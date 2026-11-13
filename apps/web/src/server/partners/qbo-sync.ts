@@ -1,7 +1,8 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ACCOUNT_KEYS, type AccountMap } from "@/lib/accounting-map";
-import { dayIn, factoringWindow } from "@/lib/journal";
+import { advanceCreditKey, dayIn, factoringWindow, ROW_ACCOUNT_DESCRIPTION, statementPostings } from "@/lib/journal";
+import { advanceLabel } from "@/lib/deductions";
 import { normName, sameCompany } from "@/lib/name-match";
 import { recordAudit } from "@/server/tl/audit";
 import { markLoadPaid } from "@/server/tl/invoicing";
@@ -84,8 +85,9 @@ async function run(token: { accessToken: string; accountId: string }, opts: { wh
       include: { lines: { orderBy: { sort: "asc" }, select: { kind: true, label: true, amount: true } }, payments: { select: { id: true, amount: true, paidAt: true, source: true, externalId: true, reference: true } } },
       orderBy: { issuedAt: "asc" }
     }),
-    prisma.settlement.findMany({ where: { workspaceId, status: { in: ["final", "void"] }, finalizedAt: { not: null } }, include: { driver: { select: { id: true, name: true, payrollWorkerType: true } } } })
+    prisma.settlement.findMany({ where: { workspaceId, status: { in: ["final", "void"] }, finalizedAt: { not: null } }, include: { driver: { select: { id: true, name: true, payrollWorkerType: true } }, lineRows: { select: { kind: true, amount: true }, orderBy: { sort: "asc" } } } })
   ]);
+  const advances = await prisma.driverAdvance.findMany({ where: { workspaceId }, include: { driver: { select: { name: true, payrollWorkerType: true } } } });
   const docs: Doc[] = [];
   const keys = new Set<string>();
   const customers = new Map<string, string>(); // norm -> name as the desk has it
@@ -286,12 +288,24 @@ async function run(token: { accessToken: string; accountId: string }, opts: { wh
   }
 
   for (const s of settlements) {
+    // A voided statement is not wanted: a bill pushed for it before is deleted below, with everything else the desk no longer has.
     if (s.status !== "final" || s.voidedAt) continue;
     if (s.driver.payrollWorkerType !== "contractor") continue; // rule E: only a 1099 owner-operator's statement is a bill
-    const total = cents(s.total) ?? 0;
-    const fuel = (Array.isArray(s.fuel) ? (s.fuel as Array<{ amount?: unknown }>) : []).reduce((sum, x) => sum + centsOf(x?.amount), 0);
-    keys.add("driver_pay_1099");
-    if (fuel > 0) keys.add("fuel");
+    // From the frozen rows, the same postings the journal books (lib/journal.ts statementPostings): one bill line per account, the bill's total the net owed.
+    const p = statementPostings({ number: s.number, total: cents(s.total) ?? 0, rows: s.lineRows.map((r) => ({ kind: r.kind, amount: cents(r.amount)! })) });
+    if ("problem" in p) {
+      problems.push(p.problem);
+      keep.add(s.id);
+      continue;
+    }
+    if (p.net <= 0) {
+      // QuickBooks takes no bill of nothing or less: a statement on which the driver owes is the fleet's to book by hand (a vendor credit). The journal books it.
+      problems.push(`${s.number} comes to ${(p.net / 100).toFixed(2)}: QuickBooks takes no bill of nothing or less. Book it there as a vendor credit, or by journal.`);
+      keep.add(s.id);
+      continue;
+    }
+    const lines = p.postings.filter(([k]) => k !== "accounts_payable");
+    for (const [k] of lines) keys.add(k);
     vendors.set(s.driver.id, s.driver.name);
     docs.push({
       refEntity: "bill",
@@ -302,10 +316,34 @@ async function run(token: { accessToken: string; accountId: string }, opts: { wh
       docNumber: s.number,
       build: (ids) => {
         const vendorId = ids.vendor(s.driver.id);
-        const pay = ids.account("driver_pay_1099");
-        const fuelAcct = fuel > 0 ? ids.account("fuel") : "none";
-        if (!vendorId || !pay || !fuelAcct) return null;
-        return toQboBill({ vendorId, docNumber: s.number, txnDate: day(s.finalizedAt!), lines: [{ amount: total + fuel, accountId: pay, description: "Driver pay" }, ...(fuel > 0 ? [{ amount: -fuel, accountId: fuelAcct, description: "Fuel card, taken off the statement" }] : [])], note: `Statement ${s.number}, from TrueLane` });
+        const resolved = lines.map(([k, amount]) => ({ amount, accountId: ids.account(k), description: ROW_ACCOUNT_DESCRIPTION[k] ?? k }));
+        if (!vendorId || resolved.some((l) => !l.accountId)) return null;
+        return toQboBill({ vendorId, docNumber: s.number, txnDate: day(s.finalizedAt!), lines: resolved as Array<{ amount: number; accountId: string; description: string }>, note: `Statement ${s.number}, from TrueLane` });
+      }
+    });
+  }
+
+  // Advances given outside a statement: a journal entry each, Driver Advances against cash (or the fuel card), exactly as the journal books them. Rule E: contractors only.
+  for (const a of advances) {
+    if (a.driver.payrollWorkerType !== "contractor") continue;
+    const amount = cents(a.amount)!;
+    const givenOn = a.givenOn.toISOString().slice(0, 10);
+    const credit = advanceCreditKey(a.method);
+    const label = advanceLabel({ amountCents: amount, givenOn, method: a.method });
+    keys.add("driver_advances");
+    keys.add(credit);
+    docs.push({
+      refEntity: "journal_entry",
+      localId: `advance:${a.id}`,
+      qbo: "JournalEntry",
+      stage: 3,
+      invoiceId: null,
+      docNumber: null,
+      build: (ids) => {
+        const asset = ids.account("driver_advances");
+        const from = ids.account(credit);
+        if (!asset || !from) return null;
+        return toQboJournalEntry({ docNumber: `ADV-${a.id.slice(-8).toUpperCase()}`, txnDate: givenOn, lines: [{ posting: "Debit", accountId: asset, amount, description: `${label}, ${a.driver.name}` }, { posting: "Credit", accountId: from, amount, description: label }], note: `${label}, ${a.driver.name}, from TrueLane` });
       }
     });
   }
