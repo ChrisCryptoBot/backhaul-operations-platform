@@ -201,17 +201,21 @@ describe("fuel tax (IFTA), modeled after ProMiles", () => {
     expect(sandboxSplit("Dallas, TX 75201", "Atlanta, GA 30301", 100).length).toBe(5);
   });
 
-  it("adds the quarter up by state and works out the fuel those miles burned at each truck's miles to the gallon", async () => {
-    const trips = [
-      { id: "l1", vehicleId: "t1", origin: "Dallas, TX", destination: "Atlanta, GA", miles: 800, mpg: 8 },
-      { id: "l2", vehicleId: "t2", origin: "Dallas, TX", destination: "Dallas, TX", miles: 100, mpg: null }
+  it("answers each leg's miles by state in route order, exact to a tenth; a leg with no figure is not routed by the simulator; a state that is not one is left out", async () => {
+    const legs = [
+      { id: "l1", vehicleId: "t1", origin: "Dallas, TX", destination: "Atlanta, GA", miles: "800.04" },
+      { id: "l2", vehicleId: "t2", origin: "Dallas, TX", destination: "Dallas, TX", miles: "100" },
+      { id: "l3", vehicleId: "t2", origin: "Dallas, TX", destination: "Atlanta, GA", miles: null }
     ];
-    const answer = await sandboxProMilesClient.mileage({ trips });
-    const out = normalizeProMiles({ quarter: "2026-Q4", vehicles: [], trips }, answer);
-    const tx = out.jurisdictions.find((j) => j.state === "TX")!;
-    expect(tx.miles).toBeCloseTo(0.34 * 800 + 100, 1);
-    expect(tx.gallons).toBeCloseTo((0.34 * 800) / 8 + 100 / 6.5, 1);
-    expect(out.jurisdictions.map((j) => j.state)).toEqual(["AL", "GA", "LA", "MS", "TX"]);
+    const answer = await sandboxProMilesClient.mileage({ trips: legs.map((l) => ({ ...l, miles: l.miles != null ? parseFloat(l.miles) : null })) });
+    const out = normalizeProMiles({ quarter: "2026-Q4", legs }, answer);
+    expect(out.legs[0]!.jurisdictions.map((j) => j.state)).toEqual(["TX", "LA", "MS", "AL", "GA"]);
+    expect(out.legs[0]!.jurisdictions.reduce((s, j) => s + Number(j.miles) * 10, 0)).toBe(8000);
+    expect(out.legs[1]!.jurisdictions).toEqual([{ state: "TX", miles: "100.0" }]);
+    expect(out.legs[2]!.jurisdictions).toEqual([]);
+    expect(out.skipped).toEqual({ unreadable: 0, unrouted: 1 });
+    const odd = normalizeProMiles({ quarter: "2026-Q4", legs: [legs[0]!] }, { trips: [{ id: "l1", total_miles: 10, jurisdictions: [{ state: "Texas", miles: 6 }, { state: "Narnia", miles: 4 }] }] });
+    expect(odd).toEqual({ legs: [{ id: "l1", jurisdictions: [{ state: "TX", miles: "6.0" }] }], skipped: { unreadable: 1, unrouted: 0 } });
   });
 });
 

@@ -1,17 +1,20 @@
 import { Prisma } from "@prisma/client";
+import { stateCode } from "@/lib/fuel-normalize";
 import { err, ok } from "@/truelane/partners/contract";
 import type { AdapterShapes } from "../call";
 import { notImplemented } from "../not-implemented";
 import { NotLive, type Adapter, type ProviderAdapter } from "./types";
 
 /**
- * Fuel tax (IFTA), modeled after ProMiles: give it each trip's origin and destination and it answers how many miles of the trip were driven in each state. The desk adds the trips up for a
- * quarter and keeps the result (server/partners/ifta.ts). As with the other adapters, the shapes are what the desk ASSUMES, not the company's documentation.
+ * Fuel-tax mileage, modeled after ProMiles: give it each leg's start and end place and it routes the leg and answers how many of its miles were in each jurisdiction, in route order. The desk
+ * keeps the legs as a truck's routed miles when the ELD did not report the truck (server/partners/ifta.ts, Wave 5 step 5b). As with the other adapters, the shapes are what the desk ASSUMES,
+ * not the company's documentation.
  */
 export type ProMilesAnswer = { trips: Array<{ id: string; total_miles: number; jurisdictions: Array<{ state: string; miles: number }> }> };
 
 export interface ProMilesClient {
-  mileage(body: { trips: Array<{ id: string; origin: string; destination: string; miles: number }> }): Promise<ProMilesAnswer>;
+  /** `miles` is the desk's own figure for the leg; the company routes the road itself and ignores it. */
+  mileage(body: { trips: Array<{ id: string; origin: string; destination: string; miles: number | null }> }): Promise<ProMilesAnswer>;
 }
 
 type In = AdapterShapes["ifta"]["in"];
@@ -23,28 +26,28 @@ export const liveProMilesClient: ProMilesClient = {
   }
 };
 
-/** The fleet's usual miles to the gallon when a truck has none set. */
-export const DEFAULT_MPG = 6.5;
-
 /**
- * The company's trips into the quarter's jurisdictions: miles added up by state, and the fuel those miles burned (miles over the truck's miles to the gallon). Gallons here are fuel CONSUMED
- * from the miles driven; the fuel bought in each state, which IFTA nets against it, comes from fuel-card purchases and is not in this answer.
+ * The company's trips into the desk's legs: each leg's jurisdictions in the order given, exact to a tenth, a state written out read as its code. A jurisdiction that is not one is left out and
+ * counted (never guessed); a leg the company did not answer for, or answered with no miles, is counted as unrouted.
  */
 export function normalizeProMiles(input: In, answer: ProMilesAnswer): Out {
-  const mpgOf = new Map<string, number>();
-  for (const t of input.trips ?? []) mpgOf.set(t.id, t.mpg && t.mpg > 0 ? t.mpg : DEFAULT_MPG);
-  const miles = new Map<string, Prisma.Decimal>();
-  const gallons = new Map<string, Prisma.Decimal>();
-  for (const trip of answer.trips) {
-    const mpg = mpgOf.get(trip.id) ?? DEFAULT_MPG;
-    for (const j of trip.jurisdictions) {
-      const state = j.state.trim().toUpperCase();
-      if (!/^[A-Z]{2}$/.test(state)) continue;
-      miles.set(state, (miles.get(state) ?? new Prisma.Decimal(0)).plus(j.miles));
-      gallons.set(state, (gallons.get(state) ?? new Prisma.Decimal(0)).plus(new Prisma.Decimal(j.miles).div(mpg)));
-    }
-  }
-  return { jurisdictions: [...miles.keys()].sort().map((state) => ({ state, miles: miles.get(state)!.toDecimalPlaces(1).toNumber(), gallons: gallons.get(state)!.toDecimalPlaces(2).toNumber() })) };
+  const byId = new Map(answer.trips.map((t) => [t.id, t]));
+  let unreadable = 0;
+  let unrouted = 0;
+  const legs = input.legs.map((leg) => {
+    const trip = byId.get(leg.id);
+    const jurisdictions = (trip?.jurisdictions ?? []).flatMap((j) => {
+      const code = stateCode(j.state);
+      if (!code || !Number.isFinite(j.miles) || j.miles < 0) {
+        unreadable += 1;
+        return [];
+      }
+      return [{ state: code, miles: new Prisma.Decimal(j.miles).toDecimalPlaces(1).toFixed(1) }];
+    });
+    if (jurisdictions.every((j) => new Prisma.Decimal(j.miles).isZero())) unrouted += 1;
+    return { id: leg.id, jurisdictions };
+  });
+  return { legs, skipped: { unreadable, unrouted } };
 }
 
 // ── The simulator ────────────────────────────────────────────────────────────────────────────
@@ -69,13 +72,24 @@ const stateOf = (place: string): string | null => {
   return m ? m[1]!.toUpperCase() : null;
 };
 
-/** One trip's miles by state: the corridor in either direction, else the two ends. A place with no readable state is left out of the answer (the miles are not invented onto a state). */
+/**
+ * One trip's miles by state: the corridor in either direction, else the two ends, exact to a tenth (the last state takes what is left, so the parts add up to the trip). A place with no
+ * readable state gives nothing (the miles are not invented onto a state).
+ */
 export function sandboxSplit(origin: string, destination: string, miles: number): Array<{ state: string; miles: number }> {
   const from = stateOf(origin);
   const to = stateOf(destination);
   if (!from || !to) return [];
-  const share = (path: Array<[string, number]>) => path.map(([state, f]) => ({ state, miles: new Prisma.Decimal(miles).times(f).toDecimalPlaces(1).toNumber() }));
-  if (from === to) return [{ state: from, miles }];
+  const total = new Prisma.Decimal(miles).toDecimalPlaces(1);
+  const share = (path: Array<[string, number]>) => {
+    let done = new Prisma.Decimal(0);
+    return path.map(([state, f], i) => {
+      const part = i === path.length - 1 ? total.minus(done) : total.times(f).toDecimalPlaces(1, Prisma.Decimal.ROUND_DOWN);
+      done = done.plus(part);
+      return { state, miles: part.toNumber() };
+    });
+  };
+  if (from === to) return [{ state: from, miles: total.toNumber() }];
   const fwd = CORRIDORS[`${from}>${to}`];
   if (fwd) return share(fwd);
   const back = CORRIDORS[`${to}>${from}`];
@@ -83,9 +97,10 @@ export function sandboxSplit(origin: string, destination: string, miles: number)
   return share([[from, 0.5], [to, 0.5]]);
 }
 
+/** The simulator drives on the desk's own figure for each leg; a leg with none (or none readable) it cannot measure, so it answers no miles for it. */
 export const sandboxProMilesClient: ProMilesClient = {
   async mileage(body) {
-    return { trips: body.trips.map((t) => ({ id: t.id, total_miles: t.miles, jurisdictions: sandboxSplit(t.origin, t.destination, t.miles) })) };
+    return { trips: body.trips.map((t) => ({ id: t.id, total_miles: t.miles ?? 0, jurisdictions: t.miles != null && t.miles > 0 ? sandboxSplit(t.origin, t.destination, t.miles) : [] })) };
   }
 };
 
@@ -93,7 +108,7 @@ export const sandboxProMilesClient: ProMilesClient = {
 
 async function run(client: ProMilesClient, provider: string, input: In) {
   try {
-    const answer = await client.mileage({ trips: (input.trips ?? []).map((t) => ({ id: t.id, origin: t.origin, destination: t.destination, miles: t.miles })) });
+    const answer = await client.mileage({ trips: input.legs.map((l) => ({ id: l.id, origin: l.origin, destination: l.destination, miles: l.miles != null ? new Prisma.Decimal(l.miles).toNumber() : null })) });
     return ok(normalizeProMiles(input, answer));
   } catch (e) {
     return e instanceof NotLive ? notImplemented(provider) : err("upstream_error", "ProMiles did not answer.");

@@ -183,13 +183,13 @@ describe.skipIf(!run)("the partner data, kept and shown", () => {
       return `${d.getUTCFullYear()}-Q${Math.floor(d.getUTCMonth() / 3) + 1}`;
     })();
     const out = await calculateIfta(q, W);
-    expect(out).toMatchObject({ ok: true, stored: true });
+    expect(out).toMatchObject({ ok: true });
     const csv = await buildExport("ifta", { quarter: q }, new Date());
     expect(csv).not.toBeNull();
     expect(csv!.filename).toContain(`ifta-${q}`);
     // The file starts with a byte-order mark so a spreadsheet opens it as UTF-8.
     expect(csv!.csv.startsWith(String.fromCharCode(0xfeff))).toBe(true);
-    expect(csv!.csv.slice(1).split(/\r?\n/)[0]).toBe("Quarter,State,Miles,Gallons used,Worked out by,Delivered loads,Worked out");
+    expect(csv!.csv.slice(1).split(/\r?\n/)[0]).toBe("Quarter,State,Miles,Loaded miles,Empty miles");
     expect(await buildExport("ifta", { quarter: "nonsense" }, new Date())).toBeNull();
   });
 

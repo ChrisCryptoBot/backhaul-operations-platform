@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { prisma } from "@/lib/db";
-import { iftaMileageSummary, syncIftaMileage } from "@/server/partners/ifta-mileage";
+import { iftaQuarterMiles, syncIftaMileage } from "@/server/partners/ifta-mileage";
 import { saveKeysAndConnect } from "@/server/partners/setup";
 
 /**
@@ -150,9 +150,9 @@ describe.skipIf(!run)("ELD miles by state for a quarter", () => {
     expect(out.loadedMiles).toBe(total([...a, ...b].filter((r) => r.loaded)));
     expect(out.emptyMiles).toBe("42.0");
     // The odometer runs on piece to piece, and a piece's miles are its odometer's.
-    for (let i = 1; i < a.length; i++) expect(a[i]!.startOdometer.toFixed(1)).toBe(a[i - 1]!.endOdometer.toFixed(1));
+    for (let i = 1; i < a.length; i++) expect(a[i]!.startOdometer!.toFixed(1)).toBe(a[i - 1]!.endOdometer!.toFixed(1));
     for (const r of a) {
-      expect(r.endOdometer.minus(r.startOdometer).toFixed(1)).toBe(r.miles.toFixed(1));
+      expect(r.endOdometer!.minus(r.startOdometer!).toFixed(1)).toBe(r.miles.toFixed(1));
       expect(r.endedAt.getTime()).toBeGreaterThan(r.startedAt.getTime());
       expect(r.startedAt.getTime()).toBeLessThan(new Date("2026-10-01T05:00:00Z").getTime());
       expect(r).toMatchObject({ quarter: Q, source: "motive", syncBatchId: out.batchId, syncedAt: NOW });
@@ -218,10 +218,10 @@ describe.skipIf(!run)("ELD miles by state for a quarter", () => {
     await prisma.load.delete({ where: { id: load2 } });
     const orphaned = await rows({ quarter: Q, loaded: true, loadId: null });
     expect(orphaned.map((r) => r.jurisdiction)).toEqual(["GA", "SC", "NC"]);
-    const [s] = await iftaMileageSummary(Q, W);
+    const s = (await iftaQuarterMiles(Q, W))!;
     const all = await rows({ quarter: Q, source: "motive" });
-    expect(s).toMatchObject({ source: "motive", trucks: 3, pieces: all.length, miles: total(all), syncedAt: NOW });
-    expect(new Prisma.Decimal(s!.loadedMiles).plus(s!.emptyMiles).toFixed(1)).toBe(s!.miles);
-    expect(await iftaMileageSummary("not a quarter", W)).toEqual([]);
+    expect(s).toMatchObject({ sources: [{ method: "eld", source: "motive", trucks: 3 }], setAside: 0, pieces: all.length, miles: total(all), syncedAt: NOW });
+    expect(new Prisma.Decimal(s.loadedMiles).plus(s.emptyMiles).toFixed(1)).toBe(s.miles);
+    expect(await iftaQuarterMiles("not a quarter", W)).toBeNull();
   });
 });

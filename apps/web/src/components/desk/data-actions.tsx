@@ -56,7 +56,7 @@ export function FuelSyncButton({ days, reason }: { days: number; reason: string 
 }
 
 /** Works out a quarter's miles by state from the quarter's delivered loads, and keeps the answer. */
-/** Read the quarter's miles by state from the ELD (money plan Wave 5 step 5a). The return screen that uses them is step 7; until then the result line says what was kept. */
+/** Read the quarter's miles by state from the ELD (money plan Wave 5 step 5a). The return screen that uses them is step 7; until then the page says what each truck counts. */
 export function IftaEldMilesButton({ quarter, reason, again }: { quarter: string; reason: string | null; again: boolean }) {
   const { pending, error, ask } = useAsk();
   return (
@@ -98,10 +98,17 @@ export function IftaCalcButton({ quarter, reason, again }: { quarter: string; re
         onClick={() =>
           ask(async () => {
             const out = await calculateIftaAction(quarter);
-            return out.ok ? { ok: true, text: `${quarter}: ${out.jurisdictions.length} ${out.jurisdictions.length === 1 ? "state" : "states"} from ${out.loads ?? 0} delivered ${out.loads === 1 ? "load" : "loads"}.` } : { ok: false, error: out.error };
+            if (!out.ok) return { ok: false, error: out.error };
+            const parts = [
+              out.trucks > 0 ? `${quarter}: ${Number(out.miles).toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} routed miles in ${out.states} ${out.states === 1 ? "state" : "states"} for ${out.trucks} ${out.trucks === 1 ? "truck" : "trucks"}` : `${quarter}: no truck to route`,
+              out.eldTrucks > 0 ? `${out.eldTrucks} left to ELD miles` : null,
+              out.unrouted > 0 ? `${out.unrouted} ${out.unrouted === 1 ? "leg" : "legs"} not routed` : null,
+              out.noStart > 0 ? `${out.noStart} with no home base to start from` : null
+            ].filter(Boolean);
+            return { ok: true, text: `${parts.join("; ")}.` };
           })
         }>
-        {pending ? "Working it out…" : again ? "Work it out again" : "Work out this quarter"}
+        {pending ? "Routing…" : again ? "Route again" : "Route trucks without ELD miles"}
       </button>
       {reason ? <span className="tl-sub">{reason}</span> : null}
       <Note error={error} />

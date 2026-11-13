@@ -68,6 +68,7 @@ for m in \
   20261222000000_fuel_import_batch \
   20261223000000_fuel_flag_reviews \
   20261224000000_ifta_rates \
-  20261225000000_ifta_mileage; do
+  20261225000000_ifta_mileage \
+  20261226000000_ifta_mileage_routed; do
   npx prisma migrate resolve --applied "$m" --schema=./prisma/schema.prisma
 done

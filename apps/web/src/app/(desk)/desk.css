@@ -1328,3 +1328,4 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .irate-preview { max-height: 420px; overflow: auto; }
 .ifta-eld-btn { display: inline-flex; flex-direction: column; align-items: flex-start; }
 .ifta-eld-line { margin-top: 12px; max-width: 90ch; }
+.ifta-tabs { display: flex; gap: 6px; margin-bottom: 12px; }

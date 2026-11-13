@@ -7,7 +7,8 @@ import { sandboxPayrollEvent } from "@/server/partners/adapters/gusto";
 import { sandboxTrackingEvent } from "@/server/partners/adapters/project44";
 import { webhookPath } from "@/server/partners/connections";
 import { importFuelForLoad, saveFuelCard } from "@/server/partners/fuel-card";
-import { calculateIfta, storedIfta } from "@/server/partners/ifta";
+import { calculateIfta } from "@/server/partners/ifta";
+import { iftaQuarterMiles } from "@/server/partners/ifta-mileage";
 import { sendToPayroll } from "@/server/partners/payroll";
 import { saveKeysAndConnect } from "@/server/partners/setup";
 import { sendTestEvent } from "@/server/partners/test-event";
@@ -162,28 +163,26 @@ describe.skipIf(!run)("the remaining shelves on the sandbox simulator", () => {
     expect(await prisma.settlement.findUniqueOrThrow({ where: { id: st2.id } })).toMatchObject({ payrollReference: null, payrollSentAt: null });
   });
 
-  test("IFTA: a quarter's delivered loads go to the mileage company and the state-by-state answer is kept, replaced as a whole, for this fleet only", async () => {
+  test("IFTA: a truck with no ELD miles has its loads routed and kept as routed miles, replaced as a whole, for this fleet only", async () => {
     const q = (() => {
       const d = new Date();
       return `${d.getUTCFullYear()}-Q${Math.floor(d.getUTCMonth() / 3) + 1}`;
     })();
-    // The fuel load (VF-1, Dallas to Atlanta, 800 miles, delivered yesterday) is in this quarter unless yesterday was the last day of the last one.
+    // The fuel load (VF-1, Dallas to Atlanta, 800 miles, delivered yesterday) is in this quarter unless it was picked up in the last one. The open load (VT-1) is still under way: not routed yet.
     const out = await calculateIfta(q, W);
-    expect(out).toMatchObject({ ok: true, stored: true });
-    if (!out.ok) return;
-    expect(out.loads).toBeGreaterThanOrEqual(0);
-    if ((out.loads ?? 0) > 0) {
-      expect(out.jurisdictions.map((j) => j.state)).toEqual(expect.arrayContaining(["TX", "LA", "MS", "AL", "GA"]));
-      expect(out.jurisdictions.reduce((s, j) => s + j.miles, 0)).toBeCloseTo(800, 0);
-      const tx = out.jurisdictions.find((j) => j.state === "TX")!;
-      expect(tx.gallons).toBeCloseTo(tx.miles / 8, 1); // the truck's own 8 miles to the gallon
+    if (!out.ok) throw new Error(out.error);
+    expect(out).toMatchObject({ provider: "promiles", eldTrucks: 0 });
+    expect(out.notYet).toBeGreaterThanOrEqual(1);
+    const kept = (await iftaQuarterMiles(q, W))!;
+    if (out.pieces > 0) {
+      expect(kept.states.map((j) => j.state)).toEqual(expect.arrayContaining(["TX", "LA", "MS", "AL", "GA"]));
+      expect(kept.loadedMiles).toBe("800.0");
+      expect(kept.sources).toEqual([{ method: "routed", source: "promiles", trucks: 1 }]);
     }
-    const kept = await storedIfta(q, W);
-    expect(kept.map((k) => k.state)).toEqual(out.jurisdictions.map((j) => j.state).sort());
     // Worked out again: replaced, not added to.
-    await calculateIfta(q, W);
-    expect((await storedIfta(q, W)).length).toBe(kept.length);
-    expect(await storedIfta(q, OTHER)).toEqual([]);
+    expect((await calculateIfta(q, W)).ok).toBe(true);
+    expect((await iftaQuarterMiles(q, W))!.pieces).toBe(kept.pieces);
+    expect((await iftaQuarterMiles(q, OTHER))!.trucks).toEqual([]);
     expect(await calculateIfta("2026-Q9", W)).toMatchObject({ ok: false, code: "bad_request" });
   });
 

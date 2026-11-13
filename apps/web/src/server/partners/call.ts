@@ -153,9 +153,13 @@ export type AdapterShapes = {
       | { op: "status"; reference: string; /** When the desk sent the run, and the desk's clock now (ISO): the simulator clears a run a set time after it was sent. */ sentAt: string; asOf: string; statements: Array<{ id: string; employeeId: string | null }> };
     out: { reference: string; state?: "pending" | "paid" | "rejected" | "mixed"; paidAt?: string | null; payments?: Array<{ id: string; status: string; reason?: string | null }> };
   };
+  /**
+   * Fuel-tax mileage (Wave 5 step 5b): route each leg (lib/ifta-legs.ts) and say its miles by jurisdiction, in route order, exact decimal strings. `miles` is the desk's own figure for the leg:
+   * the simulator drives on it, a live router measures the road. No gallons: fuel used is the return's (step 6), from all fuel bought.
+   */
   ifta: {
-    in: { quarter: string; vehicles: Array<{ id: string; name: string | null }>; /** The quarter's delivered loads, each with its places and miles. */ trips?: Array<{ id: string; vehicleId: string; origin: string; destination: string; miles: number; mpg?: number | null }> };
-    out: { jurisdictions: Array<{ state: string; miles: number; gallons: number }> };
+    in: { quarter: string; legs: Array<{ id: string; vehicleId: string; origin: string; destination: string; miles: string | null }> };
+    out: { legs: Array<{ id: string; jurisdictions: Array<{ state: string; miles: string }> }>; /** States the company named that are not a jurisdiction, and legs it did not route. */ skipped: { unreadable: number; unrouted: number } };
   };
   /**
    * Accounting (QuickBooks Online first; docs/MONEY_PLAN.md, Wave 3): one request to the accounting system, with the sign-in it goes under (adapters/quickbooks.ts has the shapes). `tenant`

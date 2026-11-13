@@ -17,7 +17,7 @@ import { workspaceTimezone } from "./zone";
 import { FLAG_LABEL } from "@/lib/fuel-exceptions";
 import { PRODUCT_LABEL, STATUS_LABEL } from "@/lib/fuel-normalize";
 import { listFuel } from "@/server/partners/fuel-store";
-import { storedIfta } from "@/server/partners/ifta";
+import { iftaQuarterMiles } from "@/server/partners/ifta-mileage";
 import { factoringLabel } from "@/server/partners/factoring";
 import { listAudit } from "./audit";
 import { listTrailersPage } from "./trailers";
@@ -348,12 +348,13 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
   if (kind === "ifta") {
     const quarter = first(query.quarter) ?? "";
     if (!/^\d{4}-Q[1-4]$/.test(quarter)) return null;
-    const lines = await storedIfta(quarter);
+    // ELD miles where the ELD reported a truck, routed where it did not (each truck counted once). The return's own CSV, with gallons and tax, is step 7.
+    const q = await iftaQuarterMiles(quarter);
     return {
       filename: name(`ifta-${quarter}`),
       csv: toCsv(
-        ["Quarter", "State", "Miles", "Gallons used", "Worked out by", "Delivered loads", "Worked out"],
-        lines.map((l): CsvCell[] => [quarter, l.state, l.miles, l.gallons, l.source, l.loads, ymd(l.computedAt)])
+        ["Quarter", "State", "Miles", "Loaded miles", "Empty miles"],
+        (q?.states ?? []).map((l): CsvCell[] => [quarter, l.state, l.miles, l.loadedMiles, l.emptyMiles])
       )
     };
   }
