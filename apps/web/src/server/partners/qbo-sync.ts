@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { ACCOUNT_KEYS, type AccountMap } from "@/lib/accounting-map";
-import { advanceCreditKey, dayIn, factoringWindow, ROW_ACCOUNT_DESCRIPTION, statementPostings } from "@/lib/journal";
+import { advanceCreditKey, dayIn, factoringWindow, releasedAt, ROW_ACCOUNT_DESCRIPTION, statementPostings, writeOffAccount } from "@/lib/journal";
 import { advanceLabel } from "@/lib/deductions";
 import { normName, sameCompany } from "@/lib/name-match";
 import { recordAudit } from "@/server/tl/audit";
@@ -136,7 +136,7 @@ async function run(token: { accessToken: string; accountId: string }, opts: { wh
     });
     if (memo) continue;
 
-    const f = { fundedAt: inv.factoringFundedAt, advance: cents(inv.factoringAdvance), fee: cents(inv.factoringFee), reserveReleased: cents(inv.factoringReserveReleased), chargeback: cents(inv.factoringChargeback), updatedAt: inv.factoringUpdatedAt };
+    const f = { fundedAt: inv.factoringFundedAt, advance: cents(inv.factoringAdvance), fee: cents(inv.factoringFee), reserveReleased: cents(inv.factoringReserveReleased), chargeback: cents(inv.factoringChargeback), reserveReleasedAt: inv.factoringReserveReleasedAt, chargedBackAt: inv.factoringChargedBackAt, updatedAt: inv.factoringUpdatedAt };
     const { chargedAt, owns } = factoringWindow(f);
     let appliedBeforeFunding = 0;
 
@@ -191,9 +191,10 @@ async function run(token: { accessToken: string; accountId: string }, opts: { wh
 
     const writeOff = cents(inv.writeOffAmount);
     if (writeOff && writeOff > 0 && !owns(inv.paidAt ?? inv.issuedAt)) {
-      // A short pay written off: a credit memo to the write-off item, applied to the invoice.
-      keys.add("write_off");
-      items.add("write_off");
+      // A short pay written off: a credit memo to the write-off item, applied to the invoice. A quick-pay or factor fee taken short goes to the Factoring Fees item (gap 6, rule 2), as in the journal.
+      const woKey = writeOffAccount(inv.writeOffCode);
+      keys.add(woKey);
+      items.add(woKey);
       const woId = `writeoff:${inv.id}`;
       const woDate = day(inv.paidAt ?? inv.issuedAt);
       docs.push({
@@ -205,9 +206,9 @@ async function run(token: { accessToken: string; accountId: string }, opts: { wh
         docNumber: `${inv.number}-WO`,
         build: (ids) => {
           const customerId = ids.customer(cust);
-          const item = ids.item("write_off");
+          const item = ids.item(woKey);
           if (!customerId || !item) return null;
-          return toQboSalesDoc({ docNumber: `${inv.number}-WO`, txnDate: woDate, customerId, lines: [{ amount: writeOff, itemId: item, description: inv.writeOffReason ?? "Short pay written off" }], note: "Short pay written off, from TrueLane" });
+          return toQboSalesDoc({ docNumber: `${inv.number}-WO`, txnDate: woDate, customerId, lines: [{ amount: writeOff, itemId: item, description: inv.writeOffReason ?? (woKey === "factoring_fee" ? "Fee taken short" : "Short pay written off") }], note: woKey === "factoring_fee" ? "Fee taken short, from TrueLane" : "Short pay written off, from TrueLane" });
         }
       });
       docs.push({
@@ -281,7 +282,7 @@ async function run(token: { accessToken: string; accountId: string }, opts: { wh
       );
       if (f.chargeback == null && f.reserveReleased && f.reserveReleased > 0) {
         const rel = f.reserveReleased;
-        docs.push(je(`factoring_release:${inv.id}`, `${inv.number}-R`, day(inv.paidAt ?? f.updatedAt ?? f.fundedAt), [["Debit", "cash", rel, "Reserve released"], ["Credit", "factor_reserve", rel, "Reserve released"]]));
+        docs.push(je(`factoring_release:${inv.id}`, `${inv.number}-R`, day(releasedAt({ paidAt: inv.paidAt, factoring: f })!), [["Debit", "cash", rel, "Reserve released"], ["Credit", "factor_reserve", rel, "Reserve released"]]));
       }
       if (chargedAt) docs.push(je(`factoring_chargeback:${inv.id}`, `${inv.number}-CB`, day(chargedAt), [["Debit", "factor_reserve", advance, "Charged back"], ["Credit", "cash", advance, "Advance returned to the factor"]]));
     }

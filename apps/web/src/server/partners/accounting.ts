@@ -100,9 +100,10 @@ export async function journalFile(span: { from?: string | null; to?: string | nu
     total: cents(i.total)!,
     paidAt: i.paidAt,
     writeOff: cents(i.writeOffAmount),
+    writeOffCode: i.writeOffCode,
     lines: i.lines.map((l) => ({ kind: l.kind, amount: cents(l.amount)! })),
     payments: i.payments.map((p) => ({ id: p.id, amount: cents(p.amount)!, paidAt: p.paidAt, source: p.source })),
-    factoring: { fundedAt: i.factoringFundedAt, advance: cents(i.factoringAdvance), fee: cents(i.factoringFee), reserveReleased: cents(i.factoringReserveReleased), chargeback: cents(i.factoringChargeback), updatedAt: i.factoringUpdatedAt }
+    factoring: { fundedAt: i.factoringFundedAt, advance: cents(i.factoringAdvance), fee: cents(i.factoringFee), reserveReleased: cents(i.factoringReserveReleased), chargeback: cents(i.factoringChargeback), reserveReleasedAt: i.factoringReserveReleasedAt, chargedBackAt: i.factoringChargedBackAt, updatedAt: i.factoringUpdatedAt }
   }));
   const jSettlements: JSettlement[] = settlements.map((s) => ({
     id: s.id,

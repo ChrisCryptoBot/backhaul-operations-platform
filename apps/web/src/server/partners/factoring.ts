@@ -208,7 +208,7 @@ export async function applyFactoringUpdate(loadId: string, status: string, refer
         }
         if (status === "paid" && rec.factoringReserve) {
           const left = rec.factoringReserve.minus(rec.factoringFee ?? 0);
-          await tx.invoice.update({ where: { id: rec.id }, data: { factoringReserveReleased: left.isNegative() ? 0 : left } });
+          await tx.invoice.update({ where: { id: rec.id }, data: { factoringReserveReleased: left.isNegative() ? 0 : left, factoringReserveReleasedAt: now } });
         }
       }
       await recordAudit({ entity: "invoice", action: "factoring_updated", loadId, loadNumber: l.loadNumber, summary: `${rec?.number ?? l.invoiceNumber ?? "Invoice"}: ${factoringLabel(status).toLowerCase()}${loadIds.length > 1 ? ` (${loadIds.length} loads)` : ""}`, before: { Factoring: factoringLabel(l.factoringStatus) }, after: { Factoring: factoringLabel(status) }, at: now, workspaceId }, tx);
@@ -236,7 +236,7 @@ export async function recordChargeback(loadId: string, reason: string, now = new
   if (reported == null && !rec.factoringAdvance) return { ok: false, error: "No advance is recorded on this invoice, so there is nothing to charge back. Save the factoring terms and fund it again, or fix it with the factor." };
   const amount = reported != null ? new Prisma.Decimal(reported).toDecimalPlaces(2).toNumber() : chargebackOf(rec.factoringAdvance!);
   const done = await prisma.$transaction(async (tx) => {
-    const claimed = await tx.invoice.updateMany({ where: { id: rec.id, factoringStatus: "funded" }, data: { factoringStatus: "rejected", factoringChargeback: new Prisma.Decimal(amount), factoringReserve: null, factoringFee: null, factoringReserveReleased: null, factoringUpdatedAt: now } });
+    const claimed = await tx.invoice.updateMany({ where: { id: rec.id, factoringStatus: "funded" }, data: { factoringStatus: "rejected", factoringChargeback: new Prisma.Decimal(amount), factoringChargedBackAt: now, factoringReserve: null, factoringFee: null, factoringReserveReleased: null, factoringReserveReleasedAt: null, factoringUpdatedAt: now } });
     if (claimed.count !== 1) return false;
     await tx.load.updateMany({ where: { id: { in: loadIds }, workspaceId }, data: { factoringStatus: "rejected", factoringUpdatedAt: now } });
     await recordAudit({ entity: "invoice", action: "factoring_chargeback", loadId, loadNumber: null, summary: `${rec.number}: the factor charged back $${amount.toFixed(2)}`, reason: why, before: { Factoring: "Funded", Advance: `$${amount.toFixed(2)}` }, after: { Factoring: "Rejected", "Owed back": `$${amount.toFixed(2)}` }, at: now, workspaceId }, tx);

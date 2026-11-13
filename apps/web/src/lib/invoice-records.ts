@@ -19,6 +19,9 @@ export const SHORT_CODE_LABEL: Record<ShortCode, string> = {
   other: "Other"
 };
 export const isShortCode = (v: unknown): v is ShortCode => typeof v === "string" && (SHORT_CODES as readonly string[]).includes(v);
+/** The short codes that are a fee for being paid early (a quick-pay or a factor's fee), not money lost: gap 6, rule 2, books them as a cost of money (Factoring Fees), never as revenue lost. */
+export const FEE_SHORT_CODES: readonly ShortCode[] = ["quick_pay_fee", "factor_fee"];
+export const isFeeShortCode = (v: unknown): boolean => isShortCode(v) && FEE_SHORT_CODES.includes(v);
 
 /** The labels the invoice dialog has always written, read back as kinds. Anything else typed by a person is "other". */
 export function lineKindOf(label: string): LineKind {

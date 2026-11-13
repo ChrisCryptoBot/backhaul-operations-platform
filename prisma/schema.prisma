@@ -1960,6 +1960,10 @@ model Invoice {
   noaAppliedAt             DateTime? @map("noa_applied_at")
   /// When the factor funded it (the advance was paid): the journal dates the advance and the fee by it. Kept after a chargeback.
   factoringFundedAt        DateTime? @map("factoring_funded_at")
+  /// When the factor released the reserve (the customer paid it): the journal and QuickBooks date the release by it. Cleared when that payment is taken back.
+  factoringReserveReleasedAt DateTime? @map("factoring_reserve_released_at")
+  /// When the factor charged it back (recourse): the end of the factor's ownership for the journal and QuickBooks.
+  factoringChargedBackAt   DateTime? @map("factoring_charged_back_at")
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @updatedAt @map("updated_at")
 

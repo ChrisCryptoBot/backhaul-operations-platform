@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { ACCOUNT_KEYS, checkAccountsForm, resolveAccounts, unmappedOf, unmappedSentence } from "@/lib/accounting-map";
-import { buildJournal, journalCsv, type JEntry, type JInvoice, type JSettlement } from "@/lib/journal";
-import { LINE_KINDS } from "@/lib/invoice-records";
+import { buildJournal, factoringWindow, journalCsv, releasedAt, writeOffAccount, type JEntry, type JInvoice, type JSettlement } from "@/lib/journal";
+import { FEE_SHORT_CODES, isFeeShortCode, LINE_KINDS, SHORT_CODES } from "@/lib/invoice-records";
 
 /** The accounts (rules D and E) and the double-entry journal (docs/MONEY_PLAN.md, Wave 3), pure and in cents. */
 const ZONE = "America/Chicago";
 const at = (iso: string) => new Date(iso);
-const noFactoring = { fundedAt: null, advance: null, fee: null, reserveReleased: null, chargeback: null, updatedAt: null };
-const inv = (o: Partial<JInvoice> & { id: string }): JInvoice => ({ number: o.id.toUpperCase(), kind: "invoice", billTo: "Acme", issuedAt: at("2026-11-02T18:00:00Z"), total: 100000, paidAt: null, writeOff: null, lines: [{ kind: "linehaul", amount: 100000 }], payments: [], factoring: noFactoring, ...o });
+const noFactoring = { fundedAt: null, advance: null, fee: null, reserveReleased: null, chargeback: null, reserveReleasedAt: null, chargedBackAt: null, updatedAt: null };
+const inv = (o: Partial<JInvoice> & { id: string }): JInvoice => ({ number: o.id.toUpperCase(), kind: "invoice", billTo: "Acme", issuedAt: at("2026-11-02T18:00:00Z"), total: 100000, paidAt: null, writeOff: null, writeOffCode: null, lines: [{ kind: "linehaul", amount: 100000 }], payments: [], factoring: noFactoring, ...o });
 const balanced = (e: JEntry) => e.lines.reduce((s, l) => s + l.debit, 0) === e.lines.reduce((s, l) => s + l.credit, 0);
 const net = (entries: JEntry[], key: string) => entries.flatMap((e) => e.lines).filter((l) => l.key === key).reduce((s, l) => s + l.debit - l.credit, 0);
 
@@ -68,7 +68,7 @@ describe("the journal", () => {
       id: "f",
       paidAt: at("2026-12-01T18:00:00Z"),
       payments: [{ id: "pf", amount: 100000, paidAt: at("2026-12-01T18:00:00Z"), source: "factor" }],
-      factoring: { fundedAt: at("2026-11-03T18:00:00Z"), advance: 90000, fee: 2500, reserveReleased: 7500, chargeback: null, updatedAt: at("2026-12-01T18:00:00Z") }
+      factoring: { fundedAt: at("2026-11-03T18:00:00Z"), advance: 90000, fee: 2500, reserveReleased: 7500, chargeback: null, reserveReleasedAt: at("2026-12-01T18:00:00Z"), chargedBackAt: null, updatedAt: at("2026-12-01T18:00:00Z") }
     });
     const out = buildJournal({ invoices: [f], settlements: [], fuel: [] }, { zone: ZONE });
     expect(out.entries.map((e) => e.source)).toEqual(["invoice", "factoring_fee", "factoring_funded", "factoring_release"]);
@@ -84,11 +84,51 @@ describe("the journal", () => {
     const c = inv({
       id: "c",
       payments: [{ id: "late", amount: 100000, paidAt: at("2027-02-10T18:00:00Z"), source: "desk" }],
-      factoring: { fundedAt: at("2026-11-03T18:00:00Z"), advance: null, fee: null, reserveReleased: null, chargeback: 90000, updatedAt: at("2027-02-01T18:00:00Z") }
+      factoring: { fundedAt: at("2026-11-03T18:00:00Z"), advance: null, fee: null, reserveReleased: null, chargeback: 90000, reserveReleasedAt: null, chargedBackAt: at("2027-02-01T18:00:00Z"), updatedAt: at("2027-02-01T18:00:00Z") }
     });
     const out = buildJournal({ invoices: [c], settlements: [], fuel: [] }, { zone: ZONE });
     expect(out.entries.map((e) => e.source)).toEqual(["invoice", "factoring_funded", "factoring_chargeback", "payment"]);
     expect([net(out.entries, "cash"), net(out.entries, "factor_reserve"), net(out.entries, "accounts_receivable")]).toEqual([100000, 0, 0]);
+  });
+
+  it("gap 6, rule 2: a quick-pay or factor fee taken short is Factoring Fees, any other short pay stays Short pays written off; gross is never touched", () => {
+    expect(FEE_SHORT_CODES).toEqual(["quick_pay_fee", "factor_fee"]);
+    expect(SHORT_CODES.filter(isFeeShortCode)).toEqual(["quick_pay_fee", "factor_fee"]);
+    expect([writeOffAccount("quick_pay_fee"), writeOffAccount("factor_fee"), writeOffAccount("customer_deduction"), writeOffAccount("other"), writeOffAccount(null), writeOffAccount("nonsense")]).toEqual(["factoring_fee", "factoring_fee", "write_off", "write_off", "write_off", "write_off"]);
+    const paid = (id: string, code: string | null) => inv({ id, paidAt: at("2026-11-20T18:00:00Z"), writeOff: 2000, writeOffCode: code, payments: [{ id: `p${id}`, amount: 98000, paidAt: at("2026-11-20T18:00:00Z"), source: "desk" }] });
+    const out = buildJournal({ invoices: [paid("q", "quick_pay_fee"), paid("f", "factor_fee"), paid("d", "damage_claim"), paid("n", null)], settlements: [], fuel: [] }, { zone: ZONE });
+    expect(net(out.entries, "factoring_fee")).toBe(4000);
+    expect(net(out.entries, "write_off")).toBe(4000);
+    expect(net(out.entries, "accounts_receivable")).toBe(0);
+    // The entry keeps its id (write_off:<invoice>) so an export already taken lines up; only the account and the memo say what it is.
+    const q = out.entries.find((e) => e.id === "write_off:q")!;
+    expect(q.memo).toBe("Quick-pay fee taken short on Q");
+    expect(q.lines).toEqual([{ key: "factoring_fee", debit: 2000, credit: 0 }, { key: "accounts_receivable", debit: 0, credit: 2000 }]);
+    expect(out.entries.find((e) => e.id === "write_off:f")!.memo).toBe("Factor fee taken short on F");
+    expect(out.entries.find((e) => e.id === "write_off:d")!.memo).toBe("Short pay written off on D");
+  });
+
+  it("dates the release and the chargeback by their own stored days, not by the last factoring change", () => {
+    const f = inv({
+      id: "r",
+      paidAt: at("2026-12-01T18:00:00Z"),
+      payments: [{ id: "pr", amount: 100000, paidAt: at("2026-12-01T18:00:00Z"), source: "factor" }],
+      // A later factoring change (a status re-sent, say) must not move the release.
+      factoring: { fundedAt: at("2026-11-03T18:00:00Z"), advance: 90000, fee: 2500, reserveReleased: 7500, chargeback: null, reserveReleasedAt: at("2026-12-04T18:00:00Z"), chargedBackAt: null, updatedAt: at("2027-01-15T18:00:00Z") }
+    });
+    expect(releasedAt(f)).toEqual(at("2026-12-04T18:00:00Z"));
+    expect(buildJournal({ invoices: [f], settlements: [], fuel: [] }, { zone: ZONE }).entries.find((e) => e.source === "factoring_release")!.day).toBe("2026-12-04");
+    // A record from before the column falls back exactly as before: the day it closed, the last factoring change, the funding.
+    expect(releasedAt({ ...f, factoring: { ...f.factoring, reserveReleasedAt: null } })).toEqual(at("2026-12-01T18:00:00Z"));
+    expect(releasedAt({ paidAt: null, factoring: { ...f.factoring, reserveReleasedAt: null } })).toEqual(at("2027-01-15T18:00:00Z"));
+    expect(releasedAt({ paidAt: null, factoring: { ...f.factoring, reserveReleasedAt: null, updatedAt: null } })).toEqual(at("2026-11-03T18:00:00Z"));
+
+    const charged = { ...noFactoring, fundedAt: at("2026-11-03T18:00:00Z"), chargeback: 90000, chargedBackAt: at("2027-02-01T18:00:00Z"), updatedAt: at("2027-03-01T18:00:00Z") };
+    const w = factoringWindow(charged);
+    expect(w.chargedAt).toEqual(at("2027-02-01T18:00:00Z"));
+    expect([w.owns(at("2027-01-31T18:00:00Z")), w.owns(at("2027-02-15T18:00:00Z"))]).toEqual([true, false]);
+    expect(factoringWindow({ ...charged, chargedBackAt: null }).chargedAt).toEqual(at("2027-03-01T18:00:00Z"));
+    expect(factoringWindow({ ...charged, chargeback: null }).chargedAt).toBeNull();
   });
 
   it("refuses records it cannot book: lines that do not add up, or a funding with no advance", () => {

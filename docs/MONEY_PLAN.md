@@ -112,7 +112,7 @@ Sizes: **S** = under a day, **M** = 1 to 3 days, **L** = a week or more.
 3. Load fields and the new Invoice record will coexist during migration: a single write path and a parity test are needed so they never disagree.
 4. A factored invoice's payer is the broker but the cash comes from the factor (advance), then the reserve later. Today "paid" is one event; it must split into funded, broker paid, reserve released.
 5. Recourse: a broker that never pays makes the factor charge the advance back. No representation today.
-6. Short pays: whether a factor fee or quick-pay fee is revenue loss or expense changes KPI and Why it moved. Decide one rule.
+6. Short pays: whether a factor fee or quick-pay fee is revenue loss or expense changes KPI and Why it moved. **Settled 2026-11-13 (Wave 6): rule 2, an expense.** Gross stays the agreed rate on every screen; a factor's fee and a short pay coded `quick_pay_fee` or `factor_fee` are a cost of money, booked to Factoring Fees in the journal and QuickBooks (other short codes stay Short pays written off), and shown as Leak ledger lines. Past records are not rewritten.
 7. Percent driver pay on a short-paid or factored load (settled 2026-10-31 for short pay: agreed rate). Confirm it holds for factored loads.
 8. Statement lines are JSON: reports and the accounting push can drift from what the driver saw unless lines are frozen as rows at finalize.
 9. Fuel bought on a truck while no load is assigned: which statement and which IFTA trip it belongs to.

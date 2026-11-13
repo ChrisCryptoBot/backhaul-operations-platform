@@ -101,7 +101,8 @@ export async function closeInvoiceRecord(tx: Tx, invoiceId: string, c: { paidAt:
       writeOffAmount: c.writeOff ? cents(c.writeOff.amount) : null,
       writeOffReason: c.writeOff ? c.writeOff.reason : null,
       writeOffCode: c.writeOff ? c.writeOff.code : null,
-      ...(c.factoringPaid ? { factoringStatus: "paid", factoringUpdatedAt: c.now, ...(released ? { factoringReserveReleased: released } : {}) } : {})
+      // The release is dated by the payment that closed it (the day the journal has always booked it on).
+      ...(c.factoringPaid ? { factoringStatus: "paid", factoringUpdatedAt: c.now, ...(released ? { factoringReserveReleased: released, factoringReserveReleasedAt: c.paidAt } : {}) } : {})
     }
   });
 }
@@ -113,7 +114,7 @@ export async function removeLastInvoicePayment(tx: Tx, invoiceId: string, opts: 
   await refreshPaidTotal(tx, invoiceId);
   await tx.invoice.update({
     where: { id: invoiceId },
-    data: { status: "open", paidAt: null, writeOffAmount: null, writeOffReason: null, writeOffCode: null, ...(opts.factoringBackToFunded ? { factoringStatus: "funded", factoringUpdatedAt: opts.now, factoringReserveReleased: null } : {}) }
+    data: { status: "open", paidAt: null, writeOffAmount: null, writeOffReason: null, writeOffCode: null, ...(opts.factoringBackToFunded ? { factoringStatus: "funded", factoringUpdatedAt: opts.now, factoringReserveReleased: null, factoringReserveReleasedAt: null } : {}) }
   });
 }
 

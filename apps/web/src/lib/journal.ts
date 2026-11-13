@@ -1,5 +1,6 @@
 import { toCsv } from "./csv";
 import type { AccountMap } from "./accounting-map";
+import { isFeeShortCode } from "./invoice-records";
 
 /**
  * The double-entry journal (docs/MONEY_PLAN.md, Wave 3): the fallback for any accounting system that is not QuickBooks. Pure, in whole cents: the server reads the records, this books them.
@@ -9,7 +10,8 @@ import type { AccountMap } from "./accounting-map";
  *   invoice / credit memo  each line to its kind's income account (a positive line is a credit, a negative one a debit), the total to Accounts Receivable. A memo's total is negative, so it
  *                          takes receivables down. Applying a memo to its invoice is not booked again: the memo already did it (a payment row with source "credit" is skipped).
  *   payment                cash in, receivables down; except while the factor owns the invoice (from the day it funded it, until any chargeback): then the customer pays the factor.
- *   short pay written off  the write-off to its expense, receivables down; not while the factor owns the invoice.
+ *   short pay written off  the write-off to its expense, receivables down; not while the factor owns the invoice. A quick-pay or factor fee taken short (writeOffCode quick_pay_fee or
+ *                          factor_fee) is a cost of money, booked to Factoring Fees; every other short pay to Short pays written off (gap 6, rule 2: gross stays the agreed rate).
  *   factored (funded)      the advance in cash and the reserve held by the factor, receivables down by the whole invoice; the fee out of the reserve to Factoring Fees; when the customer pays,
  *                          the reserve the factor releases comes in as cash. A chargeback undoes the funding: the invoice is the fleet's to collect again and the advance goes back.
  *                          (A chargeback clears the fee and reserve on the record, so a charged-back invoice is booked with no fee: what the record says now.)
@@ -31,9 +33,22 @@ export type JInvoice = {
   total: number;
   paidAt: Date | null;
   writeOff: number | null;
+  /** Why it closed short (lib/invoice-records.ts SHORT_CODES): decides the write-off's account. */
+  writeOffCode: string | null;
   lines: Array<{ kind: string; amount: number }>;
   payments: Array<{ id: string; amount: number; paidAt: Date; source: string }>;
-  factoring: { fundedAt: Date | null; advance: number | null; fee: number | null; reserveReleased: number | null; chargeback: number | null; updatedAt: Date | null };
+  factoring: {
+    fundedAt: Date | null;
+    advance: number | null;
+    fee: number | null;
+    reserveReleased: number | null;
+    chargeback: number | null;
+    /** When the reserve was released (Invoice.factoringReserveReleasedAt). */
+    reserveReleasedAt: Date | null;
+    /** When the factor charged it back (Invoice.factoringChargedBackAt). */
+    chargedBackAt: Date | null;
+    updatedAt: Date | null;
+  };
 };
 /** A statement with its frozen rows (cents, signed as on the statement). */
 export type JSettlement = { id: string; number: string; driver: string; workerType: string | null; finalizedAt: Date; total: number; rows: Array<{ kind: string; amount: number }>; paidAt: Date | null };
@@ -107,9 +122,16 @@ export const dayIn = (zone: string) => {
  * The journal and the QuickBooks sync both ask this, so they never disagree on whose a payment was.
  */
 export function factoringWindow(f: JInvoice["factoring"]): { chargedAt: Date | null; owns: (at: Date) => boolean } {
-  const chargedAt = f.chargeback != null ? f.updatedAt : null;
+  // The stored chargeback day; the last factoring change only for a record written before that column (the migration backfilled it from the same field).
+  const chargedAt = f.chargeback != null ? (f.chargedBackAt ?? f.updatedAt) : null;
   return { chargedAt, owns: (at: Date) => f.fundedAt != null && at.getTime() >= f.fundedAt.getTime() && !(chargedAt && at.getTime() >= chargedAt.getTime()) };
 }
+
+/** The moment the reserve release is booked on: its stored day, else (a record from before that column) the day the invoice closed, the last factoring change, the funding. The journal and QuickBooks both ask this. */
+export const releasedAt = (inv: Pick<JInvoice, "paidAt" | "factoring">): Date | null => inv.factoring.reserveReleasedAt ?? inv.paidAt ?? inv.factoring.updatedAt ?? inv.factoring.fundedAt;
+
+/** The account a short pay written off goes to: a quick-pay or factor fee is Factoring Fees (a cost of money), anything else Short pays written off. The journal and QuickBooks both ask this. */
+export const writeOffAccount = (code: string | null): "factoring_fee" | "write_off" => (isFeeShortCode(code) ? "factoring_fee" : "write_off");
 
 /** One entry from signed amounts by key (positive = debit), netted per key; empty keys dropped. Null when it does not balance. */
 function entry(id: string, day: string, source: JSource, ref: string, memo: string, signed: Array<[string, number]>): JEntry | null {
@@ -168,7 +190,7 @@ export function buildJournal(input: { invoices: JInvoice[]; settlements: JSettle
         const fee = f.chargeback != null ? 0 : (f.fee ?? 0);
         if (fee > 0) push(entry(`factoring_fee:${inv.id}`, fd, "factoring_fee", inv.number, `Factoring fee on ${inv.number}`, [["factoring_fee", fee], ["factor_reserve", -fee]]));
         if (f.chargeback == null && f.reserveReleased != null && f.reserveReleased > 0) {
-          const at = inv.paidAt ?? f.updatedAt ?? f.fundedAt;
+          const at = releasedAt(inv)!;
           push(entry(`factoring_release:${inv.id}`, day(at), "factoring_release", inv.number, `Reserve released on ${inv.number}`, [["cash", f.reserveReleased], ["factor_reserve", -f.reserveReleased]]));
         }
         if (chargedAt) push(entry(`factoring_chargeback:${inv.id}`, day(chargedAt), "factoring_chargeback", inv.number, `Charged back on ${inv.number}`, [["accounts_receivable", inv.total], ["cash", -advance], ["factor_reserve", -reserve]]));
@@ -186,7 +208,9 @@ export function buildJournal(input: { invoices: JInvoice[]; settlements: JSettle
     }
     if (inv.writeOff != null && inv.writeOff > 0) {
       const at = inv.paidAt ?? inv.issuedAt;
-      if (!(factoringOk && factorOwns(at))) push(entry(`write_off:${inv.id}`, day(at), "write_off", inv.number, `Short pay written off on ${inv.number}`, [["write_off", inv.writeOff], ["accounts_receivable", -inv.writeOff]]));
+      const account = writeOffAccount(inv.writeOffCode);
+      const memo = account === "factoring_fee" ? `${inv.writeOffCode === "quick_pay_fee" ? "Quick-pay" : "Factor"} fee taken short on ${inv.number}` : `Short pay written off on ${inv.number}`;
+      if (!(factoringOk && factorOwns(at))) push(entry(`write_off:${inv.id}`, day(at), "write_off", inv.number, memo, [[account, inv.writeOff], ["accounts_receivable", -inv.writeOff]]));
     }
   }
 

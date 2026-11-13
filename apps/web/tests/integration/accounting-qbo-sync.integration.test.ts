@@ -222,6 +222,22 @@ describe.skipIf(!run)("the QuickBooks sync, against the simulator", () => {
     expect(byDoc("Invoice", "QINV-H").map((i) => i.Balance)).toEqual([0]);
   });
 
+  test("gap 6, rule 2: a quick-pay fee taken short goes to Factoring Fees in QuickBooks, as in the journal; the chargeback is dated by its own day", async () => {
+    const l = await prisma.load.create({ data: { workspaceId: W, loadNumber: "Q-K", brokerName: "Harbor Freight Co", status: "completed", completedAt: T0, quotedRevenue: 1000, podNote: "Signed" } as never });
+    expect(await invoiceLoad(l.id, { form: { ...FORM, number: "QINV-K" } }, T0, W)).toMatchObject({ ok: true });
+    expect(await markLoadPaid(l.id, later(11.95), { amount: 980, source: "desk", shortAction: "writeoff", shortReason: "Quick pay, 2%", shortCode: "quick_pay_fee" }, W)).toMatchObject({ ok: true });
+    expect(await syncAccounting({}, later(11.96), W)).toMatchObject({ ok: true, problems: [] });
+    const fees = active("Item").find((i) => i.Name === "Factoring fees")!;
+    const memo = byDoc("CreditMemo", "QINV-K-WO").find((m) => m.status === "active")!;
+    expect((memo.Line as Array<{ Amount: number; SalesItemLineDetail: { ItemRef: { value: string } } }>).map((x) => [x.Amount, x.SalesItemLineDetail.ItemRef.value])).toEqual([[20, fees.Id]]);
+    expect(active("Item").map((i) => i.Name)).not.toContain("Short pays written off");
+    expect(byDoc("Invoice", "QINV-K").map((i) => i.Balance)).toEqual([0]);
+    // G was charged back at later(7): the entry carries that day, read from factoringChargedBackAt.
+    const g = await prisma.invoice.findFirstOrThrow({ where: { workspaceId: W, number: "QINV-G" } });
+    expect(g.factoringChargedBackAt?.toISOString()).toBe(later(7).toISOString());
+    expect(objs("JournalEntry").find((j) => j.DocNumber === "QINV-G-CB" && j.status === "active")!.TxnDate).toBe(new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(later(7)));
+  });
+
   test("two QuickBooks customers that both match one name are a problem to settle by hand, not a guess", async () => {
     const at = later(12).toISOString();
     const auth = { accessToken: "sandbox_access_x", realmId: SANDBOX_REALM, tenant: W };
