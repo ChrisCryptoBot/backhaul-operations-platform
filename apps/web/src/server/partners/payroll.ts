@@ -7,6 +7,7 @@ import { num } from "@/server/tl/convert";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { callPartner, partnerState, providerName } from "./call";
 import { applyPayrollPaid, applyPayrollRejected } from "./events";
+import { checkMoneyMoving } from "./gates";
 
 /**
  * Payroll: a finalized driver statement can be sent to the payroll company once, when its driver is set up there (a worker type and the id payroll knows them by). Sending marks
@@ -130,6 +131,9 @@ export async function sendToPayroll(statementIds: string[], now = new Date(), wo
     const why = readiness(s.driver, unfinished ? null : s.payrollSentAt, { paidAt: s.paidAt, total: num(s.total) });
     if (why) return { ok: false, error: `${s.number} (${s.driver.name}): ${why}` };
   }
+  // A live send needs the money-moving switch (counsel's sign-off on the server and the fleet's own switch), checked before anything is claimed. The simulator passes.
+  const gate = await checkMoneyMoving("payroll", workspaceId);
+  if (!gate.ok) return { ok: false, error: gate.error, code: gate.code };
   // Claimed BEFORE the company is called, in one step that only succeeds for statements nobody else has claimed or sent: two clicks, or two tabs, cannot both send the same
   // statement, and a statement is never paid twice. If the call then fails, the claim is released so it can be sent again.
   const claimRef = `${CLAIM}${randomUUID()}`;

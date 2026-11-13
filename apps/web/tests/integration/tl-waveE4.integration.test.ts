@@ -26,7 +26,7 @@ import { vetDriverCarrier } from "@/server/partners/vetting";
  */
 const run = process.env.RUN_DB_INTEGRATION === "true";
 const W = "e4-partners";
-const KEYS = ["TRIUMPHPAY_API_KEY", "MOTIVE_API_KEY", "ATOB_API_KEY", "HIGHWAY_API_KEY", "GUSTO_CLIENT_ID", "GUSTO_CLIENT_SECRET", "PROJECT44_CLIENT_ID", "PROJECT44_CLIENT_SECRET", "PROMILES_API_KEY"] as const;
+const KEYS = ["TRIUMPHPAY_API_KEY", "MOTIVE_API_KEY", "ATOB_API_KEY", "HIGHWAY_API_KEY", "GUSTO_CLIENT_ID", "GUSTO_CLIENT_SECRET", "PROJECT44_CLIENT_ID", "PROJECT44_CLIENT_SECRET", "PROMILES_API_KEY", "MONEY_MOVING_COUNSEL_APPROVED"] as const;
 const days = (n: number) => new Date(Date.now() + n * 86_400_000);
 const originals = { ...partnerAdapters };
 const fake = (cap: keyof typeof partnerAdapters, fn: (call: { provider: string; input: never }) => unknown) => {
@@ -103,8 +103,11 @@ describe.skipIf(!run)("the partner seams", () => {
     await prisma.driverLedgerEntry.deleteMany({ where: { workspace: { id: W } } });
     await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
-    await prisma.workspace.create({ data: { id: W, name: "E4 partners" } });
+    // These tests stand in a company's LIVE adapter, so they are a fleet whose server counsel signed off and whose admin switched money moving on (Gap 14; the switch itself is proved in
+    // money-moving.integration.test.ts).
+    await prisma.workspace.create({ data: { id: W, name: "E4 partners", moneyMovingLive: true } });
     for (const k of KEYS) delete process.env[k];
+    process.env.MONEY_MOVING_COUNSEL_APPROVED = "yes";
     const cost = { monthlyInsurance: 800, monthlyAuthority: 100, monthlyPhoneSubscriptions: 60, monthlyLoanPayment: 0, estimatedMonthlyMiles: 7000, maintenanceReservePerMile: 0.15, tireReservePerMile: 0.04, driverHourlyTarget: 25, lastFuelPricePerGallon: 3.9, breakEvenRpm: 1.5, survivalFloorRpm: 1.2, archetype: "solo_owner" };
     const truck = await prisma.vehicle.create({ data: { workspaceId: W, name: "E4 Truck 1", costProfile: { create: cost } } });
     const truck2 = await prisma.vehicle.create({ data: { workspaceId: W, name: "E4 Truck 2", costProfile: { create: cost } } });

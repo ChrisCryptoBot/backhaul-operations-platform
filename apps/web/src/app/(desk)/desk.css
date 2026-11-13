@@ -1354,3 +1354,7 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .cash-days { margin-top: var(--db-3); }
 .cash-by { margin-top: var(--db-3); margin-bottom: var(--db-2); }
 .cash-moves { margin-top: var(--db-4); }
+
+/* Settings, Integrations: the money-moving switch (Wave 7 step 1) */
+.mm-state { display: flex; flex-wrap: wrap; gap: var(--db-4); margin-top: 0; margin-bottom: var(--db-3); }
+.mm-card .tl-sub { margin-top: var(--db-2); margin-bottom: 0; }

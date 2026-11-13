@@ -8,6 +8,7 @@ import { newWebhookToken } from "./credentials-core";
 import { isOverdue, rhythmOf } from "./sync-policy";
 import { keyMode } from "./adapters/sandbox";
 import { isOAuthProvider } from "@/lib/oauth";
+import { checkFeature } from "./gates";
 
 /** Which companies the fleet has connected, and whether the server holds each one's keys. Booleans and words only: a key's name or value is never sent to a screen. */
 export type ConnectionRow = {
@@ -72,6 +73,9 @@ export async function connectPartner(capability: string, provider: string, accou
   if (resolveProvider(cap, provider) !== provider) return { ok: false, error: "That company is not one TrueLane works with for this." };
   // A company that connects by signing in (QuickBooks) is connected by its callback, with its tokens: a connection made here would say "connected" with nothing to call it with.
   if (isOAuthProvider(provider)) return { ok: false, error: `${providerName(provider)} connects by signing in to it: use Sign in.` };
+  // The plan (src/lib/partner-gates.ts): every company kind is on every plan today, but the table decides, so a kind moved to a higher plan is refused here without another change.
+  const plan = await checkFeature(cap, workspaceId);
+  if (!plan.ok) return { ok: false, error: plan.error };
   if (!providerConfigured(provider, await workspaceReader(provider, workspaceId))) return { ok: false, error: `${providerName(provider)} has no keys yet: paste this fleet's own keys, or ask whoever runs the server to set them.` };
   const label = accountLabel?.trim().slice(0, 60) || null;
   const was = await prisma.partnerConnection.findUnique({ where: { workspaceId_capability_provider: { workspaceId, capability, provider } } });

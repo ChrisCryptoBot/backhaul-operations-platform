@@ -85,6 +85,7 @@ import { completeTrip, correctTrip, reopenDelivered, saveExpenses, startTrip, un
 import { undoPaid, recordChase, voidInvoice, invoiceLoads, issueCreditMemo, voidCreditMemo, type CreditOut, type InvoiceOut, type MultiInvoiceOut, type PaidOut } from "@/server/tl/invoicing";
 import { waiveDetention } from "@/server/tl/detention";
 import { saveFactoringTerms, type SaveTermsResult } from "@/server/partners/factoring-terms";
+import { setMoneyMoving, type SwitchResult } from "@/server/partners/gates";
 import { recordChargeback, type ChargebackResult } from "@/server/partners/factoring";
 import { cancelFactoringBatch, retryFactoringBatch, sendFactoringBatch, type BatchResult, type RetryResult } from "@/server/partners/factoring-batch";
 import { importFactorStatus, type ImportResult as FactorStatusResult } from "@/server/partners/factor-status-import";
@@ -915,6 +916,19 @@ export async function saveFactoringTermsAction(form: TermsForm): Promise<SaveTer
   if (out.ok && out.changed) {
     revalidatePath("/settings");
     revalidatePath("/invoices");
+    revalidatePath("/audit");
+  }
+  return out;
+}
+
+/** The money-moving switch (Gap 14): an admin's, with a reason, audited. Turning it on also needs the server's counsel sign-off; turning it off never does. */
+export async function setMoneyMovingAction(on: boolean, reason: string): Promise<SwitchResult> {
+  await requireCan("admin");
+  const access = await checkAccess("admin");
+  const who = access.ok ? access.identity.name || access.identity.email || "Admin" : "Admin";
+  const out = await setMoneyMoving({ on: on === true, reason }, who, new Date(), currentWorkspaceId());
+  if (out.ok && out.changed) {
+    revalidatePath("/settings");
     revalidatePath("/audit");
   }
   return out;

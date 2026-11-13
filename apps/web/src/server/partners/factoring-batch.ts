@@ -8,6 +8,7 @@ import { liveBatchTransport, sandboxBatchTransport, EMAIL_BATCH_LIMIT_BYTES, typ
 import { keyMode } from "./adapters/sandbox";
 import { partnerState, providerName } from "./call";
 import { workspaceReader } from "./credentials";
+import { assertMoneyMovingAllowed } from "./gates";
 import { buildPacket } from "./factoring-packet";
 import { scheduleRows, SCHEDULE_CAP } from "./factoring-schedule";
 import { getFactoringTerms } from "./factoring-terms";
@@ -21,17 +22,20 @@ import { getFactoringTerms } from "./factoring-terms";
  */
 export type BatchResult =
   | { ok: true; batchId: string; number: string; status: "sent" | "failed"; invoices: number; total: number; error?: string; held: Array<{ number: string; lacks: string }>; leftOver: number }
-  | { ok: false; error: string; code?: "not_implemented" | "not_connected" | "not_batch" | "nothing_ready"; held?: Array<{ number: string; lacks: string }> };
+  | { ok: false; error: string; code?: "not_implemented" | "not_connected" | "money_moving_off" | "not_batch" | "nothing_ready"; held?: Array<{ number: string; lacks: string }> };
 
 const OPEN = ["none", "rejected"];
 
 /** Which transport this fleet's factoring key asks for, or why none can be used. Read before anything is written. */
-async function transportFor(workspaceId: string): Promise<{ ok: true; transport: BatchTransport; provider: string } | { ok: false; error: string; code: "not_implemented" | "not_connected" }> {
+async function transportFor(workspaceId: string): Promise<{ ok: true; transport: BatchTransport; provider: string } | { ok: false; error: string; code: "not_implemented" | "not_connected" | "money_moving_off" }> {
   const state = await partnerState("factoring", null, workspaceId);
   if (!state.connected) return { ok: false, error: state.reason ?? "The factor is not connected for this fleet.", code: "not_connected" };
   const mode = keyMode(state.provider, await workspaceReader(state.provider, workspaceId));
   if (mode === "refused") return { ok: false, error: "A key that starts with sandbox_ runs the built-in simulator, which is only on the demo desk. Use the factor's real key.", code: "not_connected" };
   if (mode === "live") {
+    // A batch to a real factor sells invoices: it needs the money-moving switch before the live transport is even asked.
+    const gate = await assertMoneyMovingAllowed("factoring", mode, workspaceId);
+    if (!gate.ok) return { ok: false, error: gate.error, code: "money_moving_off" };
     const answer = await liveBatchTransport.deliver({ method: "sftp", destination: "", batchNumber: "", files: [], attempt: 0 });
     return { ok: false, error: answer.ok ? "" : answer.error, code: "not_implemented" };
   }

@@ -8,6 +8,9 @@ import { recordHealth } from "./health";
 import { routed } from "./adapters";
 import type { Adapter } from "./adapters/types";
 import { notImplemented } from "./not-implemented";
+import { keyMode } from "./adapters/sandbox";
+import { assertMoneyMovingAllowed } from "./gates";
+import { movesMoney } from "@/lib/partner-gates";
 
 export type { Adapter };
 export { notImplemented };
@@ -208,6 +211,12 @@ export async function callPartner<K extends Capability>(capability: K, requested
   if (!providerConfigured(provider, reader)) return { provider, result: err("not_configured", `${providerName(provider)} has no keys yet: set this fleet's keys in Settings, or ask whoever runs the server.`) };
   const connected = await prisma.partnerConnection.count({ where: { workspaceId, capability, provider, status: "connected" } });
   if (connected === 0) return { provider, result: err("not_connected", `${providerName(provider)} is not connected for this fleet.`) };
+  // The money-moving switch (Gap 14), checked here as well as by each caller: no live call that would send money reaches an adapter unless counsel signed off the server and the fleet's admin
+  // switched it on. The simulator passes. Answered as "not_configured" (the contract's word for a setting that is not set), with the reason in the message.
+  if (movesMoney(capability, input)) {
+    const gate = await assertMoneyMovingAllowed(capability, keyMode(provider, reader), workspaceId);
+    if (!gate.ok) return { provider, result: err("not_configured", gate.error) };
+  }
   let result: PartnerResult<AdapterShapes[K]["out"]>;
   try {
     result = await (partnerAdapters[capability] as Adapter<AdapterShapes[K]["in"], AdapterShapes[K]["out"]>)({ provider, input, secret: reader });

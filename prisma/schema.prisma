@@ -61,6 +61,12 @@ model Workspace {
 
   /// The plan the workspace is on (starter | growth | pro | enterprise). A missing plan is read as Starter (src/lib/plans.ts effectivePlan), never as "no limit".
   plan                String?                @default("starter")
+  /// The money-moving switch (docs/MONEY_PLAN.md Gap 14, Wave 7): whether a call to a company may send money for real (factoring submit, payroll send). Off by default; an admin turns it on with a
+  /// reason, and it only counts on a server whose operator set MONEY_MOVING_COUNSEL_APPROVED=yes (src/lib/partner-gates.ts). The simulator never needs it.
+  moneyMovingLive     Boolean                @default(false) @map("money_moving_live")
+  moneyMovingBy       String?                @map("money_moving_by")
+  moneyMovingAt       DateTime?              @map("money_moving_at")
+  moneyMovingReason   String?                @map("money_moving_reason")
   /// The carrier's own clock (an IANA zone such as America/New_York): where billing days, aging, weekly driver limits, statement weeks and "this month" are counted. Stops keep their own
   /// local time (an appointment at a facility is read in the facility's zone); see src/lib/tz.ts. New workspaces start on Central, as the desk always has.
   timezone            String                 @default("America/Chicago") @map("timezone")

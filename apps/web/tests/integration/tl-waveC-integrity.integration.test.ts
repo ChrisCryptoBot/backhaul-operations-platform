@@ -21,7 +21,7 @@ vi.mock("@/server/tl/workspace", async (original) => {
 
 const run = process.env.RUN_DB_INTEGRATION === "true";
 const day = (n: number) => new Date(Date.now() + n * 86_400_000);
-const KEYS = ["TRIUMPHPAY_API_KEY", "GUSTO_CLIENT_ID", "GUSTO_CLIENT_SECRET"];
+const KEYS = ["TRIUMPHPAY_API_KEY", "GUSTO_CLIENT_ID", "GUSTO_CLIENT_SECRET", "MONEY_MOVING_COUNSEL_APPROVED"];
 
 describe.skipIf(!run)("Part C: integrity of loads, money and documents", () => {
   const uploads = mkdtempSync(path.join(tmpdir(), "partc-"));
@@ -55,13 +55,15 @@ describe.skipIf(!run)("Part C: integrity of loads, money and documents", () => {
     // An assignment holds its driver (onDelete: Restrict) while the workspace cascade removes drivers: take them first.
     await prisma.assignment.deleteMany({ where: { load: { workspaceId: W } } });
     await prisma.workspace.deleteMany({ where: { id: W } });
-    await prisma.workspace.create({ data: { id: W, name: "Part C desk", plan: "enterprise" } });
+    // The payroll and factoring races below stand in a LIVE adapter: a fleet with counsel's sign-off on the server and money moving switched on (Gap 14).
+    await prisma.workspace.create({ data: { id: W, name: "Part C desk", plan: "enterprise", moneyMovingLive: true } });
     const ok = { cdlExpiry: day(900), medicalCardExpiry: day(900) };
     driver1 = (await prisma.driver.create({ data: { workspaceId: W, name: "C Driver One", ...ok, payrollWorkerType: "employee", payrollEmployeeId: "emp-1" } })).id;
     driver2 = (await prisma.driver.create({ data: { workspaceId: W, name: "C Driver Two", ...ok } })).id;
   });
   beforeEach(() => {
     for (const k of KEYS) delete process.env[k];
+    process.env.MONEY_MOVING_COUNSEL_APPROVED = "yes";
   });
   afterAll(async () => {
     delete process.env.DESK_UPLOAD_DIR;

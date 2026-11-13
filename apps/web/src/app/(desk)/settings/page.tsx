@@ -61,6 +61,8 @@ import { accountMapOf } from "@/server/partners/accounting";
 import { AccountingAccountsForm, AccountingSync, JournalExport } from "@/components/desk/accounting-accounts";
 import { readCursor } from "@/server/partners/external-refs";
 import type { OAuthView } from "@/components/desk/integrations-panel";
+import { MoneyMovingCard } from "@/components/desk/money-moving-card";
+import { moneyMovingState } from "@/server/partners/gates";
 
 export const metadata = { title: "Settings · TrueLane" };
 
@@ -80,6 +82,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
   const integrationsOrigin = host ? `${headers().get("x-forwarded-proto") ?? "https"}://${host}` : "";
   const [row, kpi, company, plan, partners, members] = await Promise.all([getStoredThresholds(), getDeskKpi({ period: "4w", compare: false }), getCompany(), planSummary(), partnerStatus(), listMembers()]);
   const signalSettings = await getSignalSettings();
+  const moneyMoving = admin ? await moneyMovingState(currentWorkspaceId()) : null;
   // Companies signed in to by OAuth (QuickBooks): where each sign-in stands, never a token. And the fleet's accounting accounts (rules D and E).
   // Read for every viewer: the sign-in view carries no token, and the accounts are names, so a billing user checking the journal sees the accounts as they are, not as blanks.
   const oauthViews = new Map<string, OAuthView>();
@@ -234,6 +237,11 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
         </p>
         <FactoringTermsForm initial={termsForm(factoringTerms)} canEdit={can(me.role, me.grants, "admin")} />
       </Card>
+      {moneyMoving ? (
+        <Card title="Money moving through companies" className="tl-card">
+          <MoneyMovingCard view={{ counsel: moneyMoving.counsel, live: moneyMoving.live, by: moneyMoving.by, at: moneyMoving.at ? dateTime(moneyMoving.at) : null, reason: moneyMoving.reason }} canEdit={admin} />
+        </Card>
+      ) : null}
       {accountingCards}
     </>
   );

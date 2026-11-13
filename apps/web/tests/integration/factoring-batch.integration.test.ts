@@ -77,7 +77,15 @@ describe.skipIf(!run)("factoring by batch, through the simulator", () => {
     expect(await sendFactoringBatch({}, NOW, W)).toMatchObject({ ok: false, code: "not_connected" });
     expect(await connectPartner("factoring", "triumphpay", "Apex", NOW, W)).toMatchObject({ ok: true });
     process.env[KEY] = "a-real-looking-key";
+    // A real key sells invoices for real: refused by the money-moving switch first (Gap 14), and only with counsel's sign-off and the fleet's switch does it reach the live transport's stub.
+    expect(await sendFactoringBatch({}, NOW, W)).toMatchObject({ ok: false, code: "money_moving_off" });
+    const savedCounsel = process.env.MONEY_MOVING_COUNSEL_APPROVED;
+    process.env.MONEY_MOVING_COUNSEL_APPROVED = "yes";
+    await prisma.workspace.update({ where: { id: W }, data: { moneyMovingLive: true } });
     expect(await sendFactoringBatch({}, NOW, W)).toMatchObject({ ok: false, code: "not_implemented" });
+    await prisma.workspace.update({ where: { id: W }, data: { moneyMovingLive: false } });
+    if (savedCounsel === undefined) delete process.env.MONEY_MOVING_COUNSEL_APPROVED;
+    else process.env.MONEY_MOVING_COUNSEL_APPROVED = savedCounsel;
     expect(await prisma.factoringBatch.count({ where: { workspaceId: W } })).toBe(0);
     expect(await state("B-1")).toEqual(["none", null, "none"]);
     process.env[KEY] = "sandbox_batch_test";

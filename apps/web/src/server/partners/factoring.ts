@@ -9,6 +9,7 @@ import { currentWorkspaceId } from "@/server/tl/workspace";
 import { callPartner, partnerState, providerName } from "./call";
 import { getFactoringTerms } from "./factoring-terms";
 import { setInvoiceFactoring } from "@/server/tl/invoice-records";
+import { checkMoneyMoving } from "./gates";
 
 /**
  * Factoring: an invoice that is out can be sent to a factor with its packet. The invoice is always required; the rate confirmation and the proof of delivery help the factor
@@ -128,6 +129,9 @@ export async function factorInvoice(loadId: string, opts: { sendAnyway?: boolean
   const load = loads.find((x) => x.id === loadId);
   if (!load || loads.length !== loadIds.length) return { ok: false, error: "That load could not be found." };
   if (!isSendable(load, now)) return { ok: false, error: `Already ${factoringLabel(load.factoringStatus).toLowerCase()}.` };
+  // Before anything is claimed: a live send needs the money-moving switch (counsel's sign-off on the server and the fleet's own switch). The simulator passes.
+  const gate = await checkMoneyMoving("factoring", workspaceId);
+  if (!gate.ok) return { ok: false, error: gate.error, code: gate.code };
   const sendable = { OR: [{ factoringStatus: { in: SENDABLE_STATES } }, { factoringStatus: "requested", factoringReferenceId: null, factoringUpdatedAt: { lt: new Date(now.getTime() - CLAIM_MS) } }] };
   // Claimed BEFORE the factor is called, in one step that only succeeds for an invoice nobody has sent: two clicks cannot both send it. Every load of the invoice is claimed or none is.
   try {

@@ -11,6 +11,7 @@ import { credentialKey, credentialKeys, newWebhookToken, seal, unsealWithKeys } 
 import { workspaceReader } from "./credentials";
 import { capabilityOf } from "./setup";
 import { disconnectPartner } from "./connections";
+import { checkFeature } from "./gates";
 
 /**
  * A fleet's OAuth sign-in to a partner company (QuickBooks Online first; docs/MONEY_PLAN.md, Wave 3), beside the pasted keys of credentials.ts.
@@ -47,6 +48,8 @@ export type BeginResult = { ok: true; url: string } | Fail;
 export async function beginOAuth(provider: string, opts: { origin: string; who?: string | null }, now = new Date(), workspaceId = currentWorkspaceId(), exchanger?: OAuthExchanger): Promise<BeginResult> {
   const ready = await readiness(provider, workspaceId);
   if (!ready.ok) return ready;
+  const plan = await checkFeature(capabilityOf(provider)!, workspaceId);
+  if (!plan.ok) return { ok: false, error: plan.error };
   const def = OAUTH_PROVIDERS[provider]!;
   const ex = exchanger ?? exchangerFor(ready.mode);
   if (ex === liveExchanger) return { ok: false, error: `${providerName(provider)} is not connected to TrueLane yet: its live sign-in is written when the company gives TrueLane access.` };
@@ -86,6 +89,8 @@ export async function completeOAuth(
 
   const ready = await readiness(provider, workspaceId);
   if (!ready.ok) return ready;
+  const plan = await checkFeature(capabilityOf(provider)!, workspaceId);
+  if (!plan.ok) return { ok: false, error: plan.error };
   const ex = exchanger ?? exchangerFor(ready.mode);
   const redirectUri = `${opts.origin.replace(/\/+$/, "")}${callbackPath(provider)}`;
   const traded = await ex.exchangeCode({ provider, code, redirectUri }, now);
