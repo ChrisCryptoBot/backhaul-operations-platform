@@ -3,7 +3,7 @@ import { currentTerminal } from "@/server/tl/terminal";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import React from "react";
-import { DriverRowActions, type DriverRow } from "@/components/desk/fleet-forms";
+import { DriverRowActions, DriverTaxEdit, type DriverRow } from "@/components/desk/fleet-forms";
 import { AssignmentChip, Card, PageHead, Stat } from "@/components/desk/ui";
 import { ACTION_LABEL } from "@/lib/audit-diff";
 import { dateTime, dayYear, miles, payLabel, shortDate, usd } from "@/lib/desk-format";
@@ -17,6 +17,8 @@ import { getDriverDetail } from "@/server/tl/driver-detail";
 import { listDriverSettlements } from "@/server/tl/settlement";
 import { CanGate } from "@/components/desk/kit/can-gate";
 import { DriverCodeEdit } from "@/components/desk/driver-code-edit";
+import { addressText, profileGaps, tinStatusLabel, tinTypeLabel } from "@/lib/form1099";
+import { driverTaxValuesOf } from "@/server/tl/fleet";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +35,7 @@ export default async function DriverPage({ params }: { params: { id: string } })
   if (!d) notFound();
   const me = access.ok ? access.identity : null;
   const canBill = !!me && can(me.role, me.grants, "bill");
+  const seeTax = !!me && can(me.role, me.grants, "billing_details");
   const history = await listAudit({ group: "fleet", q: d.driver.name, pageSize: 8 }, undefined, await currentTerminal(), (await currentAllowed()) == null);
   const p = d.driver;
   const s = d.scorecard;
@@ -130,6 +133,36 @@ export default async function DriverPage({ params }: { params: { id: string } })
           </dl>
         </Card>
       </div>
+
+      {seeTax ? (
+        <Card
+          title="Tax profile (1099)"
+          action={
+            <CanGate caps={["payout"]}>
+              <DriverTaxEdit driverId={p.id} driverName={p.name} initial={driverTaxValuesOf(p)} />
+            </CanGate>
+          }
+          className="tl-card f1099-gap">
+          <dl className="tl-kv">
+            <dt>Worker type</dt>
+            <dd>{p.payrollWorkerType === "contractor" ? "Contractor (1099)" : p.payrollWorkerType === "employee" ? "Employee (W-2, through payroll)" : "Not set"}</dd>
+            <dt>Legal name</dt>
+            <dd>{p.legalName ?? <span className="dim">Not set</span>}</dd>
+            <dt>TIN</dt>
+            <dd>{p.tinLast4 ? `${tinTypeLabel(p.tinType) ?? "TIN"} ending ${p.tinLast4}` : <span className="dim">Not set</span>}</dd>
+            <dt>TIN status</dt>
+            <dd>{tinStatusLabel(p.tinStatus)}</dd>
+            <dt>Mailing address</dt>
+            <dd>{addressText(p) ?? <span className="dim">Not set</span>}</dd>
+          </dl>
+          {p.payrollWorkerType === "contractor" && profileGaps(p).length > 0 ? (
+            <p className="tl-note warn f1099-gap">Missing for a 1099: {profileGaps(p).join(", ")}.</p>
+          ) : null}
+          <p className="tl-note f1099-gap">
+            Only the last four digits of an SSN or EIN are kept on the desk; the full number stays with the payroll company. Yearly totals are on <Link href="/payroll/1099">1099 totals</Link>.
+          </p>
+        </Card>
+      ) : null}
 
       <Card title={`Recent deliveries${s.loads > d.recent.length ? ` · latest ${d.recent.length} of ${s.loads}` : ""}`} className="tl-card">
         {d.recent.length === 0 ? (

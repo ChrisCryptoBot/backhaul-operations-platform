@@ -2,7 +2,8 @@ import { Prisma } from "@prisma/client";
 import { saveTruckHomeCoordinates } from "@/server/geo/persist";
 import { percentText } from "@/lib/pay";
 import { prisma } from "@/lib/db";
-import { PAY_KINDS, PROFILE_FIELDS, profileFieldApplies, profileFloors, validateDriver, validateProfile, validateTruck, ymdOf, type DriverValues, type ProfileChoices, type ProfileErrorKey, type ProfileKey, type ProfileNumbers, type TruckValues } from "@/lib/fleet-forms";
+import { addressText, tinStatusLabel, tinTypeLabel } from "@/lib/form1099";
+import { PAY_KINDS, PROFILE_FIELDS, profileFieldApplies, profileFloors, validateDriver, validateDriverTax, validateProfile, validateTruck, ymdOf, type DriverTaxValues, type DriverValues,type ProfileChoices, type ProfileErrorKey, type ProfileKey, type ProfileNumbers, type TruckValues } from "@/lib/fleet-forms";
 import { COST_ARCHETYPES, normalizeArchetype, normalizeFscCutAnswer } from "@/truelane/lib/domain/costArchetype";
 import { categoriesCarrySplit, resolveWizardInsurance } from "@/truelane/lib/insuranceFields";
 import type { AuditSnapshot } from "@/lib/audit-diff";
@@ -85,6 +86,38 @@ export async function saveDriver(raw: Record<string, unknown>, id: string | null
   await prisma.$transaction(async (tx) => {
     await tx.driver.update({ where: { id }, data });
     await recordAudit({ entity: "fleet", action: "driver_changed", summary: `${v.name}: changed ${moved.join(", ").toLowerCase()}`, before, after, at: now, workspaceId: ws.id }, tx);
+  });
+  return { ok: true, id, changed: true };
+}
+
+/** The tax profile in the audit log: the last four digits at most, never more (there is nothing more on the desk to write). */
+function driverTaxSnapshot(v: DriverTaxValues): AuditSnapshot {
+  const tin = v.tinLast4 ? `${tinTypeLabel(v.tinType) ?? "TIN"} ending ${v.tinLast4}` : null;
+  return { "Legal name": v.legalName || null, TIN: tin, "TIN status": tinStatusLabel(v.tinStatus), "1099 address": addressText({ taxAddressLine1: v.taxAddressLine1 || null, taxAddressLine2: v.taxAddressLine2 || null, taxCity: v.taxCity || null, taxState: v.taxState || null, taxZip: v.taxZip || null }) };
+}
+
+export function driverTaxValuesOf(d: { legalName: string | null; tinType: string | null; tinLast4: string | null; tinStatus: string; taxAddressLine1: string | null; taxAddressLine2: string | null; taxCity: string | null; taxState: string | null; taxZip: string | null }): DriverTaxValues {
+  return { legalName: d.legalName ?? "", tinType: d.tinType ?? "", tinLast4: d.tinLast4 ?? "", tinStatus: d.tinStatus, taxAddressLine1: d.taxAddressLine1 ?? "", taxAddressLine2: d.taxAddressLine2 ?? "", taxCity: d.taxCity ?? "", taxState: d.taxState ?? "", taxZip: d.taxZip ?? "" };
+}
+
+/**
+ * A driver's 1099 tax profile: the billing office's (the caller checks `payout`). Kept apart from the driver form, which is the dispatcher's, so neither office changes the other's fields.
+ * The full SSN or EIN is refused by validateDriverTax and again by the database's check; only the last four are kept.
+ */
+export async function saveDriverTax(raw: Record<string, unknown>, id: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<SaveResult<keyof DriverTaxValues>> {
+  const check = validateDriverTax(raw);
+  if (!check.ok) return { ok: false, errors: check.errors };
+  const v = check.value;
+  const prev = await prisma.driver.findFirst({ where: { id, workspaceId } });
+  if (!prev) return { ok: false, error: "That driver does not exist." };
+  const before = driverTaxSnapshot(driverTaxValuesOf(prev));
+  const after = driverTaxSnapshot(v);
+  const moved = Object.keys(after).filter((k) => (before[k] ?? null) !== (after[k] ?? null));
+  if (moved.length === 0) return { ok: true, id, changed: false };
+  const data = { legalName: v.legalName || null, tinType: v.tinType || null, tinLast4: v.tinLast4 || null, tinStatus: v.tinStatus, taxAddressLine1: v.taxAddressLine1 || null, taxAddressLine2: v.taxAddressLine2 || null, taxCity: v.taxCity || null, taxState: v.taxState || null, taxZip: v.taxZip || null };
+  await prisma.$transaction(async (tx) => {
+    await tx.driver.update({ where: { id }, data });
+    await recordAudit({ entity: "fleet", action: "driver_tax_changed", summary: `${prev.name}: changed ${moved.map((k) => (k === "Legal name" ? "legal name" : k)).join(", ")} on the tax profile`, before, after, at: now, workspaceId }, tx);
   });
   return { ok: true, id, changed: true };
 }

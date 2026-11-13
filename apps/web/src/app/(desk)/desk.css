@@ -1283,3 +1283,10 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .int-err { margin-top: 8px; color: var(--neg); }
 .acct-intro { margin-bottom: 14px; max-width: 72ch; }
 .t-tbl td.int-detail { white-space: normal; max-width: none; height: auto; overflow: visible; }
+
+/* Contractor 1099 totals (Payroll, 1099; docs/MONEY_PLAN.md, Wave 4 step 2) and the driver page's tax profile. */
+.f1099-years { margin: 14px 0; }
+.f1099-gap { margin-top: 14px; }
+.f1099-note { margin: 0 0 14px; max-width: 80ch; }
+.f1099-flag { color: var(--db-warn); font-size: var(--db-text-sm); }
+.f1099-tbl td { max-width: none; }

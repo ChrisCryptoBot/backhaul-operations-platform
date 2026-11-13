@@ -38,8 +38,8 @@ import type { CompanyValues } from "@/lib/company";
 import { saveKpiNote, setLaneTarget, type InputResult } from "@/server/tl/kpi-inputs";
 import { applySchedule, clearSchedule, removeTimeOff, saveSchedule, saveTimeOff, type ShiftResult, type TimeOffInput } from "@/server/tl/shifts";
 import { addTerminal, archiveTerminal, renameTerminal, setDriverCode, setDriversHome, type TerminalResult } from "@/server/tl/terminal-list";
-import { saveCostProfile, saveDriver, saveTruck, setDriverActive, setTruckArchived, type ActResult, type SaveResult } from "@/server/tl/fleet";
-import type { DriverValues, ProfileKey, TruckValues } from "@/lib/fleet-forms";
+import { saveCostProfile, saveDriver, saveDriverTax, saveTruck, setDriverActive, setTruckArchived, type ActResult, type SaveResult } from "@/server/tl/fleet";
+import type { DriverTaxValues, DriverValues, ProfileKey, TruckValues } from "@/lib/fleet-forms";
 import type { Thresholds } from "@/lib/thresholds";
 import type { PayKind } from "@/server/tl/projector";
 import { quoteWarnings, readQuote, type QuoteValues } from "@/lib/quote";
@@ -393,6 +393,14 @@ export async function saveDriverAction(values: Record<string, string>, id: strin
   await requireCan("dispatch");
   const out = await saveDriver(values, id);
   if (out.ok) refreshFleet();
+  return out;
+}
+
+/** A driver's 1099 tax profile: the billing office's, as sending pay is (payout). Never the full SSN or EIN: the save refuses more than four digits. */
+export async function saveDriverTaxAction(values: Record<string, string>, id: string): Promise<SaveResult<keyof DriverTaxValues>> {
+  await requireCan("payout");
+  const out = await saveDriverTax(values, id);
+  if (out.ok && out.changed) refreshFleet();
   return out;
 }
 

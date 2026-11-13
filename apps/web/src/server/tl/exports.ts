@@ -29,6 +29,7 @@ import { listHistory } from "./history";
 import { LOAD_STATUS } from "@/lib/desk-format";
 import { asInvoiceShow, INVOICE_SORT_KEYS, listBoardRows, listInvoiceRows, type BoardRow, type InvoiceScope } from "./queries";
 import { listSettlements } from "./settlement";
+import { contractor1099, form1099Csv } from "./form1099";
 import { currentTerminal } from "./terminal";
 import { currentAllowed } from "./scope";
 import { getLeakLedger } from "./leaks";
@@ -42,7 +43,7 @@ export const MAX_EXPORT_ROWS = 25_000;
  * The CSV files the desk offers. Each is built from the same functions the screen uses (the Loads filter, the KPI engine),
  * so a file always matches what was on screen when it was asked for. Dates are the Central calendar date.
  */
-export const EXPORT_KINDS = ["loads", "invoices", "settlements", "settlement-lines", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "kpi-trucks", "leaks", "leaks-weeks", "leaks-items", "data-health", "data-health-checks", "quote-decisions", "fuel", "ifta"] as const;
+export const EXPORT_KINDS = ["loads", "invoices", "settlements", "settlement-lines", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "kpi-trucks", "leaks", "leaks-weeks", "leaks-items", "data-health", "data-health-checks", "quote-decisions", "fuel", "ifta", "contractor-1099"] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
 type Query = Record<string, string | string[] | undefined>;
@@ -321,6 +322,14 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
         rows.slice(0, cap).map((r): CsvCell[] => [ymdIn(r.postedAt, "UTC"), r.truck, r.location, r.providerName, r.gallons, r.pricePerGallon, r.discountPerGallon, r.discount, r.amount, r.loadNumber, r.statementNumber])
       )
     };
+  }
+
+  if (kind === "contractor-1099") {
+    // The 1099 screen's own year and scope, from the statement rows. Tax details: the route lets only the billing office ask for it.
+    const year = first(query.year) ?? "";
+    if (!/^\d{4}$/.test(year)) return null;
+    const report = await contractor1099(Number.parseInt(year, 10), { terminal: await currentTerminal() });
+    return { filename: name(`contractor-1099-${year}`), csv: form1099Csv(report) };
   }
 
   if (kind === "ifta") {

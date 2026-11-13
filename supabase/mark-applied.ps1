@@ -58,7 +58,8 @@ $migrations = @(
   "20261213000000_factoring_batches",
   "20261214000000_accounting_oauth_sync",
   "20261215000000_accounting_accounts",
-  "20261216000000_settlement_lines"
+  "20261216000000_settlement_lines",
+  "20261217000000_driver_tax_profile"
 )
 foreach ($m in $migrations) {
   npx prisma migrate resolve --applied $m --schema=./prisma/schema.prisma

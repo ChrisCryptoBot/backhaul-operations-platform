@@ -6,8 +6,8 @@ import { TruckPicker } from "./truck-picker";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import React from "react";
-import { saveCostProfileAction, saveDriverAction, saveTruckAction, setDriverActiveAction, setTruckArchivedAction } from "@/app/(desk)/actions";
-import { CDL_CLASSES, DEFAULT_BURDEN_PERCENT, DEFAULT_CARRIER_CUT_PERCENT, FUEL_TYPES, PAY_KINDS, PROFILE_FIELDS, TRUCK_TYPES, canonicalTruckType, industryValues, previewOf, profileField, profileSummary, profileWarnings, readChoices, truckMpg, typicalBands, validateDriver, validateProfile, validateTruck, type DriverValues, type ProfileChoices, type ProfileErrorKey, type ProfileKey, type ProfileNumbers, type ProfileValues, type TruckValues } from "@/lib/fleet-forms";
+import { saveCostProfileAction, saveDriverAction, saveDriverTaxAction, saveTruckAction, setDriverActiveAction, setTruckArchivedAction } from "@/app/(desk)/actions";
+import { CDL_CLASSES, DEFAULT_BURDEN_PERCENT, DEFAULT_CARRIER_CUT_PERCENT, FUEL_TYPES, PAY_KINDS, PROFILE_FIELDS, TRUCK_TYPES, canonicalTruckType, industryValues, previewOf, profileField, profileSummary, profileWarnings, readChoices, truckMpg, typicalBands, validateDriver, validateDriverTax, validateProfile, validateTruck, type DriverTaxValues, type DriverValues, type ProfileChoices, type ProfileErrorKey, type ProfileKey, type ProfileNumbers, type ProfileValues, type TruckValues } from "@/lib/fleet-forms";
 import { pickMake, pickModel, specFill, truckMakes, truckModels, truckYears, withCurrent } from "@/lib/truck-specs";
 import { RATE_CON_BASIS } from "@/lib/pay";
 import { AddressInput } from "./address-input";
@@ -24,6 +24,7 @@ import { DraftNote, useDraft } from "./kit/use-draft";
 import { DateInput } from "./date-input";
 import { useTerminalNames } from "./terminal-names";
 import { TERMINAL_LIST_ID, TERMINAL_MAX_LENGTH } from "@/lib/terminal";
+import { POSTAL_STATES, TIN_STATUSES, TIN_TYPES } from "@/lib/form1099";
 
 // ── Small pieces ───────────────────────────────────────────────────────────────────────────────
 
@@ -219,6 +220,147 @@ function DriverDialog({ open, onClose, driver }: { open: boolean; onClose: () =>
         </div>
       </form>
     </Modal>
+  );
+}
+
+/**
+ * A driver's 1099 tax profile (the billing office's: the action checks payout). Only the last four digits of an SSN or EIN are ever typed here: a box that gets more than four digits is
+ * emptied at once, so a full number never sits in the form, its draft or the browser's storage, and the server refuses it again.
+ */
+const TIN_FULL_ERROR = "Only the last four digits. Never type the full number here: it stays with the payroll company.";
+
+function DriverTaxDialog({ open, onClose, driverId, driverName, initial }: { open: boolean; onClose: () => void; driverId: string; driverName: string; initial: DriverTaxValues }) {
+  const router = useRouter();
+  const toast = useToast();
+  const [pending, start] = React.useTransition();
+  const [values, setValues, draft] = useDraft<DriverTaxValues>(`driver-tax:${driverId}`, initial);
+  const [serverErrors, setServerErrors] = React.useState<Partial<Record<keyof DriverTaxValues, string>>>({});
+  const [tinRefused, setTinRefused] = React.useState(false);
+  const [message, setMessage] = React.useState("");
+  const shown = useShownErrors<keyof DriverTaxValues>();
+  React.useEffect(() => {
+    if (open) {
+      setServerErrors({});
+      setMessage("");
+      setTinRefused(false);
+      shown.reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const check = validateDriverTax(values);
+  const errors = { ...serverErrors, ...shown.filter(check.ok ? {} : check.errors), ...(tinRefused ? { tinLast4: TIN_FULL_ERROR } : {}) };
+  const set = (k: keyof DriverTaxValues) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    shown.touch(k);
+    let next = e.target.value;
+    if (k === "tinLast4") {
+      const tooMany = next.replace(/\D/g, "").length > 4;
+      setTinRefused(tooMany);
+      if (tooMany) next = "";
+    }
+    setValues((v) => ({ ...v, [k]: next }));
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} eyebrow="Tax profile" title={driverName}>
+      <DraftNote draft={draft} what="this tax profile" />
+      <form
+        className="dlg-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          shown.tried();
+          if (!check.ok) return;
+          start(async () => {
+            const out = await saveDriverTaxAction(values, driverId);
+            if (out.ok) {
+              draft.saved();
+              toast({ text: out.changed ? `${driverName}'s tax profile saved.` : "Nothing changed.", tone: "ok" });
+              router.refresh();
+              onClose();
+            } else {
+              setServerErrors(out.errors ?? {});
+              setMessage(out.error ?? "");
+            }
+          });
+        }}>
+        <Field label="Legal name" error={errors.legalName} hint="As on their W-9: a person's name, or their company's.">
+          <input data-autofocus value={values.legalName} onChange={set("legalName")} autoComplete="off" maxLength={120} />
+        </Field>
+        <div className="dlg-two">
+          <Field label="TIN type" error={errors.tinType}>
+            <select value={values.tinType} onChange={set("tinType")}>
+              <option value="">Not set</option>
+              {TIN_TYPES.map((t) => (
+                <option key={t.key} value={t.key}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Last four digits" error={errors.tinLast4} hint="Only the last four. The full number stays with the payroll company.">
+            <input value={values.tinLast4} onChange={set("tinLast4")} inputMode="numeric" autoComplete="off" />
+          </Field>
+          <Field label="TIN status" error={errors.tinStatus}>
+            <select value={values.tinStatus} onChange={set("tinStatus")}>
+              {TIN_STATUSES.map((t) => (
+                <option key={t.key} value={t.key}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <Field label="Mailing address" error={errors.taxAddressLine1} hint="Where the 1099 is mailed.">
+          <input value={values.taxAddressLine1} onChange={set("taxAddressLine1")} autoComplete="off" maxLength={120} />
+        </Field>
+        <Field label="Address line 2" error={errors.taxAddressLine2}>
+          <input value={values.taxAddressLine2} onChange={set("taxAddressLine2")} autoComplete="off" maxLength={120} />
+        </Field>
+        <div className="dlg-two">
+          <Field label="City" error={errors.taxCity}>
+            <input value={values.taxCity} onChange={set("taxCity")} autoComplete="off" maxLength={60} />
+          </Field>
+          <Field label="State" error={errors.taxState}>
+            <select value={values.taxState} onChange={set("taxState")}>
+              <option value="">Pick</option>
+              {POSTAL_STATES.map((st) => (
+                <option key={st} value={st}>
+                  {st}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="ZIP" error={errors.taxZip}>
+            <input value={values.taxZip} onChange={set("taxZip")} inputMode="numeric" autoComplete="off" maxLength={10} />
+          </Field>
+        </div>
+        {message ? (
+          <p className="tl-note warn" role="alert">
+            {message}
+          </p>
+        ) : null}
+        <div className="dlg-actions">
+          <button type="button" className="tl-btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="submit" className="tl-btn primary" disabled={pending} aria-busy={pending || undefined}>
+            {pending ? "Saving…" : "Save tax profile"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+export function DriverTaxEdit({ driverId, driverName, initial }: { driverId: string; driverName: string; initial: DriverTaxValues }) {
+  const [open, setOpen] = React.useState(false);
+  return (
+    <>
+      <button type="button" className="tl-btn ghost sm" onClick={() => setOpen(true)}>
+        Edit tax profile
+      </button>
+      <DriverTaxDialog open={open} onClose={() => setOpen(false)} driverId={driverId} driverName={driverName} initial={initial} />
+    </>
   );
 }
 

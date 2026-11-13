@@ -485,6 +485,16 @@ model Driver {
   payrollEmployeeId  String?   @map("payroll_employee_id")
   payrollStatus      String    @default("none") @map("payroll_status")
   payrollWorkerType  String?   @map("payroll_worker_type")
+  /// The 1099 tax profile: the legal name, ssn | ein, its last four digits only (the full number lives with the payroll company and is never stored here; a database check refuses more than four digits), none | collected | verified, and the mailing address.
+  legalName          String?   @map("legal_name")
+  tinType            String?   @map("tin_type")
+  tinLast4           String?   @map("tin_last4")
+  tinStatus          String    @default("none") @map("tin_status")
+  taxAddressLine1    String?   @map("tax_address_line1")
+  taxAddressLine2    String?   @map("tax_address_line2")
+  taxCity            String?   @map("tax_city")
+  taxState           String?   @map("tax_state")
+  taxZip             String?   @map("tax_zip")
   /// The driver's own phone account (their Clerk user id on the bridge). Blank = no phone account: the dispatcher records their answers.
   phoneUserId        String?   @map("phone_user_id")
   /// The driver's id in the ELD, and the minutes left on each clock as it last reported them (drive, shift, 70-hour cycle). A caution, never a rule.

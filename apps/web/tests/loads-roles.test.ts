@@ -35,7 +35,7 @@ const TABLE: Record<string, Capability[]> = {
   correctTripAction: ["figures"], confirmStopEvidenceAction: ["figures"], dismissStopEvidenceAction: ["figures"], saveExpensesAction: ["figures"], importFuelAction: ["figures"], removeDocumentAction: ["documents"],
   // billing and payroll
   invoiceLoadAction: ["bill"], invoiceLoadsAction: ["bill"], saveFactoringTermsAction: ["admin"], factoringChargebackAction: ["bill"], sendFactoringBatchAction: ["bill"], retryFactoringBatchAction: ["bill"], cancelFactoringBatchAction: ["bill"], checkFactorStatusAction: ["bill"], applyFactorStatusAction: ["bill"], creditMemoAction: ["bill"], voidCreditMemoAction: ["writeoff"], paidAction: ["bill"], voidInvoiceAction: ["bill"], undoPaidAction: ["bill"], chasedAction: ["bill"], waiveDetentionAction: ["bill"], factorInvoiceAction: ["bill"], factoringUpdateAction: ["bill"],
-  startSettlementAction: ["bill"], saveSettlementAction: ["bill"], finalizeSettlementAction: ["bill"], discardSettlementAction: ["bill"], sendToPayrollAction: ["payout"], markSettlementPaidAction: ["payout"],
+  startSettlementAction: ["bill"], saveSettlementAction: ["bill"], finalizeSettlementAction: ["bill"], discardSettlementAction: ["bill"], sendToPayrollAction: ["payout"], markSettlementPaidAction: ["payout"], saveDriverTaxAction: ["payout"],
   // money that is gone
   voidSettlementAction: ["writeoff"],
   // the company, the rules, the connections and the team

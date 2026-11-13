@@ -23,6 +23,8 @@ async function wipe() {
   for (const id of [W, OTHER]) {
     await prisma.auditEvent.deleteMany({ where: { workspaceId: id } });
     await prisma.settlement.deleteMany({ where: { workspaceId: id } });
+    // An assignment holds its driver (onDelete: Restrict), and the workspace's cascade removes drivers: take the assignments of its loads first.
+    await prisma.assignment.deleteMany({ where: { load: { workspaceId: id } } });
     await prisma.workspace.deleteMany({ where: { id } });
   }
 }

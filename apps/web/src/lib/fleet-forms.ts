@@ -8,6 +8,7 @@ import { profileFuelPerMile } from "@/truelane/lib/fuelPriceForRates";
 import { ALL_VEHICLE_CATEGORIES, getCostProfileIndustryHydrationStrings, getVehicleCategoryPreset, type VehicleCategory } from "@/truelane/constants/vehicleData";
 import { centralInstant, centralParts } from "./zoned";
 import { TERMINAL_MAX_LENGTH } from "./terminal";
+import { POSTAL_STATES, TIN_STATUSES, TIN_TYPES } from "./form1099";
 
 /**
  * The forms that change who drives and what they drive: a driver, a truck, and a truck's cost profile. Checked here (and again on
@@ -121,6 +122,64 @@ export function validateDriver(input: Raw): DriverCheck {
   } else if (v.payRate) errors.payKind = "Pick how they are paid.";
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   return { ok: true, value: v, cdlExpiry: cdl, medicalCardExpiry: med, payRate };
+}
+
+// ── A driver's 1099 tax profile ──────────────────────────────────────────────────────────────────
+
+/**
+ * What a contractor's 1099 needs: the legal name, SSN or EIN, its last four digits, whether payroll has it, and the mailing address. The full SSN or EIN is never typed or stored here: it
+ * lives with the payroll company. A box with more than four digits is refused, not cut down, so a full number is never quietly kept in part.
+ */
+export type DriverTaxValues = {
+  legalName: string;
+  tinType: string;
+  tinLast4: string;
+  tinStatus: string;
+  taxAddressLine1: string;
+  taxAddressLine2: string;
+  taxCity: string;
+  taxState: string;
+  taxZip: string;
+};
+export const BLANK_DRIVER_TAX: DriverTaxValues = { legalName: "", tinType: "", tinLast4: "", tinStatus: "none", taxAddressLine1: "", taxAddressLine2: "", taxCity: "", taxState: "", taxZip: "" };
+
+export type DriverTaxCheck = { ok: true; value: DriverTaxValues } | { ok: false; errors: Partial<Record<keyof DriverTaxValues, string>> };
+
+export function validateDriverTax(input: Raw): DriverTaxCheck {
+  const v: DriverTaxValues = {
+    legalName: str(input.legalName).replace(/\s+/g, " "),
+    tinType: str(input.tinType).toLowerCase(),
+    tinLast4: str(input.tinLast4),
+    tinStatus: str(input.tinStatus) || "none",
+    taxAddressLine1: str(input.taxAddressLine1).replace(/\s+/g, " "),
+    taxAddressLine2: str(input.taxAddressLine2).replace(/\s+/g, " "),
+    taxCity: str(input.taxCity).replace(/\s+/g, " "),
+    taxState: str(input.taxState).toUpperCase(),
+    taxZip: str(input.taxZip)
+  };
+  const errors: Partial<Record<keyof DriverTaxValues, string>> = {};
+  if (v.legalName.length > 120) errors.legalName = "That name is too long.";
+  if (v.tinType && !TIN_TYPES.some((t) => t.key === v.tinType)) errors.tinType = "SSN or EIN.";
+  // Count every digit typed, whatever separates them: "123-45-6789" is nine digits and is refused whole.
+  const tinDigits = v.tinLast4.replace(/\D/g, "");
+  if (tinDigits.length > 4) errors.tinLast4 = "Only the last four digits. Never type the full number here: it stays with the payroll company.";
+  else if (v.tinLast4 && !/^\d{4}$/.test(v.tinLast4)) errors.tinLast4 = "Exactly four digits, for example 4821.";
+  if (!TIN_STATUSES.some((t) => t.key === v.tinStatus)) errors.tinStatus = "Not collected, collected by payroll, or verified.";
+  else if (v.tinStatus !== "none" && (!v.tinLast4 || !v.tinType)) errors.tinStatus = "Type the SSN or EIN and its last four first.";
+  const anyAddress = !!(v.taxAddressLine1 || v.taxAddressLine2 || v.taxCity || v.taxState || v.taxZip);
+  if (anyAddress) {
+    if (!v.taxAddressLine1) errors.taxAddressLine1 = "The street address.";
+    if (!v.taxCity) errors.taxCity = "The city.";
+    if (!v.taxState) errors.taxState = "The state.";
+    if (!v.taxZip) errors.taxZip = "The ZIP code.";
+  }
+  if (v.taxAddressLine1.length > 120) errors.taxAddressLine1 = "That line is too long.";
+  if (v.taxAddressLine2.length > 120) errors.taxAddressLine2 = "That line is too long.";
+  if (v.taxCity.length > 60) errors.taxCity = "That city is too long.";
+  if (v.taxState && !(POSTAL_STATES as readonly string[]).includes(v.taxState)) errors.taxState = "Two letters, for example TX.";
+  if (v.taxZip && !/^\d{5}(-\d{4})?$/.test(v.taxZip)) errors.taxZip = "Five digits, or ZIP+4 like 75201-1234.";
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+  return { ok: true, value: v };
 }
 
 // ── Trucks ─────────────────────────────────────────────────────────────────────────────────────

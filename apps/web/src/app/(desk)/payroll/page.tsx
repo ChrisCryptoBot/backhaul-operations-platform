@@ -4,6 +4,7 @@ import { DataTable, type Column, type Row } from "@/components/desk/data-table";
 import { EmptyState } from "@/components/desk/kit/states";
 import { Pager } from "@/components/desk/pager";
 import { PayrollSend } from "@/components/desk/partner-actions";
+import { CanGate } from "@/components/desk/kit/can-gate";
 import { PageHead, Stat } from "@/components/desk/ui";
 import { dayYear, usd } from "@/lib/desk-format";
 import { asPage } from "@/lib/paging";
@@ -82,6 +83,11 @@ export default async function PayrollPage({ searchParams }: { searchParams?: Par
   return (
     <>
       <PageHead title="Payroll" sub="Finalized driver statements, and whether each driver is set up with the payroll company. A statement goes once; gross pay only, with no taxes or deductions worked out here.">
+        <CanGate caps={["billing_details"]}>
+          <Link className="tl-btn" href="/payroll/1099">
+            1099 totals
+          </Link>
+        </CanGate>
         <a className="tl-btn" href="/export/settlements?status=final">
           Export CSV
         </a>

@@ -12,6 +12,11 @@ export async function GET(req: Request, { params }: { params: { kind: string } }
     const noBill = await guardRoute("bill");
     if (noBill) return noBill;
   }
+  // A contractor's legal name, TIN last four and address are billing details, like the driver page's tax profile.
+  if (params.kind === "contractor-1099") {
+    const noTax = await guardRoute("billing_details");
+    if (noTax) return noTax;
+  }
   const out = await buildExport(params.kind, Object.fromEntries(new URL(req.url).searchParams.entries()));
   if (!out) return new Response("There is no export by that name.", { status: 404 });
   return new Response(out.csv, {
