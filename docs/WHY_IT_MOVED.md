@@ -37,3 +37,7 @@ The `bill` capability (an admin, accounting, or a dispatcher an admin has allowe
 ## Not in it
 
 Fixed costs and driver pay, market rates, per-load detail beyond the lane or customer, and a forecast. The Leak Ledger is where unbilled detention and the priced cost of empty miles are.
+
+## Cash beside it (money plan Wave 6 step 4, 2026-11-13)
+
+Below the gross bridge, a cash bridge for the same two weeks: cash in by where it came from (customer payments, factor advances, reserve released, chargebacks as a minus), booked the way the journal books cash (`lib/cash.ts`, parity-tested against `buildJournal`). The four effects add back to the change to the cent, and the lane or customer rows do too (an invoice of several loads is "Several lanes"). Days from invoice to paid in full are shown for the invoices paid in full each week, as a median with the count, never added in. Gross is untouched (gap 6, rule 2). With terminals in view, an invoice whose loads are both in and out of them is left out and counted, never split. The KPI dashboard carries the same cash for its period (bill only), with cost of money (the Leak ledger's two fee lines), what is still owed now, and days to first cash and to paid in full; its file is `kpi-cash` (bill at the route).

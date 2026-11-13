@@ -6,6 +6,8 @@ import { EmptyState } from "@/components/desk/kit/states";
 import { DeskBridge, MoveList, MovesHero, MovesHow } from "@/components/desk/moves/moves";
 import { requirePage } from "@/server/tl/access";
 import { MAX_AGO, getMoves } from "@/server/tl/moves";
+import { getCashMoves } from "@/server/tl/cash";
+import { CashMovesCard } from "@/components/desk/moves/cash";
 import { currentTerminal } from "@/server/tl/terminal";
 
 export const metadata = { title: "Why it moved · TrueLane" };
@@ -23,7 +25,7 @@ export default async function MovedPage({ searchParams }: { searchParams?: Recor
   const asked = Number.parseInt(one(searchParams?.ago) ?? "0", 10);
   const ago = Number.isInteger(asked) && asked >= 0 && asked <= MAX_AGO ? asked : 0;
   const terminal = await currentTerminal();
-  const m = await getMoves({ ago, by, terminals: termList(terminal) });
+  const [m, cash] = await Promise.all([getMoves({ ago, by, terminals: termList(terminal) }), getCashMoves({ ago, by, terminals: termList(terminal) })]);
   const href = (over: { by?: string; ago?: number }) => {
     const p = new URLSearchParams();
     const b = over.by ?? by;
@@ -64,6 +66,9 @@ export default async function MovedPage({ searchParams }: { searchParams?: Recor
           <MovesHow m={m} />
         </>
       )}
+      <div className="cash-moves">
+        <CashMovesCard c={cash} before={m.before.label} after={m.after.label} by={by} hrefFor={(b) => href({ by: b })} />
+      </div>
     </>
   );
 }

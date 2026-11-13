@@ -1,4 +1,6 @@
 import { termList } from "@/lib/scope";
+import { cashFileRows } from "@/lib/cash";
+import { getKpiCash } from "./cash";
 import { Prisma } from "@prisma/client";
 import { deskDaysBetween, dueAt } from "@/lib/overdue";
 import { toCsv, type CsvCell } from "@/lib/csv";
@@ -47,7 +49,7 @@ export const MAX_EXPORT_ROWS = 25_000;
  * The CSV files the desk offers. Each is built from the same functions the screen uses (the Loads filter, the KPI engine),
  * so a file always matches what was on screen when it was asked for. Dates are the Central calendar date.
  */
-export const EXPORT_KINDS = ["loads", "invoices", "settlements", "settlement-lines", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "kpi-trucks", "leaks", "leaks-weeks", "leaks-items", "data-health", "data-health-checks", "quote-decisions", "fuel", "ifta", "ifta-audit", "contractor-1099"] as const;
+export const EXPORT_KINDS = ["loads", "invoices", "settlements", "settlement-lines", "audit", "trailers", "kpi-drivers", "kpi-lanes", "kpi-brokers", "kpi-weeks", "kpi-trucks", "kpi-cash", "leaks", "leaks-weeks", "leaks-items", "data-health", "data-health-checks", "quote-decisions", "fuel", "ifta", "ifta-audit", "contractor-1099"] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 
 type Query = Record<string, string | string[] | undefined>;
@@ -496,6 +498,16 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
       )
     ];
     return { filename: `truelane-desk-data-health-checks-${tag}.csv`, csv: toCsv(["Check", "Measure", "Loads", "Dollars"], rows) };
+  }
+
+  // Cash beside gross (Wave 6 step 4): the card's figures, row for row. The route asks for the billing office.
+  if (kind === "kpi-cash") {
+    const p = parseKpiParams(query);
+    const k = await getKpiCash({ period: p.period, compare: p.compare, filters: p.filters, terminals: termList(await currentTerminal()) }, now);
+    return {
+      filename: `truelane-desk-kpi-cash-${p.period}-${day}.csv`,
+      csv: toCsv(["Group", "Measure", "Unit", "This period", "The period before"], cashFileRows(k).map((r): CsvCell[] => [r.group, r.measure, r.unit, r.now, r.before]))
+    };
   }
 
   if (kind === "kpi-drivers" || kind === "kpi-lanes" || kind === "kpi-brokers" || kind === "kpi-weeks" || kind === "kpi-trucks") {

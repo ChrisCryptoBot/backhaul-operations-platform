@@ -8,7 +8,8 @@ export async function GET(req: Request, { params }: { params: { kind: string } }
   const denied = await guardRoute("read");
   if (denied) return denied;
   // The Leak Ledger prices mistakes in dollars, so its files are the billing office's, like its screen.
-  if (params.kind.startsWith("leaks") || params.kind.startsWith("data-health")) {
+  // Cash (Wave 6 step 4) is money received, fees and what is owed: the billing office's, as its card on the KPI dashboard is.
+  if (params.kind.startsWith("leaks") || params.kind.startsWith("data-health") || params.kind === "kpi-cash") {
     const noBill = await guardRoute("bill");
     if (noBill) return noBill;
   }

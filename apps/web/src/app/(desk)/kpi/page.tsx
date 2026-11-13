@@ -18,6 +18,8 @@ import { hasFilters, kpiHref, parseKpiParams } from "@/lib/kpi-params";
 import { KPI_PERIODS, windowLabel } from "@/lib/kpi-periods";
 import { usd } from "@/lib/desk-format";
 import { getLeakLedger } from "@/server/tl/leaks";
+import { getKpiCash } from "@/server/tl/cash";
+import { CashCard } from "@/components/desk/kpi/cash";
 import { getImportedHistory } from "@/server/tl/tracker-import";
 import { ImportedHistoryCard } from "@/components/desk/kpi/imported-history";
 import { currentAllowed } from "@/server/tl/scope";
@@ -36,6 +38,8 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
   // The carrier's own imported weekly history belongs to no terminal, so it is shown to people who can see every terminal, on the unfiltered dashboard.
   const history = !hasFilters(params.filters) && (await currentAllowed()) == null ? await getImportedHistory() : null;
   const leaks = billAccess.ok && !hasFilters(params.filters) ? await getLeakLedger({ period: params.period, compare: params.compare, terminals: scope }) : null;
+  // Cash beside gross (Wave 6 step 4), for the billing office only; it follows the filters and the terminals in view, invoice by invoice.
+  const cash = billAccess.ok ? await getKpiCash({ period: params.period, compare: params.compare, filters: params.filters, terminals: scope }) : null;
   const href = (over: Partial<typeof params>) => kpiHref("/kpi", params, over);
   // A big fleet's driver chart shows the best and the worst ten; "All drivers" opens the rest.
   const allDrivers = searchParams?.alldrivers === "1";
@@ -53,6 +57,7 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
             <a href={csv("kpi-lanes")}>Lanes</a>
             <a href={csv("kpi-trucks")}>Trucks (empty miles)</a>
             <a href={csv("kpi-weeks")}>Twelve weeks</a>
+            {billAccess.ok ? <a href={csv("kpi-cash")}>Cash beside gross</a> : null}
           </div>
         </details>
       </PageHead>
@@ -88,6 +93,8 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
           {leaks.current.unpriced > 0 ? `. ${leaks.current.unpriced} items could not be priced.` : "."}
         </p>
       ) : null}
+
+      {cash ? <CashCard cash={cash} gross={k.current.gross} /> : null}
 
       {k.current.loads === 0 ? (
         <EmptyState icon="chart" title="No finished loads here">

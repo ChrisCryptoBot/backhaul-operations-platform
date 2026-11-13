@@ -1348,3 +1348,9 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 /* Data health: money records agree (Wave 6 step 2) */
 .dh-money > li { margin-top: 8px; margin-bottom: 8px; }
 .dh-money > li > .tl-sub { margin-top: 2px; margin-bottom: 0; }
+
+/* KPI: cash beside gross (Wave 6 step 4) */
+.cash-sources { margin-top: var(--db-3); }
+.cash-days { margin-top: var(--db-3); }
+.cash-by { margin-top: var(--db-3); margin-bottom: var(--db-2); }
+.cash-moves { margin-top: var(--db-4); }
