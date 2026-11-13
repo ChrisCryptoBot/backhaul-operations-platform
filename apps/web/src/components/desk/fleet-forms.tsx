@@ -561,6 +561,11 @@ function TruckFields({ values, set, errors, onMake, onModel }: { values: Record<
         </Field>
       </div>
       <div className="dlg-two">
+        <Field label="Fuel tanks (gal)" error={errors.tankGallons} hint="Both tanks together. A fill bigger than this is flagged on Fuel; blank skips the check.">
+          <input value={values.tankGallons} onChange={set("tankGallons")} inputMode="decimal" autoComplete="off" />
+        </Field>
+      </div>
+      <div className="dlg-two">
         <Field label="Payload (lb)" error={errors.payloadLbs}>
           <input value={values.payloadLbs} onChange={set("payloadLbs")} inputMode="numeric" autoComplete="off" />
         </Field>
@@ -617,6 +622,7 @@ export type TruckInfo = {
   maxLengthFt?: number | null;
   maxWidthFt?: number | null;
   maxHeightIn?: number | null;
+  tankCapacityGallons?: number | null;
   hasLiftgate?: boolean;
   hasRamp?: boolean;
   hasPalletJack?: boolean;
@@ -637,6 +643,7 @@ const truckValues = (t?: TruckInfo): Record<keyof TruckValues, string> => ({
   maxLengthFt: text(t?.maxLengthFt),
   maxWidthFt: text(t?.maxWidthFt),
   maxHeightIn: text(t?.maxHeightIn),
+  tankGallons: text(t?.tankCapacityGallons),
   hasLiftgate: t?.hasLiftgate ? "yes" : "",
   hasRamp: t?.hasRamp ? "yes" : "",
   hasPalletJack: t?.hasPalletJack ? "yes" : ""

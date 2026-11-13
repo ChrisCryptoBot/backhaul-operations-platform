@@ -109,6 +109,7 @@ export async function commitImport(kind: ImportKind, text: string, fileName: str
           maxLengthFt: specs.maxLengthFt,
           maxWidthFt: specs.maxWidthFt,
           maxHeightIn: specs.maxHeightIn,
+          tankCapacityGallons: specs.tankGallons,
           hasLiftgate: v.hasLiftgate === "yes",
           hasRamp: v.hasRamp === "yes",
           hasPalletJack: v.hasPalletJack === "yes"

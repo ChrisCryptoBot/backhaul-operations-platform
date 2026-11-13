@@ -62,6 +62,7 @@ import { addRegion, archiveRegion, renameRegion, setMemberScope, setTerminalRegi
 import { sendTestEvent, type TestEventResult } from "@/server/partners/test-event";
 import { shareLoadLocation, type ShareResult } from "@/server/partners/tracking";
 import { syncFuelCards, type FuelSync } from "@/server/partners/fuel-store";
+import { clearFuelFlag, reopenFuelFlag, type FlagReviewResult } from "@/server/partners/fuel-flags";
 import { commitFuelImport, previewFuelImport, removeFuelImport, type FuelImportMap, type FuelImportPreview, type FuelImportResult, type RemoveFuelImportResult } from "@/server/partners/fuel-import";
 import { calculateIfta, type IftaResult } from "@/server/partners/ifta";
 import { applyFactoringUpdate, factorInvoice, type FactorResult } from "@/server/partners/factoring";
@@ -1350,6 +1351,22 @@ export async function removeFuelImportAction(batchId: string): Promise<RemoveFue
   await requireCan("dispatch", "bill");
   const out = await removeFuelImport(typeof batchId === "string" ? batchId : "");
   if (out.ok) revalidatePath("/fuel", "layout");
+  return out;
+}
+
+/** Clears one exception flag on one fuel purchase, with why (any other flag on it stays open). Dispatch or billing. */
+export async function clearFuelFlagAction(id: string, code: string, note: string): Promise<FlagReviewResult> {
+  await requireCan("dispatch", "bill");
+  const out = await clearFuelFlag(String(id), String(code), typeof note === "string" ? note : "");
+  if (out.ok) revalidatePath("/fuel");
+  return out;
+}
+
+/** Reopens a fuel flag someone cleared. */
+export async function reopenFuelFlagAction(id: string, code: string): Promise<FlagReviewResult> {
+  await requireCan("dispatch", "bill");
+  const out = await reopenFuelFlag(String(id), String(code));
+  if (out.ok) revalidatePath("/fuel");
   return out;
 }
 

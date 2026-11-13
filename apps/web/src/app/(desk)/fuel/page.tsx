@@ -2,11 +2,13 @@ import Link from "next/link";
 import React from "react";
 import { DataTable, type Column, type Row } from "@/components/desk/data-table";
 import { FuelSyncButton } from "@/components/desk/data-actions";
+import { FuelFlagCell } from "@/components/desk/fuel-flag-cell";
 import { CanGate } from "@/components/desk/kit/can-gate";
 import { EmptyState } from "@/components/desk/kit/states";
 import { Pager } from "@/components/desk/pager";
 import { PageHead, Stat } from "@/components/desk/ui";
 import { dayYear, gallons, perGallon, usd } from "@/lib/desk-format";
+import { FLAG_CODES, FLAG_LABEL } from "@/lib/fuel-exceptions";
 import { PRODUCT_LABEL, STATUS_LABEL } from "@/lib/fuel-normalize";
 import { asPage } from "@/lib/paging";
 import { partnerStatus } from "@/server/partners/connections";
@@ -23,6 +25,7 @@ const COLUMNS: Column[] = [
   { key: "truck", label: "Truck", group: "Purchase" },
   { key: "where", label: "Where", group: "Purchase" },
   { key: "state", label: "State", group: "Purchase" },
+  { key: "flags", label: "Flags", group: "Purchase" },
   { key: "product", label: "Product", group: "Fuel" },
   { key: "gallons", label: "Gallons", group: "Fuel", align: "num" },
   { key: "ppg", label: "$/gal", group: "Fuel", align: "num" },
@@ -37,20 +40,22 @@ const COLUMNS: Column[] = [
  * Fuel: what the fuel cards were charged for, as the card company reported it: each purchase with its gallons, its price and the card's discount a gallon, and the load and the driver
  * statement it is tied to. The purchases are read from the card when someone asks (a trip's fuel box, or the button here) and kept, so the same purchase is never counted twice. A purchase is
  * a record here: nothing is taken off any driver's statement because of it. Each purchase shows the state it was bought in and what was pumped; pending, declined and voided purchases are
- * listed but never counted in the totals.
+ * listed but never counted in the totals. Each purchase carries its exception flags (lib/fuel-exceptions.ts); "Flagged" lists only those with one open, and a person clears one flag at a time.
  */
-export default async function FuelPage({ searchParams }: { searchParams?: { days?: string; page?: string } }) {
+export default async function FuelPage({ searchParams }: { searchParams?: { days?: string; page?: string; flagged?: string } }) {
   await requirePage("read");
   const days = (PERIODS as readonly number[]).includes(Number.parseInt(searchParams?.days ?? "", 10)) ? Number.parseInt(searchParams!.days!, 10) : 30;
   const page = asPage(searchParams?.page);
+  const flagged = searchParams?.flagged === "1";
   const terminal = await currentTerminal();
-  const [data, companies] = await Promise.all([listFuel({ days, page, terminal }), partnerStatus()]);
+  const [data, companies] = await Promise.all([listFuel({ days, page, terminal, flagged }), partnerStatus()]);
   // Reading the cards needs a connected fuel card company; which one is whichever the fleet connected.
   const cardReason = companies.some((c) => c.capability === "fuel_card" && c.connected && c.configured) ? null : "No fuel card company is connected. An admin connects one under Settings, Integrations.";
-  const href = (over: { days?: number; page?: number }) => {
+  const href = (over: { days?: number; page?: number; flagged?: boolean }) => {
     const u = new URLSearchParams();
     const d = over.days ?? days;
     if (d !== 30) u.set("days", String(d));
+    if (over.flagged ?? flagged) u.set("flagged", "1");
     if (over.page && over.page > 1) u.set("page", String(over.page));
     const q = u.toString();
     return q ? `/fuel?${q}` : "/fuel";
@@ -82,7 +87,15 @@ export default async function FuelPage({ searchParams }: { searchParams?: { days
         </>
       ) : (
         <span className="dim">{r.loadId ? "not deducted" : "—"}</span>
-      )
+      ),
+      flags:
+        r.flags.open.length === 0 && r.flags.cleared.length === 0 ? (
+          <span className="dim">—</span>
+        ) : (
+          <CanGate caps={["dispatch", "bill"]}>
+            <FuelFlagCell id={r.id} open={r.flags.open} cleared={r.flags.cleared} />
+          </CanGate>
+        )
     }
   }));
   const t = data.totals;
@@ -91,6 +104,8 @@ export default async function FuelPage({ searchParams }: { searchParams?: { days
     .filter((p) => (t.byProduct[p] ?? 0) > 0)
     .map((p) => `${gallons(t.byProduct[p])} ${PRODUCT_LABEL[p].toLowerCase()}`);
   const def = t.byProduct.def ?? 0;
+  const f = data.flags;
+  const flagWords = FLAG_CODES.filter((c) => (f.byCode[c] ?? 0) > 0).map((c) => `${f.byCode[c]} ${FLAG_LABEL[c].toLowerCase()}`);
 
   return (
     <>
@@ -105,10 +120,13 @@ export default async function FuelPage({ searchParams }: { searchParams?: { days
       </PageHead>
       <div className="tl-tabs" role="tablist" aria-label="Period" style={{ display: "flex", gap: 6, marginBottom: 12 }}>
         {PERIODS.map((p) => (
-          <Link key={p} href={href({ days: p })} className="tl-tab" aria-current={days === p ? "true" : undefined}>
+          <Link key={p} href={href({ days: p, flagged: false })} className="tl-tab" aria-current={!flagged && days === p ? "true" : undefined}>
             Last {p} days
           </Link>
         ))}
+        <Link href={href({ flagged: true })} className="tl-tab" aria-current={flagged ? "true" : undefined}>
+          Flagged ({f.purchases})
+        </Link>
       </div>
       <div className="tl-grid cols-4">
         <Stat label="Purchases" value={String(t.purchases)} sub={`settled in the last ${days} days${t.notCounted > 0 ? `; ${t.notCounted} pending, declined or void not counted` : ""}`} />
@@ -116,6 +134,19 @@ export default async function FuelPage({ searchParams }: { searchParams?: { days
         <Stat label="Charged" value={usd(t.charged, 2)} sub={t.netPerGallon != null ? `${perGallon(t.netPerGallon, 3)} a gallon after discount` : undefined} />
         <Stat label="Discount saved" value={usd(t.discount, 2)} tone={t.discount > 0 ? "ok" : undefined} />
       </div>
+      {f.purchases > 0 || f.tankUnknown > 0 || f.partial ? (
+        <p className={f.purchases > 0 ? "tl-note warn fuel-flagnote" : "tl-note fuel-flagnote"}>
+          {f.purchases > 0 ? (
+            <>
+              {f.purchases} {f.purchases === 1 ? "purchase has" : "purchases have"} an open flag in the last {days} days: {flagWords.join(" · ")}.{" "}
+              {flagged ? null : <Link href={href({ flagged: true, page: 1 })}>Show only those</Link>}
+              {f.cleared > 0 ? ` ${f.cleared} cleared by a person.` : ""}{" "}
+            </>
+          ) : null}
+          {f.tankUnknown > 0 ? `${f.tankUnknown} diesel ${f.tankUnknown === 1 ? "fill is" : "fills are"} on trucks with no tank size, so ${f.tankUnknown === 1 ? "it is" : "they are"} not checked for over-filling: type it on the truck's page. ` : null}
+          {f.partial ? "Flags are read from the newest 20,000 purchases." : null}
+        </p>
+      ) : null}
       <DataTable
         id="fuel-table"
         label="Fuel purchases"

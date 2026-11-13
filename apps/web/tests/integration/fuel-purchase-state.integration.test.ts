@@ -124,6 +124,6 @@ describe.skipIf(!run)("fuel purchases: state, product and status", () => {
 
   test("the Fuel file has the state, product and status columns", async () => {
     const csv = await buildExport("fuel", { days: "30" }, NOW);
-    expect(csv!.csv.slice(1).split(/\r?\n/)[0]).toBe("Date,Truck,Where,State,Product,Status,Card company,Gallons,Price a gallon,Discount a gallon,Discount,Charged,Load,Driver statement");
+    expect(csv!.csv.slice(1).split(/\r?\n/)[0]).toBe("Date,Truck,Where,State,Product,Status,Card company,Gallons,Price a gallon,Discount a gallon,Discount,Charged,Load,Driver statement,Open flags");
   });
 });

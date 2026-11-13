@@ -200,15 +200,17 @@ export type TruckValues = {
   maxLengthFt: string;
   maxWidthFt: string;
   maxHeightIn: string;
+  /** The tractor's fuel tanks in gallons: a fuel fill bigger than this is flagged on Fuel. Blank skips that check. */
+  tankGallons: string;
   /** "yes" when the truck has it, blank when not. */
   hasLiftgate: string;
   hasRamp: string;
   hasPalletJack: string;
 };
-export const BLANK_TRUCK: TruckValues = { name: "", type: "", mpg: "", fuelType: "", homeBaseAddress: "", terminal: "", make: "", model: "", year: "", payloadLbs: "", maxLengthFt: "", maxWidthFt: "", maxHeightIn: "", hasLiftgate: "", hasRamp: "", hasPalletJack: "" };
+export const BLANK_TRUCK: TruckValues = { name: "", type: "", mpg: "", fuelType: "", homeBaseAddress: "", terminal: "", make: "", model: "", year: "", payloadLbs: "", maxLengthFt: "", maxWidthFt: "", maxHeightIn: "", tankGallons: "", hasLiftgate: "", hasRamp: "", hasPalletJack: "" };
 
 /** The numbers a truck's specs come to once checked. */
-export type TruckSpecs = { year: number | null; payloadLbs: number | null; maxLengthFt: number | null; maxWidthFt: number | null; maxHeightIn: number | null };
+export type TruckSpecs = { year: number | null; payloadLbs: number | null; maxLengthFt: number | null; maxWidthFt: number | null; maxHeightIn: number | null; tankGallons: number | null };
 
 /** The phone's vehicle categories, so the type means the same here (and picks the same industry numbers). */
 export const TRUCK_TYPES = [
@@ -247,6 +249,7 @@ export function validateTruck(input: Raw): TruckCheck {
     maxLengthFt: str(input.maxLengthFt),
     maxWidthFt: str(input.maxWidthFt),
     maxHeightIn: str(input.maxHeightIn),
+    tankGallons: str(input.tankGallons),
     hasLiftgate: str(input.hasLiftgate) === "yes" ? "yes" : "",
     hasRamp: str(input.hasRamp) === "yes" ? "yes" : "",
     hasPalletJack: str(input.hasPalletJack) === "yes" ? "yes" : ""
@@ -265,7 +268,7 @@ export function validateTruck(input: Raw): TruckCheck {
   if (v.terminal.length > TERMINAL_MAX_LENGTH) errors.terminal = "That terminal name is too long.";
   if (v.make.length > 60) errors.make = "That make is too long.";
   if (v.model.length > 60) errors.model = "That model is too long.";
-  const spec = (key: "year" | "payloadLbs" | "maxLengthFt" | "maxWidthFt" | "maxHeightIn", min: number, max: number, whole: boolean, message: string): number | null => {
+  const spec = (key: "year" | "payloadLbs" | "maxLengthFt" | "maxWidthFt" | "maxHeightIn" | "tankGallons", min: number, max: number, whole: boolean, message: string): number | null => {
     if (!v[key]) return null;
     const n = Number(v[key]);
     if (!Number.isFinite(n) || n < min || n > max || (whole && !Number.isInteger(n))) {
@@ -279,7 +282,8 @@ export function validateTruck(input: Raw): TruckCheck {
     payloadLbs: spec("payloadLbs", 1, 100000, true, "Payload in whole pounds, 1 to 100,000."),
     maxLengthFt: spec("maxLengthFt", 1, 60, false, "Cargo length in feet, 1 to 60."),
     maxWidthFt: spec("maxWidthFt", 1, 10, false, "Cargo width in feet, 1 to 10."),
-    maxHeightIn: spec("maxHeightIn", 1, 200, false, "Cargo height in inches, 1 to 200.")
+    maxHeightIn: spec("maxHeightIn", 1, 200, false, "Cargo height in inches, 1 to 200."),
+    tankGallons: spec("tankGallons", 10, 500, false, "Fuel tanks in gallons, 10 to 500 (both tanks together).")
   };
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   return { ok: true, value: v, mpg, specs };

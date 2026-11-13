@@ -1308,3 +1308,13 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .fimp-wrap { max-height: none; }
 .fimp-gap { margin-top: var(--db-3); }
 .fimp-why { white-space: normal; min-width: 320px; }
+
+/* Fuel exception flags (Fuel; docs/MONEY_PLAN.md, Wave 5 step 3). */
+.fflag { display: grid; gap: 6px; white-space: normal; min-width: 180px; }
+.fflag-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.fflag-panel { display: grid; gap: 8px; padding: 8px 0; max-width: 520px; }
+.fflag-list { margin: 0; padding-left: 16px; font-size: var(--db-text-sm); }
+.fflag-cleared { color: var(--db-fg-dim); }
+.fflag-form { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.fflag-note { flex: 1 1 240px; }
+.fuel-flagnote { margin: 12px 0; max-width: 90ch; }

@@ -6,6 +6,7 @@ import { num, numOrNull } from "@/server/tl/convert";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { isFuelGallons, nextStatus, placeParts, stateCode, type FuelProduct, type FuelStatus } from "@/lib/fuel-normalize";
 import { callPartner, providerName, type PurchaseOut } from "./call";
+import { countFlags, flagContextStart, readFlags, type FlagCounts, type PurchaseFlags } from "./fuel-flags";
 
 /**
  * Fuel card purchases, kept (the `fuel_transactions` table): one row per purchase by the company's own id, so reading the same days twice never doubles a purchase. A purchase is tied to the
@@ -156,6 +157,8 @@ export type FuelRow = {
   statementNumber: string | null;
   /** The purchase was deducted from the driver's pay on that statement (not only on a load that is on it). */
   deducted: boolean;
+  /** Its exception flags (lib/fuel-exceptions.ts): open ones, and ones a person cleared with why. */
+  flags: PurchaseFlags;
 };
 /**
  * The period's totals, over settled purchases only (pending, declined and void ones are listed, never counted: `notCounted` says how many). `gallons` is fuel (everything but DEF) and the
@@ -163,15 +166,28 @@ export type FuelRow = {
  */
 export type FuelTotals = { purchases: number; gallons: number; charged: number; discount: number; netPerGallon: number | null; byProduct: Partial<Record<FuelProduct, number>>; notCounted: number };
 
-/** The purchases of the last `days`, newest first, a page at a time (every status), with the settled totals for the whole period and the load and driver statement each is tied to. */
-export async function listFuel(opts: { days?: number; page?: number; terminal?: Terminals } = {}, now = new Date(), workspaceId = currentWorkspaceId()): Promise<{ rows: FuelRow[]; totals: FuelTotals; page: number; pageSize: number; total: number }> {
+const NO_FLAGS: PurchaseFlags = { open: [], cleared: [] };
+const ROW_INCLUDE = { vehicle: { select: { name: true } }, settlement: { select: { id: true, number: true, status: true } }, load: { select: { loadNumber: true, settlement: { select: { settlement: { select: { id: true, number: true, status: true } } } } } } } satisfies Prisma.FuelTransactionInclude;
+const NEWEST: Prisma.FuelTransactionOrderByWithRelationInput[] = [{ postedAt: "desc" }, { id: "asc" }];
+
+/**
+ * The purchases of the last `days`, newest first, a page at a time (every status), with the settled totals for the whole period, the load and driver statement each is tied to, and each one's
+ * exception flags. With `flagged`, only the purchases with an open flag are listed (and counted in `total`). The flag counts are for the period and terminals in view.
+ */
+export async function listFuel(opts: { days?: number; page?: number; terminal?: Terminals; flagged?: boolean } = {}, now = new Date(), workspaceId = currentWorkspaceId()): Promise<{ rows: FuelRow[]; totals: FuelTotals; flags: FlagCounts; page: number; pageSize: number; total: number }> {
   const span = Math.min(Math.max(1, whole(opts.days ?? 30)), 366);
   const page = Math.max(1, whole(opts.page ?? 1));
-  const where: Prisma.FuelTransactionWhereInput = { workspaceId, postedAt: { gte: new Date(`${dayOf(new Date(now.getTime() - span * DAY))}T00:00:00Z`) }, ...(opts.terminal != null ? { vehicle: { terminal: terminalFilter(opts.terminal) } } : {}) };
+  const from = new Date(`${dayOf(new Date(now.getTime() - span * DAY))}T00:00:00Z`);
+  const where: Prisma.FuelTransactionWhereInput = { workspaceId, postedAt: { gte: from }, ...(opts.terminal != null ? { vehicle: { terminal: terminalFilter(opts.terminal) } } : {}) };
   const counted: Prisma.FuelTransactionWhereInput = { ...where, status: "settled" };
+  // Flags are read for the whole fleet over a fixed span (fuel-flags.ts), then narrowed to what is in view.
+  const [reading, inView] = await Promise.all([readFlags(flagContextStart(from, now), workspaceId), prisma.fuelTransaction.findMany({ where, select: { id: true }, orderBy: NEWEST })]);
+  const flagged = opts.flagged ? inView.map((r) => r.id).filter((id) => (reading.byId.get(id)?.open.length ?? 0) > 0) : null;
   const [rows, total, sums, products] = await Promise.all([
-    prisma.fuelTransaction.findMany({ where, include: { vehicle: { select: { name: true } }, settlement: { select: { id: true, number: true, status: true } }, load: { select: { loadNumber: true, settlement: { select: { settlement: { select: { id: true, number: true, status: true } } } } } } }, orderBy: [{ postedAt: "desc" }, { id: "asc" }], skip: (page - 1) * FUEL_PAGE, take: FUEL_PAGE }),
-    prisma.fuelTransaction.count({ where }),
+    flagged
+      ? prisma.fuelTransaction.findMany({ where: { id: { in: flagged.slice((page - 1) * FUEL_PAGE, page * FUEL_PAGE) } }, include: ROW_INCLUDE, orderBy: NEWEST })
+      : prisma.fuelTransaction.findMany({ where, include: ROW_INCLUDE, orderBy: NEWEST, skip: (page - 1) * FUEL_PAGE, take: FUEL_PAGE }),
+    Promise.resolve(inView.length),
     prisma.fuelTransaction.aggregate({ where: counted, _sum: { amount: true, discount: true }, _count: { _all: true } }),
     prisma.fuelTransaction.groupBy({ by: ["product"], where: counted, _sum: { gallons: true, amount: true }, orderBy: { product: "asc" } })
   ]);
@@ -209,12 +225,14 @@ export async function listFuel(opts: { days?: number; page?: number; terminal?: 
         // A statement that was voided is not a statement the load is on.
         statementId: st && st.status !== "void" ? st.id : null,
         statementNumber: st && st.status !== "void" ? st.number : null,
-        deducted: direct != null
+        deducted: direct != null,
+        flags: reading.byId.get(r.id) ?? NO_FLAGS
       };
     }),
     totals: { purchases: sums._count._all, gallons, charged, discount: num(sums._sum.discount), netPerGallon: gallonsD.gt(0) ? fuelCharged.div(gallonsD).toDecimalPlaces(3).toNumber() : null, byProduct, notCounted: total - sums._count._all },
+    flags: countFlags(reading, inView.map((r) => r.id)),
     page,
     pageSize: FUEL_PAGE,
-    total
+    total: flagged ? flagged.length : total
   };
 }

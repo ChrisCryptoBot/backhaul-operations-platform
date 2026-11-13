@@ -160,6 +160,7 @@ function truckSnapshot(v: TruckValues): AuditSnapshot {
     "Cargo length (ft)": v.maxLengthFt || null,
     "Cargo width (ft)": v.maxWidthFt || null,
     "Cargo height (in)": v.maxHeightIn || null,
+    "Fuel tanks (gal)": v.tankGallons || null,
     Liftgate: v.hasLiftgate === "yes" ? "Yes" : null,
     Ramp: v.hasRamp === "yes" ? "Yes" : null,
     "Pallet jack": v.hasPalletJack === "yes" ? "Yes" : null,
@@ -169,9 +170,9 @@ function truckSnapshot(v: TruckValues): AuditSnapshot {
 }
 
 /** A truck's values with every number written the way it is stored, so 6.80 typed over a stored 6.8 is not a change. */
-const canonicalTruck = (v: TruckValues, mpg: number | null, s: { year: number | null; payloadLbs: number | null; maxLengthFt: number | null; maxWidthFt: number | null; maxHeightIn: number | null }): TruckValues => {
+const canonicalTruck = (v: TruckValues, mpg: number | null, s: { year: number | null; payloadLbs: number | null; maxLengthFt: number | null; maxWidthFt: number | null; maxHeightIn: number | null; tankGallons: number | null }): TruckValues => {
   const text = (n: number | null) => (n == null ? "" : String(n));
-  return { ...v, mpg: text(mpg), year: text(s.year), payloadLbs: text(s.payloadLbs), maxLengthFt: text(s.maxLengthFt), maxWidthFt: text(s.maxWidthFt), maxHeightIn: text(s.maxHeightIn) };
+  return { ...v, mpg: text(mpg), year: text(s.year), payloadLbs: text(s.payloadLbs), maxLengthFt: text(s.maxLengthFt), maxWidthFt: text(s.maxWidthFt), maxHeightIn: text(s.maxHeightIn), tankGallons: text(s.tankGallons) };
 };
 
 export async function saveTruck(raw: Record<string, unknown>, id: string | null, now = new Date()): Promise<SaveResult<keyof TruckValues>> {
@@ -196,6 +197,7 @@ export async function saveTruck(raw: Record<string, unknown>, id: string | null,
     maxLengthFt: check.specs.maxLengthFt,
     maxWidthFt: check.specs.maxWidthFt,
     maxHeightIn: check.specs.maxHeightIn,
+    tankCapacityGallons: check.specs.tankGallons,
     hasLiftgate: v.hasLiftgate === "yes",
     hasRamp: v.hasRamp === "yes",
     hasPalletJack: v.hasPalletJack === "yes"
@@ -234,6 +236,7 @@ export async function saveTruck(raw: Record<string, unknown>, id: string | null,
     maxLengthFt: stored(prev.maxLengthFt),
     maxWidthFt: stored(prev.maxWidthFt),
     maxHeightIn: stored(prev.maxHeightIn),
+    tankGallons: stored(prev.tankCapacityGallons),
     hasLiftgate: prev.hasLiftgate ? "yes" : "",
     hasRamp: prev.hasRamp ? "yes" : "",
     hasPalletJack: prev.hasPalletJack ? "yes" : ""

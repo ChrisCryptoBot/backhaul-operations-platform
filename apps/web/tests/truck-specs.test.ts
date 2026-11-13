@@ -96,17 +96,31 @@ describe("validateTruck, the spec fields", () => {
   it("checks them and returns them as numbers", () => {
     const out = validateTruck({ name: "U1", make: "Ford", model: "Transit 250", year: "2022", payloadLbs: "3,100", maxLengthFt: "10.1", maxWidthFt: "4.3", maxHeightIn: "56.5" });
     expect(out.ok).toBe(true);
-    if (out.ok) expect(out.specs).toEqual({ year: 2022, payloadLbs: 3100, maxLengthFt: 10.1, maxWidthFt: 4.3, maxHeightIn: 56.5 });
+    if (out.ok) expect(out.specs).toEqual({ year: 2022, payloadLbs: 3100, maxLengthFt: 10.1, maxWidthFt: 4.3, maxHeightIn: 56.5, tankGallons: null });
   });
 
   it("blank specs are null, not zero", () => {
     const out = validateTruck({ name: "U1" });
-    expect(out.ok && out.specs).toEqual({ year: null, payloadLbs: null, maxLengthFt: null, maxWidthFt: null, maxHeightIn: null });
+    expect(out.ok && out.specs).toEqual({ year: null, payloadLbs: null, maxLengthFt: null, maxWidthFt: null, maxHeightIn: null, tankGallons: null });
   });
 
   it("names each one that is wrong", () => {
     const out = validateTruck({ name: "U1", year: "1950", payloadLbs: "12.5", maxLengthFt: "0", maxWidthFt: "30", maxHeightIn: "abc", make: "x".repeat(61) });
     expect(out.ok).toBe(false);
     if (!out.ok) expect(Object.keys(out.errors).sort()).toEqual(["make", "maxHeightIn", "maxLengthFt", "maxWidthFt", "payloadLbs", "year"]);
+  });
+});
+
+describe("the truck's fuel tanks (Wave 5 step 3)", () => {
+  it("are optional, read in gallons between 10 and 500, and blank means the over-capacity check is skipped", () => {
+    const none = validateTruck({ name: "U1" });
+    expect(none.ok && none.specs.tankGallons).toBe(null);
+    const set = validateTruck({ name: "U1", tankGallons: "240" });
+    expect(set.ok && set.specs.tankGallons).toBe(240);
+    for (const bad of ["5", "1000", "lots"]) {
+      const out = validateTruck({ name: "U1", tankGallons: bad });
+      expect(out.ok).toBe(false);
+      if (!out.ok) expect(out.errors.tankGallons).toBe("Fuel tanks in gallons, 10 to 500 (both tanks together).");
+    }
   });
 });

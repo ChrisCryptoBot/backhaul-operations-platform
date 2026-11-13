@@ -155,6 +155,7 @@ export default async function TruckPage({ params, searchParams }: { params: { id
             maxLengthFt: t.maxLengthFt == null ? null : num(t.maxLengthFt),
             maxWidthFt: t.maxWidthFt == null ? null : num(t.maxWidthFt),
             maxHeightIn: t.maxHeightIn == null ? null : num(t.maxHeightIn),
+            tankCapacityGallons: t.tankCapacityGallons == null ? null : num(t.tankCapacityGallons),
             hasLiftgate: t.hasLiftgate,
             hasRamp: t.hasRamp,
             hasPalletJack: t.hasPalletJack

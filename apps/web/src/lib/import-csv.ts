@@ -68,6 +68,7 @@ const TRUCK_COLUMNS: Array<Column<keyof TruckValues>> = [
   { key: "maxLengthFt", label: "Cargo length (ft)", aliases: ["cargolength", "cargolengthft", "lengthft", "length"], example: "53" },
   { key: "maxWidthFt", label: "Cargo width (ft)", aliases: ["cargowidth", "cargowidthft", "widthft", "width"], example: "8.5" },
   { key: "maxHeightIn", label: "Cargo height (in)", aliases: ["cargoheight", "cargoheightin", "heightin", "height"], example: "162" },
+  { key: "tankGallons", label: "Fuel tanks (gal)", aliases: ["fueltanks", "fueltanksgal", "tankcapacity", "tankgallons", "tanksize", "fuelcapacity", "tanks"], example: "240" },
   { key: "hasLiftgate", label: "Liftgate", aliases: ["liftgate", "hasliftgate"], example: "no" },
   { key: "hasRamp", label: "Ramp", aliases: ["ramp", "hasramp"], example: "no" },
   { key: "hasPalletJack", label: "Pallet jack", aliases: ["palletjack", "haspalletjack"], example: "no" }
