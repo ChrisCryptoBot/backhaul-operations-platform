@@ -9,6 +9,7 @@ import { INTERSTATES } from "@/lib/basemap/interstates";
 import { basemapPaint, radarBasemapLayers } from "@/lib/basemap/paint";
 import { US_STATES } from "@/lib/basemap/us-states";
 import { EXCEPTION_FILTERS, radarParamsText, type ExceptionKey, type RadarPoint, type RadarQueryParams, type SearchInfo } from "@/lib/radar-points";
+import { trailRuns } from "@/lib/geo-line";
 import { ROAD_ROUTE_NOTE, laneNote } from "@/lib/telematics";
 import { boundsAround, radiusRing } from "@/lib/radius";
 import { REGIONS, REGION_KEYS, boxAround, firstRegion, mapLng, regionCounts, regionOf, within as withinRegion, type Box, type RegionKey } from "@/lib/radar-regions";
@@ -138,6 +139,15 @@ const poiMark = (color: string, filled: boolean): Draw => (g) => {
   }
 };
 
+/** One GPS breadcrumb fix: a small square tick so sparse fixes stay visible even when a gap breaks the trail line. */
+const trailMark = (color: string, ground: string): Draw => (g) => {
+  g.fillStyle = color;
+  g.strokeStyle = ground;
+  g.lineWidth = 2;
+  g.fillRect(13, 13, 6, 6);
+  g.strokeRect(13, 13, 6, 6);
+};
+
 const selectRing = (color: string): Draw => (g) => {
   g.strokeStyle = color;
   g.lineWidth = 2;
@@ -190,6 +200,7 @@ function addImages(map: MapLibreMap, t: Tokens) {
   put("l-open", openLoadMark(t.labelHi, t.bg));
   put("poi-fuel", poiMark(t.dim, true));
   put("poi-rest", poiMark(t.dim, false));
+  put("trail-pt", trailMark(t.ink, t.bg));
 }
 
 type Feat = { type: "Feature"; geometry: { type: "Point"; coordinates: [number, number] }; properties: Record<string, string | number> };
@@ -235,6 +246,7 @@ function overlayLayers(t: Tokens): StyleSpecification["layers"] {
     { id: "route-road", type: "line", source: "route", filter: ["==", ["get", "part"], "road"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": t.label, "line-width": 3, "line-opacity": 0.9 } },
     { id: "route-lane", type: "line", source: "route", filter: ["==", ["get", "part"], "lane"], paint: { "line-color": t.label, "line-width": 2, "line-dasharray": [3, 2] } },
     { id: "route-trail", type: "line", source: "route", filter: ["==", ["get", "part"], "trail"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": t.ink, "line-width": 2 } },
+    { id: "route-trail-pts", type: "symbol", source: "route", filter: ["==", ["get", "part"], "trail-pt"], layout: { "icon-image": "trail-pt", "icon-allow-overlap": true, "icon-ignore-placement": true } },
     { id: "route-stops", type: "symbol", source: "route", filter: ["==", ["get", "part"], "stop"], layout: { "icon-image": ["get", "icon"], "icon-allow-overlap": true, "icon-ignore-placement": true } },
     { id: "open-loads", type: "symbol", source: "open-loads", layout: { visibility: "none", "icon-image": "l-open", "icon-allow-overlap": true, "icon-ignore-placement": true } },
     { id: "units", type: "symbol", source: "units", filter: ["!", ["has", "point_count"]], layout: { "icon-image": ["get", "icon"], "icon-rotate": ["get", "heading"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } },
@@ -308,7 +320,8 @@ function routeFeatures(r: RadarRoute | null): unknown[] {
   // The road route when one is known (standard car directions, kept in server memory); else the lane, straight from stop to stop.
   if (r.road && r.road.length >= 2) out.push({ type: "Feature", properties: { part: "road" }, geometry: { type: "LineString", coordinates: r.road.map((c) => at({ lat: c[1], lng: c[0] })) } });
   else if (r.stops.length >= 2) out.push({ type: "Feature", properties: { part: "lane" }, geometry: { type: "LineString", coordinates: r.stops.map(at) } });
-  if (r.trail.length >= 2) out.push({ type: "Feature", properties: { part: "trail" }, geometry: { type: "LineString", coordinates: r.trail.map(at) } });
+  for (const run of trailRuns(r.trail)) out.push({ type: "Feature", properties: { part: "trail" }, geometry: { type: "LineString", coordinates: run.map(at) } });
+  for (const pt of r.trail) out.push({ type: "Feature", properties: { part: "trail-pt" }, geometry: { type: "Point", coordinates: at(pt) } });
   for (const st of r.stops) out.push({ type: "Feature", properties: { part: "stop", icon: st.role === "pickup" ? "stop-p" : "stop-d", label: st.label, role: st.role }, geometry: { type: "Point", coordinates: at(st) } });
   return out;
 }

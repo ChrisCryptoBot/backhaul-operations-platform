@@ -1,5 +1,6 @@
 import Link from "next/link";
 import React from "react";
+import { trailRuns } from "@/lib/geo-line";
 import type { LoadTracking } from "@/server/tl/load-tracking";
 import { ROAD_ROUTE_NOTE, laneNote } from "@/lib/telematics";
 
@@ -48,6 +49,7 @@ export function LoadTracker({ t }: { t: LoadTracking }) {
   const corridor = t.stops.map((s) => at(s));
   const roadLine = roadPts.map((p) => at(p));
   const crumbs = t.trail.map((p) => at(p));
+  const crumbRuns = trailRuns(t.trail).map((run) => run.map((p) => at(p)));
   const truck = at(t.position);
   const insideStops = new Set(t.geofences.filter((g) => g.inside).map((g) => g.stop));
   const tone = t.position.state === "moving_load" || t.position.state === "moving" ? "var(--label)" : t.position.state === "idling" ? "var(--warn-fill)" : "var(--dim)";
@@ -62,7 +64,12 @@ export function LoadTracker({ t }: { t: LoadTracking }) {
         ) : (
           <polyline points={corridor.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")} fill="none" strokeDasharray="5 4" style={{ stroke: "var(--line-hi)", strokeWidth: 1 }} />
         )}
-        {crumbs.length > 1 ? <polyline points={crumbs.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")} fill="none" style={{ stroke: "var(--label)", strokeWidth: 2 }} /> : null}
+        {crumbRuns.map((run, i) => (
+          <polyline key={i} points={run.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")} fill="none" style={{ stroke: "var(--label)", strokeWidth: 2 }} />
+        ))}
+        {crumbs.map((p, i) => (
+          <rect key={i} x={(p.x - 2).toFixed(1)} y={(p.y - 2).toFixed(1)} width={4} height={4} style={{ fill: "var(--label)", stroke: "var(--bg)", strokeWidth: 1 }} />
+        ))}
         {t.stops.map((s, i) => {
           const p = corridor[i]!;
           const last = i === t.stops.length - 1;

@@ -80,3 +80,28 @@ export function nearestOnPolyline(p: LatLng, coords: ReadonlyArray<readonly [num
   }
   return best;
 }
+
+/** Max distance between two consecutive GPS pings that still connects with a trail line; wider gaps break so sparse fixes never cut diagonally across roads or water. */
+export const MAX_TRAIL_GAP_MILES = 2;
+
+/** Splits chronological GPS fixes into continuous drawn runs wherever consecutive points are within `maxGapMiles`. Single-point runs are omitted because lines need at least two points. */
+export function trailRuns(points: ReadonlyArray<LatLng>, maxGapMiles = MAX_TRAIL_GAP_MILES): LatLng[][] {
+  if (points.length < 2) return [];
+  const runs: LatLng[][] = [];
+  let cur: LatLng[] = [points[0]!];
+  for (let i = 1; i < points.length; i++) {
+    const prev = points[i - 1]!;
+    const next = points[i]!;
+    const ref = (prev.lat + next.lat) / 2;
+    const a = flat(prev, ref);
+    const b = flat(next, ref);
+    if (Math.hypot(b.x - a.x, b.y - a.y) <= maxGapMiles) {
+      cur.push(next);
+    } else {
+      if (cur.length >= 2) runs.push(cur);
+      cur = [next];
+    }
+  }
+  if (cur.length >= 2) runs.push(cur);
+  return runs;
+}

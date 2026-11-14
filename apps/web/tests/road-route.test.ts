@@ -10,7 +10,7 @@ const drive = vi.fn();
 let configured = true;
 vi.mock("@/server/geo/mapbox", () => ({ drive: (...a: unknown[]) => drive(...a), mapboxConfigured: () => configured }));
 
-import { alongPolyline } from "@/lib/geo-line";
+import { MAX_TRAIL_GAP_MILES, alongPolyline, trailRuns } from "@/lib/geo-line";
 import { parseRoute } from "@/lib/geo";
 import { OFF_ROUTE_MILES, ROAD_ROUTE_NOTE, laneSchedule, routeMilesLeft } from "@/lib/telematics";
 import { ensureRoadRoute } from "@/server/geo/road-route";
@@ -144,6 +144,26 @@ describe("miles left on the road, with the off-route guard", () => {
   it("says plainly what the road line is", () => {
     expect(ROAD_ROUTE_NOTE).toContain("mapbox/driving");
     expect(ROAD_ROUTE_NOTE).toMatch(/not truck routing/);
+  });
+
+  it(`trailRuns breaks GPS breadcrumbs across gaps over ${MAX_TRAIL_GAP_MILES} miles`, () => {
+    expect(trailRuns([])).toEqual([]);
+    expect(trailRuns([{ lat: 41.5, lng: -87.3 }])).toEqual([]);
+    // Three dense fixes ~0.7 miles apart stay connected; a ~20 mile gap starts a new run; a trailing lone ping makes no fake segment.
+    const dense = [
+      { lat: 41.5, lng: -87.3 },
+      { lat: 41.49, lng: -87.3 },
+      { lat: 41.48, lng: -87.3 }
+    ];
+    const acrossGap = [
+      { lat: 41.18, lng: -87.2 },
+      { lat: 41.17, lng: -87.2 }
+    ];
+    const lone = { lat: 40.5, lng: -86.9 };
+    const runs = trailRuns([...dense, ...acrossGap, lone]);
+    expect(runs).toHaveLength(2);
+    expect(runs[0]).toHaveLength(3);
+    expect(runs[1]).toHaveLength(2);
   });
 });
 
