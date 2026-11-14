@@ -80,6 +80,18 @@ async function stage() {
   // The two drivers added with Units 104-105 carry the pay kind "per_mile", which the desk does not know (it says "cpm"), so the Quote read their pay as a flat amount and could not judge their rows.
   const fixed = await prisma.driver.updateMany({ where: { workspaceId: W, defaultPayKind: "per_mile" }, data: { defaultPayKind: "cpm", payrollWorkerType: "contractor" } });
   if (fixed.count > 0) console.log(`pay kind per_mile -> cpm on ${fixed.count} driver(s)`);
+  // Unit 106 sits in the Dallas yard with no driver, and the Quote then ranks it first (no driver pay in its cost makes it look cheapest). A driver with a short clock (4 hours) makes it an
+  // honest row: flagged for hours like Alex's, and Morgan is the truck with room. Made once; found again by name.
+  const yard = await prisma.vehicle.findFirst({ where: { workspaceId: W, name: "Unit 106", archivedAt: null } });
+  if (yard && !(await prisma.driver.findFirst({ where: { workspaceId: W, assignedVehicleId: yard.id } }))) {
+    await prisma.driver.create({ data: { workspaceId: W, name: "Riley Cooper", assignedVehicleId: yard.id, terminal: "Dallas", defaultPayKind: "cpm", defaultPayRate: 0.58, payrollWorkerType: "contractor", hosDriveMinutes: 240, hosShiftMinutes: 240, hosSyncedAt: new Date() } });
+    console.log("Unit 106: driver Riley Cooper (4h of drive left)");
+  }
+  // The Quote reads the truck's hours (the least of its drivers' clocks), so the truck says 4 hours too.
+  if (yard && (await prisma.driver.findFirst({ where: { workspaceId: W, name: "Riley Cooper" } })) && Number(yard.hosAvailableHours ?? 0) > 4) {
+    await prisma.vehicle.update({ where: { id: yard.id }, data: { hosAvailableHours: 4, hosSyncedAt: new Date() } });
+    console.log("Unit 106: 4h on the truck");
+  }
   // The story's hours: Morgan Vance (Unit 104) is the fresh driver with room for a Dallas to Houston run (10h30m of drive left); Alex Rivera (Unit 101) stays low at 6h, so the
   // Quote cautions his truck and prefers Morgan's. Only raised, never lowered, so running stage again (or after `live` has ticked the clock) changes nothing.
   const morgan = await prisma.driver.findFirst({ where: { workspaceId: W, name: "Morgan Vance" } });
