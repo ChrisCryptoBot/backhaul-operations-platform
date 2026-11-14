@@ -85,6 +85,17 @@ export type RadarQueryParams = {
 const STATES = new Set<string>(["moving_load", "moving", "idling", "parked", "no_signal", "dropped", "hooked", "dwell"]);
 const first = (v: string | string[] | undefined | null): string => (Array.isArray(v) ? (v[0] ?? "") : (v ?? ""));
 
+/**
+ * `?live=5` on the radar page: refresh every 5 seconds instead of the usual 30 (the units, and the selected unit's card and route every 5 seconds instead of every 60). For a screen
+ * recording or a demo, where a unit's position should be seen to move. A whole number of seconds from 2 to 30; anything else (or nothing) is the usual rhythm. It changes how often the page
+ * asks, never what it shows: the positions are still the ones the desk holds.
+ */
+export function readLiveSeconds(raw: string | null | undefined): number | null {
+  if (raw == null || !/^\d{1,2}$/.test(raw)) return null;
+  const n = Number.parseInt(raw, 10);
+  return n >= 2 && n <= 30 ? n : null;
+}
+
 /** The parameters of a radar request (a page's search params or a route's query string), each read safely and defaulted. */
 export function readRadarParams(get: (k: string) => string | string[] | undefined | null): RadarQueryParams {
   const num = (s: string) => Number.parseFloat(s);

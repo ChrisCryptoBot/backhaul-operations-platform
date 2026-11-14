@@ -2,13 +2,13 @@
 
 import "./maplibre-vendor.css";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import React from "react";
 import type { Map as MapLibreMap, GeoJSONSource, StyleSpecification } from "maplibre-gl";
 import { INTERSTATES } from "@/lib/basemap/interstates";
 import { basemapPaint, radarBasemapLayers } from "@/lib/basemap/paint";
 import { US_STATES } from "@/lib/basemap/us-states";
-import { EXCEPTION_FILTERS, radarParamsText, type ExceptionKey, type RadarPoint, type RadarQueryParams, type SearchInfo } from "@/lib/radar-points";
+import { EXCEPTION_FILTERS, radarParamsText, readLiveSeconds, type ExceptionKey, type RadarPoint, type RadarQueryParams, type SearchInfo } from "@/lib/radar-points";
 import { trailRuns } from "@/lib/geo-line";
 import { ROAD_ROUTE_NOTE, laneNote } from "@/lib/telematics";
 import { boundsAround, radiusRing } from "@/lib/radius";
@@ -866,28 +866,32 @@ export function usePoints(initial: RadarPoints, params: Partial<RadarQueryParams
   return { data, now };
 }
 
-/** One unit's full card, fetched when it is clicked. */
-function useUnit(sel: Sel) {
+/** One unit's full card, fetched when it is clicked (and again every `every` ms while it stays selected, only when the page was opened with ?live=). */
+function useUnit(sel: Sel, every: number | null = null) {
   const [card, setCard] = React.useState<{ tractor: RadarTractor | null; trailer: RadarTrailer | null } | null>(null);
   React.useEffect(() => {
     setCard(null);
     if (!sel) return;
     let dead = false;
-    void fetch(`/fleet/map/data?mode=unit&kind=${sel.kind}&id=${encodeURIComponent(sel.id)}`, { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j) => {
-        if (!dead && j) setCard(j as { tractor: RadarTractor | null; trailer: RadarTrailer | null });
-      })
-      .catch(() => undefined);
+    const read = () =>
+      void fetch(`/fleet/map/data?mode=unit&kind=${sel.kind}&id=${encodeURIComponent(sel.id)}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (!dead && j) setCard(j as { tractor: RadarTractor | null; trailer: RadarTrailer | null });
+        })
+        .catch(() => undefined);
+    read();
+    const tick = every ? setInterval(() => (document.hidden ? undefined : read()), every) : null;
     return () => {
       dead = true;
+      if (tick) clearInterval(tick);
     };
-  }, [sel]);
+  }, [sel, every]);
   return card;
 }
 
-/** The clicked unit's load (lane, breadcrumb, live lines), read when it is clicked and every minute while it stays selected. */
-function useRoute(sel: Sel) {
+/** The clicked unit's load (lane, breadcrumb, live lines), read when it is clicked and every minute (or every `every` ms with ?live=) while it stays selected. */
+function useRoute(sel: Sel, every = 60_000) {
   const [route, setRoute] = React.useState<RadarRoute | null>(null);
   React.useEffect(() => {
     setRoute(null);
@@ -903,12 +907,12 @@ function useRoute(sel: Sel) {
     read();
     const tick = setInterval(() => {
       if (!document.hidden) read();
-    }, 60_000);
+    }, every);
     return () => {
       dead = true;
       clearInterval(tick);
     };
-  }, [sel]);
+  }, [sel, every]);
   return route;
 }
 
@@ -960,14 +964,16 @@ function writeUrl(p: Partial<RadarQueryParams>) {
 export function RadarView({ initial, params, actions }: { initial: RadarPoints; params: RadarQueryParams; actions?: React.ReactNode }) {
   const theme = useTheme();
   const [p, setP] = React.useState<RadarQueryParams>(params);
-  const { data, now } = usePoints(initial, p);
+  // ?live=5 (a demo or a recording): the page asks every 5 seconds, so a moving unit is seen to move. Without it the rhythm is the usual 30 s and 60 s.
+  const liveSecs = readLiveSeconds(useSearchParams()?.get("live"));
+  const { data, now } = usePoints(initial, p, liveSecs ? liveSecs * 1000 : 30_000);
   const [sel, setSel] = React.useState<Sel>(null);
   const [tab, setTab] = React.useState<Tab>(params.ids.length > 0 ? "list" : params.near ? "search" : "telemetry");
   const [clustered, setClustered] = React.useState(true);
   const [stackIds, setStackIds] = React.useState<string[] | null>(params.ids.length > 0 ? params.ids : null);
   const [focus, setFocus] = React.useState<Focus>(null);
-  const card = useUnit(sel);
-  const route = useRoute(sel);
+  const card = useUnit(sel, liveSecs ? liveSecs * 1000 : null);
+  const route = useRoute(sel, liveSecs ? liveSecs * 1000 : 60_000);
   const [tolls, setTolls] = React.useState(false);
   const [pois, setPois] = React.useState(false);
   const [showLoads, setShowLoads] = React.useState(false);
