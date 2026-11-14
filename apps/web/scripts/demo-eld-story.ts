@@ -8,8 +8,9 @@ import path from "node:path";
  *
  *   DATABASE_URL=postgresql://demo:demo@localhost:54330/demo npx tsx scripts/demo-eld-story.ts <mode> [options]
  *
- *   stage            Give Units 104-106 a cost profile and a home base (so the Quote has no "No cost profile" rows), and record the pickup arrival on every load that is under way
- *                    (otherwise the radar says "Next stop: pickup" for a truck that is already driving to the delivery). Safe to run again.
+ *   stage            Give Units 104-106 a cost profile, a home base and a body with an mpg (so the Quote has no "No cost profile" rows and can price them), and record the pickup arrival on every load that is under way
+ *                    (otherwise the radar says "Next stop: pickup" for a truck that is already driving to the delivery), and correct the pay kind "per_mile" to "cpm" on the two
+ *                    drivers that carry it (the Quote could not judge their rows). Safe to run again.
  *   refresh          Re-anchor the whole story to now: the seeded fixes, windows and clocks were stamped when the demo was seeded and age every minute. Every fix, fix time, hours
  *                    read time and stop window moves by the same amount, so the story (who is late, who is on schedule) is exactly as seeded, a moment ago. Run before each take.
  *   ahead [miles]    Take the last `miles` (default 15) of each moving unit's own trail off the database and keep it in a file; the unit stands that far back. Then refresh.
@@ -26,6 +27,9 @@ import path from "node:path";
 const W = "demo-workspace";
 const prisma = new PrismaClient();
 const STATE = path.join(os.tmpdir(), "truelane-radar-replay.json");
+/** The clocks as they stood before `before` made them older, so `after` can put them back (a sync lands today's clocks). */
+const CLOCKS = path.join(os.tmpdir(), "truelane-eld-clocks.json");
+type Clocks = Record<string, { drive: number | null; shift: number | null; cycle: number | null }>;
 const MIN = 60_000;
 
 type Fix = { lat: number; lng: number; speedMph: number | null; headingDeg: number | null; engine: string | null; at: string };
@@ -59,15 +63,30 @@ async function stage() {
     "Unit 105": { address: "Houston, TX", lat: 29.7604, lng: -95.3698 },
     "Unit 106": { address: "Dallas, TX", lat: 32.7767, lng: -96.797 }
   };
+  const truck101 = await prisma.vehicle.findFirstOrThrow({ where: { workspaceId: W, name: "Unit 101" } });
+  const mpgOf: Record<string, number> = { "Unit 104": 6.9, "Unit 105": 6.7, "Unit 106": 6.6 };
   const { id: _id, vehicleId: _v, createdAt: _c, updatedAt: _u, ...fields } = model;
   void _id; void _v; void _c; void _u;
   for (const [name, home] of Object.entries(homes)) {
     const v = await prisma.vehicle.findFirst({ where: { workspaceId: W, name, archivedAt: null } });
     if (!v) continue;
-    await prisma.vehicle.update({ where: { id: v.id }, data: { homeBaseAddress: home.address, homeBaseLat: home.lat, homeBaseLng: home.lng } });
+    // A truck with no mpg or fuel cannot be priced ("its cost is not known yet"): it takes Unit 101's body and tank, with its own mpg.
+    const body = v.mpg == null ? { type: truck101.type, mpg: mpgOf[name] ?? 6.7, fuelType: truck101.fuelType, tankCapacityGallons: truck101.tankCapacityGallons, payloadLbs: truck101.payloadLbs, maxLengthFt: truck101.maxLengthFt, maxWidthFt: truck101.maxWidthFt, maxHeightIn: truck101.maxHeightIn } : {};
+    await prisma.vehicle.update({ where: { id: v.id }, data: { homeBaseAddress: home.address, homeBaseLat: home.lat, homeBaseLng: home.lng, ...body } });
     const has = await prisma.costProfile.findUnique({ where: { vehicleId: v.id } });
     if (!has) await prisma.costProfile.create({ data: { ...fields, fuelCardProvider: null, fuelCardAccountId: null, vehicleId: v.id } });
     console.log(`${name}: home base ${home.address}${has ? "" : ", cost profile added"}`);
+  }
+  // The two drivers added with Units 104-105 carry the pay kind "per_mile", which the desk does not know (it says "cpm"), so the Quote read their pay as a flat amount and could not judge their rows.
+  const fixed = await prisma.driver.updateMany({ where: { workspaceId: W, defaultPayKind: "per_mile" }, data: { defaultPayKind: "cpm", payrollWorkerType: "contractor" } });
+  if (fixed.count > 0) console.log(`pay kind per_mile -> cpm on ${fixed.count} driver(s)`);
+  // The story's hours: Morgan Vance (Unit 104) is the fresh driver with room for a Dallas to Houston run (10h30m of drive left); Alex Rivera (Unit 101) stays low at 6h, so the
+  // Quote cautions his truck and prefers Morgan's. Only raised, never lowered, so running stage again (or after `live` has ticked the clock) changes nothing.
+  const morgan = await prisma.driver.findFirst({ where: { workspaceId: W, name: "Morgan Vance" } });
+  if (morgan && (morgan.hosDriveMinutes ?? 0) < 630) {
+    await prisma.driver.update({ where: { id: morgan.id }, data: { hosDriveMinutes: 630, hosShiftMinutes: Math.max(morgan.hosShiftMinutes ?? 0, 630) } });
+    if (morgan.assignedVehicleId) await prisma.vehicle.update({ where: { id: morgan.assignedVehicleId }, data: { hosAvailableHours: 10.5 } });
+    console.log("Morgan Vance: 10h30m of drive left");
   }
   // A load under way has picked up: record the arrival at the pickup (ten minutes into its window) where none is recorded.
   const stops = await prisma.stop.findMany({ where: { load: { workspaceId: W, status: "in_progress" }, stopType: "pickup", arrivedAt: null }, select: { id: true, timeWindowEarliest: true } });
@@ -224,24 +243,38 @@ async function syncMoment(mode: "before" | "after") {
   const units = await prisma.vehicle.findMany({ where: { workspaceId: W, archivedAt: null }, orderBy: { name: "asc" } });
   const low = arg("low", "");
   const [lowName, lowMin] = low.includes("=") ? [low.split("=")[0]!, Number.parseInt(low.split("=")[1]!, 10)] : ["", 0];
+  const kept: Clocks = mode === "after" && fs.existsSync(CLOCKS) ? (JSON.parse(fs.readFileSync(CLOCKS, "utf8")) as Clocks) : {};
+  const saved: Clocks = {};
   for (const v of units) {
-    const driver = await prisma.driver.findMany({ where: { workspaceId: W, assignedVehicleId: v.id, hosDriveMinutes: { not: null } }, orderBy: { name: "asc" } });
+    const drivers = await prisma.driver.findMany({ where: { workspaceId: W, assignedVehicleId: v.id, hosDriveMinutes: { not: null } }, orderBy: { name: "asc" } });
     if (mode === "before") {
-      // What the desk knew three hours ago: hours read 3 h ago (and a little more on every clock), fixes 40 minutes old.
+      // What the desk knew three hours ago: hours read 3 h ago, a little more on every clock (the driver has driven since), fixes 40 minutes old.
       if (v.lastLocatedAt) await prisma.vehicle.update({ where: { id: v.id }, data: { lastLocatedAt: new Date(now - 40 * MIN), hosSyncedAt: new Date(now - 180 * MIN) } });
-      for (const d of driver) await prisma.driver.update({ where: { id: d.id }, data: { hosDriveMinutes: (d.hosDriveMinutes ?? 0) + 150, hosShiftMinutes: d.hosShiftMinutes == null ? null : d.hosShiftMinutes + 150, hosSyncedAt: new Date(now - 180 * MIN) } });
+      let least: number | null = null;
+      for (const d of drivers) {
+        if (!(d.id in saved) && !fs.existsSync(CLOCKS)) saved[d.id] = { drive: d.hosDriveMinutes, shift: d.hosShiftMinutes, cycle: d.hosCycleMinutes };
+        const drive = (d.hosDriveMinutes ?? 0) + 150;
+        least = least == null ? drive : Math.min(least, drive);
+        await prisma.driver.update({ where: { id: d.id }, data: { hosDriveMinutes: drive, hosShiftMinutes: d.hosShiftMinutes == null ? null : d.hosShiftMinutes + 150, hosSyncedAt: new Date(now - 180 * MIN) } });
+      }
+      if (least != null) await prisma.vehicle.update({ where: { id: v.id }, data: { hosAvailableHours: Math.round((least / 60) * 10) / 10 } });
     } else {
       if (v.lastLocatedAt) await prisma.vehicle.update({ where: { id: v.id }, data: { lastLocatedAt: new Date(now - MIN), hosSyncedAt: new Date(now) } });
-      for (const d of driver) {
-        const set = d.name === lowName ? lowMin : d.hosDriveMinutes;
-        await prisma.driver.update({ where: { id: d.id }, data: { hosDriveMinutes: set, hosShiftMinutes: d.hosShiftMinutes == null ? null : Math.min(d.hosShiftMinutes, set ?? d.hosShiftMinutes), hosSyncedAt: new Date(now) } });
+      const mins: number[] = [];
+      for (const d of drivers) {
+        const was = kept[d.id];
+        const drive = d.name === lowName ? lowMin : (was?.drive ?? d.hosDriveMinutes ?? 0);
+        const shift = was ? was.shift : d.hosShiftMinutes;
+        mins.push(drive);
+        // A driver made short on hours cannot have more shift than drive left.
+        await prisma.driver.update({ where: { id: d.id }, data: { hosDriveMinutes: drive, hosShiftMinutes: shift == null ? null : d.name === lowName ? Math.min(shift, drive) : shift, hosCycleMinutes: was ? was.cycle : d.hosCycleMinutes, hosSyncedAt: new Date(now) } });
       }
-      const ds = driver.map((d) => (d.name === lowName ? lowMin : d.hosDriveMinutes ?? 0));
-      if (ds.length > 0) await prisma.vehicle.update({ where: { id: v.id }, data: { hosAvailableHours: Math.round((Math.min(...ds) / 60) * 10) / 10 } });
+      if (mins.length > 0) await prisma.vehicle.update({ where: { id: v.id }, data: { hosAvailableHours: Math.round((Math.min(...mins) / 60) * 10) / 10 } });
     }
   }
-  console.log(`${mode}: hours and fix times set`);
-  console.log("note: `before` adds 150 minutes to each clock to show the older reading; run `refresh` and then `after` for the synced picture.");
+  if (mode === "before" && Object.keys(saved).length > 0) fs.writeFileSync(CLOCKS, JSON.stringify(saved));
+  if (mode === "after" && fs.existsSync(CLOCKS)) fs.unlinkSync(CLOCKS);
+  console.log(mode === "before" ? "before: hours read 3 hours ago (and a little higher), fixes 40 minutes old. Run `after` for what the sync lands." : `after: fresh fixes, today's clocks${lowName ? `, ${lowName} at ${lowMin} minutes` : ""}`);
 }
 
 async function main() {
