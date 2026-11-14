@@ -2,6 +2,7 @@ import { PrismaClient } from "@prisma/client";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { saveKeysAndConnect } from "../src/server/partners/setup";
 
 /**
  * Staging for the partner clips on the demo desk (the radar map and the ELD story). Demo-workspace only; it never touches the showcase fleet. Run from apps/web:
@@ -11,6 +12,8 @@ import path from "node:path";
  *   stage            Give Units 104-106 a cost profile, a home base and a body with an mpg (so the Quote has no "No cost profile" rows and can price them), and record the pickup arrival on every load that is under way
  *                    (otherwise the radar says "Next stop: pickup" for a truck that is already driving to the delivery), and correct the pay kind "per_mile" to "cpm" on the two
  *                    drivers that carry it (the Quote could not judge their rows). Safe to run again.
+ *   connect          Connect the Motive SIMULATOR (a sandbox_ key) for the demo fleet, so Radar's "Sync hours from the ELD" reads as connected instead of "Motive has no keys yet". The
+ *                    button would run the simulator, which moves trucks to its own points, so a recording cuts on the press and uses before/after instead. Needs DESK_CREDENTIAL_KEY.
  *   refresh          Re-anchor the whole story to now: the seeded fixes, windows and clocks were stamped when the demo was seeded and age every minute. Every fix, fix time, hours
  *                    read time and stop window moves by the same amount, so the story (who is late, who is on schedule) is exactly as seeded, a moment ago. Run before each take.
  *   ahead [miles]    Take the last `miles` (default 15) of each moving unit's own trail off the database and keep it in a file; the unit stands that far back. Then refresh.
@@ -18,6 +21,7 @@ import path from "node:path";
  *   live [options]   Move the units forward along the kept road, writing a fix every step (what an ELD read lands), until the road is used up or you press Ctrl+C.
  *                      --every 5      seconds between steps (match the radar's ?live=5)
  *                      --speed 6      times real speed (1 = the truck's own 64 mph; 6 shows about 0.5 mile a step at 5 s)
+ *                      --clocks       also run each driver's clocks (and the truck's hours) down with the road; off by default
  *   restore          Put every kept fix back (the unit is where it was before `ahead`) and refresh.
  *   before | after   The ELD sync moment, for a cut: `before` is the stale picture (hours read 3 hours ago, fixes 40 minutes old, clocks as they were); `after` is what a sync lands
  *                    (fresh fixes, today's clocks). Pass --low "Alex Rivera=150" (minutes of drive left) to make one driver short on hours in the `after` picture.
@@ -202,6 +206,8 @@ async function live() {
   if (!fs.existsSync(STATE)) return console.log("nothing kept to drive along. Run `ahead` first.");
   const every = Number.parseInt(arg("every", "5"), 10);
   const speedUp = Number.parseFloat(arg("speed", "6"));
+  // The driver's clocks run down with the road only when asked (--clocks); a recording of the map leaves them where the story put them.
+  const withClocks = process.argv.includes("--clocks");
   const { kept } = JSON.parse(fs.readFileSync(STATE, "utf8")) as State;
   const roads = new Map<string, Fix[]>();
   for (const k of kept) {
@@ -234,7 +240,7 @@ async function live() {
       const carry = (owed.get(k.vehicleId) ?? 0) + (every * speedUp) / 60;
       const spent = Math.floor(carry);
       owed.set(k.vehicleId, carry - spent);
-      const d = spent < 1 ? null : await prisma.driver.findFirst({ where: { workspaceId: W, assignedVehicleId: k.vehicleId, hosDriveMinutes: { not: null } }, orderBy: { name: "asc" } });
+      const d = spent < 1 || !withClocks ? null : await prisma.driver.findFirst({ where: { workspaceId: W, assignedVehicleId: k.vehicleId, hosDriveMinutes: { not: null } }, orderBy: { name: "asc" } });
       if (d) {
         const drive = Math.max(0, Math.round((d.hosDriveMinutes ?? 0) - spent));
         const shift = Math.max(0, Math.round((d.hosShiftMinutes ?? 0) - spent));
@@ -292,12 +298,15 @@ async function syncMoment(mode: "before" | "after") {
 async function main() {
   const mode = process.argv[2];
   if (mode === "stage") await stage();
-  else if (mode === "refresh") await refresh();
+  else if (mode === "connect") {
+    const out = await saveKeysAndConnect("motive", { MOTIVE_API_KEY: "sandbox_motive_demo", MOTIVE_WEBHOOK_SECRET: "sandbox_motive_demo" }, new Date(), W);
+    console.log(out.ok ? `motive simulator ${out.connected ? "connected" : "keys saved"}` : out.error);
+  } else if (mode === "refresh") await refresh();
   else if (mode === "ahead") await ahead(Number.parseFloat(process.argv[3] && !process.argv[3].startsWith("--") ? process.argv[3] : "15"));
   else if (mode === "live") await live();
   else if (mode === "restore") await restore();
   else if (mode === "before" || mode === "after") await syncMoment(mode);
-  else console.log("modes: stage | refresh | ahead [miles] | live [--every 5] [--speed 6] | restore | before | after [--low \"Name=minutes\"]");
+  else console.log("modes: stage | connect | refresh | ahead [miles] | live [--every 5] [--speed 6] | restore | before | after [--low \"Name=minutes\"]");
 }
 
 main()
