@@ -1,7 +1,7 @@
 import { terminalFilter, type Terminals } from "@/lib/scope";
 import { prisma } from "@/lib/db";
 import { equipmentCode, dwellSentence, idleLine, idleSentence } from "@/lib/radar";
-import { classifyTractor, dwell, engineStateOf, fleetCounts, speedLine, type EngineState, type FleetCounts, type TractorState } from "@/lib/telematics";
+import { classifyTractor, dwell, engineStateOf, fleetCounts, laneSchedule, speedLine, type EngineState, type FleetCounts, type TractorState } from "@/lib/telematics";
 import { partnerState } from "@/server/partners/call";
 import { numOrNull } from "./convert";
 import { getThresholds } from "./thresholds";
@@ -12,7 +12,24 @@ import { currentWorkspaceId } from "./workspace";
  * scoped to the workspace and, when one is chosen, a terminal. Plain JSON for the map and the lists. A unit with no position is not on the map but is still counted.
  */
 const OPEN_LOAD = ["accepted", "in_progress"];
+
+/**
+ * A truck is in a terminal's view when the truck is based there, or when the driver seated in it (an active driver assigned to it) works out of it: a truck with no terminal of its own, or one on
+ * loan, still shows where its driver is dispatched from. Under AND, so it never collides with an OR of the caller's. No scope adds nothing.
+ */
+export function truckInTerminal(terminal: Terminals): object {
+  const f = terminal != null ? terminalFilter(terminal) : undefined;
+  return f === undefined ? {} : { AND: [{ OR: [{ terminal: f }, { drivers: { some: { active: true, terminal: f } } }] }] };
+}
 const OPEN_FOR_TRAILER = ["draft", "accepted", "in_progress"];
+
+type LaneLoad = { loadedMiles: unknown; stops: Array<{ lat: unknown; lng: unknown; timeWindowLatest: Date | null }> };
+function runningLate(load: LaneLoad, here: { lat: number; lng: number }, speedMph: number | null, now: Date): boolean {
+  const placed = load.stops.map((s) => ({ lat: numOrNull(s.lat as never), lng: numOrNull(s.lng as never), w: s.timeWindowLatest })).filter((s): s is { lat: number; lng: number; w: Date | null } => s.lat != null && s.lng != null);
+  if (placed.length < 2) return false;
+  const dest = placed[placed.length - 1]!;
+  return laneSchedule({ origin: placed[0]!, destination: dest, here, loadedMiles: numOrNull(load.loadedMiles as never), speedMph, windowLatest: dest.w, now: now.getTime() }) === "late";
+}
 
 export type RadarTractor = {
   id: string;
@@ -28,6 +45,8 @@ export type RadarTractor = {
   driver: string | null;
   loadId: string | null;
   loadNumber: string | null;
+  /** Under way on a load and its ETA is past the last stop's window (the drawer's own rule, `laneSchedule`). */
+  late: boolean;
   /** The trailer it pulls. A hooked trailer is where its tractor is, so it travels with the tractor and not as a unit of its own. */
   trailer: { number: string; code: string; loaded: boolean } | null;
   locatedAt: string;
@@ -64,7 +83,7 @@ export type RadarData = {
 export async function getRadarData(workspaceId = currentWorkspaceId(), terminal: Terminals = null, now = new Date()): Promise<RadarData> {
   const [trucks, trailers, terms, state] = await Promise.all([
     prisma.vehicle.findMany({
-      where: { workspaceId, archivedAt: null, ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}) },
+      where: { workspaceId, archivedAt: null, ...truckInTerminal(terminal) },
       select: {
         id: true,
         name: true,
@@ -91,7 +110,7 @@ export async function getRadarData(workspaceId = currentWorkspaceId(), terminal:
   const trailerIds = trailers.map((t) => t.id);
   const loads = await prisma.load.findMany({
     where: { workspaceId, deletedAt: null, OR: [...(truckIds.length ? [{ vehicleId: { in: truckIds }, status: { in: OPEN_LOAD } }] : []), ...(trailerIds.length ? [{ trailerId: { in: trailerIds }, status: { in: OPEN_FOR_TRAILER } }] : [])] },
-    select: { id: true, loadNumber: true, status: true, vehicleId: true, trailerId: true }
+    select: { id: true, loadNumber: true, status: true, vehicleId: true, trailerId: true, loadedMiles: true, stops: { orderBy: { stopSequence: "asc" }, select: { lat: true, lng: true, timeWindowLatest: true } } }
   });
 
   const loadOfTruck = new Map<string, (typeof loads)[number]>();
@@ -133,6 +152,7 @@ export async function getRadarData(workspaceId = currentWorkspaceId(), terminal:
       driver: t.drivers[0]?.name ?? null,
       loadId: load?.id ?? null,
       loadNumber: load?.loadNumber ?? null,
+      late: load?.status === "in_progress" ? runningLate(load, { lat, lng }, speed, now) : false,
       trailer: trailer ? { number: trailer.number, code: equipmentCode(trailer.type, numOrNull(trailer.lengthFt)), loaded: loadedTrailers.has(trailer.id) } : null,
       locatedAt: t.lastLocatedAt.toISOString(),
       idle: line ? { minutes: line.minutes, gallons: line.gallons, cashLost: line.cashLost, sentence: idleSentence(line), todayHours: numOrNull(t.idleHoursToday) } : null

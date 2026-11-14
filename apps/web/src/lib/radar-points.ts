@@ -14,13 +14,30 @@ export type SearchInfo =
 
 export type StateKey = "moving_load" | "moving" | "idling" | "parked" | "no_signal" | "dropped" | "hooked" | "dwell";
 export const STATE_WORD: Record<StateKey, string> = { moving_load: "Moving under load", moving: "Moving, no load", idling: "Idling", parked: "Parked", no_signal: "No signal", dropped: "Dropped", hooked: "Hooked", dwell: "Dwell alert" };
+/**
+ * The Status choices in Search: what a unit is doing. Idling and dwell are not here: the quick exception chips on Telemetry (EXCEPTION_FILTERS) are their one place, so the two never offer the same
+ * filter twice. An old link with ?state=idling or ?state=dwell is still read (STATES below).
+ */
 export const STATE_FILTERS: ReadonlyArray<{ key: StateKey; label: string }> = [
   { key: "moving_load", label: "Moving under load" },
-  { key: "idling", label: "Idling" },
+  { key: "moving", label: "Moving, no load" },
   { key: "parked", label: "Parked" },
-  { key: "dropped", label: "Dropped trailers" },
-  { key: "dwell", label: "Dwell alerts" }
+  { key: "no_signal", label: "No signal" },
+  { key: "dropped", label: "Dropped trailers" }
 ];
+
+/** The quick exception filters on the radar: one tap narrows the map to what needs a dispatcher. */
+export type ExceptionKey = "late" | "idling" | "no_load" | "dropped_48";
+export const EXCEPTION_FILTERS: ReadonlyArray<{ key: ExceptionKey | ""; label: string }> = [
+  { key: "", label: "All" },
+  { key: "late", label: "Late / alert" },
+  { key: "idling", label: "Idling" },
+  { key: "no_load", label: "No load" },
+  { key: "dropped_48", label: "Dropped >48h" }
+];
+/** How many units each exception filter would show, for the current search (the filter itself left out). */
+export type ExceptionCounts = Record<ExceptionKey | "all", number>;
+const EXCEPTIONS = new Set<string>(["late", "idling", "no_load", "dropped_48"]);
 
 export type ListRow = {
   id: string;
@@ -54,6 +71,8 @@ export type RadarQueryParams = {
   rGiven: boolean;
   kind: "all" | "tractor" | "trailer";
   state: StateKey | "";
+  /** A quick exception filter, or "" for all. */
+  x: ExceptionKey | "";
   q: string;
   hooked: boolean;
   ids: string[];
@@ -80,6 +99,7 @@ export function readRadarParams(get: (k: string) => string | string[] | undefine
     rGiven: first(get("r")) !== "",
     kind: kind === "tractor" || kind === "trailer" ? kind : "all",
     state: STATES.has(state) ? (state as StateKey) : "",
+    x: EXCEPTIONS.has(first(get("x"))) ? (first(get("x")) as ExceptionKey) : "",
     q: first(get("q")).trim().slice(0, 60),
     hooked: first(get("hooked")) === "1",
     ids: first(get("ids")).split(",").map((s) => s.trim()).filter(Boolean).slice(0, 200),
@@ -97,6 +117,7 @@ export function radarParamsText(p: Partial<RadarQueryParams>): string {
   if (p.near && p.r && p.r !== DEFAULT_RADIUS) u.set("r", String(p.r));
   if (p.kind && p.kind !== "all") u.set("kind", p.kind);
   if (p.state) u.set("state", p.state);
+  if (p.x) u.set("x", p.x);
   if (p.q) u.set("q", p.q);
   if (p.hooked) u.set("hooked", "1");
   if (p.ids && p.ids.length > 0) u.set("ids", p.ids.join(","));

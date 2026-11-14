@@ -6,28 +6,32 @@ import { useRouter } from "next/navigation";
 import React from "react";
 import type { Map as MapLibreMap, GeoJSONSource, StyleSpecification } from "maplibre-gl";
 import { INTERSTATES } from "@/lib/basemap/interstates";
+import { basemapPaint, radarBasemapLayers } from "@/lib/basemap/paint";
 import { US_STATES } from "@/lib/basemap/us-states";
-import { radarParamsText, type RadarPoint, type RadarQueryParams, type SearchInfo } from "@/lib/radar-points";
+import { EXCEPTION_FILTERS, radarParamsText, type ExceptionKey, type RadarPoint, type RadarQueryParams, type SearchInfo } from "@/lib/radar-points";
 import { boundsAround, radiusRing } from "@/lib/radius";
 import { REGIONS, REGION_KEYS, boxAround, firstRegion, mapLng, regionCounts, regionOf, within as withinRegion, type Box, type RegionKey } from "@/lib/radar-regions";
 import type { RadarTractor, RadarTrailer } from "@/server/tl/radar";
 import type { RadarPoints } from "@/server/tl/radar-query";
+import type { OpenLoadPin, RadarOpenLoads } from "@/server/tl/radar-open-loads";
+import type { RadarRoute } from "@/server/tl/radar-route";
+import type { RadarWeather } from "@/server/tl/radar-weather";
 import { RadarList } from "./radar-list";
 import { RadiusSearch } from "./radius-search";
 import { SplitPane } from "./kit/split-pane";
 import { TipPopup, type TipData } from "./kit/tooltip";
 
 /**
- * The radar: every tractor and trailer that has a position, on a map the desk draws itself. The basemap is bundled (lower-48 outlines and the twelve freight corridors, src/lib/basemap), so it
- * needs no tile server and no key and works offline. Colours are read from the desk's own tokens, so night and day both work and no hex lives here. Tractors are square glyphs with a heading
+ * The radar: every tractor and trailer that has a position, over OpenFreeMap vector streets and highways (`dark` / `positron` by theme) with the bundled states and corridors (`src/lib/basemap`)
+ * kept as an automatic offline fallback. Overlay colours are read from the desk's own tokens, so night and day both work and no hex lives here. Tractors are square glyphs with a heading
  * arrow: gold moving under a load, amber standing with the engine on, ink moving with no load, dim parked. Trailers are squares, hooked or dropped, a green dot when loaded.
  *
- * Thousands of units are clustered: zoomed out you see a few large squares with counts, each zoom step splits them, and past the cluster zoom every unit is its own glyph. Units stacked on one spot
- * (several trailers at a shipper's dock) cannot be split by zooming, so a click on the stack opens them as a list. A radius search draws its ring and keeps only what is inside it.
+ * Thousands of units are clustered: zoomed out you see a few large squares with counts (hover for breakdown, click to expand), each zoom step splits them, and past the cluster zoom every unit is
+ * its own glyph with live driver, HOS left, hooked trailer, load, ETA, and schedule health on hover. Units stacked on one spot (several trailers at a shipper's dock) open as a list.
  */
 
 type Sel = { kind: "tractor" | "trailer"; id: string } | null;
-type Tokens = Record<"bg" | "land" | "line" | "road" | "label" | "labelHi" | "warn" | "neg" | "ink" | "mid" | "dim" | "pos", string>;
+type Tokens = Record<"bg" | "land" | "line" | "road" | "label" | "labelHi" | "warn" | "neg" | "ink" | "mid" | "dim" | "pos" | "typed" | "head" | "faint" | "water" | "mapLand" | "roadLo" | "roadMid" | "roadHi" | "casing" | "border", string>;
 
 /** Colours from the live CSS tokens (named fallbacks only, for a page with no stylesheet). */
 function readTokens(): Tokens {
@@ -45,7 +49,18 @@ function readTokens(): Tokens {
     ink: v("--ink", "white"),
     mid: v("--mid", "silver"),
     dim: v("--dim", "gray"),
-    pos: v("--pos-fill", "green")
+    pos: v("--pos-fill", "green"),
+    typed: v("--typed", "steelblue"),
+    head: v("--head", "black"),
+    faint: v("--faint", "gray"),
+    // The basemap's own tones (terminal.css, one set per theme): roads stepped motorway > major > minor and kept under the unit marks, water apart from land.
+    water: v("--map-water", "darkslategray"),
+    mapLand: v("--map-land", "black"),
+    roadLo: v("--map-road-lo", "dimgray"),
+    roadMid: v("--map-road", "gray"),
+    roadHi: v("--map-road-hi", "gray"),
+    casing: v("--map-casing", "black"),
+    border: v("--map-border", "gray")
   };
 }
 
@@ -85,6 +100,40 @@ const trailer = (stroke: string, dropped: boolean, loaded: boolean, dot: string)
   if (loaded) {
     g.fillStyle = dot;
     g.fillRect(13, 13, 6, 6);
+  }
+};
+
+/** A stop on the selected unit's lane: a filled square in the ground colour with a heavy edge (gold for a pickup, ink for a delivery). */
+const stopMark = (edge: string, ground: string): Draw => (g) => {
+  g.fillStyle = ground;
+  g.fillRect(8, 8, 16, 16);
+  g.strokeStyle = edge;
+  g.lineWidth = 3;
+  g.strokeRect(8, 8, 16, 16);
+  g.fillStyle = edge;
+  g.fillRect(14, 14, 4, 4);
+};
+
+/** Freight that needs a driver: a hollow square with a cross, in the bright gold, so it never reads as a unit. */
+const openLoadMark = (color: string, ground: string): Draw => (g) => {
+  g.fillStyle = ground;
+  g.fillRect(7, 7, 18, 18);
+  g.strokeStyle = color;
+  g.lineWidth = 2;
+  g.strokeRect(7, 7, 18, 18);
+  g.fillStyle = color;
+  g.fillRect(15, 10, 2, 12);
+  g.fillRect(10, 15, 12, 2);
+};
+
+/** A fuel stop or rest area: a small square, quiet (dim), filled for fuel and hollow for a rest area. */
+const poiMark = (color: string, filled: boolean): Draw => (g) => {
+  g.strokeStyle = color;
+  g.lineWidth = 2;
+  g.strokeRect(12, 12, 8, 8);
+  if (filled) {
+    g.fillStyle = color;
+    g.fillRect(14, 14, 4, 4);
   }
 };
 
@@ -135,6 +184,11 @@ function addImages(map: MapLibreMap, t: Tokens) {
   put("tr-a-e", trailer(t.warn, true, false, t.pos));
   put("tr-a-l", trailer(t.warn, true, true, t.pos));
   put("sel", selectRing(t.labelHi));
+  put("stop-p", stopMark(t.label, t.bg));
+  put("stop-d", stopMark(t.ink, t.bg));
+  put("l-open", openLoadMark(t.labelHi, t.bg));
+  put("poi-fuel", poiMark(t.dim, true));
+  put("poi-rest", poiMark(t.dim, false));
 }
 
 type Feat = { type: "Feature"; geometry: { type: "Point"; coordinates: [number, number] }; properties: Record<string, string | number> };
@@ -143,40 +197,124 @@ const pointFeature = (u: RadarPoint): Feat => ({ type: "Feature", geometry: { ty
 
 export const CLUSTER_MAX_ZOOM = 10;
 const CLUSTER_RADIUS = 64;
-const MAP_MAX_ZOOM = 13;
+const MAP_MAX_ZOOM = 16;
 
-function styleOf(t: Tokens): StyleSpecification {
+const OFM_STYLE = {
+  night: "https://tiles.openfreemap.org/styles/dark",
+  day: "https://tiles.openfreemap.org/styles/positron"
+} as const;
+const BASE_STYLE_CACHE = new Map<string, StyleSpecification>();
+
+function overlaySources(): StyleSpecification["sources"] {
+  return {
+    units: {
+      type: "geojson",
+      data: collection([]) as never,
+      cluster: true,
+      clusterRadius: CLUSTER_RADIUS,
+      clusterMaxZoom: CLUSTER_MAX_ZOOM,
+      clusterProperties: { nt: ["+", ["get", "t"]], nr: ["+", ["get", "r"]], sev: ["max", ["get", "sev"]] }
+    },
+    selected: { type: "geojson", data: collection([]) as never },
+    radius: { type: "geojson", data: { type: "FeatureCollection", features: [] } as never },
+    // The clicked unit's load (its lane stop to stop, the breadcrumb, its stops), freight that needs a driver, and severe weather: empty until asked for.
+    route: { type: "geojson", data: { type: "FeatureCollection", features: [] } as never },
+    "open-loads": { type: "geojson", data: collection([]) as never },
+    weather: { type: "geojson", data: { type: "FeatureCollection", features: [] } as never }
+  };
+}
+
+function overlayLayers(t: Tokens): StyleSpecification["layers"] {
+  const severity = ["match", ["get", "severity"], "Extreme", t.neg, t.warn] as never;
+  return [
+    // Weather sits lowest of the overlays: a faint tint and a plain outline, so units and freight stay on top of it.
+    { id: "wx-fill", type: "fill", source: "weather", layout: { visibility: "none" }, paint: { "fill-color": severity, "fill-opacity": 0.12 } },
+    { id: "wx-line", type: "line", source: "weather", layout: { visibility: "none" }, paint: { "line-color": severity, "line-width": 1.5, "line-opacity": 0.9 } },
+    { id: "radius", type: "line", source: "radius", paint: { "line-color": t.label, "line-width": 1, "line-dasharray": [4, 3] } },
+    { id: "route-lane", type: "line", source: "route", filter: ["==", ["get", "part"], "lane"], paint: { "line-color": t.label, "line-width": 2, "line-dasharray": [3, 2] } },
+    { id: "route-trail", type: "line", source: "route", filter: ["==", ["get", "part"], "trail"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": t.ink, "line-width": 2 } },
+    { id: "route-stops", type: "symbol", source: "route", filter: ["==", ["get", "part"], "stop"], layout: { "icon-image": ["get", "icon"], "icon-allow-overlap": true, "icon-ignore-placement": true } },
+    { id: "open-loads", type: "symbol", source: "open-loads", layout: { visibility: "none", "icon-image": "l-open", "icon-allow-overlap": true, "icon-ignore-placement": true } },
+    { id: "units", type: "symbol", source: "units", filter: ["!", ["has", "point_count"]], layout: { "icon-image": ["get", "icon"], "icon-rotate": ["get", "heading"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } },
+    { id: "clusters", type: "symbol", source: "units", filter: ["has", "point_count"], layout: { "icon-image": ["concat", "cl-", ["to-string", ["get", "point_count"]], "-", ["to-string", ["get", "sev"]]], "icon-allow-overlap": true, "icon-ignore-placement": true } },
+    { id: "selected", type: "symbol", source: "selected", layout: { "icon-image": "sel", "icon-allow-overlap": true, "icon-ignore-placement": true } }
+  ];
+}
+
+function offlineStyleOf(t: Tokens): StyleSpecification {
   return {
     version: 8,
     sources: {
       states: { type: "geojson", data: { type: "FeatureCollection", features: US_STATES.map((s) => ({ type: "Feature", properties: { name: s.name }, geometry: { type: "MultiPolygon", coordinates: s.rings.map((r) => [r.map((p) => [p[0], p[1]])]) } })) } as never },
       roads: { type: "geojson", data: { type: "FeatureCollection", features: INTERSTATES.map((c) => ({ type: "Feature", properties: { name: c.name }, geometry: { type: "LineString", coordinates: c.coords.map((p) => [p[0], p[1]]) } })) } as never },
-      units: {
-        type: "geojson",
-        data: collection([]) as never,
-        cluster: true,
-        clusterRadius: CLUSTER_RADIUS,
-        clusterMaxZoom: CLUSTER_MAX_ZOOM,
-        clusterProperties: { nt: ["+", ["get", "t"]], nr: ["+", ["get", "r"]], sev: ["max", ["get", "sev"]] }
-      },
-      selected: { type: "geojson", data: collection([]) as never },
-      radius: { type: "geojson", data: { type: "FeatureCollection", features: [] } as never }
+      ...overlaySources()
     },
     layers: [
       { id: "bg", type: "background", paint: { "background-color": t.bg } },
       { id: "land", type: "fill", source: "states", paint: { "fill-color": t.land } },
-      { id: "borders", type: "line", source: "states", paint: { "line-color": t.line, "line-width": 1 } },
-      { id: "roads", type: "line", source: "roads", paint: { "line-color": t.road, "line-width": 1, "line-opacity": 0.6 } },
-      { id: "radius", type: "line", source: "radius", paint: { "line-color": t.label, "line-width": 1, "line-dasharray": [4, 3] } },
-      { id: "units", type: "symbol", source: "units", filter: ["!", ["has", "point_count"]], layout: { "icon-image": ["get", "icon"], "icon-rotate": ["get", "heading"], "icon-rotation-alignment": "map", "icon-allow-overlap": true, "icon-ignore-placement": true } },
-      { id: "clusters", type: "symbol", source: "units", filter: ["has", "point_count"], layout: { "icon-image": ["concat", "cl-", ["to-string", ["get", "point_count"]], "-", ["to-string", ["get", "sev"]]], "icon-allow-overlap": true, "icon-ignore-placement": true } },
-      { id: "selected", type: "symbol", source: "selected", layout: { "icon-image": "sel", "icon-allow-overlap": true, "icon-ignore-placement": true } }
+      { id: "borders", type: "line", source: "states", paint: { "line-color": t.border, "line-width": 1 } },
+      { id: "roads", type: "line", source: "roads", paint: { "line-color": t.roadHi, "line-width": 1.2 } },
+      ...overlayLayers(t)
     ]
   };
 }
 
+function mergeOpenFreeMapStyle(base: StyleSpecification, t: Tokens): StyleSpecification {
+  const painted = (base.layers ?? []).map((layer) => basemapPaint(layer, t));
+  // Toll roads go just over the last road line (so no road paints over them) and under the road and place names; fuel and rest areas over the basemap, under every overlay.
+  // Not "before the first label": dark's first label is water_name, which comes before every road.
+  const extra = radarBasemapLayers(t);
+  const lastRoad = painted.map((l) => l.type === "line" && (l as { "source-layer"?: string })["source-layer"] === "transportation").lastIndexOf(true);
+  const at = lastRoad < 0 ? painted.length : lastRoad + 1;
+  const layers = [...painted.slice(0, at), extra.tolls, ...painted.slice(at), extra.pois];
+  return {
+    ...base,
+    sources: { ...(base.sources ?? {}), ...overlaySources() },
+    layers: [...layers, ...overlayLayers(t)]
+  };
+}
+
+async function resolveStyle(mode: "night" | "day", t: Tokens, signal: AbortSignal): Promise<{ style: StyleSpecification; live: boolean }> {
+  const url = OFM_STYLE[mode];
+  const cached = BASE_STYLE_CACHE.get(url);
+  if (cached) return { style: mergeOpenFreeMapStyle(cached, t), live: true };
+  try {
+    const res = await fetch(url, { signal });
+    if (!res.ok) return { style: offlineStyleOf(t), live: false };
+    const json = (await res.json()) as StyleSpecification;
+    if (!json || !json.sources || !Array.isArray(json.layers)) return { style: offlineStyleOf(t), live: false };
+    BASE_STYLE_CACHE.set(url, json);
+    return { style: mergeOpenFreeMapStyle(json, t), live: true };
+  } catch {
+    return { style: offlineStyleOf(t), live: false };
+  }
+}
+
 /** A box as MapLibre wants it. */
 const ll = (b: Box): [[number, number], [number, number]] => [[b[0], b[1]], [b[2], b[3]]];
+
+/** Show or hide one of the map's own layers. A layer the style does not have (the offline fallback has no tolls or fuel stops) is left alone, never an error. */
+function setVisible(map: MapLibreMap, id: string, on: boolean) {
+  if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+}
+
+/** The selected unit's load as map features: the lane through its stops in order, the breadcrumb, and a square at each stop. Every point goes through mapLng, as the units do. */
+function routeFeatures(r: RadarRoute | null): unknown[] {
+  if (!r || r.status === "none") return [];
+  const at = (p: { lat: number; lng: number }): [number, number] => [mapLng(p.lat, p.lng), p.lat];
+  const out: unknown[] = [];
+  if (r.stops.length >= 2) out.push({ type: "Feature", properties: { part: "lane" }, geometry: { type: "LineString", coordinates: r.stops.map(at) } });
+  if (r.trail.length >= 2) out.push({ type: "Feature", properties: { part: "trail" }, geometry: { type: "LineString", coordinates: r.trail.map(at) } });
+  for (const st of r.stops) out.push({ type: "Feature", properties: { part: "stop", icon: st.role === "pickup" ? "stop-p" : "stop-d", label: st.label, role: st.role }, geometry: { type: "Point", coordinates: at(st) } });
+  return out;
+}
+
+const openLoadFeatures = (pins: OpenLoadPin[]): Feat[] =>
+  pins.map((l) => ({ type: "Feature", geometry: { type: "Point", coordinates: [mapLng(l.lat, l.lng), l.lat] }, properties: { id: l.id, number: l.number, lane: l.lane, rate: l.rate ?? "", rpm: l.rpm ?? "", due: l.pickupDue ?? "", equipment: l.equipment ?? "" } }));
+
+/** What the map draws besides the units, each switched by the panel. */
+export type Overlays = { tolls: boolean; pois: boolean; openLoads: OpenLoadPin[] | null; weather: RadarWeather | null; route: RadarRoute | null };
+const NO_OVERLAYS: Overlays = { tolls: false, pois: false, openLoads: null, weather: null, route: null };
 
 export type Ring = { lat: number; lng: number; radius: number } | null;
 export type Focus = { lat: number; lng: number; zoom: number; n: number } | null;
@@ -192,7 +330,9 @@ export function Canvas({
   focus,
   clustered = true,
   compact,
-  bare = false
+  bare = false,
+  overlays = NO_OVERLAYS,
+  onLive
 }: {
   points: RadarPoint[];
   sel: Sel;
@@ -206,6 +346,9 @@ export function Canvas({
   compact: boolean;
   /** No region buttons: a map of a single unit has nothing to switch between. */
   bare?: boolean;
+  overlays?: Overlays;
+  /** Told whether the live OpenFreeMap tiles loaded (tolls and fuel stops exist only on them). */
+  onLive?: (live: boolean) => void;
 }) {
   const box = React.useRef<HTMLDivElement>(null);
   const mapRef = React.useRef<MapLibreMap | null>(null);
@@ -215,14 +358,20 @@ export function Canvas({
   const regionRef = React.useRef<RegionKey>(firstRegion(points));
   const [region, setRegion] = React.useState<RegionKey>(regionRef.current);
   const counts = React.useMemo(() => regionCounts(points), [points]);
-  const latest = React.useRef({ points, sel, ring: ring ?? null, fitKey: fitKey ?? "", clustered });
-  latest.current = { points, sel, ring: ring ?? null, fitKey: fitKey ?? "", clustered };
+  const latest = React.useRef({ points, sel, ring: ring ?? null, fitKey: fitKey ?? "", clustered, overlays });
+  latest.current = { points, sel, ring: ring ?? null, fitKey: fitKey ?? "", clustered, overlays };
+  const live = React.useRef(onLive);
+  live.current = onLive;
+  const router = useRouter();
+  const go = React.useRef((href: string) => router.push(href));
+  go.current = (href: string) => router.push(href);
   const pick = React.useRef(onSelect);
   pick.current = onSelect;
   const stack = React.useRef(onStack);
   stack.current = onStack;
   // The hover: a unit's name at once, then where it is (read once for the unit, kept for a minute).
   const [hover, setHover] = React.useState<{ anchor: DOMRect; tip: TipData } | null>(null);
+  const [liveTiles, setLiveTiles] = React.useState(false);
 
   /** Hold the camera inside a region's box (a hard stop at its edge, so the land cannot be dragged out of view). */
   const hold = React.useCallback((key: RegionKey) => {
@@ -244,7 +393,15 @@ export function Canvas({
   const push = React.useCallback(() => {
     const map = mapRef.current;
     if (!map || !ready.current) return;
-    const { points: pts, sel: chosen, ring: rg, fitKey: key } = latest.current;
+    const { points: pts, sel: chosen, ring: rg, fitKey: key, overlays: ov } = latest.current;
+    (map.getSource("route") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: routeFeatures(ov.route) } as never);
+    (map.getSource("open-loads") as GeoJSONSource | undefined)?.setData(collection(openLoadFeatures(ov.openLoads ?? [])) as never);
+    (map.getSource("weather") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: ov.weather?.features ?? [] } as never);
+    setVisible(map, "tolls", ov.tolls);
+    setVisible(map, "truck-poi", ov.pois);
+    setVisible(map, "open-loads", ov.openLoads != null);
+    setVisible(map, "wx-fill", ov.weather != null);
+    setVisible(map, "wx-line", ov.weather != null);
     (map.getSource("units") as GeoJSONSource).setData(collection(pts.map(pointFeature)) as never);
     const found = chosen ? pts.find((u) => u.id === chosen.id && (chosen.kind === "tractor" ? u.k === "t" : u.k === "r")) : null;
     (map.getSource("selected") as GeoJSONSource).setData(collection(found ? [{ type: "Feature", geometry: { type: "Point", coordinates: [mapLng(found.lat, found.lng), found.lat] }, properties: {} }] : []) as never);
@@ -272,13 +429,19 @@ export function Canvas({
     let dead = false;
     let map: MapLibreMap | null = null;
     let watch: ResizeObserver | null = null;
-    void import("maplibre-gl").then((ml) => {
+    const ac = new AbortController();
+    const styleTimer = window.setTimeout(() => ac.abort(), 4000);
+    const tokens = readTokens();
+    const mode = document.documentElement.dataset.theme === "day" ? "day" : "night";
+    void Promise.all([import("maplibre-gl"), resolveStyle(mode, tokens, ac.signal)]).then(([ml, resolved]) => {
+      window.clearTimeout(styleTimer);
       if (dead || !box.current) return;
       // The bundler does not emit MapLibre's worker, so the desk serves its own copy (public/maplibre-gl-worker.mjs, kept equal to the installed version by tests/radar-rules.test.ts).
       ml.setWorkerUrl("/maplibre-gl-worker.mjs");
-      const tokens = readTokens();
+      setLiveTiles(resolved.live);
+      live.current?.(resolved.live);
       const family = getComputedStyle(document.body).fontFamily || "monospace";
-      map = new ml.Map({ container: box.current, style: styleOf(tokens), bounds: ll(REGIONS[regionRef.current].fit), maxBounds: ll(REGIONS[regionRef.current].clamp), fitBoundsOptions: { padding: compact ? 8 : 24 }, interactive: !compact, attributionControl: false, dragRotate: false, pitchWithRotate: false, renderWorldCopies: false, maxZoom: MAP_MAX_ZOOM, minZoom: 2 });
+      map = new ml.Map({ container: box.current, style: resolved.style, bounds: ll(REGIONS[regionRef.current].fit), maxBounds: ll(REGIONS[regionRef.current].clamp), fitBoundsOptions: { padding: compact ? 8 : 24 }, interactive: !compact, attributionControl: false, dragRotate: false, pitchWithRotate: false, renderWorldCopies: false, maxZoom: MAP_MAX_ZOOM, minZoom: 2 });
       mapRef.current = map;
       // The container is laid out after the map is made (the rail, a split that is dragged): follow its size, or the map paints only part of it.
       watch = new ResizeObserver(() => map?.resize());
@@ -318,27 +481,96 @@ export function Canvas({
           const p = e.features?.[0]?.properties as { id?: string; k?: string } | undefined;
           if (p?.id) pick.current({ kind: p.k === "r" ? "trailer" : "tractor", id: p.id });
         });
-        for (const layer of ["units", "clusters"]) {
+        // Freight that needs a driver opens its load.
+        map.on("click", "open-loads", (e) => {
+          const id = e.features?.[0]?.properties?.id as string | undefined;
+          if (id) go.current(`/loads/${id}`);
+        });
+        for (const layer of ["units", "clusters", "open-loads"]) {
           map.on("mouseenter", layer, () => (map!.getCanvas().style.cursor = "pointer"));
           map.on("mouseleave", layer, () => (map!.getCanvas().style.cursor = ""));
         }
         map.on("click", (e) => {
-          if (map!.queryRenderedFeatures(e.point, { layers: ["units", "clusters"] }).length === 0) pick.current(null);
+          const hit = ["units", "clusters", "open-loads"].filter((l) => map!.getLayer(l));
+          if (map!.queryRenderedFeatures(e.point, { layers: hit }).length === 0) pick.current(null);
         });
       }
       const tips = new Map<string, { at: number; tip: TipData }>();
       let hoverTimer: number | undefined;
       let hoverKey = "";
-      const clearHover = () => {
+      const clearHover = (prefix?: string) => {
+        if (prefix && !hoverKey.startsWith(prefix)) return;
         window.clearTimeout(hoverTimer);
         hoverKey = "";
         setHover(null);
       };
+      if (!compact) {
+        map.on("mouseenter", "clusters", async (e) => {
+          const p = e.features?.[0]?.properties as { cluster_id?: number; point_count?: number; nt?: number; nr?: number } | undefined;
+          if (!p?.cluster_id || !p.point_count || !box.current || !map) return;
+          const id = p.cluster_id;
+          const key = `cluster:${id}`;
+          hoverKey = key;
+          const r = box.current.getBoundingClientRect();
+          const anchor = new DOMRect(r.left + e.point.x - 10, r.top + e.point.y - 10, 20, 20);
+          const rows: Array<[string, string]> = [];
+          if (p.nt) rows.push(["Tractors", String(p.nt)]);
+          if (p.nr) rows.push(["Trailers", String(p.nr)]);
+          setHover({ anchor, tip: { title: `${p.point_count.toLocaleString("en-US")} units here`, rows, note: "Click to zoom in or open list." } });
+          try {
+            const src = map.getSource("units") as GeoJSONSource;
+            const leaves = await src.getClusterLeaves(id, 6, 0);
+            const names = leaves.map((l) => String(l.properties?.name ?? "")).filter(Boolean);
+            const more = p.point_count - names.length;
+            if (hoverKey === key && names.length > 0) {
+              setHover({
+                anchor,
+                tip: {
+                  title: `${p.point_count.toLocaleString("en-US")} units here`,
+                  rows: [...rows, ["Includes", more > 0 ? `${names.join(", ")}, +${more} more` : names.join(", ")]],
+                  note: "Click to zoom in or open list."
+                }
+              });
+            }
+          } catch {
+            /* summary rows stay */
+          }
+        });
+        map.on("mouseleave", "clusters", () => clearHover("cluster:"));
+        // An open load: its lane, rate and pickup window, from the pin itself (no read).
+        map.on("mouseenter", "open-loads", (e) => {
+          const p = e.features?.[0]?.properties as Record<string, string> | undefined;
+          if (!p?.id || !box.current) return;
+          hoverKey = `load:${p.id}`;
+          const r = box.current.getBoundingClientRect();
+          const rows: Array<[string, string]> = [["Lane", p.lane ?? ""]];
+          if (p.rate) rows.push(["Rate / RPM", p.rpm ? `${p.rate} · ${p.rpm}` : p.rate]);
+          if (p.due) rows.push(["Pickup due", p.due]);
+          if (p.equipment) rows.push(["Equipment", p.equipment]);
+          setHover({ anchor: new DOMRect(r.left + e.point.x - 8, r.top + e.point.y - 8, 16, 16), tip: { title: `Load ${p.number ?? ""} · needs a driver`, rows, note: "Click to open the load." } });
+        });
+        map.on("mouseleave", "open-loads", () => clearHover("load:"));
+        // A weather alert's area: what it is, how bad, and until when, in the National Weather Service's words.
+        map.on("mousemove", "wx-fill", (e) => {
+          if (hoverKey.startsWith("unit:") || hoverKey.startsWith("cluster:") || hoverKey.startsWith("load:")) return;
+          const p = e.features?.[0]?.properties as Record<string, string> | undefined;
+          if (!p || !box.current) return;
+          const key = `wx:${p.id ?? ""}`;
+          if (hoverKey === key) return;
+          hoverKey = key;
+          const r = box.current.getBoundingClientRect();
+          const rows: Array<[string, string]> = [["Severity", p.severity ?? ""]];
+          if (p.headline) rows.push(["Headline", p.headline]);
+          if (p.expires) rows.push(["Expires", new Date(p.expires).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })]);
+          setHover({ anchor: new DOMRect(r.left + e.point.x - 8, r.top + e.point.y - 8, 16, 16), tip: { title: p.event ?? "Weather alert", rows, note: "National Weather Service" } });
+        });
+        map.on("mouseleave", "wx-fill", () => clearHover("wx:"));
+      }
       map.on("mouseenter", "units", (e) => {
         const p = e.features?.[0]?.properties as { id?: string; k?: string; name?: string } | undefined;
         if (!p?.id || !box.current) return;
         const id = p.id;
-        const key = `${p.k}:${id}`;
+        const key = `unit:${p.k}:${id}`;
         hoverKey = key;
         const r = box.current.getBoundingClientRect();
         const anchor = new DOMRect(r.left + e.point.x - 6, r.top + e.point.y - 6, 12, 12);
@@ -359,11 +591,13 @@ export function Canvas({
           }
         }, 150);
       });
-      map.on("mouseleave", "units", clearHover);
-      map.on("movestart", clearHover);
+      map.on("mouseleave", "units", () => clearHover("unit:"));
+      map.on("movestart", () => clearHover());
     });
     return () => {
       dead = true;
+      window.clearTimeout(styleTimer);
+      ac.abort();
       watch?.disconnect();
       ready.current = false;
       fitted.current = "";
@@ -372,7 +606,7 @@ export function Canvas({
     };
   }, [compact, push]);
 
-  React.useEffect(push, [push, points, sel, ring, fitKey]);
+  React.useEffect(push, [push, points, sel, ring, fitKey, overlays]);
   React.useEffect(() => {
     const map = mapRef.current;
     if (map && ready.current) (map.getSource("units") as GeoJSONSource).setClusterOptions({ cluster: clustered });
@@ -387,6 +621,14 @@ export function Canvas({
     <>
       <div ref={box} className="rd-canvas" role="img" aria-label={`Map of ${points.length} units`} />
       {hover ? <TipPopup anchor={hover.anchor} tip={hover.tip} /> : null}
+      {liveTiles && !bare ? (
+        <p className="rd-attrib">
+          <a href="https://openfreemap.org" target="_blank" rel="noreferrer">
+            OpenFreeMap
+          </a>{" "}
+          © OpenMapTiles · © OpenStreetMap
+        </p>
+      ) : null}
       {bare ? null : (
         <div className="rd-regions" role="group" aria-label="Region">
           {REGION_KEYS.map((k) => (
@@ -425,8 +667,60 @@ const STATE_WORD: Record<string, { tone: string; word: string }> = {
   parked: { tone: "dim", word: "Parked" }
 };
 
-function TractorCard({ u, now }: { u: RadarTractor; now: number }) {
+/** The schedule chip from the ETA's own words ("... · ON SCHEDULE" / "RUNNING LATE"), and the ETA without them. */
+function etaParts(r: RadarRoute | null): { text: string | null; chip: "late" | "on" | null } {
+  if (!r || r.status === "none" || !r.eta) return { text: null, chip: r && r.status !== "none" && r.late ? "late" : null };
+  const late = r.late || r.eta.includes("RUNNING LATE");
+  const on = !late && r.eta.includes("ON SCHEDULE");
+  return { text: r.eta.replace(/\s*·\s*(RUNNING LATE|ON SCHEDULE)\s*$/, ""), chip: late ? "late" : on ? "on" : null };
+}
+
+/** The live lines of a unit on a load: driver, hours left, ETA with its schedule chip, the next stop and its window, the trailer. */
+function RouteLines({ r, fallbackDriver, fallbackTrailer }: { r: RadarRoute | null; fallbackDriver: string | null; fallbackTrailer: string | null }) {
+  const on = r && r.status !== "none" ? r : null;
+  const eta = etaParts(r);
+  return (
+    <>
+      <dt>Driver</dt>
+      <dd>{on?.driver ?? fallbackDriver ?? "—"}</dd>
+      {on ? (
+        <>
+          <dt>HOS left</dt>
+          <dd>{on.hos ?? "—"}</dd>
+          <dt>ETA</dt>
+          <dd>
+            {eta.text ?? "—"}
+            {eta.chip ? (
+              <>
+                {" "}
+                <b className="rd-sched" data-tone={eta.chip === "late" ? "warn" : "pos"}>
+                  {eta.chip === "late" ? "RUNNING LATE" : "ON SCHEDULE"}
+                </b>
+              </>
+            ) : null}
+          </dd>
+          <dt>Next stop</dt>
+          <dd>{on.nextStop ?? "—"}</dd>
+        </>
+      ) : null}
+      <dt>Trailer</dt>
+      <dd>{on?.trailer ?? fallbackTrailer ?? "—"}</dd>
+    </>
+  );
+}
+
+function RouteNote({ r }: { r: RadarRoute | null }) {
+  if (!r || r.status === "none") return null;
+  if (r.status === "tracking") return <p className="rd-sub">On the map: the dashed line is the lane stop to stop (not the road route); the solid line is where the truck has been on this load.</p>;
+  if (r.status === "no_lane") return <p className="rd-sub">The load&apos;s stops have no map points yet, so there is no lane to draw.</p>;
+  if (r.status === "no_position") return <p className="rd-sub">The truck has no fix yet, so there is no trail to draw.</p>;
+  return null;
+}
+
+function TractorCard({ u, now, route }: { u: RadarTractor; now: number; route: RadarRoute | null }) {
   const st = u.state ? STATE_WORD[u.state] : null;
+  const loadId = route && route.status !== "none" ? route.loadId : u.loadId;
+  const loadNumber = route && route.status !== "none" ? route.loadNumber : u.loadNumber;
   return (
     <div className="rd-card">
       <div className="rd-card-head">
@@ -438,25 +732,29 @@ function TractorCard({ u, now }: { u: RadarTractor; now: number }) {
       <dl className="rd-kv">
         <dt>Road</dt>
         <dd>{u.road || "—"}</dd>
-        <dt>Driver</dt>
-        <dd>{u.driver ?? "—"}</dd>
-        <dt>Load</dt>
-        <dd>{u.loadId ? <Link href={`/loads/${u.loadId}`}>{u.loadNumber ?? "Open load"}</Link> : "—"}</dd>
-        <dt>Trailer</dt>
-        <dd>{u.trailer ? `${u.trailer.number}${u.trailer.code ? ` [${u.trailer.code}]` : ""}` : "—"}</dd>
+        <RouteLines r={route} fallbackDriver={u.driver} fallbackTrailer={u.trailer ? `${u.trailer.number}${u.trailer.code ? ` [${u.trailer.code}]` : ""}` : null} />
         <dt>Last fix</dt>
         <dd>{ago(u.locatedAt, now)}</dd>
       </dl>
       {u.idle ? <p className="rd-leak">{`■ ${u.idle.sentence}`}</p> : null}
       {u.idle?.todayHours != null ? <p className="rd-sub">{u.idle.todayHours.toFixed(1)} h idling today</p> : null}
-      <p>
-        <Link href={`/fleet/${u.id}`}>Open the truck</Link>
+      <RouteNote r={route} />
+      <p className="rd-links">
+        {loadId ? (
+          <Link className="tl-btn sm" href={`/loads/${loadId}`}>
+            {`Open load ${loadNumber ?? ""}`.trim()}
+          </Link>
+        ) : null}
+        <Link className="tl-btn ghost sm" href={`/fleet/${u.id}`}>
+          Open truck
+        </Link>
       </p>
     </div>
   );
 }
 
-function TrailerCard({ u, now }: { u: RadarTrailer; now: number }) {
+function TrailerCard({ u, now, route }: { u: RadarTrailer; now: number; route: RadarRoute | null }) {
+  const on = route && route.status !== "none" ? route : null;
   return (
     <div className="rd-card">
       <div className="rd-card-head">
@@ -468,12 +766,26 @@ function TrailerCard({ u, now }: { u: RadarTrailer; now: number }) {
       <dl className="rd-kv">
         <dt>Cargo</dt>
         <dd>{u.loaded ? "Loaded" : "Empty"}</dd>
+        {on ? <RouteLines r={on} fallbackDriver={null} fallbackTrailer={null} /> : null}
         <dt>Last fix</dt>
         <dd>{ago(u.locatedAt, now)}</dd>
       </dl>
       {u.dwell ? <p className={`rd-leak${u.dwell.typed ? " rd-typed" : ""}`}>{`■ ${u.dwell.sentence}`}</p> : null}
-      <p>
-        <Link href={`/trailers/${u.id}`}>{u.dwell ? "Open the trailer to adjust the dwell" : "Open the trailer"}</Link>
+      <RouteNote r={route} />
+      <p className="rd-links">
+        {on ? (
+          <Link className="tl-btn sm" href={`/loads/${on.loadId}`}>
+            {`Open load ${on.loadNumber ?? ""}`.trim()}
+          </Link>
+        ) : null}
+        {on?.truckId ? (
+          <Link className="tl-btn ghost sm" href={`/fleet/${on.truckId}`}>
+            Open truck
+          </Link>
+        ) : null}
+        <Link className="tl-btn ghost sm" href={`/trailers/${u.id}`}>
+          {u.dwell ? "Open trailer (dwell)" : "Open trailer"}
+        </Link>
       </p>
     </div>
   );
@@ -482,10 +794,11 @@ function TrailerCard({ u, now }: { u: RadarTrailer; now: number }) {
 function useTheme() {
   const [theme, setTheme] = React.useState("night");
   React.useEffect(() => {
-    const read = () => setTheme(document.documentElement.dataset.theme ?? "night");
+    // The interface style (data-ui="app") changes the tokens too, so the map is redrawn when either changes.
+    const read = () => setTheme(`${document.documentElement.dataset.theme ?? "night"}|${document.documentElement.dataset.ui ?? "desk"}`);
     read();
     const o = new MutationObserver(read);
-    o.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    o.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-ui"] });
     return () => o.disconnect();
   }, []);
   return theme;
@@ -495,7 +808,7 @@ function useTheme() {
 export function usePoints(initial: RadarPoints, params: Partial<RadarQueryParams>, every = 30_000) {
   const [data, setData] = React.useState(initial);
   const [now, setNow] = React.useState(() => Date.parse(initial.asOf ?? "") || 0);
-  const query = radarParamsText({ near: params.near, r: params.r, kind: params.kind, state: params.state, q: params.q, hooked: params.hooked });
+  const query = radarParamsText({ near: params.near, r: params.r, kind: params.kind, state: params.state, x: params.x, q: params.q, hooked: params.hooked });
   const first = React.useRef(true);
   const key = React.useRef(query);
   React.useEffect(() => setData(initial), [initial]);
@@ -547,13 +860,67 @@ function useUnit(sel: Sel) {
   return card;
 }
 
+/** The clicked unit's load (lane, breadcrumb, live lines), read when it is clicked and every minute while it stays selected. */
+function useRoute(sel: Sel) {
+  const [route, setRoute] = React.useState<RadarRoute | null>(null);
+  React.useEffect(() => {
+    setRoute(null);
+    if (!sel) return;
+    let dead = false;
+    const read = () =>
+      void fetch(`/fleet/map/data?mode=route&kind=${sel.kind}&id=${encodeURIComponent(sel.id)}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (!dead && j) setRoute(j as RadarRoute);
+        })
+        .catch(() => undefined);
+    read();
+    const tick = setInterval(() => {
+      if (!document.hidden) read();
+    }, 60_000);
+    return () => {
+      dead = true;
+      clearInterval(tick);
+    };
+  }, [sel]);
+  return route;
+}
+
+/** An overlay's data from the desk's own route, read when it is switched on and every `every` ms while it stays on; null while it is off. */
+function useOverlay<T>(mode: "open_loads" | "weather", on: boolean, every: number): T | null {
+  const [data, setData] = React.useState<T | null>(null);
+  React.useEffect(() => {
+    if (!on) {
+      setData(null);
+      return;
+    }
+    let dead = false;
+    const read = () =>
+      void fetch(`/fleet/map/data?mode=${mode}`, { cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (!dead && j) setData(j as T);
+        })
+        .catch(() => undefined);
+    read();
+    const tick = setInterval(() => {
+      if (!document.hidden) read();
+    }, every);
+    return () => {
+      dead = true;
+      clearInterval(tick);
+    };
+  }, [mode, on, every]);
+  return data;
+}
+
 type Tab = "telemetry" | "search" | "list";
 const TAB_LABEL: Record<Tab, string> = { telemetry: "Telemetry", search: "Search", list: "List" };
 
 /** Where the search and filters live, kept in the address so a search can be shared and survives going back. */
 function writeUrl(p: Partial<RadarQueryParams>) {
   try {
-    const text = radarParamsText({ near: p.near, r: p.r, kind: p.kind, state: p.state, q: p.q });
+    const text = radarParamsText({ near: p.near, r: p.r, kind: p.kind, state: p.state, x: p.x, q: p.q });
     window.history.replaceState(null, "", text ? `/fleet/map?${text}` : "/fleet/map");
   } catch {
     /* the address stays as it was */
@@ -574,6 +941,27 @@ export function RadarView({ initial, params, actions }: { initial: RadarPoints; 
   const [stackIds, setStackIds] = React.useState<string[] | null>(params.ids.length > 0 ? params.ids : null);
   const [focus, setFocus] = React.useState<Focus>(null);
   const card = useUnit(sel);
+  const route = useRoute(sel);
+  const [tolls, setTolls] = React.useState(false);
+  const [pois, setPois] = React.useState(false);
+  const [showLoads, setShowLoads] = React.useState(false);
+  const [showWeather, setShowWeather] = React.useState(false);
+  const [live, setLive] = React.useState<boolean | null>(null);
+  const openLoads = useOverlay<RadarOpenLoads>("open_loads", showLoads, 60_000);
+  const weather = useOverlay<RadarWeather>("weather", showWeather, 300_000);
+  const overlays = React.useMemo<Overlays>(
+    () => ({ tolls, pois, openLoads: showLoads ? (openLoads?.pins ?? []) : null, weather: showWeather && weather?.ok ? weather : null, route }),
+    [tolls, pois, showLoads, openLoads, showWeather, weather, route]
+  );
+  // Escape lets go of the selected unit (its card, lane, trail and stops), as Close does.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSel(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+  const ex = data.exceptions;
   const c = data.counts;
   const search = data.search;
   const ring: Ring = search?.ok ? { lat: search.lat, lng: search.lng, radius: search.radius } : null;
@@ -603,7 +991,7 @@ export function RadarView({ initial, params, actions }: { initial: RadarPoints; 
         firstLabel="map"
         first={
           <div className="rd-map">
-            <Canvas key={theme} points={data.points} sel={sel} onSelect={setSel} onStack={showStack} ring={ring} fitKey={fitKey} focus={focus} clustered={clustered} compact={false} />
+            <Canvas key={theme} points={data.points} sel={sel} onSelect={setSel} onStack={showStack} ring={ring} fitKey={fitKey} focus={focus} clustered={clustered} compact={false} overlays={overlays} onLive={setLive} />
             {!data.connected && data.points.length === 0 && !p.near ? (
               <p className="rd-empty">
                 No ELD is connected, so there is nothing to place. <Link href="/settings?tab=integrations">Connect one in Settings</Link>.
@@ -625,11 +1013,19 @@ export function RadarView({ initial, params, actions }: { initial: RadarPoints; 
                 <button type="button" className="tl-btn ghost sm rd-x" onClick={() => setSel(null)} aria-label="Close the unit">
                   Close
                 </button>
-                {card?.tractor ? <TractorCard u={card.tractor} now={now} /> : card?.trailer ? <TrailerCard u={card.trailer} now={now} /> : <p className="rd-sub">Loading the unit.</p>}
+                {card?.tractor ? <TractorCard u={card.tractor} now={now} route={route} /> : card?.trailer ? <TrailerCard u={card.trailer} now={now} route={route} /> : <p className="rd-sub">Loading the unit.</p>}
               </div>
             ) : null}
             {tab === "telemetry" ? (
               <>
+                <div className="rd-xchips" role="group" aria-label="Show only">
+                  {EXCEPTION_FILTERS.map((f) => (
+                    <button key={f.key || "all"} type="button" className="rd-x-chip" aria-pressed={p.x === f.key} data-tone={(f.key === "late" || f.key === "idling") && (ex?.[f.key] ?? 0) > 0 ? "warn" : undefined} onClick={() => update({ x: f.key as ExceptionKey | "" })}>
+                      {f.label}
+                      <span>{(ex?.[(f.key || "all") as ExceptionKey | "all"] ?? 0).toLocaleString("en-US")}</span>
+                    </button>
+                  ))}
+                </div>
                 <dl className="rd-hud">
                   <dt>Total units</dt>
                   <dd>{c.tractors}</dd>
@@ -641,8 +1037,6 @@ export function RadarView({ initial, params, actions }: { initial: RadarPoints; 
                       <dd>{c.moving}</dd>
                     </>
                   ) : null}
-                  <dt>Idling</dt>
-                  <dd className={c.idling > 0 ? "rd-warn" : undefined}>{c.idling}</dd>
                   <dt>Parked</dt>
                   <dd>{c.parked}</dd>
                   {c.noSignal > 0 ? (
@@ -662,6 +1056,23 @@ export function RadarView({ initial, params, actions }: { initial: RadarPoints; 
                 <label className="rd-check">
                   <input type="checkbox" checked={p.hooked} onChange={(e) => update({ hooked: e.target.checked })} /> Show hooked trailers
                 </label>
+                <label className="rd-check">
+                  <input type="checkbox" checked={showLoads} onChange={(e) => setShowLoads(e.target.checked)} /> Show open loads
+                  {showLoads && openLoads ? <em>{`${openLoads.pins.length} need a driver${openLoads.unplaced > 0 ? `, ${openLoads.unplaced} with no map point` : ""}`}</em> : null}
+                </label>
+                <label className="rd-check">
+                  <input type="checkbox" checked={tolls} disabled={live === false} onChange={(e) => setTolls(e.target.checked)} /> Show toll roads
+                  {tolls ? <em>from zoom 9</em> : null}
+                </label>
+                <label className="rd-check">
+                  <input type="checkbox" checked={pois} disabled={live === false} onChange={(e) => setPois(e.target.checked)} /> Show fuel &amp; rest areas
+                  {pois ? <em>from zoom 14</em> : null}
+                </label>
+                {live === false ? <p className="rd-sub">Toll roads and fuel stops need the street map, which did not load; the outline map is showing.</p> : null}
+                <label className="rd-check">
+                  <input type="checkbox" checked={showWeather} onChange={(e) => setShowWeather(e.target.checked)} /> Show weather alerts
+                  {showWeather && weather ? <em>{weather.ok ? `${weather.features.length} severe${weather.skippedNoShape > 0 ? `, ${weather.skippedNoShape} by county only` : ""}` : "Weather alerts unavailable right now"}</em> : null}
+                </label>
                 <ul className="rd-key" aria-label="Key">
                   <li>
                     <i className="rd-dot" data-tone="label" aria-hidden="true" /> Moving under a load
@@ -677,6 +1088,13 @@ export function RadarView({ initial, params, actions }: { initial: RadarPoints; 
                   </li>
                   <li>Square: a trailer. Heavy: dropped. Green: loaded.</li>
                   <li>A numbered square is a cluster: zoom in to split it, or click it. Units on one spot open as a list.</li>
+                  {showLoads ? <li>Square with a cross: a load that needs a driver, at its pickup.</li> : null}
+                  {tolls ? (
+                    <li>
+                      <i className="rd-dot" data-tone="typed" aria-hidden="true" /> Toll roads (from OpenStreetMap). Toll prices need a tolling or routing partner.
+                    </li>
+                  ) : null}
+                  {showWeather ? <li>Tinted areas: severe (amber) and extreme (red) alerts from the National Weather Service.</li> : null}
                 </ul>
                 {!sel ? <p className="rd-sub">Click a unit on the map.</p> : null}
               </>

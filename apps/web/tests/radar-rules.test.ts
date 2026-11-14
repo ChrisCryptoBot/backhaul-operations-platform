@@ -5,21 +5,25 @@ import { describe, expect, it } from "vitest";
 const read = (p: string) => fs.readFileSync(path.join(__dirname, "..", p), "utf8").replace(/\r\n/g, "\n");
 
 /**
- * The radar's standing rules, read from the source: the map is drawn from the desk's own tokens with no network and no hex in a component; a typed dwell figure shows in the typed colour; the
- * load drawer keeps its first four tabs and the storage name while gaining a fifth; the radar rail has no coloured edge strip and no radius (docs/TERMINAL_MIGRATION.md).
+ * The radar's standing rules, read from the source: the map layers OpenFreeMap streets and highways (`dark` / `positron`) over the desk's offline fallback (`US_STATES` + `INTERSTATES`) with
+ * overlay colours read from tokens and no hex in a component; clusters show a hover breakdown and click to split or list; a typed dwell figure shows in the typed colour; the load drawer keeps
+ * its first four tabs and the storage name while gaining a fifth; the radar rail has no coloured edge strip and no radius (docs/TERMINAL_MIGRATION.md).
  */
-describe("the radar map is offline and drawn from tokens", () => {
+describe("the radar map uses OpenFreeMap with offline fallback and tokens", () => {
   const map = read("src/components/desk/radar-map.tsx");
-  // The map, its list, its search and the panel over the tables are one family: none of them may reach outside the desk.
   const family = [map, read("src/components/desk/radar-list.tsx"), read("src/components/desk/radius-search.tsx")];
-  it("has no tile server, glyph or sprite endpoint, no external address, and no hex colour", () => {
+  it("uses only keyless OpenFreeMap URLs, keeps offline basemap fallback, and holds no hex colour", () => {
     for (const src of family) {
-      expect(src).not.toMatch(/https?:\/\//);
-      expect(src).not.toMatch(/(glyphs|sprite|tiles)\s*:/);
-      expect(src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "")).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+      const urls = [...src.matchAll(/https?:\/\/[^\s"'`<>)]+/g)].map((m) => m[0]);
+      for (const u of urls) expect(u).toMatch(/^https:\/\/(?:tiles\.)?openfreemap\.org\b/);
+      expect(src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "")).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
     }
+    expect(map).toContain("https://tiles.openfreemap.org/styles/dark");
+    expect(map).toContain("https://tiles.openfreemap.org/styles/positron");
+    expect(map).toContain("offlineStyleOf");
+    expect(map).toContain('map.on("mouseenter", "clusters"');
   });
-  it("fetches only the desk's own data route", () => {
+  it("fetches fleet unit data only from the desk's own data route", () => {
     const urls = family.flatMap((src) => [...src.matchAll(/fetch\(\s*[`"]([^`"$?]+)/g)].map((m) => m[1]));
     expect(urls.length).toBeGreaterThan(0);
     expect([...new Set(urls)]).toEqual(["/fleet/map/data"]);
@@ -30,6 +34,56 @@ describe("the radar map is offline and drawn from tokens", () => {
   it("draws squares (fillRect/strokeRect) and no circles for its glyphs or its clusters", () => {
     expect(map).toMatch(/fillRect/);
     expect(map).not.toMatch(/\.arc\(|circle/);
+  });
+});
+
+describe("the radar's dispatch tools: tolls, fuel stops, the unit's route, open freight, weather, exception chips", () => {
+  const map = read("src/components/desk/radar-map.tsx");
+  const route = read("src/app/(desk)/fleet/map/data/route.ts");
+  const paint = read("src/lib/basemap/paint.ts");
+  it("the data route answers the three new modes, and the weather lives in its own module (never in the whereabouts)", () => {
+    for (const m of ['mode === "route"', 'mode === "open_loads"', 'mode === "weather"']) expect(route, m).toContain(m);
+    expect(route).toContain("radarWeather()");
+    for (const f of ["src/lib/whereabouts.ts", "src/server/tl/whereabouts.ts"]) expect(read(f), f).not.toMatch(/weather\.gov|radar-weather/);
+    expect(read("src/server/tl/radar-weather.ts")).toContain("https://api.weather.gov/alerts/active?status=actual&message_type=alert");
+  });
+  it("toll roads are OpenStreetMap's toll = 1, said honestly (where, not what it costs)", () => {
+    expect(paint).toContain('filter: ["==", ["get", "toll"], 1]');
+    expect(map).toContain("Show toll roads");
+    expect(map).toContain("Toll prices need a tolling or routing partner.");
+    // Placed after the last road line, never "before the first label": dark's first label (water_name) comes before every road, which then painted over the tolls.
+    expect(map).toMatch(/\["source-layer"\] === "transportation"\)\.lastIndexOf\(true\)/);
+    expect(map).not.toMatch(/\$\s*\d+[^"]*toll|toll[^"]*\$\s*\d/i);
+  });
+  it("fuel and rest areas have their own switch and name OpenFreeMap's font", () => {
+    expect(map).toContain("Show fuel &amp; rest areas");
+    expect(paint).toContain('export const OFM_FONT = ["Noto Sans Regular"]');
+    expect(paint).toContain('"text-font": OFM_FONT');
+  });
+  it("every show or hide is guarded by map.getLayer, so the offline outline map never throws", () => {
+    const calls = [...map.matchAll(/setLayoutProperty\(/g)].length;
+    expect(calls).toBe(1);
+    expect(map).toMatch(/if \(map\.getLayer\(id\)\) map\.setLayoutProperty\(id, "visibility"/);
+  });
+  it("the route and the open freight are placed through mapLng, as the units are", () => {
+    expect(map).toMatch(/const at = \(p: \{ lat: number; lng: number \}\): \[number, number\] => \[mapLng\(p\.lat, p\.lng\), p\.lat\]/);
+    expect(map).toMatch(/coordinates: \[mapLng\(l\.lat, l\.lng\), l\.lat\]/);
+  });
+  it("Escape lets go of the selected unit, and its lane is said to be stop to stop, not the road", () => {
+    expect(map).toMatch(/e\.key === "Escape"\) setSel\(null\)/);
+    expect(map).toContain("the dashed line is the lane stop to stop (not the road route)");
+  });
+  it("the quick exception chips are the one place for idling and dwell (Search's Status has neither)", () => {
+    expect(map).toContain("EXCEPTION_FILTERS.map");
+    const pts = read("src/lib/radar-points.ts");
+    const status = pts.slice(pts.indexOf("export const STATE_FILTERS"), pts.indexOf("];", pts.indexOf("export const STATE_FILTERS")));
+    expect(status).not.toMatch(/"idling"|"dwell"/);
+    expect(read("src/components/desk/radius-search.tsx")).toMatch(/tl-field">\s*Status\s*</);
+  });
+  it("open loads use the header's needs-a-driver rule and scope", () => {
+    const ol = read("src/server/tl/radar-open-loads.ts");
+    expect(ol).toContain("AND: [inTerminal(terminal)]");
+    expect(ol).toContain('status: "draft", OR: [{ assignment: null }, { assignment: { status: { in: ["draft", "declined"] } } }]');
   });
 });
 

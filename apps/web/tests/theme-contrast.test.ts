@@ -127,6 +127,34 @@ describe.each([["night", night, "#ffffff"], ["day", day, "#000000"], ["app", app
   });
 });
 
+/**
+ * The radar's basemap (OpenFreeMap repainted from --map-* in src/lib/basemap/paint.ts). It has to read on a laptop screen and a screen share: water apart from land, roads seen at every step,
+ * state lines plain, and the motorway, the strongest road, still well under every unit mark that sits on it.
+ */
+describe.each(Object.entries(THEMES))("%s theme: the radar basemap", (name, t) => {
+  const MAP = ["--map-water", "--map-land", "--map-road-lo", "--map-road", "--map-road-hi", "--map-casing", "--map-border"];
+  it("defines every map tone as hex", () => {
+    for (const k of MAP) expect(t[k], k).toMatch(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+  });
+  it("water reads apart from land, and state lines are plain (3:1)", () => {
+    expect(ratio(t["--map-water"]!, t["--bg"]!)).toBeGreaterThanOrEqual(1.3);
+    expect(ratio(t["--map-border"]!, t["--bg"]!)).toBeGreaterThanOrEqual(3);
+  });
+  it("every road step is seen on the ground: the motorway (by its line or its edge) and the minor streets", () => {
+    expect(Math.max(ratio(t["--map-road-hi"]!, t["--bg"]!), ratio(t["--map-casing"]!, t["--bg"]!))).toBeGreaterThanOrEqual(2.25);
+    expect(ratio(t["--map-road-lo"]!, t["--bg"]!)).toBeGreaterThanOrEqual(1.45);
+  });
+  if (name !== "day") {
+    it("on a dark ground the roads step up: minor, then major, then motorway", () => {
+      expect(lum(t["--map-road-lo"]!)).toBeLessThan(lum(t["--map-road"]!));
+      expect(lum(t["--map-road"]!)).toBeLessThan(lum(t["--map-road-hi"]!));
+    });
+  }
+  it.each(["--label", "--warn-fill", "--ink", "--pos-fill"])("%s (a unit mark) stands out from the motorway under it (2.5:1)", (mark) => {
+    expect(ratio(t[mark]!, t["--map-road-hi"]!), `${mark} ${t[mark]} on road ${t["--map-road-hi"]}`).toBeGreaterThanOrEqual(2.5);
+  });
+});
+
 // The radar draws squares and lines (not text) in the desk's tokens: each mark has to be told apart from the map's canvas and land, 3:1 for graphics.
 describe.each(Object.entries(THEMES))("%s theme: radar marks", (_name, t) => {
   const MARKS = ["--label", "--warn-fill", "--ink", "--dim", "--pos-fill", "--neg-fill"];

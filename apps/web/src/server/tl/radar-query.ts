@@ -1,6 +1,6 @@
 import { nearestPlace } from "@/lib/gazetteer/place-index";
 import { pageCount } from "@/lib/paging";
-import { STATE_WORD, type ListGroup, type ListRow, type RadarPoint, type RadarQueryParams, type SearchInfo, type StateKey } from "@/lib/radar-points";
+import { STATE_WORD, type ExceptionCounts, type ExceptionKey, type ListGroup, type ListRow, type RadarPoint, type RadarQueryParams, type SearchInfo, type StateKey } from "@/lib/radar-points";
 import { siteKey, within } from "@/lib/radius";
 import type { FleetCounts } from "@/lib/telematics";
 import { lookupPlace } from "@/server/geo/place-lookup";
@@ -34,7 +34,25 @@ type Unit = {
   loadNumber: string | null;
   leak: string | null;
   glyphOnly: boolean;
+  /** A loaded tractor running late, or a trailer past its free time (a dwell alert). */
+  alert: boolean;
+  /** Hours a dropped trailer has stood, when known. */
+  dropHours: number | null;
 };
+
+const DROPPED_LONG_HOURS = 48;
+/** Whether a unit is in a quick exception filter. A hooked trailer drawn at its tractor is never counted on its own. */
+function inException(u: Unit, x: ExceptionKey): boolean {
+  if (u.glyphOnly) return false;
+  if (x === "late") return u.alert;
+  if (x === "idling") return u.state === "idling";
+  if (x === "no_load") return u.kind === "tractor" && u.loadId == null;
+  return u.kind === "trailer" && (u.state === "dropped" || u.state === "dwell") && u.dropHours != null && u.dropHours >= DROPPED_LONG_HOURS;
+}
+function exceptionCounts(units: Unit[]): ExceptionCounts {
+  const n = (x: ExceptionKey) => units.filter((u) => inException(u, x)).length;
+  return { all: units.filter((u) => !u.glyphOnly).length, late: n("late"), idling: n("idling"), no_load: n("no_load"), dropped_48: n("dropped_48") };
+}
 
 const tractorIcon = (u: RadarTractor) => (u.state === "moving_load" ? "t-load" : u.state === "moving" ? "t-moving" : u.state === "idling" ? "t-idle" : u.state === "parked" ? "t-parked" : "t-none");
 const trailerIcon = (u: RadarTrailer) => `tr-${u.dwell?.alert ? "a" : u.hooked ? "h" : "d"}-${u.loaded ? "l" : "e"}`;
@@ -61,10 +79,12 @@ function unitsOf(data: RadarData, withHooked: boolean): Unit[] {
       loadId: u.loadId,
       loadNumber: u.loadNumber,
       leak: u.idle?.sentence ?? null,
-      glyphOnly: false
+      glyphOnly: false,
+      alert: u.late,
+      dropHours: null
     });
     if (withHooked && u.trailer) {
-      out.push({ kind: "tractor", counts: "r", id: u.id, name: u.trailer.number, code: u.trailer.code, lengthFt: null, state: "hooked", lat: u.lat, lng: u.lng, heading: 0, icon: `tr-h-${u.trailer.loaded ? "l" : "e"}`, sev: 0, who: u.driver, loadId: u.loadId, loadNumber: u.loadNumber, leak: null, glyphOnly: true });
+      out.push({ kind: "tractor", counts: "r", id: u.id, name: u.trailer.number, code: u.trailer.code, lengthFt: null, state: "hooked", lat: u.lat, lng: u.lng, heading: 0, icon: `tr-h-${u.trailer.loaded ? "l" : "e"}`, sev: 0, who: u.driver, loadId: u.loadId, loadNumber: u.loadNumber, leak: null, glyphOnly: true, alert: false, dropHours: null });
     }
   }
   for (const u of data.trailers) {
@@ -85,7 +105,9 @@ function unitsOf(data: RadarData, withHooked: boolean): Unit[] {
       loadId: null,
       loadNumber: null,
       leak: u.dwell?.sentence ?? null,
-      glyphOnly: false
+      glyphOnly: false,
+      alert: u.dwell?.alert ?? false,
+      dropHours: u.hooked ? null : (u.dwell?.hours ?? null)
     });
   }
   return out;
@@ -101,6 +123,7 @@ async function resolveSearch(p: RadarQueryParams): Promise<{ info: SearchInfo | 
 
 const wordsOf = (u: Unit) => `${u.name} ${u.code ?? ""} ${u.who ?? ""} ${u.loadNumber ?? ""}`.toLowerCase();
 
+/** Kind, state and words. The exception filter is applied separately (`byException`), so its chips can count what each would show for the same search. */
 function narrow(units: Unit[], p: RadarQueryParams) {
   const q = p.q.toLowerCase();
   return units.filter((u) => {
@@ -110,10 +133,11 @@ function narrow(units: Unit[], p: RadarQueryParams) {
     return true;
   });
 }
+const byException = (units: Unit[], x: ExceptionKey | "") => (x ? units.filter((u) => inException(u, x)) : units);
 
 const stateOrder: StateKey[] = ["dwell", "idling", "moving_load", "moving", "dropped", "hooked", "parked", "no_signal"];
 
-export type RadarPoints = { mode: "points"; points: RadarPoint[]; total: number; counts: FleetCounts; asOf: string | null; connected: boolean; search: SearchInfo | null };
+export type RadarPoints = { mode: "points"; points: RadarPoint[]; total: number; counts: FleetCounts; exceptions: ExceptionCounts; asOf: string | null; connected: boolean; search: SearchInfo | null };
 export type RadarList = { mode: "list"; rows: ListRow[]; groups: ListGroup[] | null; total: number; page: number; pages: number; pageSize: number; search: SearchInfo | null };
 export type RadarUnitCard = { mode: "unit"; tractor: RadarTractor | null; trailer: RadarTrailer | null };
 
@@ -121,22 +145,22 @@ export type RadarUnitCard = { mode: "unit"; tractor: RadarTractor | null; traile
 export async function radarPoints(data: RadarData, p: RadarQueryParams): Promise<RadarPoints> {
   const { info, centre, radius } = await resolveSearch(p);
   let units = narrow(unitsOf(data, p.hooked), p);
-  if (centre) {
-    units = within(units, centre, radius).map((w) => w.item);
-    if (info?.ok) {
-      info.trucks = units.filter((u) => u.kind === "tractor" && !u.glyphOnly).length;
-      info.trailers = units.filter((u) => u.kind === "trailer").length;
-    }
+  if (centre) units = within(units, centre, radius).map((w) => w.item);
+  const exceptions = exceptionCounts(units);
+  units = byException(units, p.x);
+  if (centre && info?.ok) {
+    info.trucks = units.filter((u) => u.kind === "tractor" && !u.glyphOnly).length;
+    info.trailers = units.filter((u) => u.kind === "trailer").length;
   }
   const points: RadarPoint[] = units.map((u) => ({ id: u.id, k: u.kind === "tractor" ? "t" : "r", lat: u.lat, lng: u.lng, icon: u.icon, h: u.heading, sev: u.sev, t: u.counts === "t" ? 1 : 0, r: u.counts === "r" ? 1 : 0, name: u.name }));
-  return { mode: "points", points, total: points.length, counts: data.counts, asOf: data.asOf, connected: data.connected, search: info };
+  return { mode: "points", points, total: points.length, counts: data.counts, exceptions, asOf: data.asOf, connected: data.connected, search: info };
 }
 
 /** A page of the list, nearest first when there is a search. `group` gathers units that sit at the same place. */
 export async function radarList(data: RadarData, p: RadarQueryParams): Promise<RadarList> {
   const { info, centre, radius } = await resolveSearch(p);
   const idSet = p.ids.length > 0 ? new Set(p.ids) : null;
-  let units = narrow(unitsOf(data, false), p).filter((u) => (idSet ? idSet.has(u.id) : true));
+  let units = byException(narrow(unitsOf(data, false), p), p.x).filter((u) => (idSet ? idSet.has(u.id) : true));
   if (p.bbox) {
     const [w, s, e, n] = p.bbox;
     units = units.filter((u) => u.lng >= w && u.lng <= e && u.lat >= s && u.lat <= n);

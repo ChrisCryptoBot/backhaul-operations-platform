@@ -24,23 +24,26 @@ table{border-collapse:collapse;border-spacing:0}
 
 :root, [data-theme="night"] {
   color-scheme: dark;
-  --bg:#000; --panel:#0a0a0a; --head:#171717; --sunk:#050505; --hover:#141414;
-  --line:#2b2b2b; --line-hi:#666;
-  --ink:#f4f4f4; --mid:#b9b9b9; --dim:#8f8f8f; --faint:#555;
+  --bg:#000; --panel:#0e0e0e; --head:#1c1c1c; --sunk:#070707; --hover:#1f1f1f;
+  --line:#383838; --line-hi:#7a7a7a;
+  --ink:#f4f4f4; --mid:#c6c6c6; --dim:#9e9e9e; --faint:#5e5e5e;
   --label:#e0a21f; --label-hi:#ffc247; --typed:#66c8ff; --bar:#e0a21f; --bar-hi:#ffc247; --on-bar:#000;
   --pos:#35e07c; --neg:#ff5c5c; --warn:#ff9a3c;
   --pos-fill:#2fd472; --neg-fill:#ff4d4d; --warn-fill:#ff9331; --on-fill:#000; --on-label:#000; --prompt:#1f2937;
   --scrim:rgba(0,0,0,.72);
+  /* The radar's basemap (OpenFreeMap), painted from these so the map follows the theme. Roads stay under the unit marks; water reads apart from land. */
+  --map-water:#1b2c3b; --map-land:#0d0d0d; --map-road-lo:#383838; --map-road:#4d4942; --map-road-hi:#5f594f; --map-casing:#000; --map-border:#5e5e5e;
 }
 [data-theme="day"] {
   color-scheme: light;
   --bg:#e2ddd0; --panel:#f5f2eb; --head:#e7e2d5; --sunk:#ece8dd; --hover:#ebe6d9;
-  --line:#c4beaf; --line-hi:#6d675a;
-  --ink:#111; --mid:#3b3b3b; --dim:#5a5a5a; --faint:#a39d8e;
+  --line:#b3ac9b; --line-hi:#5f594c;
+  --ink:#111; --mid:#333; --dim:#4d4d4d; --faint:#a39d8e;
   --label:#7a4a00; --label-hi:#5c3700; --typed:#0b4fa0; --bar:#e0a21f; --bar-hi:#f0b43a; --on-bar:#000;
   --pos:#0a6a31; --neg:#b00020; --warn:#8a4200;
   --pos-fill:#0a6a31; --neg-fill:#b00020; --warn-fill:#b25a00; --on-fill:#fff; --on-label:#fff; --prompt:#1f2937;
   --scrim:rgba(30,28,22,.55);
+  --map-water:#b3c3cb; --map-land:#d9d3c4; --map-road-lo:#bdb4a1; --map-road:#fbf8f1; --map-road-hi:#fffaf0; --map-casing:#8a806a; --map-border:#857d6a;
 }
 :root { --mono:var(--font-plex-mono),"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace; --sans:var(--font-plex-sans),"IBM Plex Sans",system-ui,"Segoe UI",sans-serif; --rh:30px; --pad:10px; }
 
@@ -50,7 +53,7 @@ table{border-collapse:collapse;border-spacing:0}
   /* The old --db-text-* names now read the scale (they had drifted: base 12 and 2xl 20 against the brief's 13 and 26). */
   :root{--db-text-xs:var(--fs-code);--db-text-sm:var(--fs-row);--db-text-base:var(--fs-text);--db-text-md:var(--fs-text);--db-text-lg:var(--fs-head);--db-text-xl:var(--fs-figure);--db-text-2xl:26px;--db-text-3xl:var(--fs-hero);--db-text-hero:var(--fs-display)}
   /* Hover has to be seen: night #1a1a1a (was #141414 on #0a0a0a, about 1.3:1), day #e3ddcd. */
-  :root,[data-theme="night"]{--hover:#1a1a1a}
+  :root,[data-theme="night"]{--hover:#1f1f1f}
   [data-theme="day"]{--hover:#e3ddcd}
   /* .tl-btn is the .t-btn in every screen not yet moved over: same height, type and weight. Variants keep their meaning. */
   .tl-btn{min-height:24px;height:24px;padding:0 10px;gap:6px;font-size:var(--fs-code);letter-spacing:.06em;text-transform:uppercase;line-height:16px}
@@ -573,7 +576,7 @@ dd>.sub{display:block;color:var(--dim)}
 .rd-st{color:var(--mid);white-space:nowrap}
 .rd-leak{margin:6px 0;font:600 11px/16px var(--mono);color:var(--warn)}
 .rd-typed{color:var(--typed)!important}
-.rd .maplibregl-ctrl-group{border-radius:0;box-shadow:none;background:var(--panel);border:1px solid var(--line-hi)}
+.rd .maplibregl-ctrl-group{border-radius:0;box-shadow:none;background:var(--panel);border:1px solid var(--line-hi);outline:1px solid var(--bg)}
 .rd .maplibregl-ctrl-group button{background-color:var(--panel);border-color:var(--line)}
 .rd .maplibregl-ctrl-icon{filter:invert(1)}
 [data-theme=day] .rd .maplibregl-ctrl-icon{filter:none}
@@ -615,7 +618,7 @@ dd>.sub{display:block;color:var(--dim)}
 .rd-tab:hover{background:var(--hover);color:var(--ink)}
 .rd-tab[aria-selected=true]{background:var(--bar);color:var(--on-bar);font-weight:600}
 .rd-pinned{position:relative;margin:0 0 10px;padding:0 0 8px;border-bottom:1px solid var(--line)}
-.rd-x{position:absolute;right:0;top:0}
+.rd-x{display:flex;margin:0 0 4px auto}
 .rs{display:grid;gap:8px;margin:0 0 10px}
 .rs-form{display:flex;flex-wrap:wrap;gap:8px;align-items:end}
 .rs-compact{margin:0 0 8px}
@@ -642,21 +645,40 @@ dd>.sub{display:block;color:var(--dim)}
 .fm>.rs{margin:0;padding:8px 10px;border-bottom:1px solid var(--line)}
 .fm-map{position:relative;height:100%;background:var(--bg)}
 .fm-table{padding:10px 10px 0}
-.fm-pick{position:absolute;left:10px;bottom:10px;margin:0;padding:6px 10px;border:1px solid var(--line-hi);background:var(--panel);font:500 12px/18px var(--mono);color:var(--mid)}
+.fm-pick{position:absolute;left:10px;bottom:10px;margin:0;padding:6px 10px;border:1px solid var(--line-hi);outline:1px solid var(--bg);background:var(--panel);font:500 12px/18px var(--mono);color:var(--mid)}
 .fm-pick b{color:var(--ink);font-weight:600}
-.fm .maplibregl-ctrl-group{border-radius:0;box-shadow:none;background:var(--panel);border:1px solid var(--line-hi)}
+.fm .maplibregl-ctrl-group{border-radius:0;box-shadow:none;background:var(--panel);border:1px solid var(--line-hi);outline:1px solid var(--bg)}
 .fm .maplibregl-ctrl-group button{background-color:var(--panel);border-color:var(--line)}
 .fm .maplibregl-ctrl-icon{filter:invert(1)}
 [data-theme=day] .fm .maplibregl-ctrl-icon{filter:none}
 
 /* Radar regions: three buttons in the map's corner (Lower 48, Alaska, Hawaii) with the units in each; the camera is held inside the chosen region's box. */
-.rd-regions{position:absolute;top:10px;right:10px;z-index:3;display:flex;border:1px solid var(--line-hi);background:var(--panel)}
+.rd-regions{position:absolute;top:10px;right:10px;z-index:3;display:flex;border:1px solid var(--line-hi);outline:1px solid var(--bg);background:var(--panel)}
 .rd-region{height:26px;padding:0 10px;border:0;background:transparent;color:var(--mid);font:500 11px/16px var(--mono);letter-spacing:.04em;cursor:pointer}
 .rd-region+.rd-region{border-left:1px solid var(--line)}
 .rd-region span{margin-left:6px;color:var(--dim);font-weight:500}
 .rd-region:hover{background:var(--hover);color:var(--ink)}
 .rd-region[aria-pressed=true]{background:var(--bar);color:var(--on-bar);font-weight:600}
 .rd-region[aria-pressed=true] span{color:var(--on-bar)}
+.rd-attrib{position:absolute;right:8px;bottom:8px;z-index:2;margin:0;padding:2px 6px;border:1px solid var(--line-hi);outline:1px solid var(--bg);background:var(--panel);color:var(--mid);font:500 10px/14px var(--mono)}
+.rd-attrib a{color:var(--mid);text-decoration:none}
+.rd-attrib a:hover{color:var(--ink);text-decoration:underline}
+/* Radar dispatch tools: quick exception chips (square, a count each), the card's schedule tag and its two links, and the toll key's blue. Flat: 1px rules, no radius, no shadow. */
+.rd-xchips{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 10px}
+.rd-x-chip{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 8px;border:1px solid var(--line-hi);background:var(--panel);color:var(--mid);font:500 11px/16px var(--mono);letter-spacing:.04em;cursor:pointer}
+.rd-x-chip span{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.rd-x-chip[data-tone=warn] span{color:var(--warn)}
+.rd-x-chip:hover{background:var(--hover);color:var(--ink)}
+.rd-x-chip[aria-pressed=true]{background:var(--bar);border-color:var(--bar);color:var(--on-bar);font-weight:600}
+.rd-x-chip[aria-pressed=true] span{color:var(--on-bar)}
+.rd-x-chip:focus-visible{outline:2px solid var(--label-hi);outline-offset:-2px}
+.rd-check em{margin-left:auto;font-style:normal;color:var(--dim);font-size:11px}
+.rd-sched{padding:0 4px;border:1px solid currentColor;font:600 10px/14px var(--mono);letter-spacing:.06em}
+.rd-sched[data-tone=warn]{color:var(--warn)}
+.rd-sched[data-tone=pos]{color:var(--pos)}
+.rd-links{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 0}
+.rd-links .tl-btn{text-decoration:none}
+.rd-dot[data-tone=typed]{background:var(--typed)}
 
 /* KPI inputs and wide cards: a lane target typed beside its lane, the note for the weekly call, and cards that span the row. */
 .lt-form{display:flex;align-items:center;gap:6px;white-space:nowrap}
@@ -731,13 +753,14 @@ html{zoom:var(--ui-zoom)}
    ============================================================================================================================ */
 [data-ui="app"] {
   color-scheme: dark;
-  --bg:#0E1117; --panel:#161B24; --head:#0A0D12; --sunk:#0B0F17; --hover:#1B2230;
-  --line:#262D38; --line-hi:#64748A;
-  --ink:#E8EDF2; --mid:#9AA7B4; --dim:#8592A0; --faint:#4A5361;
+  --bg:#0E1117; --panel:#161B24; --head:#0A0D12; --sunk:#0B0F17; --hover:#1E2635;
+  --line:#303846; --line-hi:#71819A;
+  --ink:#E8EDF2; --mid:#AAB6C2; --dim:#95A1AE; --faint:#4A5361;
   --label:#E8A020; --label-hi:#F2B642; --typed:#7FB0DE; --bar:#E8A020; --bar-hi:#F2B642; --on-bar:#000;
   --pos:#22C55E; --neg:#F87171; --warn:#F97316;
   --pos-fill:#22C55E; --neg-fill:#EF4444; --warn-fill:#F97316; --on-fill:#000; --on-label:#000; --prompt:#1f2937;
   --scrim:rgba(5,7,10,.75);
+  --map-water:#1a2d42; --map-land:#121723; --map-road-lo:#2c3442; --map-road:#3d4757; --map-road-hi:#485263; --map-casing:#0E1117; --map-border:#5a6577;
   --glass:rgba(14,17,23,.9);
   --glass-edge:rgba(232,237,242,.16);
   --glass-lit:rgba(255,255,255,.14);

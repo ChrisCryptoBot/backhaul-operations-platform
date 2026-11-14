@@ -1,14 +1,19 @@
 import { terminalFilter, type Terminals } from "@/lib/scope";
 import { prisma } from "@/lib/db";
 import { cityState } from "@/lib/city-state";
+import { haversineMiles } from "@/lib/geo";
 import { nearestPlace } from "@/lib/gazetteer/place-index";
 import { equipmentCode, dwellSentence, idleLine, idleSentence } from "@/lib/radar";
-import { classifyTractor, dwell, engineStateOf, type TractorState } from "@/lib/telematics";
+import { hhmm } from "@/lib/shifts";
+import { classifyTractor, durationText, dwell, engineStateOf, etaAt, geofence, laneProgress, milesToGo, scheduleState, type TractorState } from "@/lib/telematics";
+import { zoneAbbr } from "@/lib/tz";
+import { centralParts } from "@/lib/zoned";
 import { boundsAround } from "@/lib/radius";
 import { mphText, whereIs, type Fix, type KnownStop, type UnitWhere } from "@/lib/whereabouts";
 import { numOrNull } from "./convert";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
+import { workspaceTimezone } from "./zone";
 
 /**
  * Where trucks and trailers are, for the rows on screen and for one unit's page. It reads only the units asked for (a page of fifty, or one), never the whole fleet, and looks for named
@@ -28,6 +33,84 @@ const routeOf = (o: string | null, d: string | null): string => [o, d].map((a) =
 const TRUCK_ICON: Record<TractorState, string> = { moving_load: "t-load", moving: "t-moving", idling: "t-idle", parked: "t-parked" };
 
 const STATE_WORD: Record<TractorState, string> = { moving_load: "Moving under load", moving: "Moving, no load", idling: "Idling", parked: "Parked" };
+const STOP_ROLE: Record<string, string> = { pickup: "PICKUP", delivery: "DELIVERY" };
+const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+type DispatchLoad = {
+  id: string;
+  loadNumber: string | null;
+  status: string;
+  originAddress: string | null;
+  destinationAddress: string | null;
+  loadedMiles: unknown;
+  stops: Array<{
+    stopSequence: number;
+    stopRole: string | null;
+    stopType: string;
+    facilityName: string | null;
+    addressString: string;
+    lat: unknown;
+    lng: unknown;
+    arrivedAt: Date | null;
+    timeWindowEarliest: Date | null;
+    timeWindowLatest: Date | null;
+  }>;
+};
+
+type DispatchDriver = { name: string; hosDriveMinutes: number | null; hosShiftMinutes: number | null };
+
+function hosText(vehicleHours: unknown, drivers: DispatchDriver[]): string | null {
+  const d = drivers[0];
+  const driverMins = d ? [d.hosDriveMinutes, d.hosShiftMinutes].filter((m): m is number => m != null) : [];
+  const vh = numOrNull(vehicleHours as never);
+  const mins = driverMins.length > 0 ? Math.min(...driverMins) : vh != null ? vh * 60 : null;
+  if (mins == null || mins < 0) return null;
+  return `${durationText(mins)} drive`;
+}
+
+function driverNames(drivers: DispatchDriver[]): string | null {
+  const names = drivers.map((d) => d.name.trim()).filter(Boolean);
+  return names.length > 0 ? names.join(" & ") : null;
+}
+
+function formatClock(ms: number, nowMs: number, tz: string): string {
+  const clock = `${hhmm(ms, tz)} ${zoneAbbr(tz)}`;
+  const today = centralParts(nowMs, tz);
+  const that = centralParts(ms, tz);
+  const sameDay = today.y === that.y && today.m0 === that.m0 && today.d === that.d;
+  return sameDay ? clock : `${WEEKDAY[new Date(Date.UTC(that.y, that.m0, that.d)).getUTCDay()]} ${clock}`;
+}
+
+/** ETA, schedule health, and next open stop summary from the load's lane + coordinates (returns nulls without enough stops or fix). */
+function loadDispatchEta(load: DispatchLoad | null, fix: Fix | null, speedMph: number | null, tz: string, nowMs: number): { eta: string | null; nextStop: string | null } {
+  if (!load || load.stops.length === 0) return { eta: null, nextStop: null };
+  const pending = load.stops.find((s) => s.arrivedAt == null) ?? load.stops[load.stops.length - 1]!;
+  const role = STOP_ROLE[pending.stopRole ?? pending.stopType] ?? "STOP";
+  const place = pending.facilityName?.trim() || cityState(pending.addressString)?.trim() || "";
+  const dueAt = pending.timeWindowLatest ?? pending.timeWindowEarliest;
+  const nextStop = [role, place || null, dueAt ? `due ${formatClock(dueAt.getTime(), nowMs, tz)}` : null].filter(Boolean).join(" · ") || null;
+
+  if (!fix) return { eta: null, nextStop };
+  const placed = load.stops
+    .map((s) => ({ ...s, latN: numOrNull(s.lat as never), lngN: numOrNull(s.lng as never) }))
+    .filter((s): s is typeof s & { latN: number; lngN: number } => s.latN != null && s.lngN != null);
+  if (placed.length < 2) return { eta: null, nextStop };
+
+  const origin = { lat: placed[0]!.latN, lng: placed[0]!.lngN };
+  const destStop = placed[placed.length - 1]!;
+  const destination = { lat: destStop.latN, lng: destStop.lngN };
+  const here = { lat: fix.lat, lng: fix.lng };
+  const atDestination = geofence(here, destination).inside;
+  if (atDestination) return { eta: "AT DESTINATION", nextStop };
+
+  const lane = laneProgress(origin, destination, here);
+  const straight = haversineMiles(origin, destination);
+  const toGo = milesToGo(lane.fraction, numOrNull(load.loadedMiles as never), straight);
+  const etaMs = etaAt(nowMs, toGo, speedMph);
+  const sched = scheduleState(etaMs, destStop.timeWindowLatest ?? null);
+  const eta = [`${toGo.toFixed(0)} mi left`, formatClock(etaMs, nowMs, tz), sched === "late" ? "RUNNING LATE" : sched === "on_schedule" ? "ON SCHEDULE" : null].filter(Boolean).join(" · ");
+  return { eta, nextStop };
+}
 
 /** Named stops (a load's facility name with a point) inside a box around each position. One query however many units there are. */
 export async function knownStopsNear(points: ReadonlyArray<{ lat: number; lng: number }>, workspaceId = currentWorkspaceId(), now = new Date()): Promise<KnownStop[]> {
@@ -71,6 +154,11 @@ async function fleetFuelPrice(workspaceId: string, terminal: Terminals): Promise
   return numOrNull(a._avg.lastFuelPricePerGallon);
 }
 
+const STOP_SELECT = {
+  orderBy: { stopSequence: "asc" as const },
+  select: { stopSequence: true, stopRole: true, stopType: true, facilityName: true, addressString: true, lat: true, lng: true, arrivedAt: true, timeWindowEarliest: true, timeWindowLatest: true }
+};
+
 /** Where each of these trucks is and what it is doing. Trucks with no position are still answered (with `where: null`). */
 export async function getTruckWhere(ids: string[], workspaceId = currentWorkspaceId(), terminal: Terminals = null, now = new Date()): Promise<Map<string, UnitWhere>> {
   const out = new Map<string, UnitWhere>();
@@ -80,20 +168,20 @@ export async function getTruckWhere(ids: string[], workspaceId = currentWorkspac
       where: { workspaceId, id: { in: ids } },
       select: {
         id: true, name: true, type: true, make: true, model: true,
-        lastLat: true, lastLng: true, lastLocatedAt: true, lastSpeedMph: true, lastHeadingDeg: true, engineState: true, idleSince: true,
+        lastLat: true, lastLng: true, lastLocatedAt: true, lastSpeedMph: true, lastHeadingDeg: true, engineState: true, idleSince: true, hosAvailableHours: true,
         costProfile: { select: { lastFuelPricePerGallon: true } },
-        drivers: { where: { active: true }, select: { name: true }, take: 1, orderBy: { name: "asc" } }
+        drivers: { where: { active: true }, select: { name: true, hosDriveMinutes: true, hosShiftMinutes: true }, take: 2, orderBy: { name: "asc" } }
       }
     }),
     prisma.trailer.findMany({ where: { workspaceId, currentVehicleId: { in: ids }, archivedAt: null }, select: { id: true, number: true, currentVehicleId: true } }),
     prisma.load.findMany({
       where: { workspaceId, deletedAt: null, vehicleId: { in: ids }, status: { in: OPEN_LOAD } },
-      select: { id: true, loadNumber: true, status: true, vehicleId: true, originAddress: true, destinationAddress: true }
+      select: { id: true, loadNumber: true, status: true, vehicleId: true, originAddress: true, destinationAddress: true, loadedMiles: true, stops: STOP_SELECT }
     }),
     fleetFuelPrice(workspaceId, terminal)
   ]);
   const fixes = trucks.map((t) => fixOf(t)).filter((f): f is Fix => f != null);
-  const stops = await knownStopsNear(fixes, workspaceId, now);
+  const [stops, tz] = await Promise.all([knownStopsNear(fixes, workspaceId, now), workspaceTimezone(workspaceId)]);
   const trailerOf = new Map(trailers.map((t) => [t.currentVehicleId!, t]));
   const loadOf = new Map<string, (typeof loads)[number]>();
   for (const l of [...loads].sort((a, b) => (a.status === "in_progress" ? 0 : 1) - (b.status === "in_progress" ? 0 : 1))) if (l.vehicleId && !loadOf.has(l.vehicleId)) loadOf.set(l.vehicleId, l);
@@ -105,6 +193,7 @@ export async function getTruckWhere(ids: string[], workspaceId = currentWorkspac
     const minutes = st === "idling" && t.idleSince ? Math.max(0, (now.getTime() - t.idleSince.getTime()) / 60_000) : null;
     const speed = numOrNull(t.lastSpeedMph);
     const tr = trailerOf.get(t.id);
+    const dispatch = loadDispatchEta(load, fix, speed, tz, now.getTime());
     out.set(t.id, {
       kind: "truck",
       id: t.id,
@@ -119,8 +208,11 @@ export async function getTruckWhere(ids: string[], workspaceId = currentWorkspac
       speed: speed != null && speed >= 3 ? mphText(speed) : null,
       idle: minutes != null ? idleSentence(idleLine(minutes, price && price > 0 ? price : null)) : null,
       dwell: null,
-      driver: t.drivers[0]?.name ?? null,
+      driver: driverNames(t.drivers),
+      hos: hosText(t.hosAvailableHours, t.drivers),
       load: load ? { id: load.id, number: load.loadNumber ?? "A load", route: routeOf(load.originAddress, load.destinationAddress) } : null,
+      eta: dispatch.eta,
+      nextStop: dispatch.nextStop,
       typedPlace: null,
       hitched: tr ? { kind: "trailer", id: tr.id, name: tr.number } : null
     });
@@ -141,12 +233,15 @@ export async function getTrailerWhere(ids: string[], workspaceId = currentWorksp
     truckIds.length
       ? prisma.vehicle.findMany({
           where: { workspaceId, id: { in: truckIds } },
-          select: { id: true, name: true, lastLat: true, lastLng: true, lastLocatedAt: true, lastSpeedMph: true, lastHeadingDeg: true, engineState: true, drivers: { where: { active: true }, select: { name: true }, take: 1, orderBy: { name: "asc" } } }
+          select: {
+            id: true, name: true, lastLat: true, lastLng: true, lastLocatedAt: true, lastSpeedMph: true, lastHeadingDeg: true, engineState: true, hosAvailableHours: true,
+            drivers: { where: { active: true }, select: { name: true, hosDriveMinutes: true, hosShiftMinutes: true }, take: 2, orderBy: { name: "asc" } }
+          }
         })
       : [],
     prisma.load.findMany({
       where: { workspaceId, deletedAt: null, trailerId: { in: ids }, status: { in: OPEN_FOR_TRAILER } },
-      select: { id: true, loadNumber: true, status: true, trailerId: true, originAddress: true, destinationAddress: true }
+      select: { id: true, loadNumber: true, status: true, trailerId: true, originAddress: true, destinationAddress: true, loadedMiles: true, stops: STOP_SELECT }
     }),
     getThresholds(workspaceId)
   ]);
@@ -158,7 +253,7 @@ export async function getTrailerWhere(ids: string[], workspaceId = currentWorksp
     const tractor = t.currentVehicleId ? truckOf.get(t.currentVehicleId) : undefined;
     return (tractor ? fixOf(tractor) : null) ?? fixOf(t, true);
   };
-  const stops = await knownStopsNear(trailers.map(fixFor).filter((f): f is Fix => f != null), workspaceId, now);
+  const [stops, tz] = await Promise.all([knownStopsNear(trailers.map(fixFor).filter((f): f is Fix => f != null), workspaceId, now), workspaceTimezone(workspaceId)]);
   for (const t of trailers) {
     const fix = fixFor(t);
     const tractor = t.currentVehicleId ? truckOf.get(t.currentVehicleId) : undefined;
@@ -166,6 +261,7 @@ export async function getTrailerWhere(ids: string[], workspaceId = currentWorksp
     const d = t.currentVehicleId ? null : dwell(t.unhookedAt, now.getTime(), { freeHours: terms.dwellFreeHours, perDay: terms.dwellPerDayRate }, reloaded.has(t.id), { ratePerDay: numOrNull(t.dwellRateOverride), billableDays: numOrNull(t.dwellDaysOverride), waived: t.dwellWaived });
     const speed = tractor ? numOrNull(tractor.lastSpeedMph) : null;
     const loaded = load?.status === "in_progress";
+    const dispatch = loadDispatchEta(load, fix, speed, tz, now.getTime());
     out.set(t.id, {
       kind: "trailer",
       id: t.id,
@@ -180,8 +276,11 @@ export async function getTrailerWhere(ids: string[], workspaceId = currentWorksp
       speed: speed != null && speed >= 3 ? mphText(speed) : null,
       idle: null,
       dwell: d ? dwellSentence(d, terms.dwellFreeHours) : null,
-      driver: tractor?.drivers[0]?.name ?? null,
+      driver: tractor ? driverNames(tractor.drivers) : null,
+      hos: tractor ? hosText(tractor.hosAvailableHours, tractor.drivers) : null,
       load: load ? { id: load.id, number: load.loadNumber ?? "A load", route: routeOf(load.originAddress, load.destinationAddress) } : null,
+      eta: dispatch.eta,
+      nextStop: dispatch.nextStop,
       typedPlace: t.location?.trim() || null,
       hitched: tractor ? { kind: "tractor", id: tractor.id, name: tractor.name ?? "a tractor" } : null
     });

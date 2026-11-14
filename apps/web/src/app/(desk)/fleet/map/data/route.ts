@@ -3,6 +3,9 @@ import { readRadarParams } from "@/lib/radar-points";
 import { guardRoute } from "@/server/tl/access";
 import { getRadarData } from "@/server/tl/radar";
 import { radarList, radarPoints, radarUnit } from "@/server/tl/radar-query";
+import { radarOpenLoads } from "@/server/tl/radar-open-loads";
+import { unitRoute } from "@/server/tl/radar-route";
+import { radarWeather } from "@/server/tl/radar-weather";
 import { currentTerminal } from "@/server/tl/terminal";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { getTrailerWhere, getTruckWhere } from "@/server/tl/whereabouts";
@@ -15,7 +18,10 @@ export const dynamic = "force-dynamic";
  *   ?mode=points (the default)  lean points for the map, narrowed by kind, state, words, or a radius around a typed place (?near=75201&r=50);
  *   ?mode=list                  a page of rows, nearest first when there is a search, optionally grouped by place (?group=1), narrowed by ?bbox=w,s,e,n or ?ids=a,b;
  *   ?mode=unit&kind=&id=        one unit's full card;
- *   ?mode=where&kind=&id=       the hover tooltip for one unit: where it is, in words, and what it is doing (one small read, not the whole fleet).
+ *   ?mode=where&kind=&id=       the hover tooltip for one unit: where it is, in words, and what it is doing (one small read, not the whole fleet);
+ *   ?mode=route&kind=&id=       the clicked unit's active load: its lane, the breadcrumb since it began, and the card's live lines (src/server/tl/radar-route.ts);
+ *   ?mode=open_loads            the loads that need a driver, pinned at their first stop (the header's own rule and scope);
+ *   ?mode=weather               severe and extreme NWS alerts with a drawn area (cached five minutes, empty when the NWS is slow or down).
  * Scoped to the workspace and the chosen terminal; anyone who can read may look.
  */
 export async function GET(req: Request) {
@@ -24,6 +30,10 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const get = (k: string) => url.searchParams.get(k);
   const mode = get("mode") ?? "points";
+  const noStore = { headers: { "Cache-Control": "private, no-store" } };
+  if (mode === "route") return NextResponse.json(await unitRoute(get("kind") ?? "tractor", get("id") ?? "", currentWorkspaceId(), await currentTerminal()), noStore);
+  if (mode === "open_loads") return NextResponse.json(await radarOpenLoads(currentWorkspaceId(), await currentTerminal()), noStore);
+  if (mode === "weather") return NextResponse.json(await radarWeather(), noStore);
   if (mode === "where") {
     const id = get("id") ?? "";
     const found = get("kind") === "trailer" ? await getTrailerWhere([id], currentWorkspaceId()) : await getTruckWhere([id], currentWorkspaceId(), await currentTerminal());

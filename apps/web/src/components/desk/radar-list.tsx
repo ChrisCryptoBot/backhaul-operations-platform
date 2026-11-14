@@ -89,7 +89,7 @@ export function RadarList({ params, ids, onClearIds, selected, onPick, onParams,
     <thead>
       <tr>
         <th scope="col">Unit</th>
-        <th scope="col">State</th>
+        <th scope="col">Status</th>
         <th scope="col">Near</th>
         {withMiles ? (
           <th scope="col" className="num">
@@ -125,7 +125,7 @@ export function RadarList({ params, ids, onClearIds, selected, onPick, onParams,
           <select value={sort} onChange={(e) => setSort(e.target.value as RadarQueryParams["sort"])}>
             <option value="distance">{info?.ok ? "Nearest first" : "Name"}</option>
             <option value="name">Name</option>
-            <option value="state">State</option>
+            <option value="state">Status</option>
           </select>
         </label>
         <label className="rd-check">

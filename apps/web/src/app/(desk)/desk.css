@@ -1017,7 +1017,7 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 @media print { .skip-link { display: none; } }
 
 /* ───────────────────────────── KPI: tooltips, hover and expand ───────────────────────────── */
-.tip { position: fixed; z-index: 120; max-width: 320px; padding: 10px 12px; border-radius: var(--db-r-md); background: var(--db-bg-elev-3); color: var(--db-fg); border: 1px solid var(--db-border-strong); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4); font-size: var(--db-text-sm); line-height: 1.4; pointer-events: none; animation: tip-in var(--db-dur-fast) var(--db-ease); }
+.tip { position: fixed; z-index: 120; max-width: 320px; padding: 10px 12px; border-radius: var(--db-r-md); background: var(--db-bg-elev-3); color: var(--db-fg); border: 1px solid var(--db-border-strong); outline: 1px solid var(--bg); box-shadow: none; font-size: var(--db-text-sm); line-height: 1.4; pointer-events: none; animation: tip-in var(--db-dur-fast) var(--db-ease); }
 @keyframes tip-in { from { opacity: 0; } to { opacity: 1; } }
 .tip-t { font-family: var(--db-font-head); font-size: var(--db-text-base); font-weight: 600; letter-spacing: 0.02em; }
 .tip-s { color: var(--db-fg-dim); font-size: var(--db-text-xs); margin-top: 1px; }

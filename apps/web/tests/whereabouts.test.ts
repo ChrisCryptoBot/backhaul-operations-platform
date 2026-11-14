@@ -129,4 +129,12 @@ describe("the hover tooltip", () => {
     const t = unitTip({ ...base, kind: "trailer", name: "TR-7", sub: "53V", state: "Dropped", dwell: "SITTING 1.3 DAYS", typedPlace: "Yard B", driver: null, load: null, hitched: null, where });
     expect(t.rows!.map(([k]) => k)).toEqual(["Where", "Position", "Status", "Dwell", "Noted as", "Last fix"]);
   });
+
+  test("shows HOS left, live ETA and next stop when present on a dispatch", () => {
+    const where = whereIs(standingAt(0.001), [DOCK], town("Dallas, TX", 2), NOW);
+    const tip = unitTip({ ...base, hos: "7h 15m drive", eta: "142 mi left · 14:15 CT · ON SCHEDULE", nextStop: "DELIVERY · Memphis, TN · due 14:30 CT", where });
+    expect(tip.rows!.map(([k]) => k)).toEqual(["Where", "Position", "Status", "Driver", "HOS left", "Load", "ETA", "Next stop", "Pulling", "Last fix"]);
+    expect(tip.rows!.find(([k]) => k === "HOS left")![1]).toBe("7h 15m drive");
+    expect(tip.rows!.find(([k]) => k === "ETA")![1]).toBe("142 mi left · 14:15 CT · ON SCHEDULE");
+  });
 });

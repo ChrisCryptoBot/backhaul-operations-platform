@@ -157,7 +157,13 @@ export type UnitWhere = {
   idle: string | null;
   dwell: string | null;
   driver: string | null;
+  /** Remaining ELD drive/shift hours ("6h 30m drive left"), when reported. */
+  hos?: string | null;
   load: { id: string; number: string; route: string } | null;
+  /** Live ETA summary when on an active dispatch ("142 mi left · ETA 14:15 CT · ON SCHEDULE"). */
+  eta?: string | null;
+  /** Next open stop and its scheduled appointment window ("DELIVERY · Acme Foods · due 14:30 CT"). */
+  nextStop?: string | null;
   /** What a person typed for where a trailer is ("Yard B, door 4"). Kept beside the computed place, never in place of it. */
   typedPlace: string | null;
   /** A truck's trailer, or the tractor a trailer is hooked to. */
@@ -180,7 +186,10 @@ export function unitTip(u: UnitWhere): UnitTip {
   if (u.idle) rows.push(["Idle", u.idle.split(" · ").join("\n")]);
   if (u.dwell) rows.push(["Dwell", u.dwell.split(" · ").join("\n")]);
   if (u.driver) rows.push(["Driver", u.driver]);
+  if (u.hos) rows.push(["HOS left", u.hos]);
   if (u.load) rows.push(["Load", `${u.load.number}${u.load.route ? ` · ${u.load.route}` : ""}`]);
+  if (u.eta) rows.push(["ETA", u.eta]);
+  if (u.nextStop) rows.push(["Next stop", u.nextStop]);
   if (u.hitched) rows.push([u.hitched.kind === "trailer" ? "Pulling" : "Hooked to", u.hitched.name]);
   if (u.typedPlace) rows.push(["Noted as", u.typedPlace]);
   if (w.nearestStop) rows.push(["Nearest stop", `${w.nearestStop.name} · ${w.nearestStop.miles} mi`]);

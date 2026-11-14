@@ -149,6 +149,17 @@ export function scheduleState(eta: number, windowLatest: Date | number | null | 
   return eta > close + graceMinutes * 60_000 ? "late" : "on_schedule";
 }
 
+/**
+ * Whether a loaded truck will make its last stop's window: the lane from its first placed stop to its last, how far along it is, the miles left (the load's own loaded miles when known), the ETA at
+ * its speed, and the window with the usual grace. Null when it is already inside the destination's geofence or the stop has no window. The same steps as the load drawer and the hover use.
+ */
+export function laneSchedule(i: { origin: LatLng; destination: LatLng; here: LatLng; loadedMiles: number | null; speedMph: number | null; windowLatest: Date | number | null | undefined; now: number }): ScheduleState | null {
+  if (geofence(i.here, i.destination).inside) return null;
+  const lane = laneProgress(i.origin, i.destination, i.here);
+  const toGo = milesToGo(lane.fraction, i.loadedMiles, haversineMiles(i.origin, i.destination));
+  return scheduleState(etaAt(i.now, toGo, i.speedMph), i.windowLatest);
+}
+
 /** "I-40 E": the nearest bundled interstate corridor within `maxMiles`, with the direction the truck is heading along it. Null off every corridor. */
 export function nearestCorridor(pos: LatLng, headingDeg: number | null, maxMiles = 30): string | null {
   let best: { name: string; miles: number; bearing: number } | null = null;

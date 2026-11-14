@@ -93,7 +93,7 @@ export function RadiusSearch({
             </select>
           </label>
           <label className="tl-field">
-            State
+            Status
             <select value={filters.state} onChange={(e) => onFilters({ state: e.target.value as StateKey | "" })}>
               <option value="">Any</option>
               {STATE_FILTERS.map((s) => (
