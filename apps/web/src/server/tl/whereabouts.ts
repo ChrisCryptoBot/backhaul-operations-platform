@@ -5,7 +5,8 @@ import { haversineMiles } from "@/lib/geo";
 import { nearestPlace } from "@/lib/gazetteer/place-index";
 import { equipmentCode, dwellSentence, idleLine, idleSentence } from "@/lib/radar";
 import { hhmm } from "@/lib/shifts";
-import { classifyTractor, durationText, dwell, engineStateOf, etaAt, geofence, laneProgress, milesToGo, scheduleState, type TractorState } from "@/lib/telematics";
+import { classifyTractor, durationText, dwell, engineStateOf, etaAt, geofence, routeMilesLeft, scheduleState, type TractorState } from "@/lib/telematics";
+import { readRoadRoute } from "./road-route-cache";
 import { zoneAbbr } from "@/lib/tz";
 import { centralParts } from "@/lib/zoned";
 import { boundsAround } from "@/lib/radius";
@@ -103,9 +104,9 @@ function loadDispatchEta(load: DispatchLoad | null, fix: Fix | null, speedMph: n
   const atDestination = geofence(here, destination).inside;
   if (atDestination) return { eta: "AT DESTINATION", nextStop };
 
-  const lane = laneProgress(origin, destination, here);
-  const straight = haversineMiles(origin, destination);
-  const toGo = milesToGo(lane.fraction, numOrNull(load.loadedMiles as never), straight);
+  // On the load's road route when one is already kept in memory (a hover never fetches one), else along the straight lane.
+  const road = readRoadRoute(load.id, placed.map((s) => ({ lat: s.latN, lng: s.lngN })), nowMs) ?? null;
+  const toGo = routeMilesLeft({ origin, destination, here, loadedMiles: numOrNull(load.loadedMiles as never), road }).miles;
   const etaMs = etaAt(nowMs, toGo, speedMph);
   const sched = scheduleState(etaMs, destStop.timeWindowLatest ?? null);
   const eta = [`${toGo.toFixed(0)} mi left`, formatClock(etaMs, nowMs, tz), sched === "late" ? "RUNNING LATE" : sched === "on_schedule" ? "ON SCHEDULE" : null].filter(Boolean).join(" · ");

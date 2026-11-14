@@ -1,6 +1,6 @@
 import { INTERSTATES } from "./basemap/interstates";
 import { haversineMiles } from "./geo";
-import { compass, nearestOnPolyline, projectOnLine, type LatLng } from "./geo-line";
+import { alongPolyline, compass, nearestOnPolyline, projectOnLine, type LatLng } from "./geo-line";
 
 /**
  * What the ELD's positions mean in money and in words: is a tractor moving under a load, idling, or parked; what an hour of idling burned; how long a trailer has sat and what that owes; whether a
@@ -149,14 +149,44 @@ export function scheduleState(eta: number, windowLatest: Date | number | null | 
   return eta > close + graceMinutes * 60_000 ? "late" : "on_schedule";
 }
 
+/** A load's road route (lng, lat pairs along the road, and its driven miles), when one has been fetched. */
+export type RoadLine = { coords: ReadonlyArray<readonly [number, number]>; miles: number };
+/** What the road line and its miles rest on, said wherever they are shown: standard car directions, not truck routing. */
+export const ROAD_ROUTE_NOTE = "The road line and miles left follow standard Mapbox driving directions (mapbox/driving): car routing, not truck routing, so no bridge heights or weight limits.";
+/** Why miles left are on the straight lane instead. */
+export function laneNote(i: { offRoute: boolean; hadRoad: boolean }): string {
+  if (i.offRoute) return "The truck is more than 2 miles off the road route, so miles left are along the straight lane from first stop to last (with the load's own loaded miles).";
+  return "No road route for this load yet, so the lane is drawn straight from stop to stop (not the road route) and miles left are along it (with the load's own loaded miles).";
+}
+
+/** Farther than this from the road line, a truck is not snapped onto it (a detour, a yard, a bad fix): the straight lane is used instead. */
+export const OFF_ROUTE_MILES = 2;
+
 /**
- * Whether a loaded truck will make its last stop's window: the lane from its first placed stop to its last, how far along it is, the miles left (the load's own loaded miles when known), the ETA at
+ * Miles left on a load, and what they rest on:
+ *   "road"  the truck snapped onto the load's road route (within OFF_ROUTE_MILES of it), the share of the line still ahead times the route's driven miles;
+ *   "lane"  otherwise (no road route, or the truck is off it): how far along the straight lane from first stop to last it is, times the load's loaded miles (or the straight line with 15%).
+ */
+export function routeMilesLeft(i: { origin: LatLng; destination: LatLng; here: LatLng; loadedMiles: number | null; road?: RoadLine | null }): { miles: number; basis: "road" | "lane"; offRoute: boolean } {
+  let offRoute = false;
+  if (i.road && i.road.miles > 0) {
+    const at = alongPolyline(i.here, i.road.coords);
+    if (at && at.totalMiles > 0) {
+      if (at.offMiles <= OFF_ROUTE_MILES) return { miles: Math.max(0, i.road.miles * (1 - at.alongMiles / at.totalMiles)), basis: "road", offRoute: false };
+      offRoute = true;
+    }
+  }
+  const lane = laneProgress(i.origin, i.destination, i.here);
+  return { miles: milesToGo(lane.fraction, i.loadedMiles, haversineMiles(i.origin, i.destination)), basis: "lane", offRoute };
+}
+
+/**
+ * Whether a loaded truck will make its last stop's window: the miles left (`routeMilesLeft`: on the road route when one is known and the truck is on it, else along the straight lane), the ETA at
  * its speed, and the window with the usual grace. Null when it is already inside the destination's geofence or the stop has no window. The same steps as the load drawer and the hover use.
  */
-export function laneSchedule(i: { origin: LatLng; destination: LatLng; here: LatLng; loadedMiles: number | null; speedMph: number | null; windowLatest: Date | number | null | undefined; now: number }): ScheduleState | null {
+export function laneSchedule(i: { origin: LatLng; destination: LatLng; here: LatLng; loadedMiles: number | null; speedMph: number | null; windowLatest: Date | number | null | undefined; now: number; road?: RoadLine | null }): ScheduleState | null {
   if (geofence(i.here, i.destination).inside) return null;
-  const lane = laneProgress(i.origin, i.destination, i.here);
-  const toGo = milesToGo(lane.fraction, i.loadedMiles, haversineMiles(i.origin, i.destination));
+  const toGo = routeMilesLeft(i).miles;
   return scheduleState(etaAt(i.now, toGo, i.speedMph), i.windowLatest);
 }
 

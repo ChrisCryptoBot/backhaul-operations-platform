@@ -3,8 +3,8 @@ import { cityState } from "@/lib/city-state";
 import { centralParts } from "@/lib/zoned";
 import { zoneAbbr } from "@/lib/tz";
 import { hhmm } from "@/lib/shifts";
-import { classifyTractor, engineStateOf, etaAt, geofence, laneProgress, milesToGo, scheduleState, speedLine, type TractorState } from "@/lib/telematics";
-import { haversineMiles } from "@/lib/geo";
+import { classifyTractor, engineStateOf, etaAt, geofence, routeMilesLeft, scheduleState, speedLine, type TractorState } from "@/lib/telematics";
+import { ensureRoadRoute } from "@/server/geo/road-route";
 import { numOrNull } from "./convert";
 import { workspaceTimezone } from "@/server/tl/zone";
 import { currentWorkspaceId } from "./workspace";
@@ -30,6 +30,11 @@ export type LoadTracking =
       late: boolean;
       /** One per stop the truck has been inside, in words: "GEOFENCE: AT RECEIVER FACILITY (14:12 CT)". */
       geofences: Array<{ stop: number; text: string; inside: boolean }>;
+      /** The road route through the stops (standard car directions, kept in server memory only), or null when none could be had: the lane is then drawn straight. */
+      road: { coords: Array<[number, number]>; miles: number } | null;
+      /** What miles left rest on: the road route (the truck within 2 miles of it), or the straight lane; `offRoute` when a road route exists but the truck is off it. */
+      milesBasis: "road" | "lane";
+      offRoute: boolean;
       asOf: string;
     };
 
@@ -79,11 +84,12 @@ export async function getLoadTracking(loadId: string, workspaceId = currentWorks
     geofences.push(now_.inside ? { stop: s.sequence, inside: true, text: `GEOFENCE: AT ${who} FACILITY (${when})` } : { stop: s.sequence, inside: false, text: `GEOFENCE: ARRIVED AT ${who} FACILITY (${when}), LEFT` });
   }
 
-  // How far along the lane, and what is left: the load's own loaded miles when it has them.
-  const lane = laneProgress(origin, destination, here);
-  const straight = haversineMiles(origin, destination);
+  // How much is left: along the load's road route when one can be had (this is a single load's own view, so it may be fetched, once, and kept in server memory) and the truck is on it, else
+  // along the straight lane with the load's own loaded miles.
+  const road = await ensureRoadRoute(loadId, stops);
   const atDestination = geofence(here, destination).inside;
-  const toGo = atDestination ? 0 : milesToGo(lane.fraction, numOrNull(load.loadedMiles), straight);
+  const left = routeMilesLeft({ origin, destination, here, loadedMiles: numOrNull(load.loadedMiles), road });
+  const toGo = atDestination ? 0 : left.miles;
   const eta = atDestination ? null : etaAt(now.getTime(), toGo, speed);
   const lastWindow = load.stops[load.stops.length - 1]?.timeWindowLatest ?? null;
   const sched = eta == null ? null : scheduleState(eta, lastWindow);
@@ -102,5 +108,18 @@ export async function getLoadTracking(loadId: string, workspaceId = currentWorks
     .filter(Boolean)
     .join(" · ");
 
-  return { status: "tracking", truckName, stops, position: { lat, lng, headingDeg: load.vehicle.lastHeadingDeg, at: at.toISOString(), state }, trail, headline, late: sched === "late", geofences, asOf: at.toISOString() };
+  return {
+    status: "tracking",
+    truckName,
+    stops,
+    position: { lat, lng, headingDeg: load.vehicle.lastHeadingDeg, at: at.toISOString(), state },
+    trail,
+    headline,
+    late: sched === "late",
+    geofences,
+    road: road ? { coords: road.coords.map((c) => [c[0], c[1]] as [number, number]), miles: road.miles } : null,
+    milesBasis: atDestination ? (road ? "road" : "lane") : left.basis,
+    offRoute: left.offRoute,
+    asOf: at.toISOString()
+  };
 }

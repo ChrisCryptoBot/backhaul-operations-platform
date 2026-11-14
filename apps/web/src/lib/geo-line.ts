@@ -47,6 +47,28 @@ export function projectOnLine(a: LatLng, b: LatLng, p: LatLng): { fraction: numb
 }
 
 /** Miles from a point to the nearest part of a polyline of [lng, lat] pairs, and the compass bearing of the stretch it is nearest. */
+/**
+ * Where a point sits along a road line (lng, lat pairs): how far off the line it is, how far along it its nearest point is, and the line's whole length, all in miles. Measured in local flat miles
+ * around each segment, the same as `projectOnLine`. Null for a line of fewer than two points.
+ */
+export function alongPolyline(p: LatLng, coords: ReadonlyArray<readonly [number, number]>): { offMiles: number; alongMiles: number; totalMiles: number } | null {
+  if (coords.length < 2) return null;
+  let total = 0;
+  let best: { offMiles: number; alongMiles: number } | null = null;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const a = { lat: coords[i]![1], lng: coords[i]![0] };
+    const b = { lat: coords[i + 1]![1], lng: coords[i + 1]![0] };
+    const ref = (a.lat + b.lat) / 2;
+    const A = flat(a, ref);
+    const B = flat(b, ref);
+    const seg = Math.hypot(B.x - A.x, B.y - A.y);
+    const { fraction, offMiles } = projectOnLine(a, b, p);
+    if (!best || offMiles < best.offMiles) best = { offMiles, alongMiles: total + seg * fraction };
+    total += seg;
+  }
+  return best ? { ...best, totalMiles: total } : null;
+}
+
 export function nearestOnPolyline(p: LatLng, coords: ReadonlyArray<readonly [number, number]>): { miles: number; bearing: number } | null {
   if (coords.length < 2) return null;
   let best: { miles: number; bearing: number } | null = null;

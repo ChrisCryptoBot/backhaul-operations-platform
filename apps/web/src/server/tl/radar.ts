@@ -4,6 +4,7 @@ import { equipmentCode, dwellSentence, idleLine, idleSentence } from "@/lib/rada
 import { classifyTractor, dwell, engineStateOf, fleetCounts, laneSchedule, speedLine, type EngineState, type FleetCounts, type TractorState } from "@/lib/telematics";
 import { partnerState } from "@/server/partners/call";
 import { numOrNull } from "./convert";
+import { readRoadRoute } from "./road-route-cache";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
 
@@ -23,12 +24,14 @@ export function truckInTerminal(terminal: Terminals): object {
 }
 const OPEN_FOR_TRAILER = ["draft", "accepted", "in_progress"];
 
-type LaneLoad = { loadedMiles: unknown; stops: Array<{ lat: unknown; lng: unknown; timeWindowLatest: Date | null }> };
+type LaneLoad = { id: string; loadedMiles: unknown; stops: Array<{ lat: unknown; lng: unknown; timeWindowLatest: Date | null }> };
+/** Running late, on the load's road route when one is already kept in memory (the map never fetches one: no fan-out of directions calls), else along the straight lane. */
 function runningLate(load: LaneLoad, here: { lat: number; lng: number }, speedMph: number | null, now: Date): boolean {
   const placed = load.stops.map((s) => ({ lat: numOrNull(s.lat as never), lng: numOrNull(s.lng as never), w: s.timeWindowLatest })).filter((s): s is { lat: number; lng: number; w: Date | null } => s.lat != null && s.lng != null);
   if (placed.length < 2) return false;
   const dest = placed[placed.length - 1]!;
-  return laneSchedule({ origin: placed[0]!, destination: dest, here, loadedMiles: numOrNull(load.loadedMiles as never), speedMph, windowLatest: dest.w, now: now.getTime() }) === "late";
+  const road = readRoadRoute(load.id, placed, now.getTime()) ?? null;
+  return laneSchedule({ origin: placed[0]!, destination: dest, here, loadedMiles: numOrNull(load.loadedMiles as never), speedMph, windowLatest: dest.w, now: now.getTime(), road }) === "late";
 }
 
 export type RadarTractor = {

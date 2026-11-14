@@ -84,10 +84,13 @@ export async function geocodePermanent(address: string): Promise<Place | null> {
   return parseSuggestions(await getJson(geocodeUrl("mapbox.places-permanent", text, 1, false), "mapbox_permanent"), 1)[0] ?? null;
 }
 
-/** The driving route through two to twenty-five points, in order. */
-export async function drive(points: readonly Place[]): Promise<Drive | null> {
+/**
+ * The driving route through two to twenty-five points, in order. With `geometry`, also the road line, simplified, as GeoJSON (for the radar's road route): standard `mapbox/driving` directions,
+ * car routing, not truck routing (no bridge heights or weight limits). Nothing it returns is written to the database; the road line is kept in server memory only (server/tl/road-route-cache.ts).
+ */
+export async function drive(points: readonly Place[], opts: { geometry?: boolean } = {}): Promise<Drive | null> {
   if (points.length < 2 || points.length > 25 || !mapboxConfigured()) return null;
   const coords = points.map((p) => `${p.lng},${p.lat}`).join(";");
-  const q = new URLSearchParams({ access_token: token(), overview: "false" });
+  const q = new URLSearchParams(opts.geometry ? { access_token: token(), overview: "simplified", geometries: "geojson" } : { access_token: token(), overview: "false" });
   return parseRoute(await getJson(`${BASE}/directions/v5/mapbox/driving/${coords}?${q.toString()}`, "mapbox_directions"));
 }

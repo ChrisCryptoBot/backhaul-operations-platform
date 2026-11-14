@@ -62,13 +62,19 @@ export function parseSuggestions(json: unknown, max = 5): Place[] {
   return out;
 }
 
-export type Drive = { meters: number; seconds: number; legsMeters: number[] };
+/** A driving route. `coords` (lng, lat pairs along the road) only when the line was asked for (`drive(points, { geometry: true })`). */
+export type Drive = { meters: number; seconds: number; legsMeters: number[]; coords?: Array<[number, number]> };
 
-/** The first route in a directions answer, or null when there is none. */
+/** The first route in a directions answer, or null when there is none. The road line is kept only when it is a well-formed GeoJSON LineString. */
 export function parseRoute(json: unknown): Drive | null {
-  const route = (json as { routes?: Array<{ distance?: number; duration?: number; legs?: Array<{ distance?: number }> }> } | null)?.routes?.[0];
+  const route = (json as { routes?: Array<{ distance?: number; duration?: number; legs?: Array<{ distance?: number }>; geometry?: { type?: unknown; coordinates?: unknown } }> } | null)?.routes?.[0];
   if (!route || typeof route.distance !== "number" || typeof route.duration !== "number" || !(route.distance >= 0) || !(route.duration >= 0)) return null;
-  return { meters: route.distance, seconds: route.duration, legsMeters: (route.legs ?? []).map((l) => (typeof l.distance === "number" ? l.distance : Number.NaN)) };
+  const out: Drive = { meters: route.distance, seconds: route.duration, legsMeters: (route.legs ?? []).map((l) => (typeof l.distance === "number" ? l.distance : Number.NaN)) };
+  const c = route.geometry?.type === "LineString" ? route.geometry.coordinates : null;
+  if (Array.isArray(c) && c.length >= 2 && c.every((p) => Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]) && Math.abs(p[1] as number) <= 90 && Math.abs(p[0] as number) <= 180)) {
+    out.coords = c.map((p) => [(p as number[])[0]!, (p as number[])[1]!] as [number, number]);
+  }
+  return out;
 }
 
 // ── Loaded and empty miles ─────────────────────────────────────────────────────────────────────

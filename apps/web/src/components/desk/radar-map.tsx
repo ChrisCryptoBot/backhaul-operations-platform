@@ -9,6 +9,7 @@ import { INTERSTATES } from "@/lib/basemap/interstates";
 import { basemapPaint, radarBasemapLayers } from "@/lib/basemap/paint";
 import { US_STATES } from "@/lib/basemap/us-states";
 import { EXCEPTION_FILTERS, radarParamsText, type ExceptionKey, type RadarPoint, type RadarQueryParams, type SearchInfo } from "@/lib/radar-points";
+import { ROAD_ROUTE_NOTE, laneNote } from "@/lib/telematics";
 import { boundsAround, radiusRing } from "@/lib/radius";
 import { REGIONS, REGION_KEYS, boxAround, firstRegion, mapLng, regionCounts, regionOf, within as withinRegion, type Box, type RegionKey } from "@/lib/radar-regions";
 import type { RadarTractor, RadarTrailer } from "@/server/tl/radar";
@@ -231,6 +232,7 @@ function overlayLayers(t: Tokens): StyleSpecification["layers"] {
     { id: "wx-fill", type: "fill", source: "weather", layout: { visibility: "none" }, paint: { "fill-color": severity, "fill-opacity": 0.12 } },
     { id: "wx-line", type: "line", source: "weather", layout: { visibility: "none" }, paint: { "line-color": severity, "line-width": 1.5, "line-opacity": 0.9 } },
     { id: "radius", type: "line", source: "radius", paint: { "line-color": t.label, "line-width": 1, "line-dasharray": [4, 3] } },
+    { id: "route-road", type: "line", source: "route", filter: ["==", ["get", "part"], "road"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": t.label, "line-width": 3, "line-opacity": 0.9 } },
     { id: "route-lane", type: "line", source: "route", filter: ["==", ["get", "part"], "lane"], paint: { "line-color": t.label, "line-width": 2, "line-dasharray": [3, 2] } },
     { id: "route-trail", type: "line", source: "route", filter: ["==", ["get", "part"], "trail"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": t.ink, "line-width": 2 } },
     { id: "route-stops", type: "symbol", source: "route", filter: ["==", ["get", "part"], "stop"], layout: { "icon-image": ["get", "icon"], "icon-allow-overlap": true, "icon-ignore-placement": true } },
@@ -303,7 +305,9 @@ function routeFeatures(r: RadarRoute | null): unknown[] {
   if (!r || r.status === "none") return [];
   const at = (p: { lat: number; lng: number }): [number, number] => [mapLng(p.lat, p.lng), p.lat];
   const out: unknown[] = [];
-  if (r.stops.length >= 2) out.push({ type: "Feature", properties: { part: "lane" }, geometry: { type: "LineString", coordinates: r.stops.map(at) } });
+  // The road route when one is known (standard car directions, kept in server memory); else the lane, straight from stop to stop.
+  if (r.road && r.road.length >= 2) out.push({ type: "Feature", properties: { part: "road" }, geometry: { type: "LineString", coordinates: r.road.map((c) => at({ lat: c[1], lng: c[0] })) } });
+  else if (r.stops.length >= 2) out.push({ type: "Feature", properties: { part: "lane" }, geometry: { type: "LineString", coordinates: r.stops.map(at) } });
   if (r.trail.length >= 2) out.push({ type: "Feature", properties: { part: "trail" }, geometry: { type: "LineString", coordinates: r.trail.map(at) } });
   for (const st of r.stops) out.push({ type: "Feature", properties: { part: "stop", icon: st.role === "pickup" ? "stop-p" : "stop-d", label: st.label, role: st.role }, geometry: { type: "Point", coordinates: at(st) } });
   return out;
@@ -711,7 +715,16 @@ function RouteLines({ r, fallbackDriver, fallbackTrailer }: { r: RadarRoute | nu
 
 function RouteNote({ r }: { r: RadarRoute | null }) {
   if (!r || r.status === "none") return null;
-  if (r.status === "tracking") return <p className="rd-sub">On the map: the dashed line is the lane stop to stop (not the road route); the solid line is where the truck has been on this load.</p>;
+  if (r.status === "tracking") {
+    if (r.milesBasis === "road") return <p className="rd-sub">On the map: the gold line is the road route; the white line is where the truck has been on this load. {ROAD_ROUTE_NOTE}</p>;
+    return (
+      <p className="rd-sub">
+        {r.road ? "On the map: the gold line is the road route; the white line is where the truck has been on this load. " : "On the map: the dashed line is the lane stop to stop (not the road route); the solid line is where the truck has been on this load. "}
+        {laneNote({ offRoute: r.offRoute, hadRoad: r.road != null })}
+        {r.road ? ` ${ROAD_ROUTE_NOTE}` : null}
+      </p>
+    );
+  }
   if (r.status === "no_lane") return <p className="rd-sub">The load&apos;s stops have no map points yet, so there is no lane to draw.</p>;
   if (r.status === "no_position") return <p className="rd-sub">The truck has no fix yet, so there is no trail to draw.</p>;
   return null;

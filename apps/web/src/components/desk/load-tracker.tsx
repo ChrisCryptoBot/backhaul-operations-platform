@@ -1,6 +1,7 @@
 import Link from "next/link";
 import React from "react";
 import type { LoadTracking } from "@/server/tl/load-tracking";
+import { ROAD_ROUTE_NOTE, laneNote } from "@/lib/telematics";
 
 /**
  * Where it is: the load's lane drawn as a corridor from the pickup to the delivery, the truck's breadcrumb along it and its marker where the ELD last put it, with the speed, road, miles to go, ETA
@@ -41,9 +42,11 @@ export function LoadTracker({ t }: { t: LoadTracking }) {
       </p>
     );
 
-  const everything: Pt[] = [...t.stops, ...t.trail, t.position];
+  const roadPts: Pt[] = (t.road?.coords ?? []).map((c) => ({ lat: c[1], lng: c[0] }));
+  const everything: Pt[] = [...t.stops, ...t.trail, ...roadPts, t.position];
   const at = projector(everything);
   const corridor = t.stops.map((s) => at(s));
+  const roadLine = roadPts.map((p) => at(p));
   const crumbs = t.trail.map((p) => at(p));
   const truck = at(t.position);
   const insideStops = new Set(t.geofences.filter((g) => g.inside).map((g) => g.stop));
@@ -54,7 +57,11 @@ export function LoadTracker({ t }: { t: LoadTracking }) {
     <div className="lt">
       <p className={`lt-head${t.late ? " lt-late" : ""}`}>{t.headline}</p>
       <svg viewBox={`0 0 ${W} ${H}`} className="lt-svg" role="img" aria-label={`${t.truckName}: ${t.headline}`}>
-        <polyline points={corridor.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")} fill="none" strokeDasharray="5 4" style={{ stroke: "var(--line-hi)", strokeWidth: 1 }} />
+        {roadLine.length > 1 ? (
+          <polyline points={roadLine.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")} fill="none" style={{ stroke: "var(--line-hi)", strokeWidth: 2 }} />
+        ) : (
+          <polyline points={corridor.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")} fill="none" strokeDasharray="5 4" style={{ stroke: "var(--line-hi)", strokeWidth: 1 }} />
+        )}
         {crumbs.length > 1 ? <polyline points={crumbs.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")} fill="none" style={{ stroke: "var(--label)", strokeWidth: 2 }} /> : null}
         {t.stops.map((s, i) => {
           const p = corridor[i]!;
@@ -80,6 +87,7 @@ export function LoadTracker({ t }: { t: LoadTracking }) {
       {t.geofences.map((g) => (
         <p key={g.stop} className="lt-geo">{`✔ ${g.text}`}</p>
       ))}
+      <p className="lt-sub">{t.milesBasis === "road" ? ROAD_ROUTE_NOTE : `${laneNote({ offRoute: t.offRoute, hadRoad: t.road != null })}${t.road ? ` ${ROAD_ROUTE_NOTE}` : ""}`}</p>
       <p className="lt-sub">Last fix {ago(t.asOf)}. Shown from the ELD; it does not record an arrival on the stop.</p>
     </div>
   );
