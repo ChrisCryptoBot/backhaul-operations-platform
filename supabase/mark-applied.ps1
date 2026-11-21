@@ -75,7 +75,9 @@ $migrations = @(
   "20261230000000_money_moving_switch",
   "20261231000000_partner_api_keys",
   "20270101000000_webhook_outbox",
-  "20270102000000_partner_event_replay"
+  "20270102000000_partner_event_replay",
+  "20270103000000_driver_link_invites",
+  "20270103000100_driver_link_invite_flag"
 )
 foreach ($m in $migrations) {
   npx prisma migrate resolve --applied $m --schema=./prisma/schema.prisma

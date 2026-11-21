@@ -4,11 +4,12 @@ import { prisma } from "@/lib/db";
 import { BRIDGE_ENV, bridgeConfig } from "@/server/bridge/core";
 import { flushBridgeOutbox, pullBridgeResponses } from "@/server/bridge/service";
 import { supabaseTransport } from "@/server/bridge/transport";
+import { fleetsWithLinksToPull, pullDriverLinks } from "@/server/bridge/links";
 
 /**
  * The driver link's heartbeat: deliver what is waiting for the drivers' phones and read what the phones have written. Called on a schedule (every minute) by whatever runs the desk's cron, with the
- * secret in a header. It does not exist (404) until the server holds the secret and the link's keys, and a wrong secret is a plain 401 with no detail. It touches only fleets that were switched
- * on (a bridge org set); the answer is counts, never a row, an id or a key. Open to a signed-out caller on purpose: the secret is the credential, not a session.
+ * secret in a header. It does not exist (404) until the server holds the secret and the link's keys, and a wrong secret is a plain 401 with no detail. It first reads claimed phone links (fleets
+ * already linked, and fleets with a code waiting), then touches only fleets that were switched on (a bridge org set); the answer is counts, never a row, an id or a key. Open to a signed-out caller on purpose: the secret is the credential, not a session.
  */
 export const dynamic = "force-dynamic";
 
@@ -26,8 +27,20 @@ export async function POST(req: NextRequest) {
   if (!same(given, secret)) return NextResponse.json({ ok: false, error: "Not allowed." }, { status: 401 });
 
   const transport = supabaseTransport(cfg);
+  // Phone links first (Phase 2 step 1): a driver who just typed their code is linked before this minute's deliveries, and a fleet's first link switches it onto the bridge.
+  const linking = await fleetsWithLinksToPull();
+  const links = { linked: 0, unlinked: 0 };
+  for (const id of linking) {
+    try {
+      const got = await pullDriverLinks(transport, { workspaceId: id });
+      links.linked += got.linked;
+      links.unlinked += got.unlinked;
+    } catch {
+      // The link check failing for one fleet never stops the others or the deliveries below.
+    }
+  }
   const fleets = await prisma.workspace.findMany({ where: { bridgeOrgId: { not: null } }, select: { id: true } });
-  const out = { fleets: fleets.length, delivered: 0, failed: 0, retrying: 0, read: 0, applied: 0, flagged: 0 };
+  const out = { fleets: fleets.length, delivered: 0, failed: 0, retrying: 0, read: 0, applied: 0, flagged: 0, ...links };
   for (const f of fleets) {
     // One fleet failing (the link down, a bad row) never stops the others.
     try {

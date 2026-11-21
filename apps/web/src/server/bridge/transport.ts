@@ -1,4 +1,5 @@
 import { wholeOf, type BridgeConfig, type BridgeRow } from "./core";
+import type { LinkRow } from "@/lib/driver-link";
 
 /**
  * How the desk reaches `bridge.external_dispatch`. One small interface, two implementations: the real one (PostgREST over `fetch`, with the service key) and an in-memory one the tests drive,
@@ -19,6 +20,14 @@ export interface BridgeTransport {
   patch(id: string, expectedAssignmentVersion: number, changes: Record<string, unknown>): Promise<BridgeRow | null>;
   /** Rows of this fleet written since `afterSeq`, oldest first. */
   changedSince(orgId: string, afterSeq: number, limit: number): Promise<BridgeRow[]>;
+  /** Driver link (Phase 2 step 1): write a new invite's row on `bridge.driver_links`. */
+  insertLink(row: Record<string, unknown>): Promise<{ id: string }>;
+  /** Withdraw this driver's codes that nobody claimed yet (a new code replaces them). */
+  revokeUnclaimedLinks(orgId: string, deskDriverId: string, at: Date): Promise<void>;
+  /** End this driver's live link from the desk side. */
+  endLink(orgId: string, deskDriverId: string, at: Date): Promise<void>;
+  /** This fleet's claimed links (live or ended), so the pull can link and unlink. */
+  claimedLinks(orgId: string, limit: number): Promise<LinkRow[]>;
 }
 
 const SAFE = { unreachable: "The driver link could not be reached.", rejected: "The driver link refused the request." } as const;
@@ -31,6 +40,8 @@ const plain = (v: string): string => {
 
 export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = fetch): BridgeTransport {
   const base = `${cfg.url}/rest/v1/external_dispatch`;
+  const links = `${cfg.url}/rest/v1/driver_links`;
+  const LINK_COLUMNS = "id,org_id,desk_driver_id,driver_role,claimed_by,claimed_at,revoked_at,ended_by";
   const headers = (write: boolean): Record<string, string> => ({
     apikey: cfg.key,
     Authorization: `Bearer ${cfg.key}`,
@@ -71,6 +82,25 @@ export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = f
     async changedSince(orgId, afterSeq, limit) {
       const q = `?org_id=eq.${plain(orgId)}&sync_seq=gt.${wholeOf(afterSeq)}&order=sync_seq.asc&limit=${Math.min(Math.max(wholeOf(limit), 1), 500)}`;
       return rows(await call(base + q, { method: "GET", headers: headers(false) }));
+    },
+    async insertLink(row) {
+      const out = (await call(links, { method: "POST", headers: headers(true), body: JSON.stringify(row) })) as { id?: string }[];
+      const id = Array.isArray(out) ? out[0]?.id : undefined;
+      if (!id) throw new BridgeTransportError("rejected", SAFE.rejected);
+      return { id };
+    },
+    async revokeUnclaimedLinks(orgId, deskDriverId, at) {
+      const q = `?org_id=eq.${plain(orgId)}&desk_driver_id=eq.${plain(deskDriverId)}&claimed_by=is.null&revoked_at=is.null`;
+      await call(links + q, { method: "PATCH", headers: headers(true), body: JSON.stringify({ revoked_at: at.toISOString(), ended_by: "desk" }) });
+    },
+    async endLink(orgId, deskDriverId, at) {
+      const q = `?org_id=eq.${plain(orgId)}&desk_driver_id=eq.${plain(deskDriverId)}&revoked_at=is.null`;
+      await call(links + q, { method: "PATCH", headers: headers(true), body: JSON.stringify({ revoked_at: at.toISOString(), ended_by: "desk" }) });
+    },
+    async claimedLinks(orgId, limit) {
+      const q = `?org_id=eq.${plain(orgId)}&claimed_by=not.is.null&select=${LINK_COLUMNS}&order=updated_at.asc&limit=${Math.min(Math.max(wholeOf(limit), 1), 500)}`;
+      const out = await call(links + q, { method: "GET", headers: headers(false) });
+      return Array.isArray(out) ? (out as LinkRow[]) : [];
     }
   };
 }
@@ -85,8 +115,17 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     if (opts.down?.()) throw new BridgeTransportError("unreachable", SAFE.unreachable);
   };
   const at = (id: string) => table.findIndex((r) => r.id === id);
-  const transport: BridgeTransport & { table: BridgeRow[]; phone: (id: string, response: Record<string, unknown>) => void } = {
+  type MemLink = LinkRow & { code_hash: string; expires_at: string; carrier_name: string };
+  const linkTable: MemLink[] = [];
+  const transport: BridgeTransport & {
+    table: BridgeRow[];
+    links: MemLink[];
+    phone: (id: string, response: Record<string, unknown>) => void;
+    /** Claim a code the way bridge.claim_driver_link does (unknown, expired or withdrawn -> link_invalid; someone else's -> link_used). */
+    claim: (codeHash: string, phoneUserId: string, now: Date) => "ok" | "link_invalid" | "link_used";
+  } = {
     table,
+    links: linkTable,
     async findOpenRow(orgId, loadId, phoneUserId) {
       guard();
       return [...table].reverse().find((r) => r.org_id === orgId && r.source_load_id === loadId && r.assigned_driver_id === phoneUserId && ["draft", "dispatched"].includes(r.status)) ?? null;
@@ -112,6 +151,31 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
       const i = at(id);
       if (i < 0) throw new Error("no such row");
       table[i] = touch({ ...table[i]!, driver_response: response, execution_version: table[i]!.execution_version + 1 });
+    },
+    async insertLink(row) {
+      guard();
+      const made = { id: `link-${++n}`, claimed_by: null, claimed_at: null, revoked_at: null, ended_by: null, ...row } as MemLink;
+      linkTable.push(made);
+      return { id: made.id };
+    },
+    async revokeUnclaimedLinks(orgId, deskDriverId, when) {
+      guard();
+      for (const l of linkTable) if (l.org_id === orgId && l.desk_driver_id === deskDriverId && !l.claimed_by && !l.revoked_at) Object.assign(l, { revoked_at: when.toISOString(), ended_by: "desk" });
+    },
+    async endLink(orgId, deskDriverId, when) {
+      guard();
+      for (const l of linkTable) if (l.org_id === orgId && l.desk_driver_id === deskDriverId && !l.revoked_at) Object.assign(l, { revoked_at: when.toISOString(), ended_by: "desk" });
+    },
+    async claimedLinks(orgId, limit) {
+      guard();
+      return linkTable.filter((l) => l.org_id === orgId && l.claimed_by).slice(0, limit).map((l) => ({ ...l }));
+    },
+    claim(codeHash, phoneUserId, now) {
+      const l = linkTable.find((x) => x.code_hash === codeHash);
+      if (!l || l.revoked_at || (!l.claimed_by && Date.parse(l.expires_at) <= now.getTime())) return "link_invalid";
+      if (l.claimed_by && l.claimed_by !== phoneUserId) return "link_used";
+      Object.assign(l, { claimed_by: phoneUserId, claimed_at: l.claimed_at ?? now.toISOString() });
+      return "ok";
     }
   };
   return transport;

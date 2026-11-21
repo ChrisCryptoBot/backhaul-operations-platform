@@ -21,6 +21,9 @@ import { addressText, profileGaps, tinStatusLabel, tinTypeLabel } from "@/lib/fo
 import { driverTaxValuesOf } from "@/server/tl/fleet";
 import { DriverDeductions } from "@/components/desk/driver-deductions";
 import { driverDeductions } from "@/server/tl/deductions";
+import { DriverPhoneLink, type PhoneLinkView } from "@/components/desk/driver-phone-link";
+import { driverLinkView } from "@/server/bridge/links";
+import { suggestedLinkRole } from "@/lib/driver-link";
 
 export const dynamic = "force-dynamic";
 
@@ -29,16 +32,25 @@ const late = (m: number | null) => (m == null ? null : m >= 120 ? `${Math.round(
 
 /** One driver: whether they can take a load, what they are on now, and how they have done on the loads they delivered. */
 export default async function DriverPage({ params }: { params: { id: string } }) {
-  const [d, statements, access, deductions] = await Promise.all([
+  const [d, statements, access, deductions, link] = await Promise.all([
     getDriverDetail(params.id),
     listDriverSettlements(params.id),
     checkAccess("read"),
-    driverDeductions(params.id)
+    driverDeductions(params.id),
+    driverLinkView(params.id)
   ]);
   if (!d) notFound();
   const me = access.ok ? access.identity : null;
   const canBill = !!me && can(me.role, me.grants, "bill");
   const seeTax = !!me && can(me.role, me.grants, "billing_details");
+  const canLink = !!me && can(me.role, me.grants, "roster");
+  // Dates cross to the client as text.
+  const linkView: PhoneLinkView =
+    link.state.kind === "linked"
+      ? { kind: "linked", since: link.state.since ? link.state.since.toISOString() : null }
+      : link.state.kind === "pending"
+        ? { kind: "pending", expiresAt: link.state.expiresAt.toISOString() }
+        : { kind: link.state.kind };
   const history = await listAudit({ group: "fleet", q: d.driver.name, pageSize: 8 }, undefined, await currentTerminal(), (await currentAllowed()) == null);
   const p = d.driver;
   const s = d.scorecard;
@@ -134,6 +146,9 @@ export default async function DriverPage({ params }: { params: { id: string } })
             <dt>Usual pay</dt>
             <dd>{payLabel(p.defaultPayKind, numOrNull(p.defaultPayRate))}</dd>
           </dl>
+        </Card>
+        <Card title="Their phone">
+          <DriverPhoneLink driverId={p.id} driverName={p.name} view={linkView} suggestedRole={link.role ?? suggestedLinkRole(p.payrollWorkerType)} canEdit={canLink} />
         </Card>
       </div>
 

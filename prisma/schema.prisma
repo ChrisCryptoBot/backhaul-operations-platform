@@ -76,6 +76,7 @@ model Workspace {
   bridgeCursor        BigInt                 @default(0) @map("bridge_cursor")
   partnerConnections  PartnerConnection[]
   bridgeOutbox        BridgeOutbox[]
+  driverLinkInvites   DriverLinkInvite[]
   partnerCredentials  PartnerCredential[]
   partnerEvents       PartnerEvent[]
   partnerOAuthTokens  PartnerOAuthToken[]
@@ -549,6 +550,7 @@ model Driver {
   advances        DriverAdvance[]
   ledger          DriverLedgerEntry[]
   timeOff         DriverShiftException[]
+  linkInvites     DriverLinkInvite[]
 
   @@unique([workspaceId, phoneUserId])
   @@unique([workspaceId, code])
@@ -1258,6 +1260,38 @@ model PartnerEvent {
 
 /// What still has to be told to a driver's phone: written in the same transaction as the desk change it follows (send, change, reassign, unassign), then delivered and retried by the flusher.
 /// No payload is kept: the summary is rebuilt from the load at delivery time, so a late delivery sends the current truth, checked again for anything a driver must not see.
+/// A single-use invite code that links a desk driver to their TrueLane phone account (Phase 2 step 1; docs/DRIVER_LINK_DESIGN.md section 3a). The code is shown once and only its
+/// sha256 is kept (here and on the bridge's `driver_links` row, `bridgeLinkId`). The phone claims it; the desk's pull then fills `Driver.phoneUserId` with the phone's Clerk user id.
+model DriverLinkInvite {
+  id           String    @id @default(cuid())
+  workspaceId  String    @map("workspace_id")
+  driverId     String    @map("driver_id")
+  /// sha256 (hex) of the normalised code: upper case, letters and digits only (src/lib/driver-link.ts hashInviteCode, the same rule as bridge.invite_code_hash).
+  codeHash     String    @unique @map("code_hash")
+  /// company | lease_purchase | owner_op_leased: the role the link sets and locks on the phone.
+  driverRole   String    @map("driver_role")
+  expiresAt    DateTime  @map("expires_at")
+  /// The bridge row (bridge.driver_links.id) once written; null while the bridge could not be reached.
+  bridgeLinkId String?   @map("bridge_link_id")
+  /// The phone's Clerk user id and when it claimed the code (from the pull).
+  claimedBy    String?   @map("claimed_by")
+  claimedAt    DateTime? @map("claimed_at")
+  /// Withdrawn by the desk (a new code replaces it, or the link is ended) or ended by the driver.
+  revokedAt    DateTime? @map("revoked_at")
+  endedBy      String?   @map("ended_by")
+  /// The phone account this code's claim was flagged for (it already belongs to another driver here), so the minute-by-minute pull records the flag once, not every minute.
+  flaggedFor   String?   @map("flagged_for")
+  createdBy    String?   @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  driver    Driver    @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, driverId, createdAt])
+  @@map("driver_link_invites")
+}
+
 model BridgeOutbox {
   id            String    @id @default(cuid())
   workspaceId   String    @map("workspace_id")

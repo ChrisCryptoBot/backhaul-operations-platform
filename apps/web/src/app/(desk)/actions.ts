@@ -19,6 +19,9 @@ import { isRecallCode } from "@/lib/recall-reasons";
 import { RelayError, acknowledgeDiscrepancy, flagDiscrepancy, receiveHandoff, recordDrop } from "@/server/tl/relay";
 import type { MilesSource } from "@/lib/relay";
 import { retryBridgeDelivery } from "@/server/bridge/retry";
+import { endDriverLinkFromDesk, issueDriverInvite, pullDriverLinks } from "@/server/bridge/links";
+import { bridgeConfig } from "@/server/bridge/core";
+import { supabaseTransport } from "@/server/bridge/transport";
 import { setWorkspaceTimezone } from "@/server/tl/zone-setting";
 import { ZONE_COOKIE } from "@/lib/tz";
 import { cancelLoad, recordTonu, reopenCancelled, rescheduleLoad } from "@/server/tl/disruptions";
@@ -473,6 +476,42 @@ export async function removeTimeOffAction(driverId: string, dateKey: string, for
 export async function setDriversHomeAction(driverIds: string[], terminal: string | null): Promise<TerminalResult> {
   await requireCan("roster");
   const out = await setDriversHome(driverIds, terminal);
+  if (out.ok) refreshFleet();
+  return out;
+}
+
+/** The bridge transport when this server holds the link's keys, else null (the screens then say the link is not switched on). */
+const linkTransport = () => {
+  const cfg = bridgeConfig(process.env as Record<string, string | undefined>);
+  return cfg ? supabaseTransport(cfg) : null;
+};
+
+/** Phase 2 step 1: a single-use code for one driver's phone. The code comes back once, for the dispatcher to read out or send; only its hash is kept. */
+export async function issueDriverInviteAction(driverId: string, role: string): Promise<{ ok: true; code: string; expiresAt: string } | { ok: false; error: string }> {
+  await requireCan("roster");
+  const out = await issueDriverInvite(linkTransport(), { driverId, role });
+  if (!out.ok) return out;
+  refreshFleet();
+  return { ok: true, code: out.code, expiresAt: out.expiresAt.toISOString() };
+}
+
+/** Look on the bridge now for a claimed code (the cron does it every minute; this is the dispatcher not wanting to wait). */
+export async function checkDriverLinkAction(): Promise<{ ok: true; linked: number } | { ok: false; error: string }> {
+  await requireCan("roster");
+  const t = linkTransport();
+  if (!t) return { ok: false, error: "The driver link is not switched on for this server yet." };
+  try {
+    const got = await pullDriverLinks(t);
+    refreshFleet();
+    return { ok: true, linked: got.linked };
+  } catch {
+    return { ok: false, error: "The driver link could not be reached. Try again in a minute." };
+  }
+}
+
+export async function endDriverLinkAction(driverId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireCan("roster");
+  const out = await endDriverLinkFromDesk(linkTransport(), { driverId });
   if (out.ok) refreshFleet();
   return out;
 }

@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/tripHours.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/tripHours.ts @ fa7e4650. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Trip hours — one rule for every per-hour number (RPH, hourly driver pay, the time-trap check).
  *

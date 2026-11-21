@@ -728,6 +728,15 @@ dd>.sub{display:block;color:var(--dim)}
 
 }
 
+/* Driver page: the phone link card (Phase 2 step 1). */
+@layer terminal {
+  .pl-link{display:grid;gap:10px}
+  .pl-link p{margin:0}
+  .pl-link-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .pl-link-row .tl-field{margin:0}
+  .pl-link-code{font-size:22px;letter-spacing:2px;user-select:all}
+}
+
 @layer app {
 /* ---- Big screens: the desk is drawn dense, for a laptop. At 100% browser zoom on a 1700px+ monitor it reads small, so the whole page is scaled the way 125% browser zoom would be (CSS zoom on the root, so type, spacing,
    tables, dialogs and pop-ups grow together). 1500 to 1699px gets 112%, 1700px and up 125%; below 1500px nothing changes. If a browser is already zoomed past 100% the width in CSS px shrinks and the step drops by itself.

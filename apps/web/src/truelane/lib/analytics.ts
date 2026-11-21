@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/analytics.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/analytics.ts @ fa7e4650. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Dashboard analytics (#19): aggregates a driver's completed loads into the
  * higher-level views the History scorecard doesn't cover — period totals (this
@@ -15,6 +15,7 @@
  * fuel/tolls/misc. Only completed/TONU loads count.
  */
 
+import { personalLoads } from '@/truelane/lib/domain/bridgedLoads';
 import {
   drivenMiles,
   isRevenueLoad as isRevenueLoadRule,
@@ -25,7 +26,8 @@ import {
 import { effectiveMiles } from '@/truelane/lib/domain/quotedMiles';
 import { loadMarketVariance } from '@/truelane/lib/domain/marketVariance';
 
-export type AnalyticsPeriod = 'month' | 'ytd' | 'all';
+/** 'quarter' is the calendar quarter `now` falls in (Jan-Mar, Apr-Jun, Jul-Sep, Oct-Dec): the Wallet tab's middle period. */
+export type AnalyticsPeriod = 'month' | 'quarter' | 'ytd' | 'all';
 
 /** Minimal load shape needed for analytics (WatermelonDB `Load` satisfies it). */
 export type AnalyticsLoadInput = {
@@ -63,6 +65,8 @@ export type AnalyticsLoadInput = {
    * disparity. Point-in-time by design (don't recompute from current history).
    */
   marketBenchmark?: number | null;
+  /** v27: set when the carrier's desk sent this load through the bridge. Such a load is the carrier's, never in these totals (lib/domain/bridgedLoads.ts). */
+  externalDispatchId?: string | null;
 };
 
 export type LaneStat = {
@@ -270,6 +274,12 @@ function inPeriod(t: number, period: AnalyticsPeriod, now: Date): boolean {
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
     return t >= start && t < end;
   }
+  if (period === 'quarter') {
+    const first = Math.floor(now.getMonth() / 3) * 3;
+    const start = new Date(now.getFullYear(), first, 1).getTime();
+    const end = new Date(now.getFullYear(), first + 3, 1).getTime();
+    return t >= start && t < end;
+  }
   // ytd
   const start = new Date(now.getFullYear(), 0, 1).getTime();
   const end = new Date(now.getFullYear() + 1, 0, 1).getTime();
@@ -380,6 +390,14 @@ function monthlyTrend(loads: AnalyticsLoadInput[], now: Date, monthsBack: number
   return out;
 }
 
+/**
+ * The finished loads a period counts: completed or TONU (isRevenueLoad), dated by completion (loadCompletedAtMs). The same set
+ * computeAnalytics totals, exported so a screen that shows those totals (the Wallet tab) counts the very same loads for its other figures.
+ */
+export function revenueLoadsInPeriod<T extends AnalyticsLoadInput>(loads: readonly T[], period: AnalyticsPeriod, now: Date = new Date()): T[] {
+  return personalLoads(loads).filter((l) => isRevenueLoad(l) && inPeriod(loadCompletedAtMs(l), period, now));
+}
+
 export function computeAnalytics(
   loads: AnalyticsLoadInput[],
   period: AnalyticsPeriod,
@@ -389,7 +407,8 @@ export function computeAnalytics(
   const monthsBack = Math.max(1, opts?.monthsBack ?? 6);
   const topN = Math.max(1, opts?.topN ?? 5);
 
-  const revenueLoads = loads.filter(isRevenueLoad);
+  // A load the carrier sent through the bridge is the carrier's: never in the driver's own totals (R7-22).
+  const revenueLoads = personalLoads(loads).filter(isRevenueLoad);
   const scoped = revenueLoads.filter((l) => inPeriod(loadCompletedAtMs(l), period, now));
   const monthly = monthlyTrend(revenueLoads, now, monthsBack);
 

@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/fuelSurcharge.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/fuelSurcharge.ts @ fa7e4650. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Fuel surcharge is entered as either a percent of the offer or dollars per
  * loaded mile. The DB column `fuel_surcharge` stays in dollars.

@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/insuranceFields.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/insuranceFields.ts @ fa7e4650. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Cost Profile insurance: one total, or five categories (math audit C2).
  *

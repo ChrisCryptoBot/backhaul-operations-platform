@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/appointmentWindow.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/appointmentWindow.ts @ fa7e4650. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Appointment window parse/format for load-detail stop rows.
  * Timed = point appointment; Open 24h = local calendar day 00:00 → 23:59:00.

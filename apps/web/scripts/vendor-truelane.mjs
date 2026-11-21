@@ -33,6 +33,7 @@ export const FILES = [
   "lib/domain/fieldRelevance.ts",
   "lib/domain/hos.ts",
   "lib/domain/loadEconomics.ts",
+  "lib/domain/bridgedLoads.ts",
   "lib/domain/marketVariance.ts",
   "lib/domain/marketVerdict.ts",
   "lib/domain/onTime.ts",

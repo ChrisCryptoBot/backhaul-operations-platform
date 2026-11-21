@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/evaluateLoad.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/evaluateLoad.ts @ fa7e4650. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * The Calculate screen's math in one pure function — the screen, the math parity test and the formula-map
  * generator (scripts/formula-map) all call this, so the numbers an outside verifier checks are the numbers

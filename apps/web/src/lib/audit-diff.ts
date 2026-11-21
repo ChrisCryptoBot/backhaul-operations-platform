@@ -170,6 +170,9 @@ export type AuditAction =
   | "lane_target_set"
   | "kpi_note_saved"
   | "driver_link_flag"
+  | "driver_link_code_made"
+  | "driver_linked"
+  | "driver_unlinked"
   | "trailer_added"
   | "trailer_changed"
   | "trailer_archived"
@@ -326,6 +329,9 @@ export const ACTION_LABEL: Record<string, string> = {
   lane_target_set: "Lane target set",
   kpi_note_saved: "Notes for the call saved",
   driver_link_flag: "Out of step with the driver's phone",
+  driver_link_code_made: "Phone link code made",
+  driver_linked: "Driver's phone linked",
+  driver_unlinked: "Driver's phone unlinked",
   trailer_added: "Trailer added",
   trailer_changed: "Trailer changed",
   trailer_archived: "Trailer archived",
@@ -483,6 +489,9 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   lane_target_set: "muted",
   kpi_note_saved: "muted",
   driver_link_flag: "warn",
+  driver_link_code_made: "muted",
+  driver_linked: "ok",
+  driver_unlinked: "info",
   trailer_added: "info",
   trailer_changed: "muted",
   trailer_archived: "bad",
@@ -501,7 +510,7 @@ export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[]
   { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "invoice_chased", "detention_waived", "detention_evidence_confirmed", "detention_evidence_dismissed", "invoice_voided", "credit_memo_issued", "credit_memo_voided", "paid", "payment_part", "payment_undone", "statement_started", "statement_saved", "statement_paid", "load_settled", "load_released", "statement_finalized", "statement_voided", "statement_discarded"] },
   { key: "intake", label: "Intake", actions: ["rate_con_saved", "rate_con_read", "rate_con_read_failed", "document_added", "document_removed", "loads_import_completed", "loads_import_removed", "history_import_completed", "history_import_removed"] },
   { key: "team", label: "Team", actions: ["member_added", "member_role_changed", "member_removed", "member_scope_changed"] },
-  { key: "fleet", label: "Fleet", actions: ["driver_added", "driver_changed", "driver_tax_changed", "deduction_added", "deduction_changed", "deduction_started", "deduction_stopped", "advance_given", "advance_paused", "advance_resumed", "driver_deactivated", "driver_reactivated", "schedule_changed", "time_off_added", "time_off_removed", "terminal_added", "terminal_renamed", "terminal_archived", "driver_home_set", "driver_code_changed", "region_added", "region_renamed", "region_archived", "terminal_region_set", "check_call", "check_call_removed", "truck_added", "truck_changed", "truck_archived", "truck_restored", "import_completed", "cost_profile_changed", "trailer_added", "trailer_changed", "trailer_archived", "trailer_restored", "trailer_hooked", "trailer_unhooked", "trailer_assigned", "dwell_adjusted", "dwell_waived", "dwell_reset"] },
+  { key: "fleet", label: "Fleet", actions: ["driver_link_code_made", "driver_linked", "driver_unlinked", "driver_added", "driver_changed", "driver_tax_changed", "deduction_added", "deduction_changed", "deduction_started", "deduction_stopped", "advance_given", "advance_paused", "advance_resumed", "driver_deactivated", "driver_reactivated", "schedule_changed", "time_off_added", "time_off_removed", "terminal_added", "terminal_renamed", "terminal_archived", "driver_home_set", "driver_code_changed", "region_added", "region_renamed", "region_archived", "terminal_region_set", "check_call", "check_call_removed", "truck_added", "truck_changed", "truck_archived", "truck_restored", "import_completed", "cost_profile_changed", "trailer_added", "trailer_changed", "trailer_archived", "trailer_restored", "trailer_hooked", "trailer_unhooked", "trailer_assigned", "dwell_adjusted", "dwell_waived", "dwell_reset"] },
   { key: "customers", label: "Customers", actions: ["customer_added", "customer_changed"] },
   { key: "partners", label: "Partners", actions: ["factoring_requested", "factoring_updated", "factoring_terms_saved", "factoring_chargeback", "factoring_batch_sent", "factoring_batch_failed", "factoring_batch_cancelled", "factoring_status_imported", "accounting_accounts_saved", "accounting_synced", "eld_linked", "hos_synced", "eld_fleet_imported", "fuel_imported", "fuel_csv_imported", "fuel_csv_removed", "fuel_flag_cleared", "fuel_flag_reopened", "ifta_rates_imported", "ifta_rates_sample_loaded", "ifta_rates_cleared", "ifta_miles_synced", "ifta_miles_routed", "ifta_return_filed", "ifta_return_amended", "ifta_return_reopened", "carrier_vetted", "payroll_sent", "partner_connected", "money_moving_switched", "api_key_created", "api_key_revoked", "webhook_endpoint_created", "webhook_secret_rotated", "webhook_endpoint_switched", "webhook_test_sent", "partner_event_replayed", "webhook_delivery_retried", "partner_sync_retried", "partner_issue_resolved", "partner_credentials_saved", "partner_event", "driver_link_flag"] },
   { key: "settings", label: "Settings", actions: ["thresholds_changed", "company_changed", "timezone_changed", "lane_target_set", "kpi_note_saved", "signal_settings_changed", "leak_intake_saved"] }

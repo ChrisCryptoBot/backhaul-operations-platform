@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/equipmentDrift.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/equipmentDrift.ts @ fa7e4650. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Equipment Drift Detection (Phase 11 Hardening).
  * Compares load requirements against vehicle capabilities to prevent operational failures.

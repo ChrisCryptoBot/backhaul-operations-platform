@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/costProfileHero.ts @ 44787e2c. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/costProfileHero.ts @ fa7e4650. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * The cost profile's hero card: the numbers it can show and how each reads. The card is the first thing the driver sees
  * on the cost profile, and fuel sets the market, so when a fuel price is known it opens on truck cost + fuel; without
