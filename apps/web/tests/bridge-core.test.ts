@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { BRIDGE_ENV, MAX_ATTEMPTS, backoffMinutes, bridgeConfig, bridgeMode, closeDispatchRow, interpretRow, newDispatchRow, nextAttemptAt, parseDriverResponse, updateDispatchRow, wholeOf } from "@/server/bridge/core";
+import { describe, expect, it, vi } from "vitest";
+import { BRIDGE_ENV, MAX_ATTEMPTS, backoffMinutes, bridgeConfig, bridgeMode, closeDispatchRow, interpretRow, newDispatchRow, nextAttemptAt, parseDriverResponse, phoneCompletionValues, replacementFor, updateDispatchRow, wholeOf } from "@/server/bridge/core";
 import { BridgeTransportError, memoryTransport, supabaseTransport } from "@/server/bridge/transport";
 import { FORBIDDEN_KEY } from "@/server/tl/projector";
 
@@ -208,5 +208,40 @@ describe("confidentiality at the boundary", () => {
     const all = ["core.ts", "outbox.ts", "service.ts", "transport.ts"].map((f) => src(`src/server/bridge/${f}`)).join("\n");
     expect(all).not.toMatch(/console\.(log|info|warn|error)/);
     expect(all).not.toMatch(/process\.env\.BRIDGE_/);
+  });
+});
+
+describe("a delivery from the phone (G10)", () => {
+  it("fills the desk's delivery form: proof received with the paths and miles in the note, nothing guessed", () => {
+    const v = phoneCompletionValues({ podRefs: [{ stopSeq: 1, path: `${ORG}/loads/L1/pod1.jpg` }], actualMiles: 340.5 }, "2026-11-21T09:30");
+    expect(v).toMatchObject({ deliveredAt: "2026-11-21T09:30", pod: "received", stops: [], fuel: "", tolls: "", misc: "" });
+    expect(v.podNote).toContain(`${ORG}/loads/L1/pod1.jpg`);
+    expect(v.podNote).toContain("340.5 mi driven");
+    expect(v).not.toHaveProperty("miles");
+  });
+  it("no proof: recorded as none, and the note says the phone filed none", () => {
+    const v = phoneCompletionValues({ podRefs: [], actualMiles: null }, "2026-11-21T09:30");
+    expect(v.pod).toBe("none");
+    expect(v.podNote).toBe("The driver's phone filed no proof of delivery.");
+  });
+  it("keeps the note within the desk's 300 characters", () => {
+    const refs = Array.from({ length: 40 }, (_, i) => ({ stopSeq: null, path: `${ORG}/loads/L1/a-long-file-name-${i}.jpg` }));
+    expect(phoneCompletionValues({ podRefs: refs, actualMiles: 1 }, "x").podNote.length).toBeLessThanOrEqual(300);
+  });
+});
+
+describe("which row replaced a reassigned one (G10)", () => {
+  it("is the newest open row of the load for another phone, or none yet", () => {
+    const rows = [{ id: "new", assigned_driver_id: "u2", status: "dispatched" }, { id: "old", assigned_driver_id: "u1", status: "reassigned" }];
+    expect(replacementFor({ assigned_driver_id: "u1" }, rows)).toBe("new");
+    expect(replacementFor({ assigned_driver_id: "u1" }, [rows[1]!])).toBeNull();
+    expect(replacementFor({ assigned_driver_id: "u2" }, rows)).toBeNull();
+  });
+  it("the real transport asks for one fleet's rows of one load", async () => {
+    const f = vi.fn(async () => new Response("[]", { status: 200 }));
+    await supabaseTransport({ url: "https://x.supabase.co", key: "k" }, f as unknown as typeof fetch).rowsForLoad(ORG, "L1");
+    const [url] = f.mock.calls[0] as unknown as [string];
+    expect(url).toContain(`org_id=eq.${ORG}`);
+    expect(url).toContain("source_load_id=eq.L1");
   });
 });

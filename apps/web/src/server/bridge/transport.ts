@@ -20,6 +20,8 @@ export interface BridgeTransport {
   patch(id: string, expectedAssignmentVersion: number, changes: Record<string, unknown>): Promise<BridgeRow | null>;
   /** Rows of this fleet written since `afterSeq`, oldest first. */
   changedSince(orgId: string, afterSeq: number, limit: number): Promise<BridgeRow[]>;
+  /** Every row of this fleet for one load, newest first (G10: to say which row replaced a reassigned one). */
+  rowsForLoad(orgId: string, loadId: string): Promise<BridgeRow[]>;
   /** Driver link (Phase 2 step 1): write a new invite's row on `bridge.driver_links`. */
   insertLink(row: Record<string, unknown>): Promise<{ id: string }>;
   /** Withdraw this driver's codes that nobody claimed yet (a new code replaces them). */
@@ -81,6 +83,10 @@ export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = f
     },
     async changedSince(orgId, afterSeq, limit) {
       const q = `?org_id=eq.${plain(orgId)}&sync_seq=gt.${wholeOf(afterSeq)}&order=sync_seq.asc&limit=${Math.min(Math.max(wholeOf(limit), 1), 500)}`;
+      return rows(await call(base + q, { method: "GET", headers: headers(false) }));
+    },
+    async rowsForLoad(orgId, loadId) {
+      const q = `?org_id=eq.${plain(orgId)}&source_load_id=eq.${plain(loadId)}&order=sync_seq.desc&limit=20`;
       return rows(await call(base + q, { method: "GET", headers: headers(false) }));
     },
     async insertLink(row) {
@@ -146,6 +152,10 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     async changedSince(orgId, afterSeq, limit) {
       guard();
       return table.filter((r) => r.org_id === orgId && r.sync_seq > afterSeq).sort((a, b) => a.sync_seq - b.sync_seq).slice(0, limit);
+    },
+    async rowsForLoad(orgId, loadId) {
+      guard();
+      return table.filter((r) => r.org_id === orgId && r.source_load_id === loadId).sort((a, b) => b.sync_seq - a.sync_seq).map((r) => ({ ...r }));
     },
     phone(id, response) {
       const i = at(id);

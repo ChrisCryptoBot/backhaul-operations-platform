@@ -14,6 +14,7 @@ import { assertDriverSafe, type LoadSummary } from "@/server/tl/projector";
 const run = process.env.RUN_DB_INTEGRATION === "true";
 const ORG = "org_test_fleet";
 const PHONE = "user_test_driver";
+const PHONE_2 = "user_test_driver_2";
 
 describe.skipIf(!run)("the driver link, desk half", () => {
   const ws = currentWorkspaceId();
@@ -109,7 +110,7 @@ describe.skipIf(!run)("the driver link, desk half", () => {
     expect(["in_progress", "accepted"]).toContain(a.status);
   });
 
-  test("a delivery from the phone is shown as an alert, never forced into a completed load", async () => {
+  test("a delivery from the phone is applied (G10): the delivery time, proof received, and what the phone filed in the note", async () => {
     const t = memoryTransport();
     await reset();
     await assignAndSend();
@@ -120,10 +121,75 @@ describe.skipIf(!run)("the driver link, desk half", () => {
     await pullBridgeResponses(t);
     t.phone(t.table[0]!.id, { state: "completed", completion: { completed_at: new Date().toISOString(), actual_total_miles: 340.5 }, pod_refs: [{ stop_seq: 1, path: `${ORG}/loads/${loadId}/pod1.jpg` }] });
     const out = await pullBridgeResponses(t);
-    expect(out.flagged).toBeGreaterThanOrEqual(1);
-    expect((await prisma.load.findUniqueOrThrow({ where: { id: loadId } })).status).not.toBe("completed");
-    const flag = await prisma.auditEvent.findFirst({ where: { loadId, action: "driver_link_flag" }, orderBy: { createdAt: "desc" } });
-    expect(flag?.summary).toMatch(/delivered/);
+    expect(out).toMatchObject({ applied: 1, flagged: 0 });
+    const load = await prisma.load.findUniqueOrThrow({ where: { id: loadId } });
+    expect(load.status).toBe("completed");
+    expect(load.closedWithoutPod).toBe(false);
+    expect(load.podNote).toContain(`${ORG}/loads/${loadId}/pod1.jpg`);
+    expect(load.podNote).toContain("340.5 mi driven");
+    expect((await prisma.assignment.findUniqueOrThrow({ where: { loadId } })).status).toBe("completed");
+    // At least once: reading the same row again changes nothing.
+    expect(await pullBridgeResponses(t)).toMatchObject({ applied: 0 });
+  });
+
+  test("a proof path outside the fleet's or the driver's folder is dropped: the delivery is recorded with no proof, and says so", async () => {
+    const t = memoryTransport();
+    await reset();
+    await assignAndSend();
+    await flushBridgeOutbox(t);
+    t.phone(t.table[0]!.id, { state: "accepted" });
+    await pullBridgeResponses(t);
+    t.phone(t.table[0]!.id, { state: "in_progress", started_at: new Date(Date.now() - 7_200_000).toISOString() });
+    await pullBridgeResponses(t);
+    t.phone(t.table[0]!.id, { state: "completed", completion: { completed_at: new Date().toISOString() }, pod_refs: [{ path: "../other_fleet/pod.jpg" }] });
+    expect(await pullBridgeResponses(t)).toMatchObject({ applied: 1 });
+    const load = await prisma.load.findUniqueOrThrow({ where: { id: loadId } });
+    expect(load.closedWithoutPod).toBe(true);
+    expect(load.podNote).toMatch(/filed no proof of delivery/);
+  });
+
+  test("two runs at once never deliver the same row twice (G10 lease, FOR UPDATE SKIP LOCKED)", async () => {
+    const t = memoryTransport();
+    await reset();
+    await assignAndSend();
+    const now = new Date();
+    const [a, b] = await Promise.all([flushBridgeOutbox(t, { now }), flushBridgeOutbox(t, { now })]);
+    expect(a.delivered + b.delivered).toBe(1);
+    expect(t.table).toHaveLength(1);
+    const item = await prisma.bridgeOutbox.findFirstOrThrow({ where: { loadId } });
+    expect(item).toMatchObject({ status: "done", leaseUntil: null });
+  });
+
+  test("a row whose lease is still held by another run is left alone until the lease runs out", async () => {
+    const t = memoryTransport();
+    await reset();
+    await assignAndSend();
+    const now = new Date();
+    await prisma.bridgeOutbox.updateMany({ where: { loadId }, data: { leaseUntil: new Date(now.getTime() + 60_000) } });
+    expect(await flushBridgeOutbox(t, { now })).toMatchObject({ delivered: 0 });
+    expect(await flushBridgeOutbox(t, { now: new Date(now.getTime() + 120_000) })).toMatchObject({ delivered: 1 });
+  });
+
+  test("a reassigned row says which row replaced it (G10 replaced_by_dispatch_id)", async () => {
+    const t = memoryTransport();
+    await reset();
+    await assignAndSend();
+    await flushBridgeOutbox(t);
+    const first = t.table[0]!;
+    const other = await prisma.driver.findFirstOrThrow({ where: { workspaceId: ws, active: true, id: { not: driverId } }, select: { id: true, phoneUserId: true } });
+    await prisma.driver.update({ where: { id: other.id }, data: { phoneUserId: PHONE_2 } });
+    try {
+      await assignDriver({ loadId, driverId: other.id, pay: { kind: "cpm", rate: 0.6 }, overrideReason: "driver link test" });
+      await dispatchLoad(loadId);
+      await flushBridgeOutbox(t);
+      const closed = t.table.find((r) => r.id === first.id)!;
+      const fresh = t.table.find((r) => r.assigned_driver_id === PHONE_2)!;
+      expect(closed.status).toBe("reassigned");
+      expect(fresh).toBeTruthy();
+      expect(closed.replaced_by_dispatch_id).toBe(fresh.id);
+    } finally {
+      await prisma.driver.update({ where: { id: other.id }, data: { phoneUserId: other.phoneUserId } });
+    }
   });
 
   test("taking the driver off closes the row (never deletes it), and a late answer from the phone is flagged, not applied", async () => {

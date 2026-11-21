@@ -1307,6 +1307,9 @@ model BridgeOutbox {
   attempts      Int       @default(0)
   nextAttemptAt DateTime  @default(now()) @map("next_attempt_at")
   lastError     String?   @map("last_error")
+  /// Phase 2 step 2 (G10): a run claims due rows with FOR UPDATE SKIP LOCKED and a short lease (as webhook_deliveries do), so two runs at once never deliver the same row; a run that
+  /// dies lets the lease run out and the next run takes the row.
+  leaseUntil    DateTime? @map("lease_until")
   createdAt     DateTime  @default(now()) @map("created_at")
   doneAt        DateTime? @map("done_at")
 

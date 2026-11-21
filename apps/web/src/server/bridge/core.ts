@@ -143,6 +143,25 @@ export function interpretRow(i: { row: Pick<BridgeRow, "assigned_driver_id" | "e
   return { kind: "apply", steps: path.slice(at, target) };
 }
 
+// ── delivered on the phone (G10) ──────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * The desk's delivery form, filled from the phone's answer: the delivery time (already placed on the carrier's clock by the caller), proof received when the phone filed proof inside
+ * the fleet's or the driver's folder (parseDriverResponse already dropped any other path), and what the phone reported in the note. Costs, stop times and the miles split are left
+ * blank: the phone does not send them, and the desk never guesses a pickup / loaded / home split from one total. The note says where each part came from.
+ */
+export function phoneCompletionValues(answer: Pick<DriverAnswer, "podRefs" | "actualMiles">, deliveredLocal: string) {
+  const n = answer.podRefs.length;
+  const miles = answer.actualMiles != null ? ` The phone recorded ${answer.actualMiles} mi driven.` : "";
+  const podNote = n > 0 ? `From the driver's phone: ${n} proof of delivery ${n === 1 ? "file" : "files"} (${answer.podRefs.map((r) => r.path).join(", ")}).${miles}` : `The driver's phone filed no proof of delivery.${miles}`;
+  return { stops: [], deliveredAt: deliveredLocal, pod: n > 0 ? ("received" as const) : ("none" as const), podNote: podNote.slice(0, 300), fuel: "", tolls: "", misc: "" };
+}
+
+/** Which row replaced a reassigned one: the newest open row of the same load for a different phone, or null while there is none yet. */
+export function replacementFor(closed: Pick<BridgeRow, "assigned_driver_id">, rows: readonly Pick<BridgeRow, "id" | "assigned_driver_id" | "status">[]): string | null {
+  return rows.find((r) => r.assigned_driver_id !== closed.assigned_driver_id && (r.status === "dispatched" || r.status === "draft"))?.id ?? null;
+}
+
 // ── retries ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Minutes before the next try after this many failures: 1, 5, 15, 60, then a day. */
