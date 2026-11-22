@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React from "react";
 import { checkDriverLinkAction, endDriverLinkAction, issueDriverInviteAction } from "@/app/(desk)/actions";
-import { LINK_ROLES, type LinkRole } from "@/lib/driver-link";
+import { LINK_ROLES, type LinkRole } from "@/lib/driver-link-roles";
 import { useToast } from "./kit/toast";
 import { useDraft } from "./kit/use-draft";
 

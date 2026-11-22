@@ -15,18 +15,9 @@ export const INVITE_LENGTH = 10;
 /** How long a code can be claimed. A claimed link lasts until either side ends it. */
 export const INVITE_DAYS = 7;
 
-export type LinkRole = "company" | "lease_purchase" | "owner_op_leased";
-export const LINK_ROLES: readonly { value: LinkRole; label: string }[] = [
-  { value: "company", label: "Company driver" },
-  { value: "lease_purchase", label: "Lease-purchase" },
-  { value: "owner_op_leased", label: "Owner-operator, leased on" }
-];
-export const isLinkRole = (v: unknown): v is LinkRole => LINK_ROLES.some((r) => r.value === v);
-
-/** The role a new code suggests: an employee is a company driver, a contractor an owner-operator leased on; the dispatcher can change it. */
-export function suggestedLinkRole(payrollWorkerType: string | null | undefined): LinkRole {
-  return payrollWorkerType === "contractor" ? "owner_op_leased" : "company";
-}
+import type { LinkRole } from "./driver-link-roles";
+// The roles live in a file without node:crypto so the browser can import them (driver-phone-link.tsx).
+export { LINK_ROLES, isLinkRole, suggestedLinkRole, type LinkRole } from "./driver-link-roles";
 
 /** A new code: INVITE_LENGTH letters from INVITE_ALPHABET, from the system's secure random source. `pick` is for tests. */
 export function newInviteCode(pick: (n: number) => number = randomInt): string {
