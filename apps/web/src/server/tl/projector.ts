@@ -37,13 +37,18 @@ export type ProjectableLoad = {
   destinationAddress?: string | null;
   loadedMiles: number;
   estimatedHours?: number | null;
+  /** What the freight weighs, when the desk has it: the driver's phone needs it before the trip can start (its Start Trip gate). */
+  weightLbs?: number | null;
   stops: ProjectableStop[];
 };
 
+/** The first or last stop. Additive to schema 3 (2026-11-22): its reference (the pickup number on the first stop) and dock notes, as a stop between carries them. */
+export type SummaryEnd = { address: string; lat?: number; lng?: number; window_earliest?: string; window_latest?: string; po_number?: string; dock_notes?: string };
+
 export type LoadSummary = {
   schema: 3;
-  origin: { address: string; lat?: number; lng?: number; window_earliest?: string; window_latest?: string } | null;
-  destination: { address: string; lat?: number; lng?: number; window_earliest?: string; window_latest?: string } | null;
+  origin: SummaryEnd | null;
+  destination: SummaryEnd | null;
   stops: Array<{
     seq: number;
     type: "pickup" | "delivery";
@@ -59,6 +64,8 @@ export type LoadSummary = {
   driver_pay: { kind: DriverPayKind; rate: number; estimate: number };
   reference: { broker_name?: string; load_number?: string };
   miles?: { loaded: number };
+  /** Additive to schema 3 (2026-11-22): the freight's weight, when known. Not money, so not looked at by the secret-value check. */
+  weight_lbs?: number;
 };
 
 /**
@@ -95,14 +102,16 @@ export function projectLoadToSummary(load: ProjectableLoad, pay: { kind: DriverP
   const ordered = [...load.stops].sort((a, b) => a.stopSequence - b.stopSequence);
   const first = ordered[0];
   const last = ordered[ordered.length - 1];
-  const point = (s: ProjectableStop | undefined, fallback: string | null | undefined) =>
+  const point = (s: ProjectableStop | undefined, fallback: string | null | undefined): SummaryEnd | null =>
     s
       ? {
           address: s.addressString,
           lat: s.lat ?? undefined,
           lng: s.lng ?? undefined,
           window_earliest: iso(s.timeWindowEarliest),
-          window_latest: iso(s.timeWindowLatest)
+          window_latest: iso(s.timeWindowLatest),
+          po_number: firstRef(s.referenceNumbers),
+          dock_notes: s.stopNotes ?? undefined
         }
       : fallback
         ? { address: fallback }
@@ -130,7 +139,8 @@ export function projectLoadToSummary(load: ProjectableLoad, pay: { kind: DriverP
       broker_name: load.brokerName ?? undefined,
       load_number: load.loadNumber ?? undefined
     },
-    miles: { loaded: load.loadedMiles }
+    miles: { loaded: load.loadedMiles },
+    ...(load.weightLbs != null && load.weightLbs > 0 ? { weight_lbs: load.weightLbs } : {})
   };
 }
 
@@ -165,7 +175,7 @@ export function assertDriverSafe(summary: LoadSummary, secrets: { numbers?: numb
  * Parts of the payload that cannot carry the load's money by accident, and are not looked at for it: what the driver is paid (their own), the miles, places and times, and the
  * broker's own numbers (a load number that happens to equal a rate is a coincidence, not a leak). Everything else is: a dock note that says what the load pays is the case this is for.
  */
-const NOT_MONEY_KEYS = new Set(["driver_pay", "miles", "lat", "lng", "seq", "type", "address", "window_earliest", "window_latest", "load_number", "po_number", "schema"]);
+const NOT_MONEY_KEYS = new Set(["driver_pay", "miles", "lat", "lng", "seq", "type", "address", "window_earliest", "window_latest", "load_number", "po_number", "schema", "weight_lbs"]);
 const ISO_TIME = /\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:?\d{2})?/g;
 
 function secretIn(value: unknown, numbers: number[], path = "summary"): { n: number; path: string } | null {

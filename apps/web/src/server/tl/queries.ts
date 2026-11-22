@@ -163,6 +163,7 @@ export async function getLoadDetail(id: string, workspaceId = currentWorkspaceId
         originAddress: l.originAddress,
         destinationAddress: l.destinationAddress,
         loadedMiles: num(l.loadedMiles),
+        weightLbs: l.weightLbs,
         stops: l.stops.map((s) => ({
           stopSequence: s.stopSequence,
           stopType: s.stopType,

@@ -327,6 +327,7 @@ export async function driverSummaryFor(loadId: string, workspaceId = currentWork
       originAddress: load.originAddress,
       destinationAddress: load.destinationAddress,
       loadedMiles: num(load.loadedMiles),
+      weightLbs: load.weightLbs,
       estimatedHours: load.assignment.payKind === "hourly" ? tripHoursOf(load) : null,
       stops: load.stops.map((s) => ({
         stopSequence: s.stopSequence,

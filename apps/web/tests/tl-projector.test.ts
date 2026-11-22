@@ -33,6 +33,18 @@ describe("driver payload projector", () => {
     expect(s.equipment.trailer_type).toBe("dry_van");
   });
 
+  it("sends what the phone's Start Trip gate needs: the first stop's pickup number, the end stops' dock notes, and the weight when known", () => {
+    const s = projectLoadToSummary({ ...load, weightLbs: 42000 }, { kind: "cpm", rate: 0.65 });
+    expect(s.origin?.po_number).toBe("PU-1001");
+    expect(s.destination?.po_number).toBe("DEL-2002");
+    expect(s.destination?.dock_notes).toBe("Dock 4");
+    expect(s.weight_lbs).toBe(42000);
+    // No weight on the desk: the key is left out, never sent as 0.
+    expect("weight_lbs" in projectLoadToSummary(load, { kind: "cpm", rate: 0.65 })).toBe(false);
+    // A weight that happens to equal a secret figure is a coincidence, not a leak.
+    expect(() => assertDriverSafe(s, { numbers: [42000] })).not.toThrow();
+  });
+
   it("passes the confidentiality gate: no revenue, margin, cost or rate-con key, and no secret value under any key", () => {
     const s = projectLoadToSummary(load, { kind: "cpm", rate: 0.65 });
     expect(() => assertDriverSafe(s, { numbers: [650, 1.19, 149, 799] })).not.toThrow();
