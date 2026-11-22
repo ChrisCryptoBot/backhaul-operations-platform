@@ -22,6 +22,8 @@ import { retryBridgeDelivery } from "@/server/bridge/retry";
 import { endDriverLinkFromDesk, issueDriverInvite, pullDriverLinks } from "@/server/bridge/links";
 import { bridgeConfig } from "@/server/bridge/core";
 import { supabaseTransport } from "@/server/bridge/transport";
+import { pullMessagesNow } from "@/server/bridge/live";
+import type { LivePullResult } from "@/lib/live-messages";
 import { setWorkspaceTimezone } from "@/server/tl/zone-setting";
 import { ZONE_COOKIE } from "@/lib/tz";
 import { cancelLoad, recordTonu, reopenCancelled, rescheduleLoad } from "@/server/tl/disruptions";
@@ -1630,6 +1632,20 @@ export async function sendMessageAction(input: { driverId: string; body: string;
   const out = await sendMessage({ driverId: String(input.driverId), body: String(input.body ?? ""), loadId: input.loadId ? String(input.loadId) : null, clientId: input.clientId ? String(input.clientId) : null });
   if (out.ok) revalidatePath("/messages");
   return out;
+}
+
+/** The Messages page's live loop: look on the phone link now (throttled per fleet) and say whether anything changed. Nothing to do when the link is not switched on. */
+export async function pullMessagesNowAction(): Promise<LivePullResult> {
+  await requireCan("dispatch", "bill");
+  const t = linkTransport();
+  if (!t) return { pulled: false, changed: false };
+  try {
+    const out = await pullMessagesNow(t);
+    if (out.changed) revalidatePath("/", "layout");
+    return out;
+  } catch {
+    return { pulled: false, changed: false };
+  }
 }
 
 /** The dispatcher opened a conversation: the driver's messages in it count as read, and the sidebar number drops. */

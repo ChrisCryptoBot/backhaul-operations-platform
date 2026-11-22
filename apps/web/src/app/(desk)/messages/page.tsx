@@ -2,6 +2,7 @@ import Link from "next/link";
 import React from "react";
 import type { Metadata } from "next";
 import { Composer, MarkRead } from "@/components/desk/messages/composer";
+import { LiveMessages } from "@/components/desk/messages/live";
 import { Attachments, MessageText } from "@/components/desk/messages/parts";
 import { EmptyState } from "@/components/desk/kit/states";
 import { PageHead } from "@/components/desk/ui";
@@ -26,6 +27,7 @@ export default async function MessagesPage({ searchParams }: { searchParams?: { 
   return (
     <>
       <PageHead title="Messages" sub="Your conversations with drivers. A driver who connected the TrueLane app gets them on the phone; the desk keeps the record." />
+      <LiveMessages />
       <div className="ms">
         <aside className="ms-list" aria-label="Conversations">
           <form action="/messages" className="ms-start" role="search" aria-label="Find a driver to message">
