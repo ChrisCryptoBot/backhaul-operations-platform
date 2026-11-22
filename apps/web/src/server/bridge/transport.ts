@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { wholeOf, type BridgeConfig, type BridgeRow } from "./core";
 import type { LinkRow } from "@/lib/driver-link";
 import type { DriverMessageRow } from "@/lib/driver-messages";
@@ -39,9 +40,20 @@ export interface BridgeTransport {
   stampDriverMessages(orgId: string, ids: string[], field: "delivered_at" | "read_at", at: Date): Promise<void>;
   /** The desk's own sent messages (by client id) the driver has read, with when. */
   readByDriver(orgId: string, clientIds: string[]): Promise<{ client_id: string; read_at: string }[]>;
+  /** One file a driver sent (the private `bridge-files` bucket). Null when the bucket does not have it; throws when the link cannot be reached. */
+  downloadDriverFile(path: string): Promise<Uint8Array | null>;
+  /** This fleet's rows that were read before `readBefore` (and delivered): what the retention purge takes off the bridge, with their files. */
+  driverMessagesReadBefore(orgId: string, readBefore: Date, limit: number): Promise<Pick<DriverMessageRow, "id" | "attachments" | "delivered_at" | "read_at">[]>;
+  /** Remove files from the bucket (a file already gone is fine). */
+  removeDriverFiles(paths: string[]): Promise<void>;
+  /** Delete rows of this fleet, only if they were still read before `readBefore` (nothing newer is ever taken). */
+  deleteDriverMessages(orgId: string, ids: string[], readBefore: Date): Promise<void>;
 }
 
 const SAFE = { unreachable: "The driver link could not be reached.", rejected: "The driver link refused the request." } as const;
+
+/** The largest file the desk will fetch from the bridge (the bucket's own limit is 15 MB; the desk keeps 10 MB a file, and checks again). */
+const FILE_FETCH_MAX = 15 * 1024 * 1024;
 
 /** Values that go into a PostgREST filter are percent-encoded and checked to be plain: an id or a Clerk user id, never a filter of their own. */
 const plain = (v: string): string => {
@@ -53,6 +65,7 @@ export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = f
   const base = `${cfg.url}/rest/v1/external_dispatch`;
   const links = `${cfg.url}/rest/v1/driver_links`;
   const msgs = `${cfg.url}/rest/v1/driver_messages`;
+  const files = `${cfg.url}/storage/v1/object/bridge-files`;
   const inList = (ids: string[]) => `(${ids.map(plain).join(",")})`;
   const LINK_COLUMNS = "id,org_id,desk_driver_id,driver_role,claimed_by,claimed_at,revoked_at,ended_by";
   const headers = (write: boolean): Record<string, string> => ({
@@ -144,8 +157,46 @@ export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = f
       const q = `?org_id=eq.${plain(orgId)}&direction=eq.to_driver&client_id=in.${inList(clientIds)}&read_at=not.is.null&select=client_id,read_at`;
       const out = await call(msgs + q, { method: "GET", headers: headers(false) });
       return Array.isArray(out) ? (out as { client_id: string; read_at: string }[]) : [];
+    },
+    async downloadDriverFile(path) {
+      let res: Response;
+      try {
+        res = await fetchImpl(`${files}/${filePath(path)}`, { method: "GET", headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}` }, cache: "no-store" });
+      } catch {
+        throw new BridgeTransportError("unreachable", SAFE.unreachable);
+      }
+      // Storage answers a missing object with 400 or 404.
+      if (res.status === 404 || res.status === 400) return null;
+      if (res.status >= 500) throw new BridgeTransportError("unreachable", SAFE.unreachable);
+      if (!res.ok) throw new BridgeTransportError("rejected", SAFE.rejected);
+      const len = Number.parseInt(res.headers.get("content-length") ?? "0", 10) || 0;
+      if (len > FILE_FETCH_MAX) throw new BridgeTransportError("rejected", SAFE.rejected);
+      const buf = new Uint8Array(await res.arrayBuffer());
+      if (buf.length > FILE_FETCH_MAX) throw new BridgeTransportError("rejected", SAFE.rejected);
+      return buf;
+    },
+    async driverMessagesReadBefore(orgId, readBefore, limit) {
+      const q = `?org_id=eq.${plain(orgId)}&delivered_at=not.is.null&read_at=lt.${plain(readBefore.toISOString())}&select=id,attachments,delivered_at,read_at&order=read_at.asc&limit=${Math.min(Math.max(wholeOf(limit), 1), 500)}`;
+      const out = await call(msgs + q, { method: "GET", headers: headers(false) });
+      return Array.isArray(out) ? (out as Pick<DriverMessageRow, "id" | "attachments" | "delivered_at" | "read_at">[]) : [];
+    },
+    async removeDriverFiles(paths) {
+      if (paths.length === 0) return;
+      for (const p of paths) filePath(p); // every path is checked before anything is sent
+      await call(files, { method: "DELETE", headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}`, "Content-Type": "application/json" }, body: JSON.stringify({ prefixes: paths }) });
+    },
+    async deleteDriverMessages(orgId, ids, readBefore) {
+      if (ids.length === 0) return;
+      const q = `?org_id=eq.${plain(orgId)}&id=in.${inList(ids)}&delivered_at=not.is.null&read_at=lt.${plain(readBefore.toISOString())}`;
+      await call(msgs + q, { method: "DELETE", headers: { ...headers(true), Prefer: "return=minimal" } });
     }
   };
+}
+
+/** A bucket path is only ever one a phone wrote under `org/<org>/driver/<sub>/`: plain segments, percent-encoded one by one. */
+function filePath(path: string): string {
+  if (!/^org\/[A-Za-z0-9_.:@-]{1,200}\/driver\/[A-Za-z0-9_.:@-]{1,200}\/[A-Za-z0-9_.-]{1,120}$/.test(path) || path.includes("..")) throw new BridgeTransportError("rejected", SAFE.rejected);
+  return path.split("/").map(encodeURIComponent).join("/");
 }
 
 /** The table, in memory, for tests: a version-checked patch, a rising sequence, and `phone()` to answer the way the phone's RPC does (order enforced, the phone's own counter bumped). */
@@ -161,10 +212,13 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
   type MemLink = LinkRow & { code_hash: string; expires_at: string; carrier_name: string };
   const linkTable: MemLink[] = [];
   const messages: DriverMessageRow[] = [];
+  const files = new Map<string, Uint8Array>();
   const transport: BridgeTransport & {
     table: BridgeRow[];
     links: MemLink[];
     messages: DriverMessageRow[];
+    /** The bridge-files bucket: the phone puts a photo here before it sends the message. */
+    files: Map<string, Uint8Array>;
     /** The phone sends a message the way bridge.send_driver_message does (a repeat client id is the same row). */
     phoneSays: (i: { orgId: string; driverSub: string; clientId: string; body: string; attachments?: DriverMessageRow["attachments"]; at?: Date }) => DriverMessageRow;
     /** The phone opens the thread the way bridge.mark_driver_messages_read does. */
@@ -176,6 +230,30 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     table,
     links: linkTable,
     messages,
+    files,
+    async downloadDriverFile(path) {
+      guard();
+      const f = files.get(path);
+      return f ? new Uint8Array(f) : null;
+    },
+    async driverMessagesReadBefore(orgId, readBefore, limit) {
+      guard();
+      return messages
+        .filter((m) => m.org_id === orgId && m.delivered_at && m.read_at && Date.parse(m.read_at) < readBefore.getTime())
+        .slice(0, limit)
+        .map((m) => ({ id: m.id, attachments: m.attachments, delivered_at: m.delivered_at, read_at: m.read_at }));
+    },
+    async removeDriverFiles(paths) {
+      guard();
+      for (const p of paths) files.delete(p);
+    },
+    async deleteDriverMessages(orgId, ids, readBefore) {
+      guard();
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const m = messages[i]!;
+        if (m.org_id === orgId && ids.includes(m.id) && m.delivered_at && m.read_at && Date.parse(m.read_at) < readBefore.getTime()) messages.splice(i, 1);
+      }
+    },
     async findOpenRow(orgId, loadId, phoneUserId) {
       guard();
       return [...table].reverse().find((r) => r.org_id === orgId && r.source_load_id === loadId && r.assigned_driver_id === phoneUserId && ["draft", "dispatched"].includes(r.status)) ?? null;
@@ -228,7 +306,7 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
       guard();
       const there = messages.find((m) => m.direction === row.direction && m.sender_id === row.sender_id && m.client_id === row.client_id);
       if (there) return { ...there };
-      const made = { id: `msg-${++n}`, attachments: [], desk_file_count: 0, load_ref: null, desk_driver_id: null, created_at: new Date().toISOString(), delivered_at: null, read_at: null, ...row } as unknown as DriverMessageRow;
+      const made = { id: `msg-${randomUUID()}`, attachments: [], desk_file_count: 0, load_ref: null, desk_driver_id: null, created_at: new Date().toISOString(), delivered_at: null, read_at: null, ...row } as unknown as DriverMessageRow;
       messages.push(made);
       return { ...made };
     },
@@ -247,7 +325,7 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     phoneSays(i) {
       const there = messages.find((m) => m.direction === "to_desk" && m.sender_id === i.driverSub && m.client_id === i.clientId);
       if (there) return there;
-      const made: DriverMessageRow = { id: `msg-${++n}`, org_id: i.orgId, driver_sub: i.driverSub, desk_driver_id: null, direction: "to_desk", sender_id: i.driverSub, client_id: i.clientId, body: i.body, attachments: i.attachments ?? [], desk_file_count: 0, load_ref: null, created_at: (i.at ?? new Date()).toISOString(), delivered_at: null, read_at: null };
+      const made: DriverMessageRow = { id: `msg-${randomUUID()}`, org_id: i.orgId, driver_sub: i.driverSub, desk_driver_id: null, direction: "to_desk", sender_id: i.driverSub, client_id: i.clientId, body: i.body, attachments: i.attachments ?? [], desk_file_count: 0, load_ref: null, created_at: (i.at ?? new Date()).toISOString(), delivered_at: null, read_at: null };
       messages.push(made);
       return made;
     },

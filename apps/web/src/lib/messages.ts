@@ -4,9 +4,12 @@ import { activeTz } from "./tz";
 /** The most a message may hold. The same limit applies in the box, the action and the database write. */
 export const MAX_BODY = 1000;
 
-/** What the desk says about a message the dispatcher sent: nothing carries it to the driver's phone yet, so it is saved here and no more. */
+/** What the desk says about a message to a driver who has not connected the TrueLane app: it is saved here and no more. */
 export const SAVED_ONLY = "Saved on the desk";
-export const SAVED_ONLY_NOTE = "Messages are saved on the desk. Nothing carries them to a driver's phone yet, so call or text a driver who needs an answer now.";
+export const SAVED_ONLY_NOTE = "This driver has not connected the TrueLane app, so messages are saved on the desk only. Call or text a driver who needs an answer now.";
+/** A driver with the app connected (Phase 2 step 3): the desk says what the phone told it, never more. */
+export const ON_PHONE_NOTE = "Messages go to this driver's TrueLane app. Delivered means it reached the phone link; Read means they opened it. The desk keeps the record.";
+export const deliveryNote = (bridged: boolean): string => (bridged ? ON_PHONE_NOTE : SAVED_ONLY_NOTE);
 
 /** Ready-written lines a dispatcher can drop into the box and edit. */
 export const CANNED = [

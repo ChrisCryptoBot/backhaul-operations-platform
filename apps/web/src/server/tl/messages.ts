@@ -7,6 +7,7 @@ import { storageRefusal } from "./storage";
 import { currentWorkspaceId } from "./workspace";
 import { currentAllowed } from "./scope";
 import { enqueueMessage } from "@/server/bridge/messages";
+import { driverMode } from "@/server/bridge/outbox";
 
 /**
  * The desk's messages: one thread per driver. Everything here is the desk's own record (the carrier owns it, D4). For a driver linked to the TrueLane phone app, a sent message is
@@ -50,6 +51,8 @@ export type Conversation = {
   messages: ConversationMessage[];
   /** The loads this driver has that are still open: what a message can be about. */
   loads: Array<{ id: string; loadNumber: string | null; customer: string | null }>;
+  /** Messages reach this driver's phone (the fleet is on the bridge and the driver connected the app). */
+  bridged: boolean;
 };
 
 /** A driver outside the terminals the person may see is "not found", whatever id the address carries (`allowed` is the person's limit; read from the request when left out). */
@@ -60,7 +63,7 @@ export async function getConversation(driverId: string, workspaceId = currentWor
     select: { id: true, name: true, phone: true, terminal: true, assignedVehicle: { select: { name: true } } }
   });
   if (!driver) return null;
-  const [thread, assignments] = await Promise.all([
+  const [thread, assignments, mode] = await Promise.all([
     prisma.thread.findUnique({
       where: { driverId },
       include: { messages: { orderBy: { sentAt: "asc" }, include: { load: { select: { id: true, loadNumber: true } }, attachments: { orderBy: { createdAt: "asc" }, select: { id: true, kind: true, name: true, mime: true, bytes: true } } } } }
@@ -68,12 +71,14 @@ export async function getConversation(driverId: string, workspaceId = currentWor
     prisma.assignment.findMany({
       where: { driverId, load: { workspaceId, deletedAt: null, status: { in: ["draft", "accepted", "in_progress"] } } },
       select: { load: { select: { id: true, loadNumber: true, brokerName: true } } }
-    })
+    }),
+    driverMode(driverId, workspaceId)
   ]);
   return {
     driver: { id: driver.id, name: driver.name, phone: driver.phone, terminal: driver.terminal, truck: driver.assignedVehicle?.name ?? null },
     messages: (thread?.messages ?? []).map((m) => ({ id: m.id, direction: m.direction, body: m.body, sentAt: m.sentAt, deliveredAt: m.deliveredAt, readAt: m.readAt, load: m.load, attachments: m.attachments })),
-    loads: assignments.map((a) => ({ id: a.load.id, loadNumber: a.load.loadNumber, customer: a.load.brokerName }))
+    loads: assignments.map((a) => ({ id: a.load.id, loadNumber: a.load.loadNumber, customer: a.load.brokerName })),
+    bridged: mode.mode === "bridged"
   };
 }
 

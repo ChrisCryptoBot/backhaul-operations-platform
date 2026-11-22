@@ -1,7 +1,10 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { currentWorkspaceId } from "@/server/tl/workspace";
-import { deskBodyOf, isPullable, toDriverRow } from "@/lib/driver-messages";
+import { ATTACHMENTS_PER_MESSAGE, checkAttachment } from "@/lib/attachments";
+import { attachmentPathAllowed, BRIDGE_KEEP_MS, deskBodyOf, fileNameOf, isPullable, toDriverRow, type DriverMessageRow, type NotKept } from "@/lib/driver-messages";
+import { removeFiles, storeFile } from "@/server/tl/message-files";
+import { storageRefusal } from "@/server/tl/storage";
 import { driverMode } from "./outbox";
 import type { BridgeTransport } from "./transport";
 
@@ -11,7 +14,9 @@ import type { BridgeTransport } from "./transport";
  *   the desk message's `deliveredAt`;
  * - in: `pullDriverMessages` takes the phone's rows into the desk thread (the bridge row id is the desk message's clientId, so a pull that runs twice keeps one copy), stamps them
  *   delivered on the bridge, and carries read marks both ways.
- * Files: the desk's files stay on the desk (the phone is told how many); the phone's files are named in the text until the desk fetches them (open item).
+ * Files: the desk's files stay on the desk (the phone is told how many). The phone's photos are fetched into the desk's own storage when the message is taken, through the same
+ * checks a dispatcher's upload passes and inside the plan's storage allowance; a file that cannot be kept is named in the text with the reason.
+ * Retention (Chris, 2026-11-21): `purgeDriverMessages` takes a row and its files off the bridge one day after it was read; the desk keeps the record.
  */
 type Tx = Prisma.TransactionClient;
 
@@ -41,7 +46,45 @@ export async function deliverDriverMessage(transport: BridgeTransport, orgId: st
   return { rowId: row.id, messageId: m.id };
 }
 
-export type MessagePullResult = { taken: number; ignored: number; readByDriver: number; readOnDesk: number };
+export type MessagePullResult = { taken: number; ignored: number; readByDriver: number; readOnDesk: number; files: number; waiting: number };
+
+/**
+ * Fetch a driver row's photos and keep the ones that pass. Nothing is stored here; the caller stores inside its own transaction's lifetime. `unreachable`: the link did not answer,
+ * so the row is left on the bridge and taken on the next run (never taken without its files).
+ */
+async function fetchFiles(transport: BridgeTransport, orgId: string, workspaceId: string, row: DriverMessageRow): Promise<{ checked: Extract<ReturnType<typeof checkAttachment>, { ok: true }>[]; notKept: Partial<Record<NotKept, number>> } | "unreachable"> {
+  const notKept: Partial<Record<NotKept, number>> = {};
+  const add = (k: NotKept, n = 1) => (notKept[k] = (notKept[k] ?? 0) + n);
+  const list = (Array.isArray(row.attachments) ? row.attachments : []).filter((a) => typeof a?.path === "string");
+  const checked: Extract<ReturnType<typeof checkAttachment>, { ok: true }>[] = [];
+  for (const [i, a] of list.entries()) {
+    // Over the desk's own per-message limit, or a path outside this driver's folder: refused, never fetched.
+    if (i >= ATTACHMENTS_PER_MESSAGE || !attachmentPathAllowed(orgId, row.driver_sub, a.path)) {
+      add("refused");
+      continue;
+    }
+    let data: Uint8Array | null;
+    try {
+      data = await transport.downloadDriverFile(a.path);
+    } catch (e) {
+      if ((e as { code?: string }).code === "unreachable") return "unreachable";
+      add("refused");
+      continue;
+    }
+    if (!data) {
+      add("gone");
+      continue;
+    }
+    const c = checkAttachment(a.name ?? fileNameOf(a.path), a.mime ?? null, data);
+    if (!c.ok) add("refused");
+    else checked.push(c);
+  }
+  if (checked.length > 0 && (await storageRefusal(checked.reduce((s, f) => s + f.data.length, 0), workspaceId))) {
+    add("full", checked.length);
+    return { checked: [], notKept };
+  }
+  return { checked, notKept };
+}
 
 /** Read marks look this far back (a dispatcher opening a thread weeks later still tells the phone). */
 const READ_WINDOW_DAYS = 30;
@@ -53,7 +96,7 @@ const READ_WINDOW_DAYS = 30;
 export async function pullDriverMessages(transport: BridgeTransport, opts: { workspaceId?: string; now?: Date; limit?: number } = {}): Promise<MessagePullResult> {
   const workspaceId = opts.workspaceId ?? currentWorkspaceId();
   const now = opts.now ?? new Date();
-  const res: MessagePullResult = { taken: 0, ignored: 0, readByDriver: 0, readOnDesk: 0 };
+  const res: MessagePullResult = { taken: 0, ignored: 0, readByDriver: 0, readOnDesk: 0, files: 0, waiting: 0 };
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { bridgeOrgId: true } });
   if (!ws?.bridgeOrgId) return res;
   const orgId = ws.bridgeOrgId;
@@ -67,13 +110,43 @@ export async function pullDriverMessages(transport: BridgeTransport, opts: { wor
       continue;
     }
     const sentAt = new Date(row.created_at);
-    await prisma.$transaction(async (tx) => {
-      const thread = await tx.thread.upsert({ where: { driverId: driver.id }, update: {}, create: { workspaceId, driverId: driver.id } });
-      const again = await tx.message.findUnique({ where: { threadId_clientId: { threadId: thread.id, clientId: row.id } }, select: { id: true } });
-      if (again) return;
-      await tx.message.create({ data: { threadId: thread.id, direction: "in", body: deskBodyOf(row), clientId: row.id, sentAt, deliveredAt: now } });
-      await tx.thread.update({ where: { id: thread.id }, data: { lastMessageAt: sentAt > thread.lastMessageAt ? sentAt : thread.lastMessageAt } });
-    });
+    const thread = await prisma.thread.upsert({ where: { driverId: driver.id }, update: {}, create: { workspaceId, driverId: driver.id } });
+    const again = await prisma.message.findUnique({ where: { threadId_clientId: { threadId: thread.id, clientId: row.id } }, select: { id: true } });
+    if (!again) {
+      const got = await fetchFiles(transport, orgId, workspaceId, row);
+      if (got === "unreachable") {
+        res.waiting += 1;
+        continue;
+      }
+      // Bytes first, then the rows; if the rows fail the bytes go again, so nothing is left that no message points at (as sendMessage does).
+      const stored: Awaited<ReturnType<typeof storeFile>>[] = [];
+      try {
+        for (const f of got.checked) stored.push(await storeFile(workspaceId, f));
+        const made = await prisma.$transaction(async (tx) => {
+          const twice = await tx.message.findUnique({ where: { threadId_clientId: { threadId: thread.id, clientId: row.id } }, select: { id: true } });
+          if (twice) return false;
+          await tx.message.create({
+            data: {
+              threadId: thread.id,
+              direction: "in",
+              body: deskBodyOf(row, got.notKept),
+              clientId: row.id,
+              sentAt,
+              deliveredAt: now,
+              attachments: { create: stored.map((s) => ({ id: s.id, kind: s.kind, name: s.name, mime: s.mime, bytes: s.bytes, sha256: s.sha256, storageKey: s.storageKey })) }
+            }
+          });
+          const t = await tx.thread.findUniqueOrThrow({ where: { id: thread.id }, select: { lastMessageAt: true } });
+          await tx.thread.update({ where: { id: thread.id }, data: { lastMessageAt: sentAt > t.lastMessageAt ? sentAt : t.lastMessageAt } });
+          return true;
+        });
+        if (!made) await removeFiles(stored.map((s) => s.storageKey));
+        else res.files += stored.length;
+      } catch (e) {
+        await removeFiles(stored.map((s) => s.storageKey));
+        throw e;
+      }
+    }
     taken.push(row.id);
     res.taken += 1;
   }
@@ -97,4 +170,24 @@ export async function pullDriverMessages(transport: BridgeTransport, opts: { wor
     res.readOnDesk = ids.length;
   }
   return res;
+}
+
+/**
+ * Retention (Chris, 2026-11-21): take this fleet's rows off the bridge one day after they were read, files first, then the rows (a row whose files could not be removed stays and
+ * is tried again on the next run, so no file is left that no row names). Only delivered and read rows are ever taken: a message nobody has read, or that the desk has not taken,
+ * stays. The desk's own copy is the record and is never touched here. Runs from the bridge cron right after the pull, so the last read marks are already on the desk.
+ */
+export async function purgeDriverMessages(transport: BridgeTransport, opts: { workspaceId?: string; now?: Date; limit?: number } = {}): Promise<{ removed: number; files: number }> {
+  const workspaceId = opts.workspaceId ?? currentWorkspaceId();
+  const now = opts.now ?? new Date();
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { bridgeOrgId: true } });
+  if (!ws?.bridgeOrgId) return { removed: 0, files: 0 };
+  const orgId = ws.bridgeOrgId;
+  const readBefore = new Date(now.getTime() - BRIDGE_KEEP_MS);
+  const due = await transport.driverMessagesReadBefore(orgId, readBefore, opts.limit ?? 200);
+  if (due.length === 0) return { removed: 0, files: 0 };
+  const paths = due.flatMap((r) => (Array.isArray(r.attachments) ? r.attachments : []).map((a) => a?.path).filter((p): p is string => typeof p === "string"));
+  if (paths.length > 0) await transport.removeDriverFiles(paths);
+  await transport.deleteDriverMessages(orgId, due.map((r) => r.id), readBefore);
+  return { removed: due.length, files: paths.length };
 }

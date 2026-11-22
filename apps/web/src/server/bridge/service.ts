@@ -11,7 +11,7 @@ import { assertDriverSafe } from "@/server/tl/projector";
 export { bridgeServerReady, driverMode, enqueueBridge, enqueueForLoad, type OutboxKind } from "./outbox";
 import { BridgeTransportError, type BridgeTransport } from "./transport";
 import { deliverDriverMessage } from "./messages";
-export { enqueueMessage, pullDriverMessages, type MessagePullResult } from "./messages";
+export { enqueueMessage, pullDriverMessages, purgeDriverMessages, type MessagePullResult } from "./messages";
 import { BRIDGE_ENV, FAILURE_TEXT, MAX_ATTEMPTS, closeDispatchRow, interpretRow, newDispatchRow, nextAttemptAt, parseDriverResponse, phoneCompletionValues, replacementFor, updateDispatchRow, wholeOf, type FailureWord } from "./core";
 
 const failureOf = (e: unknown): FailureWord => {

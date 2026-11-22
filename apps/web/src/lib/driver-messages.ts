@@ -50,12 +50,52 @@ export function toDriverRow(i: { orgId: string; phoneUserId: string; deskDriverI
   };
 }
 
-/** What the desk keeps from a driver's row: the text, and a plain line for files the desk does not hold yet. Never a storage path in the text. */
-export function deskBodyOf(row: Pick<DriverMessageRow, "body" | "attachments">): string {
-  const n = Array.isArray(row.attachments) ? row.attachments.length : 0;
-  const files = n === 0 ? "" : `${row.body ? "\n" : ""}(${n} ${n === 1 ? "file" : "files"} sent from the phone)`;
-  return `${row.body ?? ""}${files}`;
+/**
+ * Why a file the driver sent is not on the desk message (the desk fetches the phone's photos into its own storage when it takes the message):
+ * `full`: this desk's plan has no room; `refused`: the desk's own file checks said no (type, size, unsafe); `gone`: the bridge no longer had it.
+ */
+export type NotKept = "full" | "refused" | "gone";
+
+const NOT_KEPT_WHY: Record<NotKept, string> = {
+  full: "this desk's storage is full",
+  refused: "the desk's file checks refused it",
+  gone: "it was no longer on the phone link"
+};
+
+/** What the desk keeps from a driver's row: the text, and a plain line for each reason a file could not be kept. Never a storage path in the text. */
+export function deskBodyOf(row: Pick<DriverMessageRow, "body">, notKept: Partial<Record<NotKept, number>> = {}): string {
+  const lines = (Object.keys(NOT_KEPT_WHY) as NotKept[])
+    .filter((k) => (notKept[k] ?? 0) > 0)
+    .map((k) => {
+      const n = notKept[k]!;
+      return `(${n} ${n === 1 ? "file" : "files"} from the phone not kept: ${NOT_KEPT_WHY[k]})`;
+    });
+  return [row.body ?? "", ...lines].filter(Boolean).join("\n");
 }
+
+/** A file's name on the desk: the last part of its bridge path (the phone writes `<client id>-<n>.jpg`). */
+export const fileNameOf = (path: string): string => path.split("/").pop() || "photo.jpg";
+
+/**
+ * How long a message stays on the bridge once both sides are done with it (Chris, 2026-11-21): one day after it was read. The bridge carries messages; the desk keeps the
+ * record. A row nobody has read, or that the desk has not taken, stays until it is.
+ */
+export const BRIDGE_KEEP_MS = 24 * 60 * 60 * 1000;
+
+/** A row the desk may take off the bridge now: delivered, read, and read more than BRIDGE_KEEP_MS ago. */
+export function purgeDue(row: Pick<DriverMessageRow, "delivered_at" | "read_at">, now: Date): boolean {
+  if (!row.delivered_at || !row.read_at) return false;
+  return Date.parse(row.read_at) <= now.getTime() - BRIDGE_KEEP_MS;
+}
+
+/** Where a message the dispatcher sent stands, in words: read on the phone, delivered to it, on its way, or (a driver without the app) kept on the desk only. */
+export type DeskDelivery = "read" | "delivered" | "sending" | "saved";
+export function deskDelivery(m: { deliveredAt: Date | null; readAt: Date | null }, bridged: boolean): DeskDelivery {
+  if (m.readAt) return "read";
+  if (m.deliveredAt) return "delivered";
+  return bridged ? "sending" : "saved";
+}
+export const DESK_DELIVERY_LABEL: Record<DeskDelivery, string> = { read: "Read", delivered: "Delivered", sending: "Sending", saved: "Saved on the desk" };
 
 /** Rows the desk will take into one fleet: its own org, from a phone, and not yet taken. Anything else is left alone. */
 export const isPullable = (row: Pick<DriverMessageRow, "org_id" | "direction" | "delivered_at">, orgId: string): boolean =>

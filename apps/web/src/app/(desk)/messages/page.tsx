@@ -5,7 +5,8 @@ import { Composer, MarkRead } from "@/components/desk/messages/composer";
 import { Attachments, MessageText } from "@/components/desk/messages/parts";
 import { EmptyState } from "@/components/desk/kit/states";
 import { PageHead } from "@/components/desk/ui";
-import { SAVED_ONLY, SAVED_ONLY_NOTE, groupByDay, snippet, stamp, timeLabel } from "@/lib/messages";
+import { deliveryNote, groupByDay, snippet, stamp, timeLabel } from "@/lib/messages";
+import { DESK_DELIVERY_LABEL, deskDelivery } from "@/lib/driver-messages";
 import { getConversation, listThreads, startableDrivers } from "@/server/tl/messages";
 import { CanGate } from "@/components/desk/kit/can-gate";
 import { currentTerminal } from "@/server/tl/terminal";
@@ -24,7 +25,7 @@ export default async function MessagesPage({ searchParams }: { searchParams?: { 
 
   return (
     <>
-      <PageHead title="Messages" sub="Your conversations with drivers. They are saved on the desk; nothing carries them to a driver's phone yet." />
+      <PageHead title="Messages" sub="Your conversations with drivers. A driver who connected the TrueLane app gets them on the phone; the desk keeps the record." />
       <div className="ms">
         <aside className="ms-list" aria-label="Conversations">
           <form action="/messages" className="ms-start" role="search" aria-label="Find a driver to message">
@@ -129,7 +130,7 @@ export default async function MessagesPage({ searchParams }: { searchParams?: { 
                             </div>
                             <span className="ms-meta">
                               <time dateTime={m.sentAt.toISOString()}>{timeLabel(m.sentAt)}</time>
-                              {m.direction === "out" ? <> · {m.deliveredAt ? "Delivered" : SAVED_ONLY}</> : null}
+                              {m.direction === "out" ? <DeliveryState state={deskDelivery(m, convo.bridged)} /> : null}
                             </span>
                           </div>
                         )
@@ -138,7 +139,7 @@ export default async function MessagesPage({ searchParams }: { searchParams?: { 
                   ))
                 )}
               </div>
-              <p className="ms-note">{SAVED_ONLY_NOTE}</p>
+              <p className="ms-note">{deliveryNote(convo.bridged)}</p>
               <CanGate caps={["dispatch", "bill"]} banner who="A dispatcher or the accounting office" what="these messages">
                 <Composer driverId={convo.driver.id} driverName={convo.driver.name} loads={convo.loads} />
               </CanGate>
@@ -146,6 +147,18 @@ export default async function MessagesPage({ searchParams }: { searchParams?: { 
           )}
         </section>
       </div>
+    </>
+  );
+}
+
+/** Where a sent message stands: Sending (on its way to the phone link), Delivered, Read, or Saved on the desk for a driver without the app. Read carries the positive tone. */
+function DeliveryState({ state }: { state: ReturnType<typeof deskDelivery> }) {
+  return (
+    <>
+      {" · "}
+      <span className={`ms-state ${state}`} data-state={state}>
+        {DESK_DELIVERY_LABEL[state]}
+      </span>
     </>
   );
 }

@@ -1103,6 +1103,10 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .ms-load { display: inline-block; margin-bottom: 4px; padding: 0 8px; border-radius: 999px; background: var(--db-bg-inset); color: var(--db-accent-fg); font-size: var(--db-text-xs); font-weight: 700; text-decoration: none; }
 .ms-load:hover { text-decoration: underline; }
 .ms-meta { font-size: var(--db-text-xs); color: var(--db-fg-dim); }
+.ms-state { font-weight: 600; }
+.ms-state.sending { color: var(--db-fg-dim); }
+.ms-state.delivered { color: var(--db-info); }
+.ms-state.read { color: var(--db-pos); }
 .ms-sys { margin: 0; justify-self: center; text-align: center; font-size: var(--db-text-sm); color: var(--db-fg-dim); }
 .ms-note { margin: 0; padding: var(--db-2) var(--db-4); border-top: 1px solid var(--db-border-soft); font-size: var(--db-text-sm); color: var(--db-fg-mid); }
 .ms-composer { display: grid; gap: var(--db-2); padding: var(--db-3) var(--db-4) var(--db-4); border-top: 1px solid var(--db-border-soft); }

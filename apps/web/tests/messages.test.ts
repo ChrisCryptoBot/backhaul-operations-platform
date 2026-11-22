@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
-import { CANNED, MAX_BODY, SAVED_ONLY_NOTE, cleanBody, dayLabel, groupByDay, snippet, stamp } from "../src/lib/messages";
+import { CANNED, MAX_BODY, ON_PHONE_NOTE, SAVED_ONLY_NOTE, cleanBody, dayLabel, deliveryNote, groupByDay, snippet, stamp } from "../src/lib/messages";
 
 const at = (iso: string) => new Date(iso);
 
@@ -62,14 +62,19 @@ describe("days, by the desk's own (Central) calendar", () => {
   });
 });
 
-describe("the desk never claims a message reached a phone", () => {
+describe("the desk claims only what the phone link said", () => {
   const src = (rel: string) => fs.readFileSync(path.join(__dirname, "..", rel), "utf8");
-  it("says plainly that nothing carries a message to a driver's phone yet", () => {
-    expect(SAVED_ONLY_NOTE).toMatch(/Nothing carries them to a driver's phone yet/);
+  it("a driver without the app: saved on the desk only, and says to call; with the app: says what Delivered and Read mean", () => {
+    expect(deliveryNote(false)).toBe(SAVED_ONLY_NOTE);
+    expect(SAVED_ONLY_NOTE).toMatch(/saved on the desk only/);
+    expect(deliveryNote(true)).toBe(ON_PHONE_NOTE);
+    expect(ON_PHONE_NOTE).toMatch(/Read means they opened it/);
   });
-  it("the server never sets deliveredAt, and the page labels an undelivered message as saved on the desk", () => {
-    expect(src("src/server/tl/messages.ts")).not.toMatch(/deliveredAt\s*:\s*(new Date|now)/);
-    expect(src("src/app/(desk)/messages/page.tsx")).toContain("SAVED_ONLY");
+  it("the desk's own send never sets deliveredAt (only the bridge delivery does), and the page shows the state from deskDelivery", () => {
+    expect(src("src/server/tl/messages.ts")).not.toMatch(/deliveredAt\s*:\s*(new Date|now\b)/);
+    const page = src("src/app/(desk)/messages/page.tsx");
+    expect(page).toContain("deskDelivery(m, convo.bridged)");
+    expect(page).toContain("deliveryNote(convo.bridged)");
   });
   it("has ready-written lines, each inside the limit", () => {
     expect(CANNED.length).toBeGreaterThan(0);
