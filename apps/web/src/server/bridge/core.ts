@@ -67,8 +67,14 @@ export type DriverAnswer = {
   startedAt: string | null;
   completedAt: string | null;
   actualMiles: number | null;
+  /** The miles the driver logged, split the way the load keeps them (sync plan Step 2). Null when the phone logged none: the desk then keeps the planned miles. */
+  legMiles: { pickup: number; loaded: number; home: number } | null;
+  /** The driver closed the trip without a delivery photo. */
+  closedWithoutPod: boolean;
   /** Storage paths of proof of delivery, each checked to sit inside this fleet's own folder. */
   podRefs: Array<{ stopSeq: number | null; path: string }>;
+  /** Photos the driver took that never reached the bucket (the phone lost its copy). */
+  podMissing: number;
 };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -78,6 +84,16 @@ const when = (v: unknown): string | null => {
   return s && Number.isFinite(Date.parse(s)) ? new Date(s).toISOString() : null;
 };
 const miles = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 20_000 ? new Prisma.Decimal(v).toDecimalPlaces(1).toNumber() : null);
+
+/** The phone's miles by leg, each bounded as a total is; all zero or anything unreadable is none. */
+function legMilesOf(v: unknown): DriverAnswer["legMiles"] {
+  if (!isObj(v)) return null;
+  const pickup = miles(v.pickup);
+  const loaded = miles(v.loaded);
+  const home = miles(v.home);
+  if (pickup == null || loaded == null || home == null || pickup + loaded + home <= 0) return null;
+  return { pickup, loaded, home };
+}
 
 /** A whole number from a count the database or the phone gave (a sequence, a version): parsed, not rounded, so nothing is guessed. */
 export const wholeOf = (v: unknown): number => {
@@ -111,7 +127,10 @@ export function parseDriverResponse(raw: unknown, orgId: string): DriverAnswer |
     startedAt: when(raw.started_at),
     completedAt: when(completion.completed_at),
     actualMiles: miles(completion.actual_total_miles),
-    podRefs
+    legMiles: legMilesOf(completion.miles),
+    closedWithoutPod: completion.closed_without_pod === true,
+    podRefs,
+    podMissing: typeof raw.pod_missing === "number" && Number.isInteger(raw.pod_missing) && raw.pod_missing > 0 ? Math.min(raw.pod_missing, 40) : 0
   };
 }
 
@@ -156,14 +175,29 @@ export function interpretRow(i: { row: Pick<BridgeRow, "assigned_driver_id" | "e
 
 /**
  * The desk's delivery form, filled from the phone's answer: the delivery time (already placed on the carrier's clock by the caller), proof received when the phone filed proof inside
- * the fleet's or the driver's folder (parseDriverResponse already dropped any other path), and what the phone reported in the note. Costs, stop times and the miles split are left
- * blank: the phone does not send them, and the desk never guesses a pickup / loaded / home split from one total. The note says where each part came from.
+ * the fleet's or the driver's folder (parseDriverResponse already dropped any other path), the miles the driver logged by leg when the phone sent them (sync plan Step 2; a phone
+ * that logged none, or an older one that sent only a total, leaves the planned miles: the desk never guesses a pickup / loaded / home split from one total), and what the phone
+ * reported in the note. Costs and stop times are left blank: the phone does not send them. The proof files themselves are filed as documents by the caller.
  */
-export function phoneCompletionValues(answer: Pick<DriverAnswer, "podRefs" | "actualMiles">, deliveredLocal: string) {
+export function phoneCompletionValues(answer: Pick<DriverAnswer, "podRefs" | "actualMiles" | "legMiles" | "closedWithoutPod" | "podMissing">, deliveredLocal: string) {
   const n = answer.podRefs.length;
   const miles = answer.actualMiles != null ? ` The phone recorded ${answer.actualMiles} mi driven.` : "";
-  const podNote = n > 0 ? `From the driver's phone: ${n} proof of delivery ${n === 1 ? "file" : "files"} (${answer.podRefs.map((r) => r.path).join(", ")}).${miles}` : `The driver's phone filed no proof of delivery.${miles}`;
-  return { stops: [], deliveredAt: deliveredLocal, pod: n > 0 ? ("received" as const) : ("none" as const), podNote: podNote.slice(0, 300), fuel: "", tolls: "", misc: "" };
+  const lost = answer.podMissing > 0 ? ` ${answer.podMissing} more ${answer.podMissing === 1 ? "photo was" : "photos were"} taken but never reached the desk.` : "";
+  const podNote =
+    n > 0
+      ? `From the driver's phone: ${n} proof of delivery ${n === 1 ? "photo" : "photos"}, filed with the load's documents.${lost}${miles}`
+      : answer.closedWithoutPod
+        ? `The driver closed the trip on their phone without a delivery photo.${miles}`
+        : `The driver's phone filed no proof of delivery.${lost}${miles}`;
+  const legs = answer.legMiles ? { miles: { pickup: String(answer.legMiles.pickup), loaded: String(answer.legMiles.loaded), home: String(answer.legMiles.home) } } : {};
+  return { stops: [], deliveredAt: deliveredLocal, pod: n > 0 ? ("received" as const) : ("none" as const), podNote: podNote.slice(0, 300), fuel: "", tolls: "", misc: "", ...legs };
+}
+
+/** Which of the load's stops a proof belongs to: the phone numbers stops 1..n in the desk's own order (first stop first), so stop n is the load's n-th stop. A stop that is not a delivery is none. */
+export function podStopFor(stopSeq: number | null, stops: ReadonlyArray<{ id: string; stopSequence: number; stopType: string; stopRole: string | null }>): string | null {
+  if (stopSeq == null || stopSeq < 1) return null;
+  const s = [...stops].sort((a, b) => a.stopSequence - b.stopSequence)[stopSeq - 1];
+  return s && (s.stopRole ?? s.stopType) === "delivery" ? s.id : null;
 }
 
 /** Which row replaced a reassigned one: the newest open row of the same load for a different phone, or null while there is none yet. */

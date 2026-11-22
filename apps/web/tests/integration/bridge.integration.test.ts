@@ -4,6 +4,7 @@ import { assignDriver, dispatchLoad, unassignLoad } from "@/server/tl/dispatch";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { flushBridgeOutbox, pullBridgeResponses } from "@/server/bridge/service";
 import { memoryTransport } from "@/server/bridge/transport";
+import { pullStopEvents } from "@/server/bridge/stops";
 import { assertDriverSafe, type LoadSummary } from "@/server/tl/projector";
 import { completeTrip, startTrip } from "@/server/tl/execution";
 import { deleteLoad } from "@/server/tl/remove";
@@ -29,9 +30,12 @@ describe.skipIf(!run)("the driver link, desk half", () => {
 
   const reset = async () => {
     await prisma.bridgeOutbox.deleteMany({ where: { loadId } });
+    await prisma.loadDocument.deleteMany({ where: { loadId, addedBy: "Driver's phone" } });
+    await prisma.checkCall.deleteMany({ where: { loadId, loggedBy: "Driver's phone" } });
+    await prisma.stop.updateMany({ where: { loadId }, data: { arrivedAt: null, waitMinutes: null, sealNumber: null, arrivedSource: null } });
     await prisma.assignment.deleteMany({ where: { loadId } });
     await prisma.load.update({ where: { id: loadId }, data: { status: "draft", deletedAt: null } });
-    await prisma.workspace.update({ where: { id: ws }, data: { bridgeCursor: 0n } });
+    await prisma.workspace.update({ where: { id: ws }, data: { bridgeCursor: 0n, bridgeStopCursor: 0n } });
   };
 
   beforeAll(async () => {
@@ -113,8 +117,9 @@ describe.skipIf(!run)("the driver link, desk half", () => {
     expect(["in_progress", "accepted"]).toContain(a.status);
   });
 
-  test("a delivery from the phone is applied (G10): the delivery time, proof received, and what the phone filed in the note", async () => {
-    const t = memoryTransport();
+  const JPEG = Uint8Array.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x4a, 0x46, 0xff, 0xdb, 0x00, 0x04, 0x00, 0x00, 0xff, 0xda, 0x00, 0x02, 1, 2, 3, 0xff, 0xd9]);
+  const podPath = (dispatchId: string, seq: number) => `org/${ORG}/driver/${PHONE}/pod-${dispatchId}-${seq}.jpg`;
+  const onTheRoad = async (t: ReturnType<typeof memoryTransport>) => {
     await reset();
     await assignAndSend();
     await flushBridgeOutbox(t);
@@ -122,17 +127,112 @@ describe.skipIf(!run)("the driver link, desk half", () => {
     await pullBridgeResponses(t);
     t.phone(t.table[0]!.id, { state: "in_progress", started_at: new Date(Date.now() - 7_200_000).toISOString() });
     await pullBridgeResponses(t);
-    t.phone(t.table[0]!.id, { state: "completed", completion: { completed_at: new Date().toISOString(), actual_total_miles: 340.5 }, pod_refs: [{ stop_seq: 1, path: `${ORG}/loads/${loadId}/pod1.jpg` }] });
+  };
+
+  test("a delivery from the phone is applied (G10, Step 2): the delivery time, the miles by leg, and the proof photo filed on its stop", async () => {
+    const t = memoryTransport();
+    await onTheRoad(t);
+    const row = t.table[0]!;
+    t.files.set(podPath(row.id, 2), JPEG);
+    t.phone(row.id, { state: "completed", completion: { completed_at: new Date().toISOString(), actual_total_miles: 340.5, miles: { pickup: 20, loaded: 300.5, home: 20 } }, pod_refs: [{ stop_seq: 2, path: podPath(row.id, 2) }] });
     const out = await pullBridgeResponses(t);
-    expect(out).toMatchObject({ applied: 1, flagged: 0 });
-    const load = await prisma.load.findUniqueOrThrow({ where: { id: loadId } });
+    expect(out).toMatchObject({ applied: 1, flagged: 0, filed: 1 });
+    const load = await prisma.load.findUniqueOrThrow({ where: { id: loadId }, include: { stops: { orderBy: { stopSequence: "asc" } } } });
     expect(load.status).toBe("completed");
     expect(load.closedWithoutPod).toBe(false);
-    expect(load.podNote).toContain(`${ORG}/loads/${loadId}/pod1.jpg`);
+    expect(load.podNote).toContain("1 proof of delivery photo");
     expect(load.podNote).toContain("340.5 mi driven");
+    expect([Number(load.pickupDeadheadMiles), Number(load.loadedMiles), Number(load.returnDeadheadMiles)]).toEqual([20, 300.5, 20]);
+    const docs = await prisma.loadDocument.findMany({ where: { loadId, addedBy: "Driver's phone" } });
+    expect(docs).toHaveLength(1);
+    expect(docs[0]).toMatchObject({ kind: "pod", addedBy: "Driver's phone", stopId: load.stops[1]!.id });
     expect((await prisma.assignment.findUniqueOrThrow({ where: { loadId } })).status).toBe("completed");
-    // At least once: reading the same row again changes nothing.
+    // At least once: reading the same row again changes nothing, and files nothing twice.
     expect(await pullBridgeResponses(t)).toMatchObject({ applied: 0 });
+    expect(await prisma.loadDocument.count({ where: { loadId, addedBy: "Driver's phone" } })).toBe(1);
+    const audit = await prisma.auditEvent.findFirst({ where: { loadId, action: "delivered", createdAt: { gte: startedAt } }, orderBy: { createdAt: "desc" } });
+    expect(audit?.summary).toContain("from the driver's phone");
+  });
+
+  test("a delivery whose photos cannot be fetched waits (the cursor stays before it), then lands with them", async () => {
+    let down = false;
+    const t = memoryTransport({ down: () => down });
+    await onTheRoad(t);
+    const row = t.table[0]!;
+    t.files.set(podPath(row.id, 2), JPEG);
+    t.phone(row.id, { state: "completed", completion: { completed_at: new Date().toISOString() }, pod_refs: [{ stop_seq: 2, path: podPath(row.id, 2) }] });
+    const cursorBefore = Number((await prisma.workspace.findUniqueOrThrow({ where: { id: ws } })).bridgeCursor);
+    // The bucket does not answer, but the table does: only the file fetch fails.
+    const realDownload = t.downloadDriverFile;
+    t.downloadDriverFile = async (p) => {
+      down = true;
+      try {
+        return await realDownload(p);
+      } finally {
+        down = false;
+      }
+    };
+    expect(await pullBridgeResponses(t)).toMatchObject({ waiting: 1, applied: 0 });
+    expect((await prisma.load.findUniqueOrThrow({ where: { id: loadId } })).status).toBe("in_progress");
+    expect(Number((await prisma.workspace.findUniqueOrThrow({ where: { id: ws } })).bridgeCursor)).toBe(cursorBefore);
+    t.downloadDriverFile = realDownload;
+    expect(await pullBridgeResponses(t)).toMatchObject({ applied: 1, filed: 1 });
+    expect((await prisma.load.findUniqueOrThrow({ where: { id: loadId } })).status).toBe("completed");
+  });
+
+  test("stop events from the phone (Step 2): the real arrival replaces the start time, the wait and seal land, a check call is logged once", async () => {
+    const t = memoryTransport();
+    await onTheRoad(t);
+    const row = t.table[0]!;
+    const stopsOf = () => prisma.stop.findMany({ where: { loadId }, orderBy: { stopSequence: "asc" } });
+    // The phone's start stood in for the pickup arrival.
+    expect((await stopsOf())[0]).toMatchObject({ arrivedSource: "phone" });
+    const arrived = new Date(Date.now() - 5_400_000);
+    t.phoneStop({ dispatchId: row.id, driverSub: PHONE, kind: "arrived", stopSeq: 1, at: arrived });
+    t.phoneStop({ dispatchId: row.id, driverSub: PHONE, kind: "loaded", stopSeq: 1, at: new Date(Date.now() - 2_700_000), waitMinutes: 45, seal: "S-4471" });
+    t.phoneStop({ dispatchId: row.id, driverSub: PHONE, kind: "check_call", at: new Date(Date.now() - 600_000), lat: 35.222, lng: -101.831 });
+    expect(await pullStopEvents(t)).toMatchObject({ read: 3, applied: 2, checkCalls: 1, flagged: 0 });
+    const [pickup] = await stopsOf();
+    expect(pickup).toMatchObject({ arrivedAt: arrived, waitMinutes: 45, sealNumber: "S-4471", arrivedSource: "phone" });
+    const calls = await prisma.checkCall.findMany({ where: { loadId, loggedBy: "Driver's phone" } });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.place).toContain("Amarillo, TX");
+    // Read again from the start: nothing changes and the check call is not logged twice.
+    await prisma.workspace.update({ where: { id: ws }, data: { bridgeStopCursor: 0n } });
+    await pullStopEvents(t);
+    expect(await prisma.checkCall.count({ where: { loadId, loggedBy: "Driver's phone" } })).toBe(1);
+    const audit = await prisma.auditEvent.findFirst({ where: { loadId, action: "stop_event", createdAt: { gte: startedAt } }, orderBy: { createdAt: "asc" } });
+    expect(audit?.summary).toMatch(/^Arrived at stop 1 .*, from the driver's phone$/);
+  });
+
+  test("a stop time the dispatcher entered is never overwritten by the phone: a different one is flagged; another phone's events are ignored", async () => {
+    const t = memoryTransport();
+    await onTheRoad(t);
+    const row = t.table[0]!;
+    const deskTime = new Date(Date.now() - 6_000_000);
+    const [, delivery] = await prisma.stop.findMany({ where: { loadId }, orderBy: { stopSequence: "asc" } });
+    await prisma.stop.update({ where: { id: delivery!.id }, data: { arrivedAt: deskTime, arrivedSource: "desk" } });
+    t.phoneStop({ dispatchId: row.id, driverSub: PHONE, kind: "arrived", stopSeq: 2, at: new Date(Date.now() - 600_000) });
+    expect(await pullStopEvents(t)).toMatchObject({ applied: 0, flagged: 1 });
+    expect((await prisma.stop.findUniqueOrThrow({ where: { id: delivery!.id } })).arrivedAt).toEqual(deskTime);
+    const flag = await prisma.auditEvent.findFirst({ where: { loadId, action: "driver_link_flag", createdAt: { gte: startedAt } }, orderBy: { createdAt: "desc" } });
+    expect(flag?.summary).toContain("The desk's entry was kept");
+    // An event written for this load by a phone that does not hold it on the desk.
+    t.stopEvents.push({ ...t.stopEvents[0]!, id: "forged", driver_sub: "user_someone_else", sync_seq: 10_000 });
+    expect(await pullStopEvents(t)).toMatchObject({ ignored: 1, applied: 0 });
+  });
+
+  test("a proof path outside this driver's folder is never fetched: the delivery is recorded without it, and flagged", async () => {
+    const t = memoryTransport();
+    await onTheRoad(t);
+    const row = t.table[0]!;
+    const theirs = `org/${ORG}/driver/someone_else/pod-${row.id}-2.jpg`;
+    t.files.set(theirs, JPEG);
+    t.phone(row.id, { state: "completed", completion: { completed_at: new Date().toISOString() }, pod_refs: [{ stop_seq: 2, path: theirs }] });
+    expect(await pullBridgeResponses(t)).toMatchObject({ flagged: 1, filed: 0 });
+    const load = await prisma.load.findUniqueOrThrow({ where: { id: loadId } });
+    expect([load.status, load.closedWithoutPod]).toEqual(["completed", true]);
+    expect(await prisma.loadDocument.count({ where: { loadId, addedBy: "Driver's phone" } })).toBe(0);
   });
 
   test("an accept taken back on the phone (accepted in error) is applied before the pickup: the load is back on the board", async () => {

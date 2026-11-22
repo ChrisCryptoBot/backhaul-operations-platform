@@ -1,6 +1,6 @@
 /**
- * The life of a load as eight steps, read from timestamps the rows already carry:
- * Drafted, Assigned, Sent, Answered, On the road, Delivered, Invoiced, Paid. Pure.
+ * The life of a load as steps, read from timestamps the rows already carry:
+ * Drafted, Assigned, Sent, Answered, On the road, each stop reached (when the stops are given), Delivered, Invoiced, Paid. Pure.
  * Exactly one step is "current" (the next thing waiting to happen); a declined answer is a "problem" and nothing after it is current.
  */
 export type StepState = "done" | "current" | "pending" | "problem";
@@ -16,7 +16,18 @@ export type TimelineLoad = {
   /** The earliest `arrivedAt` among the load's stops, if the phone has reported one. */
   firstArrivedAt: Date | null;
   assignment: null | { status: string; createdAt: Date; dispatchedAt: Date | null; respondedAt: Date | null };
+  /** The stops in order, for one step each (sync plan Step 2: the driver's phone reports each arrival). Absent: no stop steps. */
+  stops?: Array<{ sequence: number; role: string; arrivedAt: Date | null; waitMinutes: number | null; fromPhone: boolean }>;
 };
+
+/** One step per stop: reached when it has an arrival; the note says how long the truck waited and whether the driver's phone reported it. */
+function stopSteps(stops: NonNullable<TimelineLoad["stops"]>) {
+  return stops.map((s, i) => {
+    const notes = [s.waitMinutes != null ? `waited ${s.waitMinutes} min` : null, s.arrivedAt && s.fromPhone ? "from the driver's phone" : null].filter(Boolean);
+    const role = s.role === "pickup" ? "Pickup" : "Delivery";
+    return { key: `stop-${i + 1}`, label: `Stop ${i + 1} · ${role}`, done: s.arrivedAt != null, at: s.arrivedAt, ...(notes.length > 0 ? { note: notes.join(" · ") } : {}) };
+  });
+}
 
 export function deriveTimeline(l: TimelineLoad): TimelineStep[] {
   const a = l.assignment;
@@ -33,6 +44,8 @@ export function deriveTimeline(l: TimelineLoad): TimelineStep[] {
     { key: "sent", label: "Sent to driver", done: !!a && a.status !== "draft", at: a?.dispatchedAt ?? null },
     { key: "answered", label: declined ? "Driver declined" : "Driver answered", done: answered, at: a?.respondedAt ?? null },
     { key: "road", label: "On the road", done: started, at: l.firstArrivedAt },
+    // A delivered load has reached every stop, even one whose arrival nobody entered: the step is done, with no time.
+    ...stopSteps(l.stops ?? []).map((s) => (delivered && !s.done ? { ...s, done: true } : s)),
     { key: "delivered", label: "Delivered", done: delivered, at: l.completedAt },
     { key: "invoiced", label: "Invoiced", done: invoiced, at: l.invoicedAt },
     { key: "paid", label: "Paid", done: paid, at: l.paidAt }

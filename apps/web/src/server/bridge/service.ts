@@ -13,7 +13,10 @@ import { BridgeTransportError, type BridgeTransport } from "./transport";
 import { deliverDriverMessage } from "./messages";
 export { enqueueMessage, pullDriverMessages, purgeDriverMessages, type MessagePullResult } from "./messages";
 export { mirrorDriverStatus } from "./status";
-import { BRIDGE_ENV, FAILURE_TEXT, MAX_ATTEMPTS, closeDispatchRow, interpretRow, newDispatchRow, nextAttemptAt, parseDriverResponse, phoneCompletionValues, replacementFor, updateDispatchRow, wholeOf, type FailureWord } from "./core";
+import { BRIDGE_ENV, FAILURE_TEXT, MAX_ATTEMPTS, closeDispatchRow, interpretRow, newDispatchRow, nextAttemptAt, parseDriverResponse, phoneCompletionValues, podStopFor, replacementFor, updateDispatchRow, wholeOf, type DriverAnswer, type FailureWord } from "./core";
+import { checkAttachment } from "@/lib/attachments";
+import { attachmentPathAllowed, fileNameOf } from "@/lib/driver-messages";
+import { addLoadDocument } from "@/server/tl/documents";
 
 const failureOf = (e: unknown): FailureWord => {
   if (e instanceof BridgeTransportError) return e.code === "unreachable" ? "unreachable" : "rejected";
@@ -176,9 +179,39 @@ async function markReplaced(transport: BridgeTransport, orgId: string, loadId: s
   }
 }
 
-export type PullResult = { read: number; applied: number; flagged: number; ignored: number; cursor: number };
+/** `waiting`: a delivery left for the next run because its photos could not be fetched. `filed`: proof of delivery photos kept as load documents. */
+export type PullResult = { read: number; applied: number; flagged: number; ignored: number; waiting: number; filed: number; cursor: number };
 
 const ACTOR = "Driver's phone";
+
+type PodFile = { stopSeq: number | null; file: Extract<ReturnType<typeof checkAttachment>, { ok: true }> };
+
+/**
+ * Fetch a delivery's proof photos from the driver's folder (sync plan Step 2). Only a path inside this driver's own folder for this fleet is fetched; anything else, a file that is
+ * gone, or one that fails the desk's file check is counted, never kept. `unreachable`: the link did not answer, so the caller leaves the row for the next run.
+ */
+async function fetchPods(transport: BridgeTransport, orgId: string, driverSub: string, answer: DriverAnswer): Promise<{ files: PodFile[]; refused: number } | "unreachable"> {
+  const files: PodFile[] = [];
+  let refused = 0;
+  for (const ref of answer.podRefs) {
+    if (!attachmentPathAllowed(orgId, driverSub, ref.path)) {
+      refused += 1;
+      continue;
+    }
+    let data: Uint8Array | null;
+    try {
+      data = await transport.downloadDriverFile(ref.path);
+    } catch (e) {
+      if ((e as { code?: string }).code === "unreachable") return "unreachable";
+      refused += 1;
+      continue;
+    }
+    const c = data ? checkAttachment(fileNameOf(ref.path), "image/jpeg", data) : null;
+    if (c && c.ok) files.push({ stopSeq: ref.stopSeq, file: c });
+    else refused += 1;
+  }
+  return { files, refused };
+}
 
 /**
  * Read what the phones have written since the last pull and apply it to the desk in order. At least once and idempotent: a row already applied (its execution version is not above the one
@@ -188,24 +221,28 @@ export async function pullBridgeResponses(transport: BridgeTransport, opts: { wo
   const workspaceId = opts.workspaceId ?? currentWorkspaceId();
   const now = opts.now ?? new Date();
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { bridgeOrgId: true, bridgeCursor: true } });
-  const res: PullResult = { read: 0, applied: 0, flagged: 0, ignored: 0, cursor: wholeOf(ws?.bridgeCursor) };
+  const res: PullResult = { read: 0, applied: 0, flagged: 0, ignored: 0, waiting: 0, filed: 0, cursor: wholeOf(ws?.bridgeCursor) };
   if (!ws?.bridgeOrgId) return res;
   const orgId = ws.bridgeOrgId;
   // A time the phone reports is placed on the carrier's own clock when it is put into the desk's trip form.
   const tz = await workspaceTimezone(workspaceId);
   const rows = await transport.changedSince(orgId, wholeOf(ws.bridgeCursor), opts.limit ?? 200);
   res.read = rows.length;
+  // The last row read through. A delivery whose photos could not be fetched (the link did not answer) stops the run before it, so the next run takes it with its files.
+  let through = wholeOf(ws.bridgeCursor);
   for (const row of rows) {
     const a = row.source_load_id
       ? await prisma.assignment.findFirst({ where: { loadId: row.source_load_id, load: { workspaceId, deletedAt: null } }, include: { driver: { select: { name: true, phoneUserId: true } }, load: { select: { id: true, loadNumber: true } } } })
       : null;
     if (!a || row.kind !== "dispatch") {
       res.ignored += 1;
+      through = Math.max(through, wholeOf(row.sync_seq));
       continue;
     }
     const it = interpretRow({ row, orgId, phoneUserId: a.driver.phoneUserId, deskStatus: a.status, seenExecutionVersion: a.bridgeExecutionVersion });
     if (it.kind === "ignore") {
       res.ignored += 1;
+      through = Math.max(through, wholeOf(row.sync_seq));
       continue;
     }
     if (it.kind === "flag") {
@@ -214,10 +251,17 @@ export async function pullBridgeResponses(transport: BridgeTransport, opts: { wo
         await recordAudit({ entity: "assignment", action: "driver_link_flag", loadId: a.load.id, loadNumber: a.load.loadNumber, summary: it.why, at: now, workspaceId, actor: ACTOR }, tx);
       });
       res.flagged += 1;
+      through = Math.max(through, wholeOf(row.sync_seq));
       continue;
     }
     const answer = parseDriverResponse(row.driver_response, orgId)!;
+    const pods = it.steps.includes("completed") && answer.podRefs.length > 0 ? await fetchPods(transport, orgId, row.assigned_driver_id, answer) : { files: [], refused: 0 };
+    if (pods === "unreachable") {
+      res.waiting += 1;
+      break;
+    }
     let stopped: string | null = null;
+    let filed = 0;
     for (const step of it.steps) {
       if (step === "accepted" || step === "declined") {
         await recordDriverResponse(a.loadId, step, now, step === "declined" ? (answer.declinedReason ?? undefined) : undefined, workspaceId, "phone");
@@ -231,12 +275,21 @@ export async function pullBridgeResponses(transport: BridgeTransport, opts: { wo
         // G10: delivered on the phone is applied: the delivery time on the carrier's clock, proof received when the phone filed proof inside the fleet's or the driver's folder, and what
         // the phone reported in the note. Costs and stop times stay for the desk (the phone does not send them); a delivery the desk's rules refuse is shown, not forced.
         const deliveredLocal = toCentralLocal(Date.parse(answer.completedAt ?? now.toISOString()), tz);
-        const r = await completeTrip(a.loadId, phoneCompletionValues(answer, deliveredLocal), now, workspaceId, "phone");
+        // The proof the phone sent is filed only if its files arrived; a delivery with none that came through is recorded as without proof, and says so.
+        const values = phoneCompletionValues({ ...answer, podRefs: answer.podRefs.filter((ref) => pods.files.some((f) => f.stopSeq === ref.stopSeq)) }, deliveredLocal);
+        const r = await completeTrip(a.loadId, values, now, workspaceId, "phone");
         if (!r.ok) {
           const why = r.error ?? Object.values(r.errors ?? {})[0] ?? "the delivery needs its details";
           stopped = `The phone says the driver delivered${answer.actualMiles != null ? ` (${answer.actualMiles} mi driven)` : ""}${answer.podRefs.length > 0 ? ` and filed ${answer.podRefs.length} proof of delivery` : ""}, but the desk could not record it: ${why}. Enter the delivery on the load.`;
           break;
         }
+        const stops = await prisma.stop.findMany({ where: { loadId: a.loadId }, select: { id: true, stopSequence: true, stopType: true, stopRole: true } });
+        for (const p of pods.files) {
+          const doc = await addLoadDocument(a.loadId, "pod", p.file, now, workspaceId, ACTOR, podStopFor(p.stopSeq, stops));
+          if (doc.ok) filed += 1;
+        }
+        const notFiled = pods.files.length - filed + pods.refused;
+        if (notFiled > 0) stopped = `The driver's phone sent ${answer.podRefs.length} proof of delivery ${answer.podRefs.length === 1 ? "photo" : "photos"}; ${notFiled} could not be kept on the load (outside the driver's folder, gone, not a picture, or no room). Ask the driver for ${notFiled === 1 ? "it" : "them"}.`;
       }
     }
     await prisma.$transaction(async (tx) => {
@@ -245,11 +298,12 @@ export async function pullBridgeResponses(transport: BridgeTransport, opts: { wo
     });
     if (stopped) res.flagged += 1;
     else res.applied += 1;
+    res.filed += filed;
+    through = Math.max(through, wholeOf(row.sync_seq));
   }
   const was = wholeOf(ws.bridgeCursor);
-  const last = rows.length > 0 ? Math.max(...rows.map((r) => wholeOf(r.sync_seq))) : was;
-  if (last > was) await prisma.workspace.update({ where: { id: workspaceId }, data: { bridgeCursor: BigInt(last) } });
-  res.cursor = last;
+  if (through > was) await prisma.workspace.update({ where: { id: workspaceId }, data: { bridgeCursor: BigInt(through) } });
+  res.cursor = Math.max(through, was);
   return res;
 }
 

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { BRIDGE_ENV, MAX_ATTEMPTS, backoffMinutes, bridgeConfig, bridgeMode, closeDispatchRow, interpretRow, newDispatchRow, nextAttemptAt, parseDriverResponse, phoneCompletionValues, replacementFor, updateDispatchRow, wholeOf } from "@/server/bridge/core";
+import { BRIDGE_ENV, MAX_ATTEMPTS, backoffMinutes, bridgeConfig, bridgeMode, closeDispatchRow, interpretRow, newDispatchRow, nextAttemptAt, parseDriverResponse, phoneCompletionValues, podStopFor, replacementFor, updateDispatchRow, wholeOf } from "@/server/bridge/core";
 import { BridgeTransportError, memoryTransport, supabaseTransport } from "@/server/bridge/transport";
 import { FORBIDDEN_KEY } from "@/server/tl/projector";
 
@@ -224,22 +224,38 @@ describe("confidentiality at the boundary", () => {
   });
 });
 
-describe("a delivery from the phone (G10)", () => {
-  it("fills the desk's delivery form: proof received with the paths and miles in the note, nothing guessed", () => {
-    const v = phoneCompletionValues({ podRefs: [{ stopSeq: 1, path: `${ORG}/loads/L1/pod1.jpg` }], actualMiles: 340.5 }, "2026-11-21T09:30");
+describe("a delivery from the phone (G10, sync plan Step 2)", () => {
+  const base = { legMiles: null, closedWithoutPod: false, podMissing: 0 };
+  it("fills the desk's delivery form: proof received, miles in the note, no split guessed from a total", () => {
+    const v = phoneCompletionValues({ ...base, podRefs: [{ stopSeq: 2, path: `org/${ORG}/driver/u1/pod-d-2.jpg` }], actualMiles: 340.5 }, "2026-11-21T09:30");
     expect(v).toMatchObject({ deliveredAt: "2026-11-21T09:30", pod: "received", stops: [], fuel: "", tolls: "", misc: "" });
-    expect(v.podNote).toContain(`${ORG}/loads/L1/pod1.jpg`);
+    expect(v.podNote).toContain("1 proof of delivery photo, filed with the load's documents");
     expect(v.podNote).toContain("340.5 mi driven");
     expect(v).not.toHaveProperty("miles");
   });
-  it("no proof: recorded as none, and the note says the phone filed none", () => {
-    const v = phoneCompletionValues({ podRefs: [], actualMiles: null }, "2026-11-21T09:30");
-    expect(v.pod).toBe("none");
-    expect(v.podNote).toBe("The driver's phone filed no proof of delivery.");
+  it("the miles the driver logged by leg go on the load as driven", () => {
+    const v = phoneCompletionValues({ ...base, podRefs: [], actualMiles: 412, legMiles: { pickup: 30, loaded: 360.5, home: 21.5 } }, "x");
+    expect(v.miles).toEqual({ pickup: "30", loaded: "360.5", home: "21.5" });
+  });
+  it("no proof: recorded as none, and the note says whether the driver closed without a photo", () => {
+    expect(phoneCompletionValues({ ...base, podRefs: [], actualMiles: null }, "x")).toMatchObject({ pod: "none", podNote: "The driver's phone filed no proof of delivery." });
+    expect(phoneCompletionValues({ ...base, podRefs: [], actualMiles: null, closedWithoutPod: true }, "x").podNote).toBe("The driver closed the trip on their phone without a delivery photo.");
+    expect(phoneCompletionValues({ ...base, podRefs: [], actualMiles: null, podMissing: 2 }, "x").podNote).toContain("2 more photos were taken but never reached the desk");
   });
   it("keeps the note within the desk's 300 characters", () => {
-    const refs = Array.from({ length: 40 }, (_, i) => ({ stopSeq: null, path: `${ORG}/loads/L1/a-long-file-name-${i}.jpg` }));
-    expect(phoneCompletionValues({ podRefs: refs, actualMiles: 1 }, "x").podNote.length).toBeLessThanOrEqual(300);
+    const refs = Array.from({ length: 40 }, (_, i) => ({ stopSeq: null, path: `org/${ORG}/driver/u1/a-long-file-name-${i}.jpg` }));
+    expect(phoneCompletionValues({ ...base, podRefs: refs, actualMiles: 1, podMissing: 3 }, "x").podNote.length).toBeLessThanOrEqual(300);
+  });
+  it("reads the miles by leg, closed without proof and lost photos strictly", () => {
+    const a = parseDriverResponse({ state: "completed", completion: { miles: { pickup: 30, loaded: 360.5, home: 21.5 }, closed_without_pod: true }, pod_missing: 2 }, ORG)!;
+    expect([a.legMiles, a.closedWithoutPod, a.podMissing]).toEqual([{ pickup: 30, loaded: 360.5, home: 21.5 }, true, 2]);
+    const b = parseDriverResponse({ state: "completed", completion: { miles: { pickup: 0, loaded: 0, home: 0 } }, pod_missing: -1 }, ORG)!;
+    expect([b.legMiles, b.closedWithoutPod, b.podMissing]).toEqual([null, false, 0]);
+    expect(parseDriverResponse({ state: "completed", completion: { miles: { pickup: 30, loaded: "x", home: 1 } } }, ORG)!.legMiles).toBeNull();
+  });
+  it("a photo belongs to the load's n-th stop when that stop is a delivery, else to the whole load", () => {
+    const stops = [{ id: "p", stopSequence: 10, stopType: "pickup", stopRole: "pickup" }, { id: "m", stopSequence: 20, stopType: "delivery", stopRole: null }, { id: "d", stopSequence: 30, stopType: "delivery", stopRole: "delivery" }];
+    expect([podStopFor(1, stops), podStopFor(2, stops), podStopFor(3, stops), podStopFor(4, stops), podStopFor(null, stops)]).toEqual([null, "m", "d", null, null]);
   });
 });
 

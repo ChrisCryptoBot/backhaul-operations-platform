@@ -64,6 +64,7 @@ export type AuditAction =
   | "quote_discarded"
   | "load_edited"
   | "trip_started"
+  | "stop_event"
   | "delivered"
   | "trip_undone"
   | "trip_reopened"
@@ -223,6 +224,7 @@ export const ACTION_LABEL: Record<string, string> = {
   quote_discarded: "Quote thrown away",
   load_edited: "Load details changed",
   trip_started: "Picked up",
+  stop_event: "At a stop, from the driver's phone",
   delivered: "Delivered",
   trip_undone: "Pickup taken back",
   trip_reopened: "Delivery taken back",
@@ -383,6 +385,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   quote_discarded: "muted",
   load_edited: "muted",
   trip_started: "info",
+  stop_event: "info",
   delivered: "ok",
   trip_undone: "warn",
   trip_reopened: "warn",
@@ -506,7 +509,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
 
 /** The filter chips on the audit page: which actions belong to which group. */
 export const AUDIT_GROUPS: Array<{ key: string; label: string; actions: string[] }> = [
-  { key: "dispatch", label: "Dispatch", actions: ["booked", "quote_saved", "quote_passed", "quote_discarded", "load_edited", "trip_started", "trip_undone", "delivered", "trip_reopened", "trip_corrected", "load_reopened", "assigned", "reassigned", "handoff_dropped", "handoff_received", "handoff_disputed", "handoff_acknowledged", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled", "signal_acknowledged"] },
+  { key: "dispatch", label: "Dispatch", actions: ["booked", "quote_saved", "quote_passed", "quote_discarded", "load_edited", "trip_started", "stop_event", "trip_undone", "delivered", "trip_reopened", "trip_corrected", "load_reopened", "assigned", "reassigned", "handoff_dropped", "handoff_received", "handoff_disputed", "handoff_acknowledged", "unassigned", "sent", "accepted", "declined", "cancelled", "deleted", "restored", "tonu", "rescheduled", "signal_acknowledged"] },
   { key: "money", label: "Money", actions: ["expenses_changed", "invoiced", "invoice_chased", "detention_waived", "detention_evidence_confirmed", "detention_evidence_dismissed", "invoice_voided", "credit_memo_issued", "credit_memo_voided", "paid", "payment_part", "payment_undone", "statement_started", "statement_saved", "statement_paid", "load_settled", "load_released", "statement_finalized", "statement_voided", "statement_discarded"] },
   { key: "intake", label: "Intake", actions: ["rate_con_saved", "rate_con_read", "rate_con_read_failed", "document_added", "document_removed", "loads_import_completed", "loads_import_removed", "history_import_completed", "history_import_removed"] },
   { key: "team", label: "Team", actions: ["member_added", "member_role_changed", "member_removed", "member_scope_changed"] },

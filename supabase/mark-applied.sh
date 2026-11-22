@@ -80,6 +80,7 @@ for m in \
   20270103000000_driver_link_invites \
   20270103000100_driver_link_invite_flag \
   20270104000000_bridge_outbox_lease \
-  20270105000000_bridge_outbox_messages; do
+  20270105000000_bridge_outbox_messages \
+  20270106000000_bridge_stop_events; do
   npx prisma migrate resolve --applied "$m" --schema=./prisma/schema.prisma
 done

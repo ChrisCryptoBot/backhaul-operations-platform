@@ -131,7 +131,13 @@ export async function startTrip(loadId: string, values: StartValues, now = new D
     // From the state it was read in: a second press, or another tab, finds the load already on the road and changes nothing.
     await claimLoad(tx, load.id, workspaceId, ["accepted"], { status: "in_progress" });
     await claimAssignment(tx, load.id, ["accepted"], { status: "in_progress" });
-    await tx.stop.update({ where: { id: pickup.id }, data: { arrivedAt: v.arrivedAt, waitMinutes: v.waitMinutes, sealNumber: v.seal } });
+    // The desk's entry is the desk's. The phone's start only fills blanks: a real arrival the phone already reported at the pickup (a stop event read first) is kept, and the
+    // start time stands in for the arrival until one comes (server/bridge/stops.ts replaces the phone's own values).
+    const pickupData =
+      via === "phone"
+        ? { arrivedAt: pickup.arrivedAt ?? v.arrivedAt, waitMinutes: pickup.waitMinutes ?? v.waitMinutes, sealNumber: pickup.sealNumber ?? v.seal, arrivedSource: pickup.arrivedSource ?? "phone" }
+        : { arrivedAt: v.arrivedAt, waitMinutes: v.waitMinutes, sealNumber: v.seal, arrivedSource: "desk" };
+    await tx.stop.update({ where: { id: pickup.id }, data: pickupData });
     // A pickup the desk entered for a bridged driver reaches their phone; one the phone sent is already there.
     if (via === "desk") await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "update", now });
     await recordAudit(
@@ -172,7 +178,7 @@ export async function undoStartTrip(loadId: string, reason: string, now = new Da
   await prisma.$transaction(async (tx) => {
     await claimLoad(tx, load.id, workspaceId, ["in_progress"], { status: loadStatusFor("accepted") });
     await claimAssignment(tx, load.id, ["in_progress"], { status: "accepted" });
-    await tx.stop.update({ where: { id: pickup.id }, data: { arrivedAt: null, waitMinutes: null, sealNumber: null } });
+    await tx.stop.update({ where: { id: pickup.id }, data: { arrivedAt: null, waitMinutes: null, sealNumber: null, arrivedSource: null } });
     await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "update", now });
     await recordAudit({ entity: "load", action: "trip_undone", loadId: load.id, loadNumber: load.loadNumber, summary: `Pickup taken back: ${load.assignment!.driver.name} has the load again, not yet on the road`, reason: why, before: { Status: "On the road", Arrived: pickup.arrivedAt ? dateTime(pickup.arrivedAt) : null }, after: { Status: "Accepted", Arrived: null }, at: now, workspaceId }, tx);
   });
@@ -243,7 +249,7 @@ export async function completeTrip(loadId: string, values: CompleteValues, now =
     for (const s of v.stops) {
       const had = load.stops.find((x) => x.id === s.id)!;
       // A blank seal keeps the one already recorded; a typed one is written at that stop (the table shows a seal column for every stop, so it can be entered at every stop).
-      if (s.arrivedAt != null || s.waitMinutes != null || s.seal != null) await tx.stop.update({ where: { id: s.id }, data: { arrivedAt: s.arrivedAt ?? had.arrivedAt, waitMinutes: s.waitMinutes ?? had.waitMinutes, sealNumber: s.seal ?? had.sealNumber } });
+      if (s.arrivedAt != null || s.waitMinutes != null || s.seal != null) await tx.stop.update({ where: { id: s.id }, data: { arrivedAt: s.arrivedAt ?? had.arrivedAt, waitMinutes: s.waitMinutes ?? had.waitMinutes, sealNumber: s.seal ?? had.sealNumber, arrivedSource: "desk" } });
     }
     await claimLoad(tx, load.id, workspaceId, ["in_progress"], {
         status: "completed",
@@ -389,7 +395,8 @@ export async function correctTrip(loadId: string, values: CorrectValues, now = n
     await prisma.$transaction(async (tx) => {
       const claimed = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: null, status: load.status, updatedAt: load.updatedAt, ...(timesChanged ? { paymentStatus: null } : {}) }, data: loadData as Prisma.LoadUncheckedUpdateManyInput });
       if (claimed.count !== 1) throw new LoadMoved("This load was just changed by someone else. Reload it and try again.");
-      for (const e of edits) await tx.stop.update({ where: { id: e.id }, data: e.data });
+      // A correction is the desk's: the driver's phone never overwrites it after this.
+      for (const e of edits) await tx.stop.update({ where: { id: e.id }, data: { ...e.data, arrivedSource: "desk" } });
       await recordAudit({ entity: "load", action: "trip_corrected", loadId: load.id, loadNumber: load.loadNumber, summary: `Trip corrected: ${Object.keys(after).join(", ")}`, reason: v.reason, before, after, at: now, workspaceId }, tx);
     });
   } catch (e) {

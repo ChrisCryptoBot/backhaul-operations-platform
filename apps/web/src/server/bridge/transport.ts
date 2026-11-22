@@ -55,7 +55,26 @@ export interface BridgeTransport {
   upsertDriverStatus(rows: DriverStatusRow[]): Promise<void>;
   /** Remove this fleet's rows for phones no longer connected to it. */
   deleteDriverStatus(orgId: string, driverSubs: string[]): Promise<void>;
+  /** Stop events (sync plan Step 2): this fleet's rows on `bridge.stop_events` written since `afterSeq`, oldest first. */
+  stopEventsSince(orgId: string, afterSeq: number, limit: number): Promise<StopEventRow[]>;
 }
+
+/** A row of `bridge.stop_events` (the phone project's supabase/migrations/20261122000100_bridge_stop_events.sql), as the desk reads it. */
+export type StopEventRow = {
+  id: string;
+  org_id: string;
+  driver_sub: string;
+  dispatch_id: string;
+  source_load_id: string | null;
+  stop_seq: number | null;
+  kind: "arrived" | "arrival_undone" | "loaded" | "emptied" | "check_call" | string;
+  at: string;
+  wait_minutes: number | null;
+  seal: string | null;
+  lat: number | null;
+  lng: number | null;
+  sync_seq: number;
+};
 
 const SAFE = { unreachable: "The driver link could not be reached.", rejected: "The driver link refused the request." } as const;
 
@@ -72,6 +91,7 @@ export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = f
   const base = `${cfg.url}/rest/v1/external_dispatch`;
   const links = `${cfg.url}/rest/v1/driver_links`;
   const msgs = `${cfg.url}/rest/v1/driver_messages`;
+  const stopEvents = `${cfg.url}/rest/v1/stop_events`;
   const files = `${cfg.url}/storage/v1/object/bridge-files`;
   const status = `${cfg.url}/rest/v1/driver_status`;
   const inList = (ids: string[]) => `(${ids.map(plain).join(",")})`;
@@ -116,6 +136,11 @@ export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = f
     async changedSince(orgId, afterSeq, limit) {
       const q = `?org_id=eq.${plain(orgId)}&sync_seq=gt.${wholeOf(afterSeq)}&order=sync_seq.asc&limit=${Math.min(Math.max(wholeOf(limit), 1), 500)}`;
       return rows(await call(base + q, { method: "GET", headers: headers(false) }));
+    },
+    async stopEventsSince(orgId, afterSeq, limit) {
+      const q = `?org_id=eq.${plain(orgId)}&sync_seq=gt.${wholeOf(afterSeq)}&order=sync_seq.asc&limit=${Math.min(Math.max(wholeOf(limit), 1), 500)}`;
+      const out = await call(stopEvents + q, { method: "GET", headers: headers(false) });
+      return Array.isArray(out) ? (out as StopEventRow[]) : [];
     },
     async rowsForLoad(orgId, loadId) {
       const q = `?org_id=eq.${plain(orgId)}&source_load_id=eq.${plain(loadId)}&order=sync_seq.desc&limit=20`;
@@ -241,6 +266,7 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
   const messages: DriverMessageRow[] = [];
   const files = new Map<string, Uint8Array>();
   const statuses: DriverStatusRow[] = [];
+  const stopEvents: StopEventRow[] = [];
   let statusWrites = 0;
   const transport: BridgeTransport & {
     /** bridge.driver_status, and how many rows have been written (to see that unchanged clocks are not rewritten). */
@@ -256,6 +282,9 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     /** The phone opens the thread the way bridge.mark_driver_messages_read does. */
     phoneReads: (orgId: string, driverSub: string, at: Date) => void;
     phone: (id: string, response: Record<string, unknown>) => void;
+    /** bridge.stop_events, and the phone's send_stop_event (only the assigned driver, only while the dispatch is open; the org comes from the dispatch). */
+    stopEvents: StopEventRow[];
+    phoneStop: (e: { dispatchId: string; driverSub: string; kind: StopEventRow["kind"]; stopSeq?: number | null; at: Date; waitMinutes?: number | null; seal?: string | null; lat?: number | null; lng?: number | null }) => StopEventRow;
     /** Claim a code the way bridge.claim_driver_link does (unknown, expired or withdrawn -> link_invalid; someone else's -> link_used). */
     claim: (codeHash: string, phoneUserId: string, now: Date) => "ok" | "link_invalid" | "link_used";
   } = {
@@ -264,6 +293,7 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     messages,
     files,
     statuses,
+    stopEvents,
     statusWrites: () => statusWrites,
     async driverStatusRows(orgId) {
       guard();
@@ -325,6 +355,32 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     async changedSince(orgId, afterSeq, limit) {
       guard();
       return table.filter((r) => r.org_id === orgId && r.sync_seq > afterSeq).sort((a, b) => a.sync_seq - b.sync_seq).slice(0, limit);
+    },
+    async stopEventsSince(orgId, afterSeq, limit) {
+      guard();
+      return stopEvents.filter((e) => e.org_id === orgId && e.sync_seq > afterSeq).sort((a, b) => a.sync_seq - b.sync_seq).slice(0, limit).map((e) => ({ ...e }));
+    },
+    phoneStop(e) {
+      const row = table.find((r) => r.id === e.dispatchId);
+      if (!row || row.assigned_driver_id !== e.driverSub) throw new Error("not_your_dispatch");
+      if (row.status !== "dispatched") throw new Error("dispatch_closed");
+      const made: StopEventRow = {
+        id: `stop-event-${stopEvents.length + 1}`,
+        org_id: row.org_id,
+        driver_sub: e.driverSub,
+        dispatch_id: row.id,
+        source_load_id: row.source_load_id,
+        stop_seq: e.kind === "check_call" ? null : (e.stopSeq ?? null),
+        kind: e.kind,
+        at: e.at.toISOString(),
+        wait_minutes: e.waitMinutes ?? null,
+        seal: e.seal ?? null,
+        lat: e.lat ?? null,
+        lng: e.lng ?? null,
+        sync_seq: ++seq
+      };
+      stopEvents.push(made);
+      return made;
     },
     async rowsForLoad(orgId, loadId) {
       guard();

@@ -194,7 +194,9 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     paidAt: load.paidAt,
     paymentStatus: load.paymentStatus,
     firstArrivedAt: arrived,
-    assignment: a ? { status: a.status, createdAt: a.createdAt, dispatchedAt: a.dispatchedAt, respondedAt: a.respondedAt } : null
+    assignment: a ? { status: a.status, createdAt: a.createdAt, dispatchedAt: a.dispatchedAt, respondedAt: a.respondedAt } : null,
+    // Each stop as it is reached (the driver's phone reports arrivals, sync plan Step 2). Not before the trip is on the road: an unsent load's stops are a plan, not progress.
+    stops: ["in_progress", "completed"].includes(load.status) ? load.stops.map((s) => ({ sequence: s.stopSequence, role: (s.stopRole ?? s.stopType) === "pickup" || s.stopType === "origin" ? "pickup" : "delivery", arrivedAt: s.arrivedAt, waitMinutes: s.waitMinutes, fromPhone: s.arrivedSource === "phone" })) : undefined
   });
 
   const bar = (value: number | null, floor: number | null, max: number, verdict: string | undefined) => (
@@ -598,6 +600,13 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
                     {closes ? <div className="tl-sub">closes {stopTime(closes, zoneOfStop(s))}</div> : null}
                     <div className="tl-sub">{Array.isArray(s.referenceNumbers) && (s.referenceNumbers as string[]).length > 0 ? (s.referenceNumbers as string[]).join(", ") : "no reference number"}</div>
                     {s.sealNumber ? <div className="tl-sub">seal {s.sealNumber}</div> : null}
+                    {s.arrivedAt ? (
+                      <div className="tl-sub">
+                        arrived {stopTime(s.arrivedAt, zoneOfStop(s))}
+                        {s.waitMinutes != null ? ` · waited ${s.waitMinutes} min` : ""}
+                        {s.arrivedSource === "phone" ? " · from the driver's phone" : ""}
+                      </div>
+                    ) : null}
                   </td>
                 </tr>
               );

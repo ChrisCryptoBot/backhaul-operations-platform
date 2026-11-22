@@ -74,6 +74,8 @@ model Workspace {
   /// last `sync_seq` of the bridge table read, so each pull continues where the last one ended.
   bridgeOrgId         String?                @map("bridge_org_id")
   bridgeCursor        BigInt                 @default(0) @map("bridge_cursor")
+  /// How far the desk has read the phones' stop events (bridge.stop_events.sync_seq).
+  bridgeStopCursor    BigInt                 @default(0) @map("bridge_stop_cursor")
   partnerConnections  PartnerConnection[]
   bridgeOutbox        BridgeOutbox[]
   driverLinkInvites   DriverLinkInvite[]
@@ -434,6 +436,8 @@ model Stop {
   waitMinutes        Int?      @map("wait_minutes")
   arrivedAt          DateTime? @map("arrived_at")
   sealNumber         String?   @map("seal_number")
+  /// Who set the arrival, wait and seal: desk | phone. Null (rows from before) reads as the desk's: a phone never overwrites it.
+  arrivedSource      String?   @map("arrived_source")
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
