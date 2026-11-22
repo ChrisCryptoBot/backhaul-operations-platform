@@ -12,6 +12,11 @@ import { payEstimate, type PayKind } from "./projector";
 import { rateConTotal } from "@/lib/pay";
 import { currentWorkspaceId } from "./workspace";
 import { stopClocksOf } from "./stop-clock";
+import { enqueueForLoad } from "@/server/bridge/outbox";
+
+/** Who entered a trip step: the dispatcher on the desk, or the driver's phone through the driver link (server/bridge/service.ts). The audit says which. */
+export type TripVia = "desk" | "phone";
+const enteredBy = (via: TripVia) => (via === "phone" ? "from the driver's phone" : "entered by the desk");
 
 /**
  * Entering a trip for a driver who is not entering it on the phone. It is the same record the phone writes: arrival and wait at each stop, the
@@ -108,7 +113,7 @@ async function loadFor(loadId: string, workspaceId: string) {
 }
 
 /** The driver picked up: they arrived at the first stop, waited, and sealed the trailer. The load is on the road. */
-export async function startTrip(loadId: string, values: StartValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult> {
+export async function startTrip(loadId: string, values: StartValues, now = new Date(), workspaceId = currentWorkspaceId(), via: TripVia = "desk"): Promise<TripResult> {
   // A time typed for a stop is the dock's time: read on the clock where the stop is (the zone the browser sent is not trusted).
   const clocks = await stopClocksOf(loadId, workspaceId);
   const check = validateStart({ ...values, zone: clocks[0]?.zone }, now.getTime());
@@ -127,13 +132,15 @@ export async function startTrip(loadId: string, values: StartValues, now = new D
     await claimLoad(tx, load.id, workspaceId, ["accepted"], { status: "in_progress" });
     await claimAssignment(tx, load.id, ["accepted"], { status: "in_progress" });
     await tx.stop.update({ where: { id: pickup.id }, data: { arrivedAt: v.arrivedAt, waitMinutes: v.waitMinutes, sealNumber: v.seal } });
+    // A pickup the desk entered for a bridged driver reaches their phone; one the phone sent is already there.
+    if (via === "desk") await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "update", now });
     await recordAudit(
       {
         entity: "load",
         action: "trip_started",
         loadId: load.id,
         loadNumber: load.loadNumber,
-        summary: `${a.driver.name} picked up, entered by the desk: arrived ${dateTime(v.arrivedAt)}${v.waitMinutes != null ? `, waited ${v.waitMinutes} min` : ""}${v.seal ? `, seal ${v.seal}` : ""}`,
+        summary: `${a.driver.name} picked up, ${enteredBy(via)}: arrived ${dateTime(v.arrivedAt)}${v.waitMinutes != null ? `, waited ${v.waitMinutes} min` : ""}${v.seal ? `, seal ${v.seal}` : ""}`,
         before: { Status: "Accepted" },
         after: { Status: "On the road", Arrived: dateTime(v.arrivedAt), Waited: v.waitMinutes != null ? `${v.waitMinutes} min` : null, Seal: v.seal },
         at: now, workspaceId
@@ -166,6 +173,7 @@ export async function undoStartTrip(loadId: string, reason: string, now = new Da
     await claimLoad(tx, load.id, workspaceId, ["in_progress"], { status: loadStatusFor("accepted") });
     await claimAssignment(tx, load.id, ["in_progress"], { status: "accepted" });
     await tx.stop.update({ where: { id: pickup.id }, data: { arrivedAt: null, waitMinutes: null, sealNumber: null } });
+    await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "update", now });
     await recordAudit({ entity: "load", action: "trip_undone", loadId: load.id, loadNumber: load.loadNumber, summary: `Pickup taken back: ${load.assignment!.driver.name} has the load again, not yet on the road`, reason: why, before: { Status: "On the road", Arrived: pickup.arrivedAt ? dateTime(pickup.arrivedAt) : null }, after: { Status: "Accepted", Arrived: null }, at: now, workspaceId }, tx);
   });
   } catch (e) {
@@ -194,6 +202,7 @@ export async function reopenDelivered(loadId: string, reason: string, now = new 
     // Not once an invoice or a statement has been made from it, even if that happened since this was read.
     await claimLoad(tx, load.id, workspaceId, ["completed"], { status: loadStatusFor("in_progress"), completedAt: null, actualRevenue: null, closedWithoutPod: null, podNote: null }, { paymentStatus: null, settlement: { is: null } });
     await tx.assignment.updateMany({ where: { loadId: load.id }, data: { status: "in_progress" } });
+    await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "update", now });
     await recordAudit({ entity: "load", action: "trip_reopened", loadId: load.id, loadNumber: load.loadNumber, summary: `Delivery taken back: ${load.assignment!.driver.name} is on the road again`, reason: why, before: { Status: "Delivered", Delivered: load.completedAt ? dateTime(load.completedAt) : null, ...(load.actualRevenue != null ? { "Linehaul paid": money(num(load.actualRevenue)) } : {}) }, after: { Status: "On the road", Delivered: null }, at: now, workspaceId }, tx);
   });
   } catch (e) {
@@ -208,7 +217,7 @@ export async function reopenDelivered(loadId: string, reason: string, now = new 
  * either there (with a note on what and where) or its absence is explained; and what the trip cost is recorded. The rate confirmation's
  * rate becomes the load's actual revenue, as the phone does, and the waits add up to the dock wait the verdict reads.
  */
-export async function completeTrip(loadId: string, values: CompleteValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult> {
+export async function completeTrip(loadId: string, values: CompleteValues, now = new Date(), workspaceId = currentWorkspaceId(), via: TripVia = "desk"): Promise<TripResult> {
   const clocks = await stopClocksOf(loadId, workspaceId);
   const check = validateComplete({ ...values, deliveredZone: clocks[clocks.length - 1]?.zone, stops: values.stops.map((s) => ({ ...s, zone: clocks.find((c) => c.id === s.id)?.zone })) }, now.getTime());
   if (!check.ok) return { ok: false, errors: check.errors };
@@ -229,6 +238,8 @@ export async function completeTrip(loadId: string, values: CompleteValues, now =
   const extras = extrasPatch(load, v.expenses);
   try {
   await prisma.$transaction(async (tx) => {
+    // Queued while the assignment still reads on the road (the outbox looks it up in this transaction): a delivery the desk entered reaches a bridged driver's phone.
+    if (via === "desk") await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "update", now });
     for (const s of v.stops) {
       const had = load.stops.find((x) => x.id === s.id)!;
       // A blank seal keeps the one already recorded; a typed one is written at that stop (the table shows a seal column for every stop, so it can be entered at every stop).
@@ -260,7 +271,7 @@ export async function completeTrip(loadId: string, values: CompleteValues, now =
         action: "delivered",
         loadId: load.id,
         loadNumber: load.loadNumber,
-        summary: `Delivered ${dateTime(v.deliveredAt)}, entered by the desk${v.pod === "none" ? ", no proof of delivery" : ""}${spent > 0 ? `, ${money(spent)} of expenses` : ""}${differs ? `, linehaul paid ${money(v.actualRevenue!)} (the load said ${money(quoted)})` : ""}`,
+        summary: `Delivered ${dateTime(v.deliveredAt)}, ${enteredBy(via)}${v.pod === "none" ? ", no proof of delivery" : ""}${spent > 0 ? `, ${money(spent)} of expenses` : ""}${differs ? `, linehaul paid ${money(v.actualRevenue!)} (the load said ${money(quoted)})` : ""}`,
         reason: v.pod === "none" ? v.podNote : null,
         before: { Status: "On the road" },
         after: { Status: "Delivered", Delivered: dateTime(v.deliveredAt), "Proof of delivery": v.pod === "received" ? (v.podNote ?? "Received") : "None", "Dock wait": `${dockWait} min`, Expenses: spent > 0 ? money(spent) : null, ...(differs ? { "Linehaul paid": money(v.actualRevenue!) } : {}), ...(seals.length > 0 ? { Seals: seals.join(", ") } : {}), ...(extras.after["Miles driven"] ? { "Miles driven": extras.after["Miles driven"] } : {}) },

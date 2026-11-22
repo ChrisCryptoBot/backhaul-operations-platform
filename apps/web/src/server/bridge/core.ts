@@ -106,13 +106,17 @@ export function parseDriverResponse(raw: unknown, orgId: string): DriverAnswer |
   return {
     state: state as ExecState,
     acceptedAt: when(raw.accepted_at),
-    declinedReason: text(raw.declined_reason),
+    // An older phone sent its reason as `reason` (and free text as `notes`): read either, so a decline is never recorded without the why the driver gave.
+    declinedReason: text(raw.declined_reason) ?? (text(raw.reason) && text(raw.notes) ? `${text(raw.reason)}: ${text(raw.notes)}` : text(raw.reason)),
     startedAt: when(raw.started_at),
     completedAt: when(completion.completed_at),
     actualMiles: miles(completion.actual_total_miles),
     podRefs
   };
 }
+
+/** The one reason the phone may take back an accept with (supabase/migrations/20261122000000_bridge_undo_accept.sql on the phone project): before the trip starts. */
+export const UNDO_ACCEPT_REASON = "Accepted in error";
 
 /** The desk's assignment statuses, in the order a trip goes. A declined or unsent assignment is not on the way. */
 const ORDER: Record<string, number> = { dispatched: 0, accepted: 1, in_progress: 2, completed: 3 };
@@ -135,7 +139,12 @@ export function interpretRow(i: { row: Pick<BridgeRow, "assigned_driver_id" | "e
   if (!answer) return { kind: "ignore", why: "No readable answer yet." };
   if (i.row.status !== "dispatched") return { kind: "flag", why: `The phone says ${answer.state}, but the desk has taken this load off the driver.` };
   if (i.deskStatus == null || !(i.deskStatus in ORDER)) return { kind: "flag", why: `The phone says ${answer.state}, but the desk shows this load as ${i.deskStatus ?? "not assigned"}.` };
-  if (answer.state === "declined") return i.deskStatus === "dispatched" ? { kind: "apply", steps: ["declined"] } : { kind: "flag", why: "The phone says declined, but the desk already has the driver on this load." };
+  if (answer.state === "declined") {
+    if (i.deskStatus === "dispatched") return { kind: "apply", steps: ["declined"] };
+    // The driver took back an accept made in error, before the pickup: the phone's server allows only this one way back.
+    if (i.deskStatus === "accepted" && answer.declinedReason === UNDO_ACCEPT_REASON) return { kind: "apply", steps: ["declined"] };
+    return { kind: "flag", why: "The phone says declined, but the desk already has the driver on this load." };
+  }
   const target = answer.state === "accepted" ? 1 : answer.state === "in_progress" ? 2 : 3;
   const at = ORDER[i.deskStatus]!;
   if (target <= at) return { kind: "ignore", why: "The desk is already there." };

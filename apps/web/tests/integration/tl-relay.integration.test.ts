@@ -116,6 +116,32 @@ describe.skipIf(!run)("relays: a baton between two drivers", () => {
     expect((await openHandoffs(W, null, NOW)).some((o) => o.loadId === load.id)).toBe(false);
   });
 
+  test("bridged drivers' phones are told: the drop closes the outgoing driver's row, the receive sends the load to the incoming driver", async () => {
+    const saved = { url: process.env.BRIDGE_SUPABASE_URL, key: process.env.BRIDGE_SUPABASE_SERVICE_KEY };
+    process.env.BRIDGE_SUPABASE_URL = "https://bridge.test.invalid";
+    process.env.BRIDGE_SUPABASE_SERVICE_KEY = "test-key-not-real";
+    try {
+      await prisma.workspace.update({ where: { id: W }, data: { bridgeOrgId: "org_rl_test" } });
+      const load = await rolling("RL-BRIDGE");
+      const nx = await fresh();
+      await prisma.driver.update({ where: { id: ids.d1 }, data: { phoneUserId: "user_rl_out" } });
+      await prisma.driver.update({ where: { id: nx.driver }, data: { phoneUserId: "user_rl_in" } });
+      await hookTrailer(ids.t1);
+      const h = await recordDrop(load.id, GOOD, NOW, W, null);
+      expect(await prisma.bridgeOutbox.findMany({ where: { loadId: load.id }, select: { kind: true, phoneUserId: true } })).toEqual([{ kind: "cancel", phoneUserId: "user_rl_out" }]);
+      await receiveHandoff(h.id, { driverId: nx.driver, vehicleId: nx.truck, pay: PAY }, new Date(NOW.getTime() + 90 * 60_000), W, null);
+      const queued = await prisma.bridgeOutbox.findMany({ where: { loadId: load.id }, orderBy: { createdAt: "asc" }, select: { kind: true, phoneUserId: true } });
+      expect(queued).toEqual([{ kind: "cancel", phoneUserId: "user_rl_out" }, { kind: "dispatch", phoneUserId: "user_rl_in" }]);
+    } finally {
+      await prisma.driver.updateMany({ where: { workspaceId: W }, data: { phoneUserId: null } });
+      await prisma.workspace.update({ where: { id: W }, data: { bridgeOrgId: null } });
+      process.env.BRIDGE_SUPABASE_URL = saved.url;
+      process.env.BRIDGE_SUPABASE_SERVICE_KEY = saved.key;
+      if (saved.url === undefined) delete process.env.BRIDGE_SUPABASE_URL;
+      if (saved.key === undefined) delete process.env.BRIDGE_SUPABASE_SERVICE_KEY;
+    }
+  });
+
   test("a driver swap keeps the truck and the trailer where they are, and refuses a different truck", async () => {
     const load = await rolling("RL-3");
     const nx = await fresh();

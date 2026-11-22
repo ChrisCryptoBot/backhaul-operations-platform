@@ -97,6 +97,19 @@ describe("what to do with a row the phone moved", () => {
     expect(at({}, null).kind).toBe("flag");
     expect(at({}, "declined").kind).toBe("flag");
   });
+
+  it("applies an accept taken back on the phone (accepted in error) before the pickup, and nothing later", () => {
+    const undo = { driver_response: { state: "declined", declined_reason: "Accepted in error" } };
+    expect(at(undo, "accepted")).toEqual({ kind: "apply", steps: ["declined"] });
+    expect(at(undo, "in_progress").kind).toBe("flag");
+    expect(at({ driver_response: { state: "declined", declined_reason: "Too far" } }, "accepted").kind).toBe("flag");
+  });
+
+  it("reads the reason an older phone sent as reason and notes", () => {
+    expect(parseDriverResponse({ state: "declined", reason: "Accepted in error" }, ORG)?.declinedReason).toBe("Accepted in error");
+    expect(parseDriverResponse({ state: "declined", reason: "Other", notes: "flat tire" }, ORG)?.declinedReason).toBe("Other: flat tire");
+    expect(parseDriverResponse({ state: "declined", declined_reason: "Too far", reason: "x" }, ORG)?.declinedReason).toBe("Too far");
+  });
 });
 
 describe("retries", () => {

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { DELETE_REASONS, isDeleteReason, reasonLabel } from "@/lib/disruptions";
 import { LOAD_STATUS } from "@/lib/desk-format";
 import { recordAudit } from "./audit";
+import { enqueueForLoad } from "@/server/bridge/outbox";
 import { findDriverClash, findTruckClash } from "./dispatch";
 import { findTwinLoad, duplicateMessage } from "./twins";
 import { loadWindow } from "@/lib/schedule";
@@ -33,6 +34,8 @@ export async function deleteLoad(input: { loadId: string; reason: string; note?:
     // Only a load that is still what it was when this was read: not picked up, invoiced or put on a statement in the meantime.
     const out = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: null, status: { notIn: ["in_progress", "quote"] }, paymentStatus: null, settlement: { is: null } }, data: { deletedAt: now } });
     if (out.count !== 1) return false;
+    // A load sent to a bridged driver's phone comes off it (the cancel closes the row; the phone evicts its copy).
+    if (a) await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "cancel", now });
     await recordAudit(
       {
         entity: "load",

@@ -18,6 +18,7 @@ import { inScope, type Terminals } from "@/lib/scope";
 import { inTerminal } from "./terminal-sql";
 import { currentAllowed } from "./scope";
 import { enqueueBridge } from "@/server/bridge/outbox";
+import { UNDO_ACCEPT_REASON } from "@/server/bridge/core";
 import { recordAssignmentEvent } from "./assignment-events";
 import { writePositioningLeg } from "./relay-legs";
 import { MILES_SOURCES, type MilesSource } from "@/lib/relay";
@@ -398,12 +399,14 @@ export async function dispatchLoad(loadId: string, now = new Date(), opts: { sen
 export async function recordDriverResponse(loadId: string, response: "accepted" | "declined", now = new Date(), note?: string, workspaceId = currentWorkspaceId(), via: "dispatcher" | "phone" = "dispatcher") {
   const a = await prisma.assignment.findFirst({ where: { loadId, load: { workspaceId } }, include: { driver: true, load: true } });
   if (!a) throw new DispatchError("not_assigned", "Assign a driver first.");
-  if (a.status !== "dispatched") throw new DispatchError("not_sent", "Send the load to the driver before recording an answer.");
+  // The one way back: the driver takes back an accept made in error on their phone, before the pickup (server/bridge/core.ts UNDO_ACCEPT_REASON).
+  const undo = response === "declined" && via === "phone" && a.status === "accepted" && note === UNDO_ACCEPT_REASON;
+  if (a.status !== "dispatched" && !undo) throw new DispatchError("not_sent", "Send the load to the driver before recording an answer.");
   if (a.load.deletedAt) throw new DispatchError("load_not_found", "That load does not exist.");
   return prisma.$transaction(async (tx) => {
     // Answered once: the answer only lands on an assignment that is still waiting for one, on a load that is still on the desk.
     try {
-      await claimAssignment(tx, loadId, ["dispatched"], { status: response, respondedAt: now, driverResponse: { response, note: note ?? null, at: now.toISOString() } });
+      await claimAssignment(tx, loadId, [undo ? "accepted" : "dispatched"], { status: response, respondedAt: now, driverResponse: { response, note: note ?? null, at: now.toISOString() } });
       // The load's status follows the assignment's in the same transaction: yes is accepted, a no is back on the board as a draft.
       await claimLoad(tx, loadId, workspaceId, [a.load.status], { status: loadStatusFor(response) });
     } catch (e) {
@@ -418,9 +421,9 @@ export async function recordDriverResponse(loadId: string, response: "accepted" 
         loadId,
         loadNumber: a.load.loadNumber,
         // Who gave the answer is part of the record: the driver on their phone, or the dispatcher answering for them (a driver out of coverage, or a phone that is not connected).
-        summary: `${a.driver.name} ${response === "accepted" ? "accepted" : "declined"}${via === "phone" ? " on their phone" : " (answered for them by the dispatcher)"}`,
+        summary: undo ? `${a.driver.name} took back their accept on their phone (accepted in error)` : `${a.driver.name} ${response === "accepted" ? "accepted" : "declined"}${via === "phone" ? " on their phone" : " (answered for them by the dispatcher)"}`,
         reason: note ?? null,
-        before: { Status: "Sent, waiting" },
+        before: { Status: undo ? "Driver accepted" : "Sent, waiting" },
         after: { Status: response === "accepted" ? "Driver accepted" : "Driver declined" },
         at: now, workspaceId
       },

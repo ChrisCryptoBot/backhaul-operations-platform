@@ -133,8 +133,10 @@ async function deliver(transport: BridgeTransport, orgId: string, workspaceId: s
     if (!closed) throw new BridgeTransportError("rejected", "The driver link refused the request.");
     return { rowId: closed.id };
   }
-  // dispatch or update: only while the driver on the desk is still the one this was queued for (a later reassign has its own item).
-  if (!a || a.driver.phoneUserId !== item.phoneUserId || !["dispatched", "accepted", "in_progress"].includes(a.status)) return null;
+  // dispatch or update: only while the driver on the desk is still the one this was queued for (a later reassign has its own item). An update also reaches the phone after the desk
+  // entered the delivery for the driver (tl/execution.ts), so the phone hears of it.
+  const onThePhone = item.kind === "update" ? ["dispatched", "accepted", "in_progress", "completed"] : ["dispatched", "accepted", "in_progress"];
+  if (!a || a.driver.phoneUserId !== item.phoneUserId || !onThePhone.includes(a.status)) return null;
   const summary = await driverSummaryFor(item.loadId, workspaceId);
   const load = await prisma.load.findFirst({ where: { id: item.loadId, workspaceId }, select: { quotedRevenue: true, actualRevenue: true, fuelSurcharge: true } });
   assertDriverSafe(summary, { numbers: [num(load?.quotedRevenue), num(load?.actualRevenue), num(load?.fuelSurcharge)] });
@@ -220,7 +222,7 @@ export async function pullBridgeResponses(transport: BridgeTransport, opts: { wo
       if (step === "accepted" || step === "declined") {
         await recordDriverResponse(a.loadId, step, now, step === "declined" ? (answer.declinedReason ?? undefined) : undefined, workspaceId, "phone");
       } else if (step === "in_progress") {
-        const r = await startTrip(a.loadId, { arrivedAt: toCentralLocal(Date.parse(answer.startedAt ?? now.toISOString()), tz), waitMinutes: "", seal: "" }, now, workspaceId);
+        const r = await startTrip(a.loadId, { arrivedAt: toCentralLocal(Date.parse(answer.startedAt ?? now.toISOString()), tz), waitMinutes: "", seal: "" }, now, workspaceId, "phone");
         if (!r.ok) {
           stopped = `The phone says the driver picked up, but the desk could not record the pickup: ${r.error ?? "the pickup needs its details"}. Enter it on the load.`;
           break;
@@ -229,7 +231,7 @@ export async function pullBridgeResponses(transport: BridgeTransport, opts: { wo
         // G10: delivered on the phone is applied: the delivery time on the carrier's clock, proof received when the phone filed proof inside the fleet's or the driver's folder, and what
         // the phone reported in the note. Costs and stop times stay for the desk (the phone does not send them); a delivery the desk's rules refuse is shown, not forced.
         const deliveredLocal = toCentralLocal(Date.parse(answer.completedAt ?? now.toISOString()), tz);
-        const r = await completeTrip(a.loadId, phoneCompletionValues(answer, deliveredLocal), now, workspaceId);
+        const r = await completeTrip(a.loadId, phoneCompletionValues(answer, deliveredLocal), now, workspaceId, "phone");
         if (!r.ok) {
           const why = r.error ?? Object.values(r.errors ?? {})[0] ?? "the delivery needs its details";
           stopped = `The phone says the driver delivered${answer.actualMiles != null ? ` (${answer.actualMiles} mi driven)` : ""}${answer.podRefs.length > 0 ? ` and filed ${answer.podRefs.length} proof of delivery` : ""}, but the desk could not record it: ${why}. Enter the delivery on the load.`;

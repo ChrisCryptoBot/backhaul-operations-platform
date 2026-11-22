@@ -5,6 +5,9 @@ import { currentWorkspaceId } from "@/server/tl/workspace";
 import { flushBridgeOutbox, pullBridgeResponses } from "@/server/bridge/service";
 import { memoryTransport } from "@/server/bridge/transport";
 import { assertDriverSafe, type LoadSummary } from "@/server/tl/projector";
+import { completeTrip, startTrip } from "@/server/tl/execution";
+import { deleteLoad } from "@/server/tl/remove";
+import { toCentralLocal } from "@/lib/zoned";
 
 /**
  * The driver link on the demo database, with the in-memory table standing in for Supabase (no network):
@@ -27,7 +30,7 @@ describe.skipIf(!run)("the driver link, desk half", () => {
   const reset = async () => {
     await prisma.bridgeOutbox.deleteMany({ where: { loadId } });
     await prisma.assignment.deleteMany({ where: { loadId } });
-    await prisma.load.update({ where: { id: loadId }, data: { status: "draft" } });
+    await prisma.load.update({ where: { id: loadId }, data: { status: "draft", deletedAt: null } });
     await prisma.workspace.update({ where: { id: ws }, data: { bridgeCursor: 0n } });
   };
 
@@ -130,6 +133,65 @@ describe.skipIf(!run)("the driver link, desk half", () => {
     expect((await prisma.assignment.findUniqueOrThrow({ where: { loadId } })).status).toBe("completed");
     // At least once: reading the same row again changes nothing.
     expect(await pullBridgeResponses(t)).toMatchObject({ applied: 0 });
+  });
+
+  test("an accept taken back on the phone (accepted in error) is applied before the pickup: the load is back on the board", async () => {
+    const t = memoryTransport();
+    await reset();
+    await assignAndSend();
+    await flushBridgeOutbox(t);
+    t.phone(t.table[0]!.id, { state: "accepted" });
+    await pullBridgeResponses(t);
+    t.phone(t.table[0]!.id, { state: "declined", reason: "Accepted in error", declined_reason: "Accepted in error" });
+    expect(await pullBridgeResponses(t)).toMatchObject({ applied: 1, flagged: 0 });
+    expect((await prisma.assignment.findUniqueOrThrow({ where: { loadId } })).status).toBe("declined");
+    expect((await prisma.load.findUniqueOrThrow({ where: { id: loadId } })).status).toBe("draft");
+    const audit = await prisma.auditEvent.findFirst({ where: { loadId, action: "declined", createdAt: { gte: startedAt } }, orderBy: { createdAt: "desc" } });
+    expect(audit?.summary).toContain("took back their accept on their phone");
+  });
+
+  test("a pickup and delivery from the phone are audited as from the driver's phone, and queue nothing back to it", async () => {
+    const t = memoryTransport();
+    await reset();
+    await assignAndSend();
+    await flushBridgeOutbox(t);
+    t.phone(t.table[0]!.id, { state: "accepted" });
+    await pullBridgeResponses(t);
+    t.phone(t.table[0]!.id, { state: "in_progress", started_at: new Date(Date.now() - 7_200_000).toISOString() });
+    await pullBridgeResponses(t);
+    t.phone(t.table[0]!.id, { state: "completed", completion: { completed_at: new Date().toISOString() } });
+    await pullBridgeResponses(t);
+    const audits = await prisma.auditEvent.findMany({ where: { loadId, action: { in: ["trip_started", "delivered"] }, createdAt: { gte: startedAt } }, orderBy: { createdAt: "desc" }, take: 2 });
+    expect(audits.map((a) => a.summary).join(" | ")).toMatch(/from the driver's phone[\s\S]*from the driver's phone/);
+    expect(audits.some((a) => a.summary.includes("entered by the desk"))).toBe(false);
+    expect(await prisma.bridgeOutbox.count({ where: { loadId, kind: "update" } })).toBe(0);
+  });
+
+  test("a pickup and delivery the desk entered reach the driver's phone (an update each), even once delivered", async () => {
+    const t = memoryTransport();
+    await reset();
+    await assignAndSend();
+    await flushBridgeOutbox(t);
+    t.phone(t.table[0]!.id, { state: "accepted" });
+    await pullBridgeResponses(t);
+    expect(await startTrip(loadId, { arrivedAt: toCentralLocal(Date.now() - 7_200_000), waitMinutes: "", seal: "" })).toEqual({ ok: true });
+    expect(await completeTrip(loadId, { stops: [], deliveredAt: toCentralLocal(Date.now() - 60_000), pod: "none", podNote: "Not sent in this test", fuel: "", tolls: "", misc: "" })).toEqual({ ok: true });
+    expect(await prisma.bridgeOutbox.count({ where: { loadId, kind: "update", status: "pending" } })).toBe(2);
+    const seqBefore = t.table[0]!.sync_seq;
+    expect(await flushBridgeOutbox(t)).toMatchObject({ delivered: 2, failed: 0 });
+    expect(t.table[0]!.sync_seq).toBeGreaterThan(seqBefore);
+    expect(t.table[0]!.driver_response).toMatchObject({ state: "accepted" }); // an update never clears the driver's answer
+  });
+
+  test("deleting a load that is on the driver's phone takes it off the phone (the row is closed as cancelled)", async () => {
+    const t = memoryTransport();
+    await reset();
+    await assignAndSend();
+    await flushBridgeOutbox(t);
+    expect(await deleteLoad({ loadId, reason: "mistake" })).toEqual({ ok: true });
+    expect(await prisma.bridgeOutbox.count({ where: { loadId, kind: "cancel", status: "pending" } })).toBe(1);
+    await flushBridgeOutbox(t);
+    expect(t.table[0]!.status).toBe("cancelled");
   });
 
   test("a proof path outside the fleet's or the driver's folder is dropped: the delivery is recorded with no proof, and says so", async () => {

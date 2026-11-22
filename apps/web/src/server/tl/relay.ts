@@ -6,6 +6,7 @@ import { loadWindow } from "@/lib/schedule";
 import { inScope, type Terminals } from "@/lib/scope";
 import { batonDigestText, dropProblems, receiveProblems, relayBadge, waitMinutes, type DropInput, type HandoffType, type Problem } from "@/lib/relay";
 import { recordAudit } from "./audit";
+import { enqueueBridge } from "@/server/bridge/outbox";
 import { recordAssignmentEvent } from "./assignment-events";
 import { claimLoad, dropAssignment, LoadMoved } from "./claim";
 import { numOrNull } from "./convert";
@@ -137,6 +138,8 @@ export async function recordDrop(loadId: string, input: DropInput, now = new Dat
       await tx.trailerMove.create({ data: { workspaceId, trailerId: load.trailer.id, vehicleId: load.vehicleId, kind: "dropped", at: now, lat: (lat ?? tractor?.lastLat ?? null) as never, lng: (lng ?? tractor?.lastLng ?? null) as never, byName: currentActor() } });
       await recordAudit({ entity: "trailer", entityId: load.trailer.id, action: "trailer_unhooked", summary: `${load.trailer.number} dropped for a relay handoff at ${where ?? "a pin"}`, before: { Tractor: load.vehicle?.name ?? null }, after: { Tractor: null }, workspaceId, at: now }, tx);
     }
+    // The outgoing driver's phone lets go of the load (queued before the assignment comes off: the outbox reads the driver from it).
+    await enqueueBridge(tx, { workspaceId, loadId, kind: "cancel", driverId: a.driverId, now });
     // Nobody holds the load until the next driver takes it: the assignment comes off (the leg keeps who drove it and the pay), the load stays on the road.
     await dropAssignment(tx, loadId);
     await recordAssignmentEvent(tx, { workspaceId, loadId, loadNumber: load.loadNumber, kind: "dropped", driverId: a.driverId, driverName: a.driver.name, reasonNote: where, assignmentVersion: a.assignmentVersion, via, at: now });
@@ -261,6 +264,8 @@ export async function receiveHandoff(handoffId: string, input: ReceiveInput, now
     await tx.assignment.create({
       data: { loadId: h.loadId, driverId: driver.id, payKind: input.pay.kind, payRate: new Prisma.Decimal(input.pay.rate), payEstimate: null, status: "in_progress", respondedAt: now, driverResponse: { via, handoffId: h.id, at: now.toISOString() } }
     });
+    // The incoming driver's phone gets the load (a bridged driver; nothing is queued for one the dispatcher answers for).
+    await enqueueBridge(tx, { workspaceId, loadId: h.loadId, kind: "dispatch", driverId: driver.id, now });
     if (truck && !sameTruck && h.trailerId) {
       await tx.trailer.update({ where: { id: h.trailerId }, data: { currentVehicleId: truck.id, hookedAt: now, unhookedAt: null, dwellRateOverride: null, dwellDaysOverride: null, dwellWaived: false, dwellOverrideNote: null, dwellOverrideBy: null, dwellOverrideAt: null } });
       await tx.trailerMove.create({ data: { workspaceId, trailerId: h.trailerId, vehicleId: truck.id, kind: "hooked", at: now, lat: h.locationLat, lng: h.locationLng, byName: currentActor() } });
