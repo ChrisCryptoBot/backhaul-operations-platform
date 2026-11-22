@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { BRIDGE_ENV, bridgeConfig } from "@/server/bridge/core";
-import { flushBridgeOutbox, pullBridgeResponses, pullDriverMessages, purgeDriverMessages } from "@/server/bridge/service";
+import { flushBridgeOutbox, mirrorDriverStatus, pullBridgeResponses, pullDriverMessages, purgeDriverMessages } from "@/server/bridge/service";
 import { supabaseTransport } from "@/server/bridge/transport";
 import { fleetsWithLinksToPull, pullDriverLinks } from "@/server/bridge/links";
 
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     }
   }
   const fleets = await prisma.workspace.findMany({ where: { bridgeOrgId: { not: null } }, select: { id: true } });
-  const out = { fleets: fleets.length, delivered: 0, failed: 0, retrying: 0, read: 0, applied: 0, flagged: 0, messages: 0, purged: 0, ...links };
+  const out = { fleets: fleets.length, delivered: 0, failed: 0, retrying: 0, read: 0, applied: 0, flagged: 0, messages: 0, purged: 0, clocks: 0, ...links };
   for (const f of fleets) {
     // One fleet failing (the link down, a bad row) never stops the others.
     try {
@@ -58,6 +58,9 @@ export async function POST(req: NextRequest) {
       // Retention: messages read more than a day ago leave the bridge (the desk keeps the record). After the pull, so the last read marks are in.
       const purged = await purgeDriverMessages(transport, { workspaceId: f.id });
       out.purged += purged.removed;
+      // Phase 2 step 4: the HOS read mirror, written only when a driver's clocks changed since the last run.
+      const mirrored = await mirrorDriverStatus(transport, { workspaceId: f.id });
+      out.clocks += mirrored.written;
     } catch {
       out.retrying += 1;
     }

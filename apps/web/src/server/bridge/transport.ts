@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { wholeOf, type BridgeConfig, type BridgeRow } from "./core";
 import type { LinkRow } from "@/lib/driver-link";
 import type { DriverMessageRow } from "@/lib/driver-messages";
+import type { DriverStatusRow } from "@/lib/driver-status";
 
 /**
  * How the desk reaches `bridge.external_dispatch`. One small interface, two implementations: the real one (PostgREST over `fetch`, with the service key) and an in-memory one the tests drive,
@@ -48,6 +49,12 @@ export interface BridgeTransport {
   removeDriverFiles(paths: string[]): Promise<void>;
   /** Delete rows of this fleet, only if they were still read before `readBefore` (nothing newer is ever taken). */
   deleteDriverMessages(orgId: string, ids: string[], readBefore: Date): Promise<void>;
+  /** HOS mirror (Phase 2 step 4): this fleet's rows on `bridge.driver_status`, to compare before writing. */
+  driverStatusRows(orgId: string): Promise<DriverStatusRow[]>;
+  /** Write rows, keyed on (org_id, driver_sub): a row already there is replaced. */
+  upsertDriverStatus(rows: DriverStatusRow[]): Promise<void>;
+  /** Remove this fleet's rows for phones no longer connected to it. */
+  deleteDriverStatus(orgId: string, driverSubs: string[]): Promise<void>;
 }
 
 const SAFE = { unreachable: "The driver link could not be reached.", rejected: "The driver link refused the request." } as const;
@@ -66,6 +73,7 @@ export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = f
   const links = `${cfg.url}/rest/v1/driver_links`;
   const msgs = `${cfg.url}/rest/v1/driver_messages`;
   const files = `${cfg.url}/storage/v1/object/bridge-files`;
+  const status = `${cfg.url}/rest/v1/driver_status`;
   const inList = (ids: string[]) => `(${ids.map(plain).join(",")})`;
   const LINK_COLUMNS = "id,org_id,desk_driver_id,driver_role,claimed_by,claimed_at,revoked_at,ended_by";
   const headers = (write: boolean): Record<string, string> => ({
@@ -189,6 +197,25 @@ export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = f
       if (ids.length === 0) return;
       const q = `?org_id=eq.${plain(orgId)}&id=in.${inList(ids)}&delivered_at=not.is.null&read_at=lt.${plain(readBefore.toISOString())}`;
       await call(msgs + q, { method: "DELETE", headers: { ...headers(true), Prefer: "return=minimal" } });
+    },
+    async driverStatusRows(orgId) {
+      const q = `?org_id=eq.${plain(orgId)}&select=org_id,driver_sub,desk_driver_id,drive_minutes,shift_minutes,cycle_minutes,unit_name,synced_at&limit=5000`;
+      const out = await call(status + q, { method: "GET", headers: headers(false) });
+      return Array.isArray(out) ? (out as DriverStatusRow[]) : [];
+    },
+    async upsertDriverStatus(rows) {
+      if (rows.length === 0) return;
+      for (const r of rows) {
+        plain(r.org_id);
+        plain(r.driver_sub);
+      }
+      const h = { ...headers(true), Prefer: "return=minimal,resolution=merge-duplicates" };
+      await call(`${status}?on_conflict=org_id,driver_sub`, { method: "POST", headers: h, body: JSON.stringify(rows.map((r) => ({ ...r, updated_at: new Date().toISOString() }))) });
+    },
+    async deleteDriverStatus(orgId, subs) {
+      if (subs.length === 0) return;
+      const q = `?org_id=eq.${plain(orgId)}&driver_sub=in.${inList(subs)}`;
+      await call(status + q, { method: "DELETE", headers: { ...headers(true), Prefer: "return=minimal" } });
     }
   };
 }
@@ -213,7 +240,12 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
   const linkTable: MemLink[] = [];
   const messages: DriverMessageRow[] = [];
   const files = new Map<string, Uint8Array>();
+  const statuses: DriverStatusRow[] = [];
+  let statusWrites = 0;
   const transport: BridgeTransport & {
+    /** bridge.driver_status, and how many rows have been written (to see that unchanged clocks are not rewritten). */
+    statuses: DriverStatusRow[];
+    statusWrites: () => number;
     table: BridgeRow[];
     links: MemLink[];
     messages: DriverMessageRow[];
@@ -231,6 +263,25 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     links: linkTable,
     messages,
     files,
+    statuses,
+    statusWrites: () => statusWrites,
+    async driverStatusRows(orgId) {
+      guard();
+      return statuses.filter((s) => s.org_id === orgId).map((s) => ({ ...s }));
+    },
+    async upsertDriverStatus(rows) {
+      guard();
+      for (const r of rows) {
+        const i = statuses.findIndex((s) => s.org_id === r.org_id && s.driver_sub === r.driver_sub);
+        if (i >= 0) statuses[i] = { ...r };
+        else statuses.push({ ...r });
+        statusWrites += 1;
+      }
+    },
+    async deleteDriverStatus(orgId, subs) {
+      guard();
+      for (let i = statuses.length - 1; i >= 0; i -= 1) if (statuses[i]!.org_id === orgId && subs.includes(statuses[i]!.driver_sub)) statuses.splice(i, 1);
+    },
     async downloadDriverFile(path) {
       guard();
       const f = files.get(path);
