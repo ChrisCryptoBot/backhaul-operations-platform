@@ -1295,9 +1295,12 @@ model DriverLinkInvite {
 model BridgeOutbox {
   id            String    @id @default(cuid())
   workspaceId   String    @map("workspace_id")
-  loadId        String    @map("load_id")
-  /// dispatch | update | reassign_old | cancel
+  /// The load the row is about; null for a message (Phase 2 step 3).
+  loadId        String?   @map("load_id")
+  /// dispatch | update | reassign_old | cancel | message
   kind          String
+  /// kind message: the desk Message to deliver to the driver's phone (its id is the bridge row's client_id).
+  messageId     String?   @map("message_id")
   /// The driver the row is for (their phone account), so a reassign can say who is being taken off.
   phoneUserId   String    @map("phone_user_id")
   /// The bridge row to supersede or cancel (reassign_old and cancel), else null.
@@ -1317,6 +1320,7 @@ model BridgeOutbox {
 
   @@index([workspaceId, status, nextAttemptAt])
   @@index([loadId])
+  @@index([messageId])
   @@map("bridge_outbox")
 }
 

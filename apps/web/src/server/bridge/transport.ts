@@ -1,5 +1,6 @@
 import { wholeOf, type BridgeConfig, type BridgeRow } from "./core";
 import type { LinkRow } from "@/lib/driver-link";
+import type { DriverMessageRow } from "@/lib/driver-messages";
 
 /**
  * How the desk reaches `bridge.external_dispatch`. One small interface, two implementations: the real one (PostgREST over `fetch`, with the service key) and an in-memory one the tests drive,
@@ -30,6 +31,14 @@ export interface BridgeTransport {
   endLink(orgId: string, deskDriverId: string, at: Date): Promise<void>;
   /** This fleet's claimed links (live or ended), so the pull can link and unlink. */
   claimedLinks(orgId: string, limit: number): Promise<LinkRow[]>;
+  /** Messages (Phase 2 step 3): write a desk message for the phone. A row with the same sender and client id already there is returned as it is (a re-delivery). */
+  insertDriverMessage(row: Record<string, unknown>): Promise<DriverMessageRow>;
+  /** This fleet's messages from phones the desk has not taken yet, oldest first. */
+  driverMessagesToDesk(orgId: string, limit: number): Promise<DriverMessageRow[]>;
+  /** Stamp delivered_at / read_at on rows of this fleet (a stamp already there is kept). */
+  stampDriverMessages(orgId: string, ids: string[], field: "delivered_at" | "read_at", at: Date): Promise<void>;
+  /** The desk's own sent messages (by client id) the driver has read, with when. */
+  readByDriver(orgId: string, clientIds: string[]): Promise<{ client_id: string; read_at: string }[]>;
 }
 
 const SAFE = { unreachable: "The driver link could not be reached.", rejected: "The driver link refused the request." } as const;
@@ -43,6 +52,8 @@ const plain = (v: string): string => {
 export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = fetch): BridgeTransport {
   const base = `${cfg.url}/rest/v1/external_dispatch`;
   const links = `${cfg.url}/rest/v1/driver_links`;
+  const msgs = `${cfg.url}/rest/v1/driver_messages`;
+  const inList = (ids: string[]) => `(${ids.map(plain).join(",")})`;
   const LINK_COLUMNS = "id,org_id,desk_driver_id,driver_role,claimed_by,claimed_at,revoked_at,ended_by";
   const headers = (write: boolean): Record<string, string> => ({
     apikey: cfg.key,
@@ -107,6 +118,32 @@ export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = f
       const q = `?org_id=eq.${plain(orgId)}&claimed_by=not.is.null&select=${LINK_COLUMNS}&order=updated_at.asc&limit=${Math.min(Math.max(wholeOf(limit), 1), 500)}`;
       const out = await call(links + q, { method: "GET", headers: headers(false) });
       return Array.isArray(out) ? (out as LinkRow[]) : [];
+    },
+    async insertDriverMessage(row) {
+      // ignore-duplicates: a re-delivery of the same desk message adds nothing; read the row that is there instead.
+      const h = { ...headers(true), Prefer: "return=representation,resolution=ignore-duplicates" };
+      const made = (await call(`${msgs}?on_conflict=direction,sender_id,client_id`, { method: "POST", headers: h, body: JSON.stringify(row) })) as DriverMessageRow[];
+      if (Array.isArray(made) && made[0]) return made[0];
+      const q = `?direction=eq.to_driver&sender_id=eq.${plain(String(row.sender_id))}&client_id=eq.${plain(String(row.client_id))}&limit=1`;
+      const there = (await call(msgs + q, { method: "GET", headers: headers(false) })) as DriverMessageRow[];
+      if (!Array.isArray(there) || !there[0]) throw new BridgeTransportError("rejected", SAFE.rejected);
+      return there[0];
+    },
+    async driverMessagesToDesk(orgId, limit) {
+      const q = `?org_id=eq.${plain(orgId)}&direction=eq.to_desk&delivered_at=is.null&order=created_at.asc&limit=${Math.min(Math.max(wholeOf(limit), 1), 500)}`;
+      const out = await call(msgs + q, { method: "GET", headers: headers(false) });
+      return Array.isArray(out) ? (out as DriverMessageRow[]) : [];
+    },
+    async stampDriverMessages(orgId, ids, field, when) {
+      if (ids.length === 0) return;
+      const q = `?org_id=eq.${plain(orgId)}&id=in.${inList(ids)}&${field}=is.null`;
+      await call(msgs + q, { method: "PATCH", headers: headers(true), body: JSON.stringify({ [field]: when.toISOString() }) });
+    },
+    async readByDriver(orgId, clientIds) {
+      if (clientIds.length === 0) return [];
+      const q = `?org_id=eq.${plain(orgId)}&direction=eq.to_driver&client_id=in.${inList(clientIds)}&read_at=not.is.null&select=client_id,read_at`;
+      const out = await call(msgs + q, { method: "GET", headers: headers(false) });
+      return Array.isArray(out) ? (out as { client_id: string; read_at: string }[]) : [];
     }
   };
 }
@@ -123,15 +160,22 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
   const at = (id: string) => table.findIndex((r) => r.id === id);
   type MemLink = LinkRow & { code_hash: string; expires_at: string; carrier_name: string };
   const linkTable: MemLink[] = [];
+  const messages: DriverMessageRow[] = [];
   const transport: BridgeTransport & {
     table: BridgeRow[];
     links: MemLink[];
+    messages: DriverMessageRow[];
+    /** The phone sends a message the way bridge.send_driver_message does (a repeat client id is the same row). */
+    phoneSays: (i: { orgId: string; driverSub: string; clientId: string; body: string; attachments?: DriverMessageRow["attachments"]; at?: Date }) => DriverMessageRow;
+    /** The phone opens the thread the way bridge.mark_driver_messages_read does. */
+    phoneReads: (orgId: string, driverSub: string, at: Date) => void;
     phone: (id: string, response: Record<string, unknown>) => void;
     /** Claim a code the way bridge.claim_driver_link does (unknown, expired or withdrawn -> link_invalid; someone else's -> link_used). */
     claim: (codeHash: string, phoneUserId: string, now: Date) => "ok" | "link_invalid" | "link_used";
   } = {
     table,
     links: linkTable,
+    messages,
     async findOpenRow(orgId, loadId, phoneUserId) {
       guard();
       return [...table].reverse().find((r) => r.org_id === orgId && r.source_load_id === loadId && r.assigned_driver_id === phoneUserId && ["draft", "dispatched"].includes(r.status)) ?? null;
@@ -179,6 +223,36 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     async claimedLinks(orgId, limit) {
       guard();
       return linkTable.filter((l) => l.org_id === orgId && l.claimed_by).slice(0, limit).map((l) => ({ ...l }));
+    },
+    async insertDriverMessage(row) {
+      guard();
+      const there = messages.find((m) => m.direction === row.direction && m.sender_id === row.sender_id && m.client_id === row.client_id);
+      if (there) return { ...there };
+      const made = { id: `msg-${++n}`, attachments: [], desk_file_count: 0, load_ref: null, desk_driver_id: null, created_at: new Date().toISOString(), delivered_at: null, read_at: null, ...row } as unknown as DriverMessageRow;
+      messages.push(made);
+      return { ...made };
+    },
+    async driverMessagesToDesk(orgId, limit) {
+      guard();
+      return messages.filter((m) => m.org_id === orgId && m.direction === "to_desk" && !m.delivered_at).slice(0, limit).map((m) => ({ ...m }));
+    },
+    async stampDriverMessages(orgId, ids, field, when) {
+      guard();
+      for (const m of messages) if (m.org_id === orgId && ids.includes(m.id) && !m[field]) m[field] = when.toISOString();
+    },
+    async readByDriver(orgId, clientIds) {
+      guard();
+      return messages.filter((m) => m.org_id === orgId && m.direction === "to_driver" && clientIds.includes(m.client_id) && m.read_at).map((m) => ({ client_id: m.client_id, read_at: m.read_at! }));
+    },
+    phoneSays(i) {
+      const there = messages.find((m) => m.direction === "to_desk" && m.sender_id === i.driverSub && m.client_id === i.clientId);
+      if (there) return there;
+      const made: DriverMessageRow = { id: `msg-${++n}`, org_id: i.orgId, driver_sub: i.driverSub, desk_driver_id: null, direction: "to_desk", sender_id: i.driverSub, client_id: i.clientId, body: i.body, attachments: i.attachments ?? [], desk_file_count: 0, load_ref: null, created_at: (i.at ?? new Date()).toISOString(), delivered_at: null, read_at: null };
+      messages.push(made);
+      return made;
+    },
+    phoneReads(orgId, driverSub, when) {
+      for (const m of messages) if (m.org_id === orgId && m.driver_sub === driverSub && m.direction === "to_driver" && !m.read_at) m.read_at = when.toISOString();
     },
     claim(codeHash, phoneUserId, now) {
       const l = linkTable.find((x) => x.code_hash === codeHash);

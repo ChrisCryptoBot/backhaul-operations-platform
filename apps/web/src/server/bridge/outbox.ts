@@ -18,7 +18,7 @@ export async function driverMode(driverId: string, workspaceId = currentWorkspac
   return bridgeMode({ workspaceOrgId: ws?.bridgeOrgId ?? null, serverReady: bridgeServerReady(), driverPhoneUserId: driver?.phoneUserId ?? null });
 }
 
-export type OutboxKind = "dispatch" | "update" | "reassign_old" | "cancel";
+export type OutboxKind = "dispatch" | "update" | "reassign_old" | "cancel" | "message";
 
 /** Write what has to be told to the phone, inside the transaction of the desk change it follows: both happen or neither does. A fleet that is not bridged gets nothing. */
 export async function enqueueBridge(tx: Tx, i: { workspaceId: string; loadId: string; kind: OutboxKind; driverId: string; dispatchId?: string | null; now?: Date }): Promise<boolean> {

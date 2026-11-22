@@ -10,6 +10,8 @@ import { toCentralLocal } from "@/lib/zoned";
 import { assertDriverSafe } from "@/server/tl/projector";
 export { bridgeServerReady, driverMode, enqueueBridge, enqueueForLoad, type OutboxKind } from "./outbox";
 import { BridgeTransportError, type BridgeTransport } from "./transport";
+import { deliverDriverMessage } from "./messages";
+export { enqueueMessage, pullDriverMessages, type MessagePullResult } from "./messages";
 import { BRIDGE_ENV, FAILURE_TEXT, MAX_ATTEMPTS, closeDispatchRow, interpretRow, newDispatchRow, nextAttemptAt, parseDriverResponse, phoneCompletionValues, replacementFor, updateDispatchRow, wholeOf, type FailureWord } from "./core";
 
 const failureOf = (e: unknown): FailureWord => {
@@ -51,8 +53,41 @@ export async function flushBridgeOutbox(transport: BridgeTransport, opts: { work
   const due = await prisma.bridgeOutbox.findMany({ where: { id: { in: claimed.map((c) => c.id) } }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] });
   for (const item of due) {
     const held = { id: item.id, leaseUntil: lease };
+    if (item.kind === "message") {
+      // Phase 2 step 3: a desk message for the driver's phone. Same lease, same retry words; success stamps the desk message delivered.
+      try {
+        const sent = await deliverDriverMessage(transport, orgId, workspaceId, item);
+        const wrote = await prisma.$transaction(async (tx) => {
+          const w = await tx.bridgeOutbox.updateMany({ where: held, data: { status: "done", doneAt: now, lastError: null, leaseUntil: null } });
+          if (w.count !== 1) return false;
+          if (sent) await tx.message.updateMany({ where: { id: sent.messageId, deliveredAt: null }, data: { deliveredAt: now } });
+          return true;
+        });
+        if (wrote) {
+          if (sent) out.delivered += 1;
+          else out.skipped += 1;
+        }
+      } catch (e) {
+        const word = failureOf(e);
+        const attempts = item.attempts + 1;
+        const giveUp = attempts >= MAX_ATTEMPTS;
+        const w = await prisma.bridgeOutbox.updateMany({ where: held, data: { attempts, status: giveUp ? "failed" : "pending", lastError: word, nextAttemptAt: nextAttemptAt(now, attempts), leaseUntil: null } });
+        if (w.count === 1) {
+          if (giveUp) out.failed += 1;
+          else out.retrying += 1;
+        }
+      }
+      continue;
+    }
+    const loadId = item.loadId;
+    if (!loadId) {
+      // A load kind without a load cannot be delivered; close it rather than retry forever.
+      const w = await prisma.bridgeOutbox.updateMany({ where: held, data: { status: "failed", lastError: "rejected", leaseUntil: null } });
+      if (w.count === 1) out.failed += 1;
+      continue;
+    }
     try {
-      const done = await deliver(transport, orgId, workspaceId, item, now);
+      const done = await deliver(transport, orgId, workspaceId, { ...item, loadId }, now);
       if (!done) {
         const w = await prisma.bridgeOutbox.updateMany({ where: held, data: { status: "done", doneAt: now, lastError: null, leaseUntil: null } });
         if (w.count === 1) out.skipped += 1;
@@ -62,7 +97,7 @@ export async function flushBridgeOutbox(transport: BridgeTransport, opts: { work
         const w = await tx.bridgeOutbox.updateMany({ where: held, data: { status: "done", doneAt: now, lastError: null, leaseUntil: null } });
         // The lease ran out and another run took the row: that run writes the outcome.
         if (w.count !== 1) return false;
-        await tx.assignment.updateMany({ where: { loadId: item.loadId }, data: { bridgeDispatchId: done.rowId, bridgeSyncedAt: now, bridgeError: null } });
+        await tx.assignment.updateMany({ where: { loadId }, data: { bridgeDispatchId: done.rowId, bridgeSyncedAt: now, bridgeError: null } });
         return true;
       });
       if (wrote) out.delivered += 1;
@@ -73,7 +108,7 @@ export async function flushBridgeOutbox(transport: BridgeTransport, opts: { work
       const wrote = await prisma.$transaction(async (tx) => {
         const w = await tx.bridgeOutbox.updateMany({ where: held, data: { attempts, status: giveUp ? "failed" : "pending", lastError: word, nextAttemptAt: nextAttemptAt(now, attempts), leaseUntil: null } });
         if (w.count !== 1) return false;
-        await tx.assignment.updateMany({ where: { loadId: item.loadId }, data: { bridgeError: giveUp ? word : null } });
+        await tx.assignment.updateMany({ where: { loadId }, data: { bridgeError: giveUp ? word : null } });
         return true;
       });
       if (!wrote) continue;

@@ -1,0 +1,62 @@
+/**
+ * Driver messages over the bridge (Wallet + Bridge plan, Phase 2 step 3). Pure: the shape of a `bridge.driver_messages` row, the rules both sides keep, and the desk's reading of a row.
+ * The SQL that owns the table is the phone project's `supabase/migrations/20261121000300_bridge_driver_messages.sql`; tests read it to keep the two in step.
+ *
+ * A thread is one carrier (org_id) with one phone account (driver_sub). The carrier owns the record (D4). Direction is `to_driver` (the desk wrote it) or `to_desk` (the phone wrote it).
+ * `client_id` is unique per sender: the desk sends its own Message.id, so a re-delivery of the same desk message is the same row.
+ */
+export const DRIVER_MESSAGE_BODY_MAX = 2000;
+export const DRIVER_MESSAGE_FILES_MAX = 5;
+
+export type DriverMessageRow = {
+  id: string;
+  org_id: string;
+  driver_sub: string;
+  desk_driver_id: string | null;
+  direction: "to_driver" | "to_desk";
+  sender_id: string;
+  client_id: string;
+  body: string;
+  attachments: { path: string; name?: string | null; mime?: string | null; bytes?: number | null }[];
+  desk_file_count: number;
+  load_ref: string | null;
+  created_at: string;
+  delivered_at: string | null;
+  read_at: string | null;
+};
+
+/** The sender id the desk writes under: one per fleet, never a person's id (the phone shows the carrier, not who on the desk typed it). */
+export const deskSenderId = (orgId: string): string => `desk:${orgId}`;
+
+/** Where a driver's files for this carrier live in the phone project's storage. The SQL refuses any other path. */
+export const driverFileFolder = (orgId: string, driverSub: string): string => `org/${orgId}/driver/${driverSub}/`;
+
+export const attachmentPathAllowed = (orgId: string, driverSub: string, path: string): boolean =>
+  path.startsWith(driverFileFolder(orgId, driverSub)) && !path.includes("..") && path.length <= 400;
+
+/** The row the desk writes for a message it sends. Files stay on the desk (the phone is told how many); the desk's Message.id is the client id. */
+export function toDriverRow(i: { orgId: string; phoneUserId: string; deskDriverId: string; messageId: string; body: string; fileCount: number; loadNumber: string | null }) {
+  return {
+    org_id: i.orgId,
+    driver_sub: i.phoneUserId,
+    desk_driver_id: i.deskDriverId,
+    direction: "to_driver" as const,
+    sender_id: deskSenderId(i.orgId),
+    client_id: i.messageId,
+    body: i.body.slice(0, DRIVER_MESSAGE_BODY_MAX),
+    attachments: [],
+    desk_file_count: Math.max(0, Math.min(i.fileCount, 99)),
+    load_ref: i.loadNumber
+  };
+}
+
+/** What the desk keeps from a driver's row: the text, and a plain line for files the desk does not hold yet. Never a storage path in the text. */
+export function deskBodyOf(row: Pick<DriverMessageRow, "body" | "attachments">): string {
+  const n = Array.isArray(row.attachments) ? row.attachments.length : 0;
+  const files = n === 0 ? "" : `${row.body ? "\n" : ""}(${n} ${n === 1 ? "file" : "files"} sent from the phone)`;
+  return `${row.body ?? ""}${files}`;
+}
+
+/** Rows the desk will take into one fleet: its own org, from a phone, and not yet taken. Anything else is left alone. */
+export const isPullable = (row: Pick<DriverMessageRow, "org_id" | "direction" | "delivered_at">, orgId: string): boolean =>
+  row.org_id === orgId && row.direction === "to_desk" && row.delivered_at == null;

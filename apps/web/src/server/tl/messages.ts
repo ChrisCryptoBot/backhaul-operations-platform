@@ -6,10 +6,12 @@ import { removeFiles, storeFile } from "./message-files";
 import { storageRefusal } from "./storage";
 import { currentWorkspaceId } from "./workspace";
 import { currentAllowed } from "./scope";
+import { enqueueMessage } from "@/server/bridge/messages";
 
 /**
- * The desk's messages: one thread per driver. Everything here is the desk's own record. Nothing carries a message to a driver's phone yet
- * (`deliveredAt` stays empty), and nothing here pretends it does.
+ * The desk's messages: one thread per driver. Everything here is the desk's own record (the carrier owns it, D4). For a driver linked to the TrueLane phone app, a sent message is
+ * queued for the bridge in the same transaction (server/bridge/messages.ts): `deliveredAt` is stamped when it is on the phone's table, `readAt` on an out message when the driver
+ * opened it. A driver who is not linked gets nothing on a phone, and `deliveredAt` stays empty: nothing here pretends otherwise.
  */
 export type ThreadSummary = { driverId: string; driverName: string; truck: string | null; lastBody: string; lastDirection: string; lastAt: Date; unread: number };
 
@@ -42,7 +44,7 @@ export async function unreadMessageCount(workspaceId = currentWorkspaceId(), ter
 }
 
 export type AttachmentView = { id: string; kind: string; name: string | null; mime: string; bytes: number };
-export type ConversationMessage = { id: string; direction: string; body: string; sentAt: Date; deliveredAt: Date | null; load: { id: string; loadNumber: string | null } | null; attachments: AttachmentView[] };
+export type ConversationMessage = { id: string; direction: string; body: string; sentAt: Date; deliveredAt: Date | null; /** Out: when the driver read it on the phone. In: when the desk opened it. */ readAt: Date | null; load: { id: string; loadNumber: string | null } | null; attachments: AttachmentView[] };
 export type Conversation = {
   driver: { id: string; name: string; phone: string | null; terminal: string | null; truck: string | null };
   messages: ConversationMessage[];
@@ -70,7 +72,7 @@ export async function getConversation(driverId: string, workspaceId = currentWor
   ]);
   return {
     driver: { id: driver.id, name: driver.name, phone: driver.phone, terminal: driver.terminal, truck: driver.assignedVehicle?.name ?? null },
-    messages: (thread?.messages ?? []).map((m) => ({ id: m.id, direction: m.direction, body: m.body, sentAt: m.sentAt, deliveredAt: m.deliveredAt, load: m.load, attachments: m.attachments })),
+    messages: (thread?.messages ?? []).map((m) => ({ id: m.id, direction: m.direction, body: m.body, sentAt: m.sentAt, deliveredAt: m.deliveredAt, readAt: m.readAt, load: m.load, attachments: m.attachments })),
     loads: assignments.map((a) => ({ id: a.load.id, loadNumber: a.load.loadNumber, customer: a.load.brokerName }))
   };
 }
@@ -124,11 +126,11 @@ export async function sendMessage(input: SendInput, workspaceId = currentWorkspa
   }
   const now = new Date();
   // Keep the bytes first, then the rows; if the rows fail the bytes are removed again, so nothing is left that no message points at.
-  const stored = [];
+  const stored: Awaited<ReturnType<typeof storeFile>>[] = [];
   try {
     for (const f of files) stored.push(await storeFile(workspaceId, f));
-    const [message] = await prisma.$transaction([
-      prisma.message.create({
+    const message = await prisma.$transaction(async (tx) => {
+      const made = await tx.message.create({
         data: {
           threadId: thread.id,
           direction: "out",
@@ -138,9 +140,12 @@ export async function sendMessage(input: SendInput, workspaceId = currentWorkspa
           sentAt: now,
           attachments: { create: stored.map((s) => ({ id: s.id, kind: s.kind, name: s.name, mime: s.mime, bytes: s.bytes, sha256: s.sha256, storageKey: s.storageKey })) }
         }
-      }),
-      prisma.thread.update({ where: { id: thread.id }, data: { lastMessageAt: now } })
-    ]);
+      });
+      await tx.thread.update({ where: { id: thread.id }, data: { lastMessageAt: now } });
+      // A linked driver gets it on the phone (Phase 2 step 3): queued with the message, so both are kept or neither is.
+      await enqueueMessage(tx, { workspaceId, driverId: driver.id, messageId: made.id, now });
+      return made;
+    });
     return { ok: true, id: message.id, repeat: false };
   } catch (e) {
     await removeFiles(stored.map((s) => s.storageKey));

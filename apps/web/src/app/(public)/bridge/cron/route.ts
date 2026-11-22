@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { prisma } from "@/lib/db";
 import { BRIDGE_ENV, bridgeConfig } from "@/server/bridge/core";
-import { flushBridgeOutbox, pullBridgeResponses } from "@/server/bridge/service";
+import { flushBridgeOutbox, pullBridgeResponses, pullDriverMessages } from "@/server/bridge/service";
 import { supabaseTransport } from "@/server/bridge/transport";
 import { fleetsWithLinksToPull, pullDriverLinks } from "@/server/bridge/links";
 
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     }
   }
   const fleets = await prisma.workspace.findMany({ where: { bridgeOrgId: { not: null } }, select: { id: true } });
-  const out = { fleets: fleets.length, delivered: 0, failed: 0, retrying: 0, read: 0, applied: 0, flagged: 0, ...links };
+  const out = { fleets: fleets.length, delivered: 0, failed: 0, retrying: 0, read: 0, applied: 0, flagged: 0, messages: 0, ...links };
   for (const f of fleets) {
     // One fleet failing (the link down, a bad row) never stops the others.
     try {
@@ -52,6 +52,9 @@ export async function POST(req: NextRequest) {
       out.read += got.read;
       out.applied += got.applied;
       out.flagged += got.flagged;
+      // Phase 2 step 3: what drivers wrote, and read marks both ways.
+      const said = await pullDriverMessages(transport, { workspaceId: f.id });
+      out.messages += said.taken;
     } catch {
       out.retrying += 1;
     }
