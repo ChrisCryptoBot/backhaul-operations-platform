@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React from "react";
 import { checkDriverLinkAction, endDriverLinkAction, issueDriverInviteAction } from "@/app/(desk)/actions";
-import { LINK_ROLES, type LinkRole } from "@/lib/driver-link-roles";
+import { LINK_RELATIONSHIPS, relationshipOf, type LinkRole } from "@/lib/driver-link-roles";
 import { useToast } from "./kit/toast";
 import { useDraft } from "./kit/use-draft";
 
@@ -25,7 +25,7 @@ export function DriverPhoneLink({ driverId, driverName, view, suggestedRole, can
   const [pending, start] = React.useTransition();
   // The role picked before the code is made survives leaving the page (desk rule: typed fields are kept, forms-keep-fields.test.ts).
   const [form, setForm, draft] = useDraft(`driver-link-role:${driverId}`, { role: suggestedRole as string });
-  const role = form.role as LinkRole;
+  const role = relationshipOf(form.role as LinkRole);
   const [made, setMade] = React.useState<{ code: string; expiresAt: string } | null>(null);
   const [error, setError] = React.useState("");
 
@@ -106,9 +106,9 @@ export function DriverPhoneLink({ driverId, driverName, view, suggestedRole, can
           ) : (
             <>
               <label className="tl-field">
-                <span className="db-sr-only">How they work for you</span>
-                <select value={role} onChange={(e) => setForm({ role: e.target.value })} aria-label="How they work for you">
-                  {LINK_ROLES.map((r) => (
+                <span className="db-sr-only">Who this driver is to you</span>
+                <select value={role} onChange={(e) => setForm({ role: e.target.value })} aria-label="Who this driver is to you">
+                  {LINK_RELATIONSHIPS.map((r) => (
                     <option key={r.value} value={r.value}>
                       {r.label}
                     </option>

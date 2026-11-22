@@ -181,3 +181,14 @@ describe("the real transport's link calls", () => {
     expect(String((e as Error).message)).not.toContain("service-key-secret");
   });
 });
+
+describe("who the driver is to the desk (two relationships, not three roles)", () => {
+  it("offers an employee and a contractor, and sends them as the bridge's link roles", async () => {
+    const { LINK_RELATIONSHIPS, relationshipOf, isLinkRole } = await import("@/lib/driver-link-roles");
+    expect(LINK_RELATIONSHIPS.map((r) => r.value)).toEqual(["company", "owner_op_leased"]);
+    for (const r of LINK_RELATIONSHIPS) expect(isLinkRole(r.value)).toBe(true);
+    // An older code made as lease-purchase reads as an employee: the phone treats it as a company driver too.
+    expect(relationshipOf("lease_purchase")).toBe("company");
+    expect(relationshipOf("owner_op_leased")).toBe("owner_op_leased");
+  });
+});
