@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { describe, expect, it } from "vitest";
 import { describePay } from "../src/lib/audit-diff";
-import { PAY_KIND_LABEL, payLabel } from "../src/lib/desk-format";
+import { driverPayText, PAY_KIND_LABEL, payLabel } from "../src/lib/desk-format";
 import { PAY_KINDS, validateDriver } from "../src/lib/fleet-forms";
 import { PERCENT_MAX, percentOf, percentText, rateConTotal } from "../src/lib/pay";
 import { driverFacingPay, payEstimate } from "../src/server/tl/projector";
@@ -36,6 +36,22 @@ describe("a percent of the rate confirmation", () => {
     expect(payLabel("percent", 12.5)).toBe("12.5% of the rate");
     expect(PAY_KIND_LABEL.percent).toBe("Percent of the rate");
     expect(PAY_KIND_LABEL.flat).toBe("Set amount");
+  });
+});
+
+describe("the driver's pay on the desk's cab manifest", () => {
+  it("is labelled by the kind the bridge sends, never as a percent", () => {
+    expect(driverPayText({ kind: "cpm", rate: 0.5, estimate: 91.5 }, 183)).toBe("$0.50/mi × 183 mi (est. $91.50)");
+    expect(driverPayText({ kind: "hourly", rate: 22, estimate: 176 })).toBe("$22.00/hr (est. $176.00)");
+    expect(driverPayText({ kind: "flat", rate: 293, estimate: 293 })).toBe("$293.00 flat");
+    expect(driverPayText(null)).toBe("—");
+    // The old card read "cpm" as a percent ("0.5% (Est. …)"): no kind the bridge knows may come out with a percent sign.
+    for (const kind of ["cpm", "hourly", "flat"]) expect(driverPayText({ kind, rate: 0.5, estimate: 1 }, 10)).not.toContain("%");
+  });
+
+  it("estimates a per-mile pay on the loaded miles", () => {
+    const pay = driverFacingPay({ kind: "cpm", rate: 0.5 }, 0);
+    expect(payEstimate(pay, 183, null)).toBe(91.5);
   });
 });
 

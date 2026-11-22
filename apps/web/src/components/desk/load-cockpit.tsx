@@ -4,6 +4,7 @@ import React from "react";
 import { createPortal } from "react-dom";
 import { DOC_LABEL } from "@/lib/documents";
 import { sizeLabel } from "@/lib/attachments";
+import { driverPayText } from "@/lib/desk-format";
 import Link from "next/link";
 import { DrawerFrame } from "./drawer-frame";
 import { PageHead } from "./ui";
@@ -726,9 +727,8 @@ export function DriverCabSheet({
 }) {
   if (!driverView) return null;
 
-  const payDesc = driverView.driver_pay
-    ? `${driverView.driver_pay.kind === "per_mile" ? `${driverView.driver_pay.rate.toFixed(2)} / mi` : driverView.driver_pay.kind === "flat" ? `${driverView.driver_pay.rate.toFixed(2)} flat` : `${driverView.driver_pay.rate}%`}${driverView.driver_pay.estimate != null ? ` (Est. ${driverView.driver_pay.estimate.toFixed(2)})` : ""}`
-    : "—";
+  // Labelled by the kind the bridge sends (cpm | hourly | flat); a percent never reaches the driver (it goes as the set amount).
+  const payDesc = driverPayText(driverView.driver_pay, driverView.miles?.loaded);
 
   return (
     <div className="cp-cab-sheet">

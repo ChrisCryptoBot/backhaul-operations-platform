@@ -37,12 +37,18 @@ describe("driver messages, desk rules", () => {
 
   test("a sent message reads Read, Delivered, Sending (bridged, not there yet) or Saved on the desk (no phone link)", () => {
     const d = new Date();
-    expect(deskDelivery({ deliveredAt: d, readAt: d }, true)).toBe("read");
-    expect(deskDelivery({ deliveredAt: d, readAt: null }, true)).toBe("delivered");
-    expect(deskDelivery({ deliveredAt: null, readAt: null }, true)).toBe("sending");
-    expect(deskDelivery({ deliveredAt: null, readAt: null }, false)).toBe("saved");
+    expect(deskDelivery({ deliveredAt: d, readAt: d, onLink: true }, true)).toBe("read");
+    expect(deskDelivery({ deliveredAt: d, readAt: null, onLink: true }, true)).toBe("delivered");
+    expect(deskDelivery({ deliveredAt: null, readAt: null, onLink: true }, true)).toBe("sending");
+    expect(deskDelivery({ deliveredAt: null, readAt: null, onLink: false }, false)).toBe("saved");
     expect(DESK_DELIVERY_LABEL.read).toBe("Read");
     expect(DESK_DELIVERY_LABEL.saved).toBe("Saved on the desk");
+  });
+
+  test("a message written before the driver linked (no bridge item) reads Saved on the desk, not Sending, once the link is live", () => {
+    expect(deskDelivery({ deliveredAt: null, readAt: null, onLink: false }, true)).toBe("saved");
+    // A queued message whose link has since ended is not on its way either.
+    expect(deskDelivery({ deliveredAt: null, readAt: null, onLink: true }, false)).toBe("saved");
   });
 
   test("the retention migration lets the desk's service role delete, and only that", () => {

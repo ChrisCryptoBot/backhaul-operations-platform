@@ -123,6 +123,19 @@ export const ASSIGNMENT_STATUS: Record<string, { label: string; tone: Tone }> = 
 
 export const PAY_KIND_LABEL: Record<string, string> = { flat: "Set amount", cpm: "Per mile", hourly: "Hourly", percent: "Percent of the rate" };
 
+/**
+ * The driver's pay as their phone is sent it (the bridge's `driver_pay`, which is never a percent: that goes as the set amount it comes to): "$0.50/mi × 183 mi (est. $91.50)",
+ * "$22.00/hr (est. $176.00)", "$450.00 flat". The estimate is shown for a rate that multiplies, never for a set amount (it is the same figure).
+ */
+export function driverPayText(pay: { kind: string; rate: number; estimate?: number | null } | null | undefined, miles?: number | null): string {
+  if (!pay || !Number.isFinite(pay.rate)) return "—";
+  const est = pay.estimate != null && Number.isFinite(pay.estimate) ? ` (est. $${pay.estimate.toFixed(2)})` : "";
+  if (pay.kind === "cpm") return `$${pay.rate.toFixed(2)}/mi${miles ? ` × ${Math.round(miles).toLocaleString("en-US")} mi` : ""}${est}`;
+  if (pay.kind === "hourly") return `$${pay.rate.toFixed(2)}/hr${est}`;
+  if (pay.kind === "flat") return `$${pay.rate.toFixed(2)} flat`;
+  return "—";
+}
+
 /** "$0.65 a mile", "$22 an hour", "$450 a load", "25% of the rate"; a dash when no pay is set. */
 export function payLabel(kind: string | null | undefined, rate: number | null | undefined): string {
   if (!kind || rate == null) return "—";

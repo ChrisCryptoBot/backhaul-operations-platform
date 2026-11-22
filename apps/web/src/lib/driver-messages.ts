@@ -88,12 +88,15 @@ export function purgeDue(row: Pick<DriverMessageRow, "delivered_at" | "read_at">
   return Date.parse(row.read_at) <= now.getTime() - BRIDGE_KEEP_MS;
 }
 
-/** Where a message the dispatcher sent stands, in words: read on the phone, delivered to it, on its way, or (a driver without the app) kept on the desk only. */
+/**
+ * Where a message the dispatcher sent stands, in words: read on the phone, delivered to it, on its way, or kept on the desk only. "On its way" needs both a live link now and a
+ * bridge item for this message (`onLink`): a message written before the driver connected never had one, so it stays "Saved on the desk" after the link, not "Sending" forever.
+ */
 export type DeskDelivery = "read" | "delivered" | "sending" | "saved";
-export function deskDelivery(m: { deliveredAt: Date | null; readAt: Date | null }, bridged: boolean): DeskDelivery {
+export function deskDelivery(m: { deliveredAt: Date | null; readAt: Date | null; onLink: boolean }, bridged: boolean): DeskDelivery {
   if (m.readAt) return "read";
   if (m.deliveredAt) return "delivered";
-  return bridged ? "sending" : "saved";
+  return bridged && m.onLink ? "sending" : "saved";
 }
 export const DESK_DELIVERY_LABEL: Record<DeskDelivery, string> = { read: "Read", delivered: "Delivered", sending: "Sending", saved: "Saved on the desk" };
 
