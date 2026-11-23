@@ -131,6 +131,7 @@ export default async function MessagesPage({ searchParams }: { searchParams?: { 
                               <Attachments items={m.attachments} />
                             </div>
                             <span className="ms-meta">
+                              {m.direction === "out" && m.sentBy ? <span className="ms-by">{m.sentBy}</span> : null}
                               <time dateTime={m.sentAt.toISOString()}>{timeLabel(m.sentAt)}</time>
                               {m.direction === "out" ? <DeliveryState state={deskDelivery(m, convo.bridged)} /> : null}
                             </span>

@@ -579,6 +579,8 @@ model Assignment {
   driverResponse         Json?     @map("driver_response")
   dispatchedAt           DateTime? @map("dispatched_at")
   respondedAt            DateTime? @map("responded_at")
+  /// The dispatcher who last sent this load to the driver (their name on the desk): the phone shows "From <company> · <name>" on the offer. Null before this was kept.
+  dispatchedBy           String?   @map("dispatched_by")
   /// The driver link: the bridge row this assignment is on, the last execution version of it the desk applied, when it last went through, and why a delivery failed (a word, never a body).
   bridgeDispatchId       String?   @map("bridge_dispatch_id")
   bridgeExecutionVersion Int       @default(0) @map("bridge_execution_version")
@@ -1361,6 +1363,9 @@ model Message {
   sentAt      DateTime  @default(now()) @map("sent_at")
   deliveredAt DateTime? @map("delivered_at")
   readAt      DateTime? @map("read_at")
+  /// Out: the dispatcher who wrote it (their name on the desk), so a thread several dispatchers share says who said what, on the desk and on the driver's phone. Null on
+  /// a message from the driver, and on one written before this was kept.
+  sentBy      String?   @map("sent_by")
 
   thread      Thread              @relation(fields: [threadId], references: [id], onDelete: Cascade)
   load        Load?               @relation(fields: [loadId], references: [id], onDelete: SetNull)

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { prisma } from "@/lib/db";
-import { assignDriver, dispatchLoad, unassignLoad } from "@/server/tl/dispatch";
+import { assignDriver, dispatchLoad, driverSummaryFor, unassignLoad } from "@/server/tl/dispatch";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { flushBridgeOutbox, pullBridgeResponses } from "@/server/bridge/service";
 import { memoryTransport } from "@/server/bridge/transport";
@@ -27,6 +27,9 @@ describe.skipIf(!run)("the driver link, desk half", () => {
   let driverId = "";
   let secret = 0;
   const saved: Record<string, string | undefined> = {};
+  // What the demo desk was linked to before this ran: put back after, so a run never unlinks it.
+  let link: { bridgeOrgId: string | null; bridgeCursor: bigint; bridgeStopCursor: bigint } = { bridgeOrgId: null, bridgeCursor: 0n, bridgeStopCursor: 0n };
+  let savedPhone: string | null = null;
 
   const reset = async () => {
     await prisma.bridgeOutbox.deleteMany({ where: { loadId } });
@@ -45,7 +48,10 @@ describe.skipIf(!run)("the driver link, desk half", () => {
     const load = await prisma.load.findFirstOrThrow({ where: { loadNumber: "DM-40006", workspaceId: ws } });
     loadId = load.id;
     secret = Number(load.quotedRevenue);
-    driverId = (await prisma.driver.findFirstOrThrow({ where: { name: "Sam Okafor", workspaceId: ws } })).id;
+    const sam = await prisma.driver.findFirstOrThrow({ where: { name: "Sam Okafor", workspaceId: ws } });
+    driverId = sam.id;
+    savedPhone = sam.phoneUserId;
+    link = await prisma.workspace.findUniqueOrThrow({ where: { id: ws }, select: { bridgeOrgId: true, bridgeCursor: true, bridgeStopCursor: true } });
     await prisma.workspace.update({ where: { id: ws }, data: { bridgeOrgId: ORG, bridgeCursor: 0n } });
     await prisma.driver.update({ where: { id: driverId }, data: { phoneUserId: PHONE } });
     await reset();
@@ -53,8 +59,8 @@ describe.skipIf(!run)("the driver link, desk half", () => {
 
   afterAll(async () => {
     await reset();
-    await prisma.workspace.update({ where: { id: ws }, data: { bridgeOrgId: null, bridgeCursor: 0n } });
-    await prisma.driver.update({ where: { id: driverId }, data: { phoneUserId: null } });
+    await prisma.workspace.update({ where: { id: ws }, data: link });
+    await prisma.driver.update({ where: { id: driverId }, data: { phoneUserId: savedPhone } });
     await prisma.auditEvent.deleteMany({ where: { loadId, createdAt: { gte: startedAt } } });
     for (const [k, v] of Object.entries(saved)) {
       if (v === undefined) delete process.env[k];
@@ -89,9 +95,27 @@ describe.skipIf(!run)("the driver link, desk half", () => {
     const a = await prisma.assignment.findUniqueOrThrow({ where: { loadId } });
     expect(a.bridgeDispatchId).toBe(row.id);
     expect(a.bridgeError).toBeNull();
+    // Nobody signed in (a test): no sender name is kept or sent.
+    expect(a.dispatchedBy).toBeNull();
+    expect(row.load_summary).not.toHaveProperty("dispatcher");
 
     expect(await flushBridgeOutbox(t)).toMatchObject({ delivered: 0 });
     expect(t.table).toHaveLength(1);
+  });
+
+  test("who sent it goes by name only", async () => {
+    await reset();
+    await assignAndSend();
+    await prisma.assignment.update({ where: { loadId }, data: { dispatchedBy: "Maria Lopez" } });
+    const t = memoryTransport();
+    await flushBridgeOutbox(t);
+    const summary = t.table[0]!.load_summary as LoadSummary;
+    expect(summary.dispatcher).toEqual({ name: "Maria Lopez" });
+    expect(() => assertDriverSafe(summary, { numbers: [secret] })).not.toThrow();
+    // A name that is really an email is not sent.
+    await prisma.assignment.update({ where: { loadId }, data: { dispatchedBy: "maria@northline.example" } });
+    expect(await driverSummaryFor(loadId, ws)).not.toHaveProperty("dispatcher");
+    await reset();
   });
 
   test("the driver's answers are applied in order, at least once, and the cursor moves only past what was read", async () => {

@@ -1,21 +1,33 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { attachmentPathAllowed, BRIDGE_KEEP_MS, DESK_DELIVERY_LABEL, deskBodyOf, deskDelivery, deskSenderId, driverFileFolder, fileNameOf, isPullable, purgeDue, toDriverRow, DRIVER_MESSAGE_BODY_MAX } from "@/lib/driver-messages";
+import { attachmentPathAllowed, BRIDGE_KEEP_MS, DESK_DELIVERY_LABEL, deskBodyOf, deskDelivery, deskSenderId, driverFileFolder, fileNameOf, isPullable, purgeDue, SENDER_NAME_MAX, senderNameOf, toDriverRow, DRIVER_MESSAGE_BODY_MAX } from "@/lib/driver-messages";
 
 /** Phase 2 step 3: the desk's half of the message rules, checked against the phone project's SQL so the two cannot drift. */
 const PHONE_SQL = join(__dirname, "../../../../supabase/migrations/20261121000300_bridge_driver_messages.sql");
+const SENDER_SQL = join(__dirname, "../../../../supabase/migrations/20261122000300_bridge_sender_name.sql");
 const RETENTION_SQL = join(__dirname, "../../../../supabase/migrations/20261121000400_bridge_driver_messages_retention.sql");
 
 describe("driver messages, desk rules", () => {
   test("a desk message becomes a to_driver row keyed on the desk message id, files counted not sent", () => {
     const row = toDriverRow({ orgId: "desk_ws1", phoneUserId: "user_9", deskDriverId: "drv_1", messageId: "cmsg123456", body: "Gate code 4471", fileCount: 2, loadNumber: "DM-40006" });
-    expect(row).toEqual({ org_id: "desk_ws1", driver_sub: "user_9", desk_driver_id: "drv_1", direction: "to_driver", sender_id: "desk:desk_ws1", client_id: "cmsg123456", body: "Gate code 4471", attachments: [], desk_file_count: 2, load_ref: "DM-40006" });
+    expect(row).toEqual({ org_id: "desk_ws1", driver_sub: "user_9", desk_driver_id: "drv_1", direction: "to_driver", sender_id: "desk:desk_ws1", client_id: "cmsg123456", body: "Gate code 4471", attachments: [], desk_file_count: 2, load_ref: "DM-40006", sender_name: null });
     expect(toDriverRow({ orgId: "o", phoneUserId: "u", deskDriverId: "d", messageId: "m1234567", body: "x".repeat(3000), fileCount: 500, loadNumber: null }).body).toHaveLength(DRIVER_MESSAGE_BODY_MAX);
   });
 
   test("the sender is the fleet, never a person on the desk", () => {
     expect(deskSenderId("desk_ws1")).toBe("desk:desk_ws1");
+  });
+
+  test("who wrote it goes as a name beside the company: trimmed, 60 at most, never the desk's fallback, an email or a phone number", () => {
+    expect(senderNameOf("  Maria   Lopez ")).toBe("Maria Lopez");
+    expect(senderNameOf("x".repeat(80))).toHaveLength(SENDER_NAME_MAX);
+    for (const none of [null, undefined, "", "   ", "Dispatcher", "maria@northline.example", "Maria 214-555-0142"]) expect(senderNameOf(none)).toBeNull();
+    const base = { orgId: "o", phoneUserId: "u", deskDriverId: "d", messageId: "m1234567", body: "Hi", fileCount: 0, loadNumber: null };
+    expect(toDriverRow({ ...base, senderName: "Maria Lopez" })).toMatchObject({ sender_id: "desk:o", sender_name: "Maria Lopez" });
+    expect(toDriverRow({ ...base, senderName: "Dispatcher" }).sender_name).toBeNull();
+    // The phone project's SQL holds the same limit.
+    expect(readFileSync(SENDER_SQL, "utf8")).toContain(`char_length(sender_name) between 1 and ${SENDER_NAME_MAX}`);
   });
 
   test("a driver's files the desk could not keep are named in the text with the reason; no storage path is copied into the text", () => {

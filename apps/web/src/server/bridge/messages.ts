@@ -37,11 +37,11 @@ export async function deliverDriverMessage(transport: BridgeTransport, orgId: st
   if (!item.messageId) return null;
   const m = await prisma.message.findFirst({
     where: { id: item.messageId, direction: "out", thread: { workspaceId } },
-    select: { id: true, body: true, load: { select: { loadNumber: true } }, _count: { select: { attachments: true } }, thread: { select: { driver: { select: { id: true, phoneUserId: true } } } } }
+    select: { id: true, body: true, sentBy: true, load: { select: { loadNumber: true } }, _count: { select: { attachments: true } }, thread: { select: { driver: { select: { id: true, phoneUserId: true } } } } }
   });
   if (!m || m.thread.driver.phoneUserId !== item.phoneUserId) return null;
   const row = await transport.insertDriverMessage(
-    toDriverRow({ orgId, phoneUserId: item.phoneUserId, deskDriverId: m.thread.driver.id, messageId: m.id, body: m.body, fileCount: m._count.attachments, loadNumber: m.load?.loadNumber ?? null })
+    toDriverRow({ orgId, phoneUserId: item.phoneUserId, deskDriverId: m.thread.driver.id, messageId: m.id, body: m.body, fileCount: m._count.attachments, loadNumber: m.load?.loadNumber ?? null, senderName: m.sentBy })
   );
   return { rowId: row.id, messageId: m.id };
 }

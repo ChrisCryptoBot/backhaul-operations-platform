@@ -8,6 +8,8 @@ import { currentWorkspaceId } from "./workspace";
 import { currentAllowed } from "./scope";
 import { enqueueMessage } from "@/server/bridge/messages";
 import { driverMode } from "@/server/bridge/outbox";
+import { senderNameOf } from "@/lib/driver-messages";
+import { currentActor } from "./identity";
 
 /**
  * The desk's messages: one thread per driver. Everything here is the desk's own record (the carrier owns it, D4). For a driver linked to the TrueLane phone app, a sent message is
@@ -45,7 +47,7 @@ export async function unreadMessageCount(workspaceId = currentWorkspaceId(), ter
 }
 
 export type AttachmentView = { id: string; kind: string; name: string | null; mime: string; bytes: number };
-export type ConversationMessage = { id: string; direction: string; body: string; sentAt: Date; deliveredAt: Date | null; /** Out: when the driver read it on the phone. In: when the desk opened it. */ readAt: Date | null; /** Out: a bridge item was queued for it (it was sent while the driver was linked). */ onLink: boolean; load: { id: string; loadNumber: string | null } | null; attachments: AttachmentView[] };
+export type ConversationMessage = { id: string; direction: string; body: string; sentAt: Date; deliveredAt: Date | null; /** Out: when the driver read it on the phone. In: when the desk opened it. */ readAt: Date | null; /** Out: a bridge item was queued for it (it was sent while the driver was linked). */ onLink: boolean; /** Out: the dispatcher who wrote it (a thread several dispatchers share says who said what). */ sentBy: string | null; load: { id: string; loadNumber: string | null } | null; attachments: AttachmentView[] };
 export type Conversation = {
   driver: { id: string; name: string; phone: string | null; terminal: string | null; truck: string | null };
   messages: ConversationMessage[];
@@ -81,7 +83,7 @@ export async function getConversation(driverId: string, workspaceId = currentWor
     : new Set<string | null>();
   return {
     driver: { id: driver.id, name: driver.name, phone: driver.phone, terminal: driver.terminal, truck: driver.assignedVehicle?.name ?? null },
-    messages: (thread?.messages ?? []).map((m) => ({ id: m.id, direction: m.direction, body: m.body, sentAt: m.sentAt, deliveredAt: m.deliveredAt, readAt: m.readAt, onLink: queued.has(m.id), load: m.load, attachments: m.attachments })),
+    messages: (thread?.messages ?? []).map((m) => ({ id: m.id, direction: m.direction, body: m.body, sentAt: m.sentAt, deliveredAt: m.deliveredAt, readAt: m.readAt, onLink: queued.has(m.id), load: m.load, attachments: m.attachments, sentBy: m.sentBy })),
     loads: assignments.map((a) => ({ id: a.load.id, loadNumber: a.load.loadNumber, customer: a.load.brokerName })),
     bridged: mode.mode === "bridged"
   };
@@ -101,7 +103,17 @@ export async function startableDrivers(workspaceId = currentWorkspaceId(), termi
 
 /** A file that has already passed `checkAttachment` (its bytes are the cleaned ones). */
 export type CheckedFile = Extract<Checked, { ok: true }>;
-export type SendInput = { driverId: string; body: string; loadId?: string | null; clientId?: string | null; files?: CheckedFile[]; /** The person's limit (null: not limited); read from the request when left out. */ allowed?: Terminals };
+export type SendInput = {
+  driverId: string;
+  body: string;
+  loadId?: string | null;
+  clientId?: string | null;
+  files?: CheckedFile[];
+  /** The person's limit (null: not limited); read from the request when left out. */
+  allowed?: Terminals;
+  /** Who wrote it; the signed-in dispatcher when left out (senderNameOf: the desk's fallback name is no one). */
+  sentBy?: string | null;
+};
 export type SendResult = { ok: true; id: string; repeat: boolean } | { ok: false; error: string };
 
 /**
@@ -148,6 +160,7 @@ export async function sendMessage(input: SendInput, workspaceId = currentWorkspa
           loadId,
           clientId,
           sentAt: now,
+          sentBy: input.sentBy !== undefined ? senderNameOf(input.sentBy) : senderNameOf(currentActor()),
           attachments: { create: stored.map((s) => ({ id: s.id, kind: s.kind, name: s.name, mime: s.mime, bytes: s.bytes, sha256: s.sha256, storageKey: s.storageKey })) }
         }
       });

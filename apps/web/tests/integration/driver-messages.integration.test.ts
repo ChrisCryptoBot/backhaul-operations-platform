@@ -56,7 +56,7 @@ describe.skipIf(!run)("driver messages over the bridge", () => {
 
   test("a message to a linked driver is queued with it, delivered once, and stamped delivered", async () => {
     const t = memoryTransport();
-    const sent = await sendMessage({ driverId, body: "Gate code is 4471", clientId: "c-desk-1", allowed: null }, ws);
+    const sent = await sendMessage({ driverId, body: "Gate code is 4471", clientId: "c-desk-1", allowed: null, sentBy: "Maria Lopez" }, ws);
     expect(sent.ok).toBe(true);
     const id = (sent as { id: string }).id;
     expect(await prisma.bridgeOutbox.count({ where: { workspaceId: ws, kind: "message", messageId: id } })).toBe(1);
@@ -64,7 +64,9 @@ describe.skipIf(!run)("driver messages over the bridge", () => {
     const first = await flushBridgeOutbox(t, { workspaceId: ws });
     expect(first.delivered).toBe(1);
     expect(t.messages).toHaveLength(1);
-    expect(t.messages[0]).toMatchObject({ org_id: ORG, driver_sub: PHONE, direction: "to_driver", sender_id: deskSenderId(ORG), client_id: id, body: "Gate code is 4471" });
+    expect(t.messages[0]).toMatchObject({ org_id: ORG, driver_sub: PHONE, direction: "to_driver", sender_id: deskSenderId(ORG), client_id: id, body: "Gate code is 4471", sender_name: "Maria Lopez" });
+    // The desk's own thread says who wrote it too.
+    expect((await getConversation(driverId, ws, null))!.messages.find((m) => m.id === id)!.sentBy).toBe("Maria Lopez");
     const after = await prisma.message.findUniqueOrThrow({ where: { id }, select: { deliveredAt: true } });
     expect(after.deliveredAt).not.toBeNull();
 
@@ -123,6 +125,8 @@ describe.skipIf(!run)("driver messages over the bridge", () => {
     down = false;
     const r2 = await flushBridgeOutbox(t, { workspaceId: ws, now: new Date(Date.now() + 10 * 60_000) });
     expect(r2.delivered).toBe(1);
+    // Nobody signed in (a test): the desk's fallback name is no one.
+    expect(t.messages.find((m) => m.client_id === id)!.sender_name).toBeNull();
   });
 
   // A JPEG the desk's checks accept (start, APP0, DQT, scan, end).

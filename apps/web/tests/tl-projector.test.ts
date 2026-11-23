@@ -50,6 +50,11 @@ describe("driver payload projector", () => {
     expect(() => assertDriverSafe(s, { numbers: [650, 1.19, 149, 799] })).not.toThrow();
   });
 
+  it("who sent it, by name, is not a leak", () => {
+    const s = { ...projectLoadToSummary(load, { kind: "cpm", rate: 0.65 }), dispatcher: { name: "Maria Lopez" } };
+    expect(() => assertDriverSafe(s, { numbers: [650, 149] })).not.toThrow();
+  });
+
   it("fails the gate when a forbidden key or a secret value leaks", () => {
     const s = projectLoadToSummary(load, { kind: "flat", rate: 400 });
     expect(() => assertDriverSafe({ ...s, quoted_revenue: 650 } as never)).toThrow(/leaks keys/);

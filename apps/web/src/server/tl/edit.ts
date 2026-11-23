@@ -20,6 +20,8 @@ import { enqueueForLoad } from "@/server/bridge/outbox";
 import { currentWorkspaceId } from "./workspace";
 import { stopClocksOf } from "./stop-clock";
 import { workspaceTimezone } from "./zone";
+import { senderNameOf } from "@/lib/driver-messages";
+import { currentActor } from "./identity";
 
 /**
  * Change what a booked load says. Anything can be corrected while the load is open; once it is on the road or delivered its details (who it is
@@ -218,7 +220,7 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
     if (reconfirm) {
       await tx.assignment.update({
         where: { loadId: load.id },
-        data: { status: "dispatched", dispatchedAt: now, respondedAt: null, driverResponse: Prisma.JsonNull, assignmentVersion: { increment: 1 } }
+        data: { status: "dispatched", dispatchedAt: now, dispatchedBy: senderNameOf(currentActor()), respondedAt: null, driverResponse: Prisma.JsonNull, assignmentVersion: { increment: 1 } }
       });
       // The driver has to say yes again, so the load is no longer accepted (src/lib/load-state.ts: a sent assignment goes with a draft load).
       if (load.status !== loadStatusFor("dispatched")) await tx.load.update({ where: { id: load.id }, data: { status: loadStatusFor("dispatched") } });

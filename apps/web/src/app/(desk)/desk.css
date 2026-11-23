@@ -1103,6 +1103,7 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .ms-load { display: inline-block; margin-bottom: 4px; padding: 0 8px; border-radius: 999px; background: var(--db-bg-inset); color: var(--db-accent-fg); font-size: var(--db-text-xs); font-weight: 700; text-decoration: none; }
 .ms-load:hover { text-decoration: underline; }
 .ms-meta { font-size: var(--db-text-xs); color: var(--db-fg-dim); }
+.ms-by { font-weight: 600; margin-right: 6px; }
 .ms-state { font-weight: 600; }
 .ms-state.sending { color: var(--db-fg-dim); }
 .ms-state.delivered { color: var(--db-info); }

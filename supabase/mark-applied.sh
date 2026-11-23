@@ -82,6 +82,7 @@ for m in \
   20270104000000_bridge_outbox_lease \
   20270105000000_bridge_outbox_messages \
   20270106000000_bridge_stop_events \
-  20270107000000_driver_link_kinds; do
+  20270107000000_driver_link_kinds \
+  20270108000000_dispatcher_names; do
   npx prisma migrate resolve --applied "$m" --schema=./prisma/schema.prisma
 done

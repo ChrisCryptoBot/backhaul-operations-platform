@@ -12,6 +12,8 @@ import { num } from "./convert";
 import { findTwinLoad, duplicateMessage } from "./twins";
 import { enqueueForLoad } from "@/server/bridge/outbox";
 import { currentWorkspaceId } from "./workspace";
+import { senderNameOf } from "@/lib/driver-messages";
+import { currentActor } from "./identity";
 
 /**
  * When a load falls through or moves. Cancelling and a TONU keep the reason the dispatcher picked (so it can be counted), and
@@ -139,7 +141,7 @@ export async function rescheduleLoad(input: Why & { loadId: string; newPickup: D
     for (const s of shifted) await tx.stop.update({ where: { id: s.id }, data: { timeWindowEarliest: s.timeWindowEarliest, timeWindowLatest: s.timeWindowLatest } });
     if (reconfirm) {
       // The driver has to say yes again, so the load is no longer accepted (src/lib/load-state.ts: a sent assignment goes with a draft load).
-      await claimAssignment(tx, load.id, ["dispatched", "accepted"], { status: "dispatched", dispatchedAt: now, respondedAt: null, driverResponse: Prisma.JsonNull, assignmentVersion: { increment: 1 } });
+      await claimAssignment(tx, load.id, ["dispatched", "accepted"], { status: "dispatched", dispatchedAt: now, dispatchedBy: senderNameOf(currentActor()), respondedAt: null, driverResponse: Prisma.JsonNull, assignmentVersion: { increment: 1 } });
       await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "dispatch", now });
     }
     await recordAudit(

@@ -23,6 +23,8 @@ import { recordAssignmentEvent } from "./assignment-events";
 import { writePositioningLeg } from "./relay-legs";
 import { MILES_SOURCES, type MilesSource } from "@/lib/relay";
 import { isOfferedRecallCode, isRecallCode, recallReasonText, type RecallCode } from "@/lib/recall-reasons";
+import { senderNameOf } from "@/lib/driver-messages";
+import { currentActor } from "./identity";
 
 export { driverBlocker };
 
@@ -346,6 +348,9 @@ export async function driverSummaryFor(loadId: string, workspaceId = currentWork
     },
     pay
   );
+  // Who sent it, by name only (the phone's "From <company> · <name>").
+  const by = senderNameOf(load.assignment.dispatchedBy);
+  if (by) summary.dispatcher = { name: by };
   try {
     assertDriverSafe(summary, { numbers: [num(load.quotedRevenue), num(load.actualRevenue), num(load.fuelSurcharge)] });
   } catch (e) {
@@ -365,7 +370,7 @@ export async function dispatchLoad(loadId: string, now = new Date(), opts: { sen
   const updated = await prisma.$transaction(async (tx) => {
     // Sent once: a second press (or another tab) finds it already sent.
     try {
-      await claimAssignment(tx, loadId, ["draft"], { status: "dispatched", dispatchedAt: now, assignmentVersion: { increment: 1 } });
+      await claimAssignment(tx, loadId, ["draft"], { status: "dispatched", dispatchedAt: now, dispatchedBy: senderNameOf(currentActor()), assignmentVersion: { increment: 1 } });
     } catch (e) {
       if (e instanceof LoadMoved) throw new DispatchError("already_sent", "This load was already sent to the driver.");
       throw e;

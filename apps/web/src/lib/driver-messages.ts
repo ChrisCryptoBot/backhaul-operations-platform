@@ -23,9 +23,11 @@ export type DriverMessageRow = {
   created_at: string;
   delivered_at: string | null;
   read_at: string | null;
+  /** To the driver: the dispatcher who wrote it (their name on the desk), or null. Phone project migration 20261122000300. */
+  sender_name?: string | null;
 };
 
-/** The sender id the desk writes under: one per fleet, never a person's id (the phone shows the carrier, not who on the desk typed it). */
+/** The sender id the desk writes under: one per fleet, never a person's id. Who on the desk wrote it travels as a name only (`sender_name`, shown beside the company). */
 export const deskSenderId = (orgId: string): string => `desk:${orgId}`;
 
 /** Where a driver's files for this carrier live in the phone project's storage. The SQL refuses any other path. */
@@ -34,8 +36,21 @@ export const driverFileFolder = (orgId: string, driverSub: string): string => `o
 export const attachmentPathAllowed = (orgId: string, driverSub: string, path: string): boolean =>
   path.startsWith(driverFileFolder(orgId, driverSub)) && !path.includes("..") && path.length <= 400;
 
+/**
+ * The name the driver sees for who on the desk sent something (Chris 2026-11-22: a company with several dispatchers is one connection; the driver still sees who wrote or sent
+ * what). The desk's own fallback name ("Dispatcher", a script or a desk with sign-in off and no demo person) is no one, so it is null. A name that is
+ * really a contact (an email or a phone number typed as the name) is not sent either. Trimmed, at most 60 characters.
+ */
+export const SENDER_NAME_MAX = 60;
+export function senderNameOf(actor: string | null | undefined, deskFallback = "Dispatcher"): string | null {
+  const name = (actor ?? "").replace(/\s+/g, " ").trim();
+  if (!name || name === deskFallback) return null;
+  if (name.includes("@") || name.replace(/\D/g, "").length >= 7) return null;
+  return name.slice(0, SENDER_NAME_MAX);
+}
+
 /** The row the desk writes for a message it sends. Files stay on the desk (the phone is told how many); the desk's Message.id is the client id. */
-export function toDriverRow(i: { orgId: string; phoneUserId: string; deskDriverId: string; messageId: string; body: string; fileCount: number; loadNumber: string | null }) {
+export function toDriverRow(i: { orgId: string; phoneUserId: string; deskDriverId: string; messageId: string; body: string; fileCount: number; loadNumber: string | null; senderName?: string | null }) {
   return {
     org_id: i.orgId,
     driver_sub: i.phoneUserId,
@@ -46,7 +61,8 @@ export function toDriverRow(i: { orgId: string; phoneUserId: string; deskDriverI
     body: i.body.slice(0, DRIVER_MESSAGE_BODY_MAX),
     attachments: [],
     desk_file_count: Math.max(0, Math.min(i.fileCount, 99)),
-    load_ref: i.loadNumber
+    load_ref: i.loadNumber,
+    sender_name: senderNameOf(i.senderName)
   };
 }
 

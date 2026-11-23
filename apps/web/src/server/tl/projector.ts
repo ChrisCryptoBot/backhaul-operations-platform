@@ -66,6 +66,8 @@ export type LoadSummary = {
   miles?: { loaded: number };
   /** Additive to schema 3 (2026-11-22): the freight's weight, when known. Not money, so not looked at by the secret-value check. */
   weight_lbs?: number;
+  /** Additive to schema 3 (2026-11-22): the dispatcher who sent it, by name, so the phone says "From <company> · <name>". Never an id or a contact. */
+  dispatcher?: { name: string };
 };
 
 /**

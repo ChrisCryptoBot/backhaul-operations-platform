@@ -32,7 +32,7 @@ describe("the places that send an assignment back to the driver keep the load in
   const files = (dir: string): string[] => readdirSync(dir).flatMap((n) => (statSync(path.join(dir, n)).isDirectory() ? files(path.join(dir, n)) : n.endsWith(".ts") ? [path.join(dir, n)] : []));
 
   test("every write that asks a driver again (back to dispatched with the answer cleared) sets the load's status from the table too", () => {
-    const asking = files(SRC).filter((f) => /status: "dispatched", dispatchedAt: now, respondedAt: null/.test(readFileSync(f, "utf8")));
+    const asking = files(SRC).filter((f) => /status: "dispatched", dispatchedAt: now,(?: dispatchedBy: [^,]+,)? respondedAt: null/.test(readFileSync(f, "utf8")));
     expect(asking.map((f) => path.basename(f)).sort()).toEqual(["disruptions.ts", "edit.ts"]);
     for (const f of asking) expect(readFileSync(f, "utf8"), path.basename(f)).toContain("loadStatusFor(");
   });

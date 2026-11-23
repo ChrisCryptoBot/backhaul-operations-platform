@@ -12,6 +12,7 @@ import { claimLoad, dropAssignment, LoadMoved } from "./claim";
 import { numOrNull } from "./convert";
 import { assertPay, findDriverClash, findTruckClash, windowText } from "./dispatch";
 import { currentActor } from "./identity";
+import { senderNameOf } from "@/lib/driver-messages";
 import { lockWorkspace } from "./plan";
 import { ensureActiveLeg } from "./relay-legs";
 import { currentAllowed } from "./scope";
@@ -262,7 +263,7 @@ export async function receiveHandoff(handoffId: string, input: ReceiveInput, now
     });
     // The new driver holds the load, on the road. No pay estimate yet: what each leg is paid is phase 3, and the closed leg kept the first driver's pay as it stood.
     await tx.assignment.create({
-      data: { loadId: h.loadId, driverId: driver.id, payKind: input.pay.kind, payRate: new Prisma.Decimal(input.pay.rate), payEstimate: null, status: "in_progress", respondedAt: now, driverResponse: { via, handoffId: h.id, at: now.toISOString() } }
+      data: { loadId: h.loadId, driverId: driver.id, payKind: input.pay.kind, payRate: new Prisma.Decimal(input.pay.rate), payEstimate: null, status: "in_progress", dispatchedBy: via === "dispatcher" ? senderNameOf(currentActor()) : null, respondedAt: now, driverResponse: { via, handoffId: h.id, at: now.toISOString() } }
     });
     // The incoming driver's phone gets the load (a bridged driver; nothing is queued for one the dispatcher answers for).
     await enqueueBridge(tx, { workspaceId, loadId: h.loadId, kind: "dispatch", driverId: driver.id, now });
