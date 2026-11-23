@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { recordAudit } from "@/server/tl/audit";
 import { currentWorkspaceId } from "@/server/tl/workspace";
-import { decideLink, deskOrgIdFor, formatInviteCode, hashInviteCode, inviteExpiresAt, isLinkRole, linkStateOf, newInviteCode, newLinkRow, type LinkRole, type LinkState } from "@/lib/driver-link";
+import { decideLink, deskOrgIdFor, formatInviteCode, hashInviteCode, inviteExpiresAt, isLinkRole, linkStateOf, newInviteCode, newLinkRow, pullOrder, switchesFor, type LinkRole, type LinkState, type LinkSwitches } from "@/lib/driver-link";
 import { BridgeTransportError, type BridgeTransport } from "./transport";
 
 /**
@@ -16,7 +16,7 @@ const NOT_ON = "The driver link is not switched on for this server yet.";
 const UNREACHABLE = "The driver link could not be reached. Try again in a minute.";
 
 /** Make a new code for this driver (any earlier unclaimed code stops working). Needs the bridge: the code is useless until the phone can claim it there. */
-export async function issueDriverInvite(transport: BridgeTransport | null, i: { driverId: string; role: string; now?: Date; workspaceId?: string; actor?: string }): Promise<IssueResult> {
+export async function issueDriverInvite(transport: BridgeTransport | null, i: { driverId: string; role: string; switches?: Partial<LinkSwitches>; now?: Date; workspaceId?: string; actor?: string }): Promise<IssueResult> {
   if (!transport) return { ok: false, error: NOT_ON };
   if (!isLinkRole(i.role)) return { ok: false, error: "Pick how this driver works for you." };
   const workspaceId = i.workspaceId ?? currentWorkspaceId();
@@ -33,12 +33,14 @@ export async function issueDriverInvite(transport: BridgeTransport | null, i: { 
   const codeHash = hashInviteCode(code);
   const expiresAt = inviteExpiresAt(now);
   const role = i.role as LinkRole;
+  // A contractor's switches as set; an employee's none (sync plan Step 3).
+  const switches = switchesFor(role, i.switches);
   try {
     await transport.revokeUnclaimedLinks(orgId, driver.id, now);
-    const row = await transport.insertLink(newLinkRow({ orgId, driverId: driver.id, carrierName: ws.name, role, codeHash, expiresAt }));
+    const row = await transport.insertLink(newLinkRow({ orgId, driverId: driver.id, carrierName: ws.name, role, codeHash, expiresAt, switches }));
     await prisma.$transaction(async (tx) => {
       await tx.driverLinkInvite.updateMany({ where: { workspaceId, driverId: driver.id, claimedAt: null, revokedAt: null }, data: { revokedAt: now, endedBy: "desk" } });
-      await tx.driverLinkInvite.create({ data: { workspaceId, driverId: driver.id, codeHash, driverRole: role, expiresAt, bridgeLinkId: row.id, createdBy: i.actor ?? null } });
+      await tx.driverLinkInvite.create({ data: { workspaceId, driverId: driver.id, codeHash, driverRole: role, ...switches, expiresAt, bridgeLinkId: row.id, createdBy: i.actor ?? null } });
       await recordAudit({ entity: "fleet", entityId: driver.id, action: "driver_link_code_made", summary: `Phone link code made for ${driver.name}`, at: now, workspaceId, ...(i.actor ? { actor: i.actor } : {}) }, tx);
     });
   } catch (e) {
@@ -87,7 +89,7 @@ export async function pullDriverLinks(transport: BridgeTransport, opts: { worksp
   const ws = await prisma.workspace.findUnique({ where: { id: workspaceId }, select: { id: true, bridgeOrgId: true } });
   if (!ws) return out;
   const orgId = deskOrgIdFor(ws);
-  const rows = await transport.claimedLinks(orgId, 500);
+  const rows = pullOrder(await transport.claimedLinks(orgId, 500));
   out.read = rows.length;
   if (rows.length === 0) return out;
   const drivers = await prisma.driver.findMany({ where: { workspaceId }, select: { id: true, name: true, phoneUserId: true } });
@@ -126,7 +128,8 @@ export async function pullDriverLinks(transport: BridgeTransport, opts: { worksp
     await prisma.$transaction(async (tx) => {
       await tx.driver.update({ where: { id: d.id }, data: { phoneUserId: null } });
       await tx.driverLinkInvite.updateMany({ where: { workspaceId, bridgeLinkId: row.id, revokedAt: null }, data: { revokedAt: now, endedBy: decision.endedBy } });
-      await recordAudit({ entity: "fleet", entityId: d.id, action: "driver_unlinked", summary: decision.endedBy === "driver" ? `${d.name} ended the link from their phone` : `${d.name}'s phone unlinked`, at: now, workspaceId, actor: decision.endedBy === "driver" ? "Driver's phone" : undefined }, tx);
+      const summary = decision.endedBy === "driver" ? `${d.name} ended the link from their phone` : decision.endedBy === "replaced" ? `${d.name}'s phone moved to a newer code from this fleet` : `${d.name}'s phone unlinked`;
+      await recordAudit({ entity: "fleet", entityId: d.id, action: "driver_unlinked", summary, at: now, workspaceId, actor: decision.endedBy === "desk" ? undefined : "Driver's phone" }, tx);
     });
     holder.delete(decision.phoneUserId);
     d.phoneUserId = null;
@@ -136,14 +139,15 @@ export async function pullDriverLinks(transport: BridgeTransport, opts: { worksp
 }
 
 /** What the driver's page shows about the link. */
-export async function driverLinkView(driverId: string, opts: { workspaceId?: string; now?: Date } = {}): Promise<{ state: LinkState; role: LinkRole | null }> {
+export async function driverLinkView(driverId: string, opts: { workspaceId?: string; now?: Date } = {}): Promise<{ state: LinkState; role: LinkRole | null; switches: LinkSwitches }> {
   const workspaceId = opts.workspaceId ?? currentWorkspaceId();
   const [driver, latest] = await Promise.all([
     prisma.driver.findFirst({ where: { id: driverId, workspaceId }, select: { phoneUserId: true } }),
-    prisma.driverLinkInvite.findFirst({ where: { workspaceId, driverId }, orderBy: { createdAt: "desc" }, select: { expiresAt: true, claimedAt: true, revokedAt: true, driverRole: true } })
+    prisma.driverLinkInvite.findFirst({ where: { workspaceId, driverId }, orderBy: { createdAt: "desc" }, select: { expiresAt: true, claimedAt: true, revokedAt: true, driverRole: true, forcedDispatch: true, underAuthority: true, sponsored: true } })
   ]);
   const state = linkStateOf({ phoneUserId: driver?.phoneUserId ?? null, latest: latest ?? null, now: opts.now ?? new Date() });
-  return { state, role: latest && isLinkRole(latest.driverRole) ? latest.driverRole : null };
+  const role = latest && isLinkRole(latest.driverRole) ? latest.driverRole : null;
+  return { state, role, switches: switchesFor(role ?? "company", latest) };
 }
 
 /** Workspaces the bridge cron should pull links for: every fleet already linked, plus any with a code still waiting to be claimed. */

@@ -15,9 +15,9 @@ export const INVITE_LENGTH = 10;
 /** How long a code can be claimed. A claimed link lasts until either side ends it. */
 export const INVITE_DAYS = 7;
 
-import type { LinkRole } from "./driver-link-roles";
+import { NO_SWITCHES, type LinkRole, type LinkSwitches } from "./driver-link-roles";
 // The roles live in a file without node:crypto so the browser can import them (driver-phone-link.tsx).
-export { LINK_ROLES, isLinkRole, suggestedLinkRole, type LinkRole } from "./driver-link-roles";
+export { LINK_ROLES, isLinkRole, suggestedLinkRole, switchesFor, type LinkRole, type LinkSwitches } from "./driver-link-roles";
 
 /** A new code: INVITE_LENGTH letters from INVITE_ALPHABET, from the system's secure random source. `pick` is for tests. */
 export function newInviteCode(pick: (n: number) => number = randomInt): string {
@@ -43,13 +43,22 @@ export const deskOrgIdFor = (ws: { id: string; bridgeOrgId: string | null }): st
 
 export const inviteExpiresAt = (now: Date): Date => new Date(now.getTime() + INVITE_DAYS * 24 * 60 * 60 * 1000);
 
-/** The row the desk writes on the bridge for a new code: the columns it owns, never `claimed_by` (the phone's). */
-export function newLinkRow(i: { orgId: string; driverId: string; carrierName: string; role: LinkRole; codeHash: string; expiresAt: Date }) {
+/**
+ * The row the desk writes on the bridge for a new code: the columns it owns, never `claimed_by` (the phone's). The relationship and the contractor switches (sync plan Step 3)
+ * are what the phone's connection rules read (bridge.claim_driver_link, the phone project's 20261122000200_bridge_connection_kinds.sql).
+ */
+export function newLinkRow(i: { orgId: string; driverId: string; carrierName: string; role: LinkRole; codeHash: string; expiresAt: Date; switches?: LinkSwitches }) {
+  const contractor = i.role === "owner_op_leased";
+  const s = contractor ? (i.switches ?? NO_SWITCHES) : NO_SWITCHES;
   return {
     org_id: i.orgId,
     desk_driver_id: i.driverId,
     carrier_name: i.carrierName.trim().slice(0, 120) || "Your carrier",
     driver_role: i.role,
+    relationship: contractor ? "contractor" : "employee",
+    forced_dispatch: s.forcedDispatch,
+    under_authority: s.underAuthority,
+    sponsored: s.sponsored,
     code_hash: i.codeHash,
     expires_at: i.expiresAt.toISOString()
   };
@@ -70,7 +79,8 @@ export type LinkRow = {
 /** What the pull does with one link row, given the desk's drivers. */
 export type LinkDecision =
   | { kind: "link"; driverId: string; phoneUserId: string; claimedAt: Date }
-  | { kind: "unlink"; driverId: string; phoneUserId: string; endedBy: "desk" | "driver" }
+  /** `replaced`: the phone claimed a newer code from this fleet, which takes the link over (the pull links it next). */
+  | { kind: "unlink"; driverId: string; phoneUserId: string; endedBy: "desk" | "driver" | "replaced" }
   | { kind: "flag"; driverId: string; why: string }
   | { kind: "ignore" };
 
@@ -84,13 +94,21 @@ export function decideLink(row: LinkRow, drivers: ReadonlyMap<string, { phoneUse
   const d = drivers.get(row.desk_driver_id);
   if (!d || !row.claimed_by || !PHONE_ID.test(row.claimed_by)) return { kind: "ignore" };
   if (row.revoked_at) {
-    return d.phoneUserId === row.claimed_by ? { kind: "unlink", driverId: row.desk_driver_id, phoneUserId: row.claimed_by, endedBy: row.ended_by === "driver" ? "driver" : "desk" } : { kind: "ignore" };
+    return d.phoneUserId === row.claimed_by ? { kind: "unlink", driverId: row.desk_driver_id, phoneUserId: row.claimed_by, endedBy: row.ended_by === "driver" ? "driver" : row.ended_by === "replaced" ? "replaced" : "desk" } : { kind: "ignore" };
   }
   if (d.phoneUserId === row.claimed_by) return { kind: "ignore" };
   const holder = holderOf(row.claimed_by);
   if (holder && holder !== row.desk_driver_id) return { kind: "flag", driverId: row.desk_driver_id, why: "That phone account is already linked to another driver in this fleet. End that link first." };
   const at = row.claimed_at ? new Date(row.claimed_at) : null;
   return { kind: "link", driverId: row.desk_driver_id, phoneUserId: row.claimed_by, claimedAt: at && !Number.isNaN(at.getTime()) ? at : new Date(0) };
+}
+
+/**
+ * The order the pull reads link rows in: ended rows before live ones, so a phone that claimed a newer code from this fleet (its old row ended as replaced, the bridge did both
+ * at once) is unlinked from the old driver before it is linked to the new one, whichever row the bridge touched last.
+ */
+export function pullOrder<T extends Pick<LinkRow, "revoked_at">>(rows: readonly T[]): T[] {
+  return [...rows.filter((r) => r.revoked_at), ...rows.filter((r) => !r.revoked_at)];
 }
 
 /** What the driver's page says about the link. */

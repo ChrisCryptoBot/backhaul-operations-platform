@@ -735,6 +735,12 @@ dd>.sub{display:block;color:var(--dim)}
   .pl-link-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
   .pl-link-row .tl-field{margin:0}
   .pl-link-code{font-size:22px;letter-spacing:2px;user-select:all}
+  /* A contractor code's switches (sync plan Step 3): their own row under the select, ruled, no box. */
+  .pl-link-switches{flex:1 0 100%;order:1;border:0;margin:0;padding:0;min-width:0;display:grid}
+  .pl-link-switches .tl-check{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line);font:13px var(--sans);color:var(--ink);cursor:pointer}
+  .pl-link-switches .tl-check:last-child{border-bottom:1px solid var(--line)}
+  .pl-link-switches .tl-check input{accent-color:var(--label);margin:2px 0 0}
+  .pl-link-row > .tl-btn{order:2}
 }
 
 @layer app {

@@ -261,7 +261,7 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     if (opts.down?.()) throw new BridgeTransportError("unreachable", SAFE.unreachable);
   };
   const at = (id: string) => table.findIndex((r) => r.id === id);
-  type MemLink = LinkRow & { code_hash: string; expires_at: string; carrier_name: string };
+  type MemLink = LinkRow & { code_hash: string; expires_at: string; carrier_name: string; relationship?: string; forced_dispatch?: boolean; under_authority?: boolean; sponsored?: boolean };
   const linkTable: MemLink[] = [];
   const messages: DriverMessageRow[] = [];
   const files = new Map<string, Uint8Array>();
@@ -286,7 +286,7 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     stopEvents: StopEventRow[];
     phoneStop: (e: { dispatchId: string; driverSub: string; kind: StopEventRow["kind"]; stopSeq?: number | null; at: Date; waitMinutes?: number | null; seal?: string | null; lat?: number | null; lng?: number | null }) => StopEventRow;
     /** Claim a code the way bridge.claim_driver_link does (unknown, expired or withdrawn -> link_invalid; someone else's -> link_used). */
-    claim: (codeHash: string, phoneUserId: string, now: Date) => "ok" | "link_invalid" | "link_used";
+    claim: (codeHash: string, phoneUserId: string, now: Date) => "ok" | "link_invalid" | "link_used" | "already_employed" | "forced_elsewhere" | "already_linked" | "under_other_authority";
   } = {
     table,
     links: linkTable,
@@ -443,6 +443,17 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
       const l = linkTable.find((x) => x.code_hash === codeHash);
       if (!l || l.revoked_at || (!l.claimed_by && Date.parse(l.expires_at) <= now.getTime())) return "link_invalid";
       if (l.claimed_by && l.claimed_by !== phoneUserId) return "link_used";
+      if (!l.claimed_by) {
+        // The connection rules of bridge.claim_driver_link (sync plan Step 3).
+        const live = linkTable.filter((x) => x.claimed_by === phoneUserId && !x.revoked_at);
+        const others = live.filter((x) => x.org_id !== l.org_id);
+        const exclusive = (x: MemLink) => x.relationship === "employee" || x.forced_dispatch === true;
+        if (others.some((x) => x.relationship === "employee")) return "already_employed";
+        if (others.some((x) => x.forced_dispatch === true)) return "forced_elsewhere";
+        if (exclusive(l) && others.length > 0) return "already_linked";
+        if (l.under_authority === true && others.some((x) => x.under_authority === true)) return "under_other_authority";
+        for (const x of live) if (x.org_id === l.org_id && x !== l) Object.assign(x, { revoked_at: now.toISOString(), ended_by: "replaced" });
+      }
       Object.assign(l, { claimed_by: phoneUserId, claimed_at: l.claimed_at ?? now.toISOString() });
       return "ok";
     }

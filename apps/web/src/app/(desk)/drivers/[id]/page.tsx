@@ -23,6 +23,7 @@ import { DriverDeductions } from "@/components/desk/driver-deductions";
 import { driverDeductions } from "@/server/tl/deductions";
 import { DriverPhoneLink, type PhoneLinkView } from "@/components/desk/driver-phone-link";
 import { driverLinkView } from "@/server/bridge/links";
+import { linkKindText } from "@/lib/driver-link-roles";
 import { suggestedLinkRole } from "@/lib/driver-link";
 
 export const dynamic = "force-dynamic";
@@ -47,7 +48,7 @@ export default async function DriverPage({ params }: { params: { id: string } })
   // Dates cross to the client as text.
   const linkView: PhoneLinkView =
     link.state.kind === "linked"
-      ? { kind: "linked", since: link.state.since ? link.state.since.toISOString() : null }
+      ? { kind: "linked", since: link.state.since ? link.state.since.toISOString() : null, what: link.role ? linkKindText(link.role, link.switches) : undefined }
       : link.state.kind === "pending"
         ? { kind: "pending", expiresAt: link.state.expiresAt.toISOString() }
         : { kind: link.state.kind };

@@ -14,9 +14,12 @@ import {
   newInviteCode,
   newLinkRow,
   normalizeInviteCode,
+  pullOrder,
   suggestedLinkRole,
+  switchesFor,
   type LinkRow
 } from "@/lib/driver-link";
+import { linkKindText } from "@/lib/driver-link-roles";
 import { BridgeTransportError, memoryTransport, supabaseTransport } from "@/server/bridge/transport";
 
 const NOW = new Date("2026-11-21T12:00:00Z");
@@ -62,7 +65,8 @@ describe("the tenant key and the row the desk writes", () => {
 
   it("writes only the desk's columns, never the phone's", () => {
     const row = newLinkRow({ orgId: "desk_ws1", driverId: "d1", carrierName: "  Northline Freight ", role: "company", codeHash: "h", expiresAt: NOW });
-    expect(Object.keys(row).sort()).toEqual(["carrier_name", "code_hash", "desk_driver_id", "driver_role", "expires_at", "org_id"]);
+    expect(Object.keys(row).sort()).toEqual(["carrier_name", "code_hash", "desk_driver_id", "driver_role", "expires_at", "forced_dispatch", "org_id", "relationship", "sponsored", "under_authority"]);
+    expect(row).toMatchObject({ relationship: "employee", forced_dispatch: false, under_authority: false, sponsored: false });
     expect(row.carrier_name).toBe("Northline Freight");
     expect(newLinkRow({ orgId: "o", driverId: "d", carrierName: " ", role: "company", codeHash: "h", expiresAt: NOW }).carrier_name).toBe("Your carrier");
   });
@@ -190,5 +194,51 @@ describe("who the driver is to the desk (two relationships, not three roles)", (
     // An older code made as lease-purchase reads as an employee: the phone treats it as a company driver too.
     expect(relationshipOf("lease_purchase")).toBe("company");
     expect(relationshipOf("owner_op_leased")).toBe("owner_op_leased");
+  });
+});
+
+describe("connection kinds (sync plan Step 3)", () => {
+  const ALL = { forcedDispatch: true, underAuthority: true, sponsored: true };
+  it("a contractor's code carries its switches; an employee's never does", () => {
+    expect(newLinkRow({ orgId: "o", driverId: "d", carrierName: "C", role: "owner_op_leased", codeHash: "h", expiresAt: NOW, switches: ALL })).toMatchObject({ relationship: "contractor", forced_dispatch: true, under_authority: true, sponsored: true });
+    expect(newLinkRow({ orgId: "o", driverId: "d", carrierName: "C", role: "company", codeHash: "h", expiresAt: NOW, switches: ALL })).toMatchObject({ relationship: "employee", forced_dispatch: false, under_authority: false, sponsored: false });
+    expect(switchesFor("owner_op_leased", { forcedDispatch: "yes", underAuthority: 1, sponsored: true })).toEqual({ forcedDispatch: false, underAuthority: false, sponsored: true });
+    expect(linkKindText("owner_op_leased", { forcedDispatch: true, underAuthority: false, sponsored: true })).toBe("Contractor we dispatch · forced dispatch · we pay for their app");
+    expect(linkKindText("company", { forcedDispatch: true, underAuthority: true, sponsored: true })).toBe("Our employee");
+  });
+
+  it("a link the phone replaced with a newer code is unlinked before the new one is linked, whichever row came last", () => {
+    const old = { id: "a", org_id: "o", desk_driver_id: "d1", driver_role: "company", claimed_by: "user_a", claimed_at: NOW.toISOString(), revoked_at: NOW.toISOString(), ended_by: "replaced" };
+    const fresh = { ...old, id: "b", desk_driver_id: "d2", revoked_at: null, ended_by: null };
+    expect(pullOrder([fresh, old]).map((r) => r.id)).toEqual(["a", "b"]);
+    const drivers = new Map([["d1", { phoneUserId: "user_a" }], ["d2", { phoneUserId: null }]]);
+    expect(decideLink(old, drivers, () => "d1")).toMatchObject({ kind: "unlink", endedBy: "replaced" });
+  });
+
+  it("the in-memory bridge keeps the phone's connection rules", async () => {
+    const t = memoryTransport();
+    let n = 0;
+    const code = async (orgId: string, role: "company" | "owner_op_leased", switches = { forcedDispatch: false, underAuthority: false, sponsored: false }) => {
+      const h = hashInviteCode(`CODE${String(++n).padStart(6, "0")}`);
+      await t.insertLink(newLinkRow({ orgId, driverId: `d${n}`, carrierName: orgId, role, codeHash: h, expiresAt: inviteExpiresAt(NOW), switches }));
+      return h;
+    };
+    // An owner-operator can work with several dispatchers; only one carrier's authority at a time.
+    expect(t.claim(await code("disp_a", "owner_op_leased", { forcedDispatch: false, underAuthority: true, sponsored: false }), "u1", NOW)).toBe("ok");
+    expect(t.claim(await code("disp_b", "owner_op_leased"), "u1", NOW)).toBe("ok");
+    expect(t.claim(await code("disp_c", "owner_op_leased", { forcedDispatch: false, underAuthority: true, sponsored: false }), "u1", NOW)).toBe("under_other_authority");
+    // An employee code (or a forced one) while other carriers are live is refused.
+    expect(t.claim(await code("fleet_x", "company"), "u1", NOW)).toBe("already_linked");
+    expect(t.claim(await code("disp_f", "owner_op_leased", { forcedDispatch: true, underAuthority: false, sponsored: false }), "u1", NOW)).toBe("already_linked");
+    // A new code from a carrier already live replaces the old link quietly.
+    expect(t.claim(await code("disp_b", "owner_op_leased"), "u1", NOW)).toBe("ok");
+    const b = (await t.claimedLinks("disp_b", 10)).sort((x, y) => (x.revoked_at ? 0 : 1) - (y.revoked_at ? 0 : 1));
+    expect(b.map((l) => l.ended_by)).toEqual(["replaced", null]);
+    // An employee works for one company: nothing else joins.
+    expect(t.claim(await code("fleet_y", "company"), "u2", NOW)).toBe("ok");
+    expect(t.claim(await code("disp_d", "owner_op_leased"), "u2", NOW)).toBe("already_employed");
+    // Under forced dispatch: no other dispatcher.
+    expect(t.claim(await code("lease_z", "owner_op_leased", { forcedDispatch: true, underAuthority: true, sponsored: false }), "u3", NOW)).toBe("ok");
+    expect(t.claim(await code("disp_e", "owner_op_leased"), "u3", NOW)).toBe("forced_elsewhere");
   });
 });

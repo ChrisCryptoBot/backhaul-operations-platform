@@ -489,9 +489,10 @@ const linkTransport = () => {
 };
 
 /** Phase 2 step 1: a single-use code for one driver's phone. The code comes back once, for the dispatcher to read out or send; only its hash is kept. */
-export async function issueDriverInviteAction(driverId: string, role: string): Promise<{ ok: true; code: string; expiresAt: string } | { ok: false; error: string }> {
+export async function issueDriverInviteAction(driverId: string, role: string, switches?: { forcedDispatch?: unknown; underAuthority?: unknown; sponsored?: unknown }): Promise<{ ok: true; code: string; expiresAt: string } | { ok: false; error: string }> {
   await requireCan("roster");
-  const out = await issueDriverInvite(linkTransport(), { driverId, role });
+  // Only true counts: anything else the browser sends is off (switchesFor reads it again for the role).
+  const out = await issueDriverInvite(linkTransport(), { driverId, role, switches: { forcedDispatch: switches?.forcedDispatch === true, underAuthority: switches?.underAuthority === true, sponsored: switches?.sponsored === true } });
   if (!out.ok) return out;
   refreshFleet();
   return { ok: true, code: out.code, expiresAt: out.expiresAt.toISOString() };

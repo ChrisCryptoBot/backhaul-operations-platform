@@ -3,12 +3,13 @@
 import { useRouter } from "next/navigation";
 import React from "react";
 import { checkDriverLinkAction, endDriverLinkAction, issueDriverInviteAction } from "@/app/(desk)/actions";
-import { LINK_RELATIONSHIPS, relationshipOf, type LinkRole } from "@/lib/driver-link-roles";
+import { LINK_RELATIONSHIPS, LINK_SWITCHES, relationshipOf, switchesFor, type LinkRole, type LinkSwitches } from "@/lib/driver-link-roles";
 import { useToast } from "./kit/toast";
 import { useDraft } from "./kit/use-draft";
 
 export type PhoneLinkView =
-  | { kind: "linked"; since: string | null }
+  /** `what`: the link's kind in words ("Contractor we dispatch · forced dispatch"). */
+  | { kind: "linked"; since: string | null; what?: string }
   | { kind: "pending"; expiresAt: string }
   | { kind: "expired" }
   | { kind: "none" };
@@ -24,14 +25,16 @@ export function DriverPhoneLink({ driverId, driverName, view, suggestedRole, can
   const toast = useToast();
   const [pending, start] = React.useTransition();
   // The role picked before the code is made survives leaving the page (desk rule: typed fields are kept, forms-keep-fields.test.ts).
-  const [form, setForm, draft] = useDraft(`driver-link-role:${driverId}`, { role: suggestedRole as string });
+  const [form, setForm, draft] = useDraft(`driver-link-role:${driverId}`, { role: suggestedRole as string, forcedDispatch: false, underAuthority: false, sponsored: false });
   const role = relationshipOf(form.role as LinkRole);
+  // Only a contractor's code carries the switches (sync plan Step 3); an employee's sends none.
+  const switches: LinkSwitches = switchesFor(role, form);
   const [made, setMade] = React.useState<{ code: string; expiresAt: string } | null>(null);
   const [error, setError] = React.useState("");
 
   const make = () =>
     start(async () => {
-      const out = await issueDriverInviteAction(driverId, role);
+      const out = await issueDriverInviteAction(driverId, role, switches);
       if (!out.ok) return setError(out.error);
       setError("");
       setMade({ code: out.code, expiresAt: out.expiresAt });
@@ -71,6 +74,7 @@ export function DriverPhoneLink({ driverId, driverName, view, suggestedRole, can
       {view.kind === "linked" ? (
         <p className="tl-note ok">
           Linked to {driverName}&apos;s TrueLane app{view.since ? ` since ${when(view.since)}` : ""}. Loads you send reach their phone.
+          {view.what ? <span className="tl-sub" style={{ display: "block" }}>{view.what}</span> : null}
         </p>
       ) : made ? (
         <div className="pl-link">
@@ -107,7 +111,7 @@ export function DriverPhoneLink({ driverId, driverName, view, suggestedRole, can
             <>
               <label className="tl-field">
                 <span className="db-sr-only">Who this driver is to you</span>
-                <select value={role} onChange={(e) => setForm({ role: e.target.value })} aria-label="Who this driver is to you">
+                <select value={role} onChange={(e) => setForm({ ...form, role: e.target.value })} aria-label="Who this driver is to you">
                   {LINK_RELATIONSHIPS.map((r) => (
                     <option key={r.value} value={r.value}>
                       {r.label}
@@ -115,6 +119,19 @@ export function DriverPhoneLink({ driverId, driverName, view, suggestedRole, can
                   ))}
                 </select>
               </label>
+              {role === "owner_op_leased" ? (
+                <fieldset className="pl-link-switches" aria-label="What this contractor's link carries">
+                  {LINK_SWITCHES.map((sw) => (
+                    <label key={sw.key} className="tl-check">
+                      <input type="checkbox" checked={switches[sw.key]} onChange={(e) => setForm({ ...form, [sw.key]: e.target.checked })} />
+                      <span>
+                        {sw.label}
+                        <span className="tl-sub" style={{ display: "block" }}>{sw.hint}</span>
+                      </span>
+                    </label>
+                  ))}
+                </fieldset>
+              ) : null}
               <button type="button" className="tl-btn sm" disabled={pending} onClick={make}>
                 {view.kind === "pending" || made ? "Make a new code" : "Make a link code"}
               </button>

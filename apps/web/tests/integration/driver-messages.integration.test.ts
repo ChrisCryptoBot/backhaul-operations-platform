@@ -30,7 +30,9 @@ describe.skipIf(!run)("driver messages over the bridge", () => {
     process.env.BRIDGE_SUPABASE_URL = "https://bridge.test.invalid";
     process.env.BRIDGE_SUPABASE_SERVICE_KEY = "test-key-not-real";
     savedOrg = (await prisma.workspace.findUniqueOrThrow({ where: { id: ws }, select: { bridgeOrgId: true } })).bridgeOrgId;
-    const [d, o] = await prisma.driver.findMany({ where: { workspaceId: ws, active: true }, orderBy: { name: "asc" }, take: 2, select: { id: true, phoneUserId: true } });
+    const [d] = await prisma.driver.findMany({ where: { workspaceId: ws, active: true }, orderBy: { name: "asc" }, take: 1, select: { id: true, phoneUserId: true } });
+    // The "not linked" driver must have no phone on the demo data (a real phone may be linked to any of them while testing).
+    const o = await prisma.driver.findFirst({ where: { workspaceId: ws, active: true, phoneUserId: null, id: { not: d!.id } }, orderBy: { name: "asc" }, select: { id: true } });
     driverId = d!.id;
     otherId = o!.id;
     savedPhone = d!.phoneUserId;

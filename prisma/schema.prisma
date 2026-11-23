@@ -1274,6 +1274,10 @@ model DriverLinkInvite {
   codeHash     String    @unique @map("code_hash")
   /// company | lease_purchase | owner_op_leased: the role the link sets and locks on the phone.
   driverRole   String    @map("driver_role")
+  /// A contractor link's switches (sync plan Step 3): our loads are not optional; they run under our authority; we pay for their app. Always false on an employee's code.
+  forcedDispatch Boolean @default(false) @map("forced_dispatch")
+  underAuthority Boolean @default(false) @map("under_authority")
+  sponsored      Boolean @default(false)
   expiresAt    DateTime  @map("expires_at")
   /// The bridge row (bridge.driver_links.id) once written; null while the bridge could not be reached.
   bridgeLinkId String?   @map("bridge_link_id")
