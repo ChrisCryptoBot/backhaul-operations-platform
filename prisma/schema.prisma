@@ -1460,6 +1460,8 @@ model LoadDocument {
   addedBy     String   @map("added_by")
   /// The delivery stop a proof of delivery belongs to, when it is one stop's.
   stopId      String?  @map("stop_id")
+  /// A file of kind "other" the dispatcher sends to the driver's phone (src/lib/documents.ts goesToDriver). Other kinds go or stay by their kind.
+  toDriver    Boolean  @default(false) @map("to_driver")
   createdAt   DateTime @default(now()) @map("created_at")
 
   load Load @relation(fields: [loadId], references: [id], onDelete: Cascade)

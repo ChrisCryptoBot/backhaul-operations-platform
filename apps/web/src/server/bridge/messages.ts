@@ -2,8 +2,9 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { ATTACHMENTS_PER_MESSAGE, checkAttachment } from "@/lib/attachments";
-import { attachmentPathAllowed, BRIDGE_KEEP_MS, deskBodyOf, fileNameOf, isPullable, toDriverRow, type DriverMessageRow, type NotKept } from "@/lib/driver-messages";
-import { removeFiles, storeFile } from "@/server/tl/message-files";
+import { attachmentPathAllowed, BRIDGE_KEEP_MS, deskBodyOf, fileNameOf, isPullable, toDriverRow, type DriverMessageRow, type NotKept, type SentFile } from "@/lib/driver-messages";
+import { deskFilePath } from "@/lib/load-documents";
+import { readFile, removeFiles, storeFile } from "@/server/tl/message-files";
 import { storageRefusal } from "@/server/tl/storage";
 import { driverMode } from "./outbox";
 import type { BridgeTransport } from "./transport";
@@ -14,7 +15,7 @@ import type { BridgeTransport } from "./transport";
  *   the desk message's `deliveredAt`;
  * - in: `pullDriverMessages` takes the phone's rows into the desk thread (the bridge row id is the desk message's clientId, so a pull that runs twice keeps one copy), stamps them
  *   delivered on the bridge, and carries read marks both ways.
- * Files: the desk's files stay on the desk (the phone is told how many). The phone's photos are fetched into the desk's own storage when the message is taken, through the same
+ * Files: the desk's files are put in its folder for that driver's phone before the row goes (sync plan Step 4), except one that is a load's rate confirmation. The phone's photos are fetched into the desk's own storage when the message is taken, through the same
  * checks a dispatcher's upload passes and inside the plan's storage allowance; a file that cannot be kept is named in the text with the reason.
  * Retention (Chris, 2026-11-21): `purgeDriverMessages` takes a row and its files off the bridge one day after it was read; the desk keeps the record.
  */
@@ -37,11 +38,29 @@ export async function deliverDriverMessage(transport: BridgeTransport, orgId: st
   if (!item.messageId) return null;
   const m = await prisma.message.findFirst({
     where: { id: item.messageId, direction: "out", thread: { workspaceId } },
-    select: { id: true, body: true, sentBy: true, load: { select: { loadNumber: true } }, _count: { select: { attachments: true } }, thread: { select: { driver: { select: { id: true, phoneUserId: true } } } } }
+    select: { id: true, body: true, sentBy: true, load: { select: { loadNumber: true } }, attachments: { select: { id: true, name: true, mime: true, bytes: true, sha256: true, storageKey: true } }, thread: { select: { driver: { select: { id: true, phoneUserId: true } } } } }
   });
   if (!m || m.thread.driver.phoneUserId !== item.phoneUserId) return null;
+  // The files first: a message never names one the phone cannot open. The bytes of a rate confirmation never go, whatever they were attached as; nor does one no longer on the desk.
+  const rateCons = new Set(
+    m.attachments.length === 0 ? [] : (await prisma.loadDocument.findMany({ where: { workspaceId, kind: "rate_con", sha256: { in: m.attachments.map((a) => a.sha256) } }, select: { sha256: true } })).map((d) => d.sha256)
+  );
+  const files: SentFile[] = [];
+  for (const a of m.attachments) {
+    const data = rateCons.has(a.sha256) ? null : await readFile(a.storageKey);
+    if (!data) continue;
+    const path = deskFilePath(orgId, item.phoneUserId, a.id, a.mime);
+    try {
+      await transport.uploadDeskFile(path, data, a.mime);
+    } catch (e) {
+      // No answer: the message waits with its files. Refused: the words go without this one (the phone says a file is with dispatch).
+      if ((e as { code?: string }).code === "unreachable") throw e;
+      continue;
+    }
+    files.push({ path, name: a.name ?? fileNameOf(path), mime: a.mime, bytes: a.bytes });
+  }
   const row = await transport.insertDriverMessage(
-    toDriverRow({ orgId, phoneUserId: item.phoneUserId, deskDriverId: m.thread.driver.id, messageId: m.id, body: m.body, fileCount: m._count.attachments, loadNumber: m.load?.loadNumber ?? null, senderName: m.sentBy })
+    toDriverRow({ orgId, phoneUserId: item.phoneUserId, deskDriverId: m.thread.driver.id, messageId: m.id, body: m.body, fileCount: m.attachments.length, loadNumber: m.load?.loadNumber ?? null, senderName: m.sentBy, files })
   );
   return { rowId: row.id, messageId: m.id };
 }

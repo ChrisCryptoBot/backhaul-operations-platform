@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { BRIDGE_ENV, bridgeConfig } from "@/server/bridge/core";
 import { flushBridgeOutbox, mirrorDriverStatus, pullBridgeResponses, pullDriverMessages, purgeDriverMessages } from "@/server/bridge/service";
 import { pullStopEvents } from "@/server/bridge/stops";
+import { mirrorLoadDocuments } from "@/server/bridge/documents";
 import { supabaseTransport } from "@/server/bridge/transport";
 import { fleetsWithLinksToPull, pullDriverLinks } from "@/server/bridge/links";
 
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
     }
   }
   const fleets = await prisma.workspace.findMany({ where: { bridgeOrgId: { not: null } }, select: { id: true } });
-  const out = { fleets: fleets.length, delivered: 0, failed: 0, retrying: 0, read: 0, applied: 0, flagged: 0, stopEvents: 0, messages: 0, purged: 0, clocks: 0, ...links };
+  const out = { fleets: fleets.length, delivered: 0, failed: 0, retrying: 0, read: 0, applied: 0, flagged: 0, stopEvents: 0, messages: 0, purged: 0, clocks: 0, documents: 0, ...links };
   for (const f of fleets) {
     // One fleet failing (the link down, a bad row) never stops the others.
     try {
@@ -66,6 +67,10 @@ export async function POST(req: NextRequest) {
       // Phase 2 step 4: the HOS read mirror, written only when a driver's clocks changed since the last run.
       const mirrored = await mirrorDriverStatus(transport, { workspaceId: f.id });
       out.clocks += mirrored.written;
+      // Sync plan Step 4: the files on a load that its driver may see, sent and taken back as the desk stands now.
+      const filed = await mirrorLoadDocuments(transport, { workspaceId: f.id });
+      out.documents += filed.sent + filed.removed;
+      out.retrying += filed.failed;
     } catch {
       out.retrying += 1;
     }

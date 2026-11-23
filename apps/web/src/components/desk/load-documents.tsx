@@ -2,12 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import React from "react";
-import { removeDocumentAction } from "@/app/(desk)/actions";
+import { removeDocumentAction, setDocumentToDriverAction } from "@/app/(desk)/actions";
 import { ATTACHMENT_MAX_BYTES, ACCEPT, sizeLabel } from "@/lib/attachments";
-import { DOC_KINDS, DOC_LABEL, type DocKind } from "@/lib/documents";
+import { CHOSEN_TO_DRIVER, DOC_KINDS, DOC_LABEL, goesToDriver, type DocKind } from "@/lib/documents";
 import { useToast } from "./kit/toast";
 
-export type DocItem = { id: string; kind: DocKind; name: string; bytes: number; when: string; by: string; /** The delivery stop a proof of delivery belongs to, in words ("Stop 3, Columbus Receiving"). */ stop?: string | null };
+export type DocItem = { id: string; kind: DocKind; name: string; bytes: number; when: string; by: string; /** The delivery stop a proof of delivery belongs to, in words ("Stop 3, Columbus Receiving"). */ stop?: string | null; /** Kind "other": sent to the driver's phone. */ toDriver?: boolean };
 export type DeliveryStopOption = { id: string; label: string };
 
 /**
@@ -39,6 +39,7 @@ export function LoadDocuments({
   const [kind, setKind] = React.useState<DocKind>(defaultKind);
   const [busy, setBusy] = React.useState(false);
   const [stopId, setStopId] = React.useState("");
+  const [toDriver, setToDriver] = React.useState(false);
   // A removal asks first: the file is gone with it.
   const [confirming, setConfirming] = React.useState<string | null>(null);
   const input = React.useRef<HTMLInputElement>(null);
@@ -55,12 +56,14 @@ export function LoadDocuments({
       form.set("loadId", loadId);
       form.set("kind", kind);
       if (kind === "pod" && stopId) form.set("stopId", stopId);
+      if (kind === CHOSEN_TO_DRIVER && toDriver) form.set("toDriver", "1");
       form.set("file", file);
       const res = await fetch("/documents/upload", { method: "POST", body: form });
       const out = (await res.json().catch(() => null)) as { ok: boolean; error?: string } | null;
       if (out?.ok) {
         toast({ text: `${file.name} kept.`, tone: "ok" });
         if (input.current) input.current.value = "";
+        setToDriver(false);
         router.refresh();
       } else toast({ text: out?.error ?? "That could not be kept. Try again.", tone: "bad" });
     } catch {
@@ -76,6 +79,16 @@ export function LoadDocuments({
     setBusy(false);
     if (out.ok) {
       toast({ text: `${d.name} removed.`, tone: "ok" });
+      router.refresh();
+    } else toast({ text: out.error, tone: "bad" });
+  }
+
+  async function share(d: DocItem, on: boolean) {
+    setBusy(true);
+    const out = await setDocumentToDriverAction(d.id, on);
+    setBusy(false);
+    if (out.ok) {
+      toast({ text: on ? `${d.name} goes to the driver.` : `${d.name} is taken back from the driver.`, tone: "ok" });
       router.refresh();
     } else toast({ text: out.error, tone: "bad" });
   }
@@ -139,6 +152,7 @@ export function LoadDocuments({
                     {sizeLabel(d.bytes)} · {d.when} · {d.by}
                   </span>
                   {d.stop ? <span className="tl-sub" style={{ fontSize: 11 }}>· {d.stop}</span> : null}
+                  {goesToDriver({ kind: d.kind, toDriver: d.toDriver === true }) ? <span className="tl-chip sm">To driver</span> : null}
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
@@ -150,6 +164,11 @@ export function LoadDocuments({
                     title="View in preview">
                     Preview
                   </button>
+                  {d.kind === CHOSEN_TO_DRIVER ? (
+                    <button type="button" className="tl-btn ghost sm ld-doc-share" disabled={busy} aria-pressed={d.toDriver === true} onClick={() => void share(d, !d.toDriver)}>
+                      {d.toDriver ? "Take back from driver" : "Send to driver"}
+                    </button>
+                  ) : null}
                   {locked ? null : confirming === d.id ? (
                     <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                       <span className="tl-sub" style={{ fontSize: 11, color: "var(--db-neg)" }}>Remove?</span>
@@ -192,11 +211,16 @@ export function LoadDocuments({
               ))}
             </select>
           ) : null}
+          {kind === CHOSEN_TO_DRIVER ? (
+            <label className="tl-sub ld-doc-tick">
+              <input type="checkbox" checked={toDriver} onChange={(e) => setToDriver(e.target.checked)} /> Send to driver
+            </label>
+          ) : null}
           <input ref={input} type="file" accept={ACCEPT} aria-label="The file to keep" />
           <button type="button" className="tl-btn" disabled={busy} onClick={() => void upload()}>
             {busy ? "Keeping…" : "Keep it"}
           </button>
-          <span className="tl-sub">Up to {ATTACHMENT_MAX_BYTES / (1024 * 1024)} MB; a PDF, a photo or a scan.</span>
+          <span className="tl-sub">Up to {ATTACHMENT_MAX_BYTES / (1024 * 1024)} MB; a PDF, a photo or a scan.{goesToDriver({ kind, toDriver }) ? " Goes to the driver's phone when they are connected." : ""}</span>
         </div>
       )}
     </div>

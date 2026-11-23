@@ -12,7 +12,7 @@ import { SLEEP_COOKIE, THEME_COOKIE, UI_COOKIE, asSleepMinutes, asTheme, asUi } 
 import { redirect, RedirectType } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { checkAccess, requireCan } from "@/server/tl/access";
-import { removeLoadDocument, type DocResult } from "@/server/tl/documents";
+import { removeLoadDocument, setDocumentToDriver, type DocResult } from "@/server/tl/documents";
 import { addMember, setMemberGrants, removeMember, setMemberRole, type MemberResult } from "@/server/tl/members";
 import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
 import { isRecallCode } from "@/lib/recall-reasons";
@@ -1660,6 +1660,13 @@ export async function markThreadReadAction(driverId: string): Promise<number> {
 export async function removeDocumentAction(id: string): Promise<DocResult> {
   await requireCan("documents");
   const out = await removeLoadDocument(id);
+  if (out.ok) refreshLoads();
+  return out;
+}
+
+export async function setDocumentToDriverAction(id: string, toDriver: boolean): Promise<DocResult> {
+  await requireCan("documents");
+  const out = await setDocumentToDriver(String(id), toDriver === true);
   if (out.ok) refreshLoads();
   return out;
 }

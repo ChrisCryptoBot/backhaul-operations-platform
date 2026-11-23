@@ -49,8 +49,11 @@ export function senderNameOf(actor: string | null | undefined, deskFallback = "D
   return name.slice(0, SENDER_NAME_MAX);
 }
 
-/** The row the desk writes for a message it sends. Files stay on the desk (the phone is told how many); the desk's Message.id is the client id. */
-export function toDriverRow(i: { orgId: string; phoneUserId: string; deskDriverId: string; messageId: string; body: string; fileCount: number; loadNumber: string | null; senderName?: string | null }) {
+/** A file on a desk message that was put where the driver's phone can open it (src/lib/load-documents.ts deskFilePath). */
+export type SentFile = { path: string; name: string; mime: string; bytes: number };
+
+/** The row the desk writes for a message it sends; the desk's Message.id is the client id. `fileCount` is every file on the message; the ones the phone can open are `files`. */
+export function toDriverRow(i: { orgId: string; phoneUserId: string; deskDriverId: string; messageId: string; body: string; fileCount: number; loadNumber: string | null; senderName?: string | null; files?: readonly SentFile[] }) {
   return {
     org_id: i.orgId,
     driver_sub: i.phoneUserId,
@@ -59,7 +62,7 @@ export function toDriverRow(i: { orgId: string; phoneUserId: string; deskDriverI
     sender_id: deskSenderId(i.orgId),
     client_id: i.messageId,
     body: i.body.slice(0, DRIVER_MESSAGE_BODY_MAX),
-    attachments: [],
+    attachments: (i.files ?? []).map((f) => ({ path: f.path, name: f.name, mime: f.mime, bytes: f.bytes })),
     desk_file_count: Math.max(0, Math.min(i.fileCount, 99)),
     load_ref: i.loadNumber,
     sender_name: senderNameOf(i.senderName)

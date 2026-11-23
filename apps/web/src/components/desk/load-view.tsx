@@ -904,7 +904,8 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
             bytes: d.bytes,
             when: dateTime(d.createdAt),
             by: d.addedBy,
-            stop: stopLabelOf(d.stopId)
+            stop: stopLabelOf(d.stopId),
+            toDriver: d.toDriver
           }))}
           deliveryStops={deliveryStopOptions}
           locked={docsLocked}

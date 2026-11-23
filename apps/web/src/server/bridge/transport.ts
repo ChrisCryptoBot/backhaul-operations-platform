@@ -3,6 +3,7 @@ import { wholeOf, type BridgeConfig, type BridgeRow } from "./core";
 import type { LinkRow } from "@/lib/driver-link";
 import type { DriverMessageRow } from "@/lib/driver-messages";
 import type { DriverStatusRow } from "@/lib/driver-status";
+import type { LoadDocumentRow, LoadDocumentThere } from "@/lib/load-documents";
 
 /**
  * How the desk reaches `bridge.external_dispatch`. One small interface, two implementations: the real one (PostgREST over `fetch`, with the service key) and an in-memory one the tests drive,
@@ -57,6 +58,13 @@ export interface BridgeTransport {
   deleteDriverStatus(orgId: string, driverSubs: string[]): Promise<void>;
   /** Stop events (sync plan Step 2): this fleet's rows on `bridge.stop_events` written since `afterSeq`, oldest first. */
   stopEventsSince(orgId: string, afterSeq: number, limit: number): Promise<StopEventRow[]>;
+  /** Files from the desk (sync plan Step 4): put one in the bucket, under the desk's folder for one driver's phone. One already there is replaced. */
+  uploadDeskFile(path: string, data: Uint8Array, mime: string): Promise<void>;
+  /** This fleet's rows on `bridge.load_documents`, to compare before writing. */
+  loadDocumentRows(orgId: string): Promise<LoadDocumentThere[]>;
+  /** Write one row, keyed on (org_id, driver_sub, desk_document_id): a row already there is replaced. */
+  upsertLoadDocument(row: LoadDocumentRow): Promise<void>;
+  deleteLoadDocuments(orgId: string, ids: string[]): Promise<void>;
 }
 
 /** A row of `bridge.stop_events` (the phone project's supabase/migrations/20261122000100_bridge_stop_events.sql), as the desk reads it. */
@@ -94,6 +102,7 @@ export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = f
   const stopEvents = `${cfg.url}/rest/v1/stop_events`;
   const files = `${cfg.url}/storage/v1/object/bridge-files`;
   const status = `${cfg.url}/rest/v1/driver_status`;
+  const docs = `${cfg.url}/rest/v1/load_documents`;
   const inList = (ids: string[]) => `(${ids.map(plain).join(",")})`;
   const LINK_COLUMNS = "id,org_id,desk_driver_id,driver_role,claimed_by,claimed_at,revoked_at,ended_by";
   const headers = (write: boolean): Record<string, string> => ({
@@ -241,13 +250,32 @@ export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = f
       if (subs.length === 0) return;
       const q = `?org_id=eq.${plain(orgId)}&driver_sub=in.${inList(subs)}`;
       await call(status + q, { method: "DELETE", headers: { ...headers(true), Prefer: "return=minimal" } });
+    },
+    async uploadDeskFile(path, data, mime) {
+      if (!path.split("/").includes("desk")) throw new BridgeTransportError("rejected", SAFE.rejected);
+      await call(`${files}/${filePath(path)}`, { method: "POST", headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}`, "Content-Type": mime, "x-upsert": "true" }, body: Buffer.from(data) });
+    },
+    async loadDocumentRows(orgId) {
+      const q = `?org_id=eq.${plain(orgId)}&select=id,org_id,driver_sub,source_load_id,desk_document_id,kind,name,mime,bytes,path&order=created_at.asc&limit=5000`;
+      const out = await call(docs + q, { method: "GET", headers: headers(false) });
+      return Array.isArray(out) ? (out as LoadDocumentThere[]) : [];
+    },
+    async upsertLoadDocument(row) {
+      plain(row.org_id);
+      plain(row.driver_sub);
+      const h = { ...headers(true), Prefer: "return=minimal,resolution=merge-duplicates" };
+      await call(`${docs}?on_conflict=org_id,driver_sub,desk_document_id`, { method: "POST", headers: h, body: JSON.stringify(row) });
+    },
+    async deleteLoadDocuments(orgId, ids) {
+      if (ids.length === 0) return;
+      await call(`${docs}?org_id=eq.${plain(orgId)}&id=in.${inList(ids)}`, { method: "DELETE", headers: { ...headers(true), Prefer: "return=minimal" } });
     }
   };
 }
 
-/** A bucket path is only ever one a phone wrote under `org/<org>/driver/<sub>/`: plain segments, percent-encoded one by one. */
+/** A bucket path is only ever one a phone wrote under `org/<org>/driver/<sub>/` or the desk wrote under `org/<org>/desk/<sub>/`: plain segments, percent-encoded one by one. */
 function filePath(path: string): string {
-  if (!/^org\/[A-Za-z0-9_.:@-]{1,200}\/driver\/[A-Za-z0-9_.:@-]{1,200}\/[A-Za-z0-9_.-]{1,120}$/.test(path) || path.includes("..")) throw new BridgeTransportError("rejected", SAFE.rejected);
+  if (!/^org\/[A-Za-z0-9_.:@-]{1,200}\/(?:driver|desk)\/[A-Za-z0-9_.:@-]{1,200}\/[A-Za-z0-9_.-]{1,120}$/.test(path) || path.includes("..")) throw new BridgeTransportError("rejected", SAFE.rejected);
   return path.split("/").map(encodeURIComponent).join("/");
 }
 
@@ -266,11 +294,14 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
   const messages: DriverMessageRow[] = [];
   const files = new Map<string, Uint8Array>();
   const statuses: DriverStatusRow[] = [];
+  const documents: LoadDocumentThere[] = [];
   const stopEvents: StopEventRow[] = [];
   let statusWrites = 0;
   const transport: BridgeTransport & {
     /** bridge.driver_status, and how many rows have been written (to see that unchanged clocks are not rewritten). */
     statuses: DriverStatusRow[];
+    /** bridge.load_documents; the files themselves are in `files`. */
+    documents: LoadDocumentThere[];
     statusWrites: () => number;
     table: BridgeRow[];
     links: MemLink[];
@@ -293,6 +324,26 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     messages,
     files,
     statuses,
+    documents,
+    async uploadDeskFile(path, data) {
+      guard();
+      filePath(path);
+      files.set(path, data);
+    },
+    async loadDocumentRows(orgId) {
+      guard();
+      return documents.filter((d) => d.org_id === orgId).map((d) => ({ ...d }));
+    },
+    async upsertLoadDocument(row) {
+      guard();
+      const i = documents.findIndex((d) => d.org_id === row.org_id && d.driver_sub === row.driver_sub && d.desk_document_id === row.desk_document_id);
+      if (i >= 0) documents[i] = { ...documents[i]!, ...row };
+      else documents.push({ id: `doc-${++n}`, ...row });
+    },
+    async deleteLoadDocuments(orgId, ids) {
+      guard();
+      for (let i = documents.length - 1; i >= 0; i -= 1) if (documents[i]!.org_id === orgId && ids.includes(documents[i]!.id)) documents.splice(i, 1);
+    },
     stopEvents,
     statusWrites: () => statusWrites,
     async driverStatusRows(orgId) {

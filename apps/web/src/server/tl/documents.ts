@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { DOC_KINDS, DOC_LABEL, isDocKind, type DocKind } from "@/lib/documents";
+import { CHOSEN_TO_DRIVER, DOC_KINDS, DOC_LABEL, isDocKind, type DocKind } from "@/lib/documents";
 import { recordAudit } from "./audit";
 import { removeFiles, storeFile } from "./message-files";
 import type { CheckedFile } from "./messages";
@@ -16,9 +16,9 @@ export const DOCS_PER_LOAD = 20;
 
 export type DocResult = { ok: true; id: string } | { ok: false; error: string };
 /** `stopId` is the delivery stop a proof of delivery belongs to; blank is the whole load. */
-export type DocRow = { id: string; kind: DocKind; name: string; mime: string; bytes: number; createdAt: Date; addedBy: string; stopId: string | null };
+export type DocRow = { id: string; kind: DocKind; name: string; mime: string; bytes: number; createdAt: Date; addedBy: string; stopId: string | null; /** Kind "other" only: the dispatcher sends it to the driver. */ toDriver: boolean };
 
-export async function addLoadDocument(loadId: string, kind: string, file: CheckedFile, now = new Date(), workspaceId = currentWorkspaceId(), addedBy = "Dispatcher", stopId: string | null = null): Promise<DocResult> {
+export async function addLoadDocument(loadId: string, kind: string, file: CheckedFile, now = new Date(), workspaceId = currentWorkspaceId(), addedBy = "Dispatcher", stopId: string | null = null, toDriver = false): Promise<DocResult> {
   if (!isDocKind(kind)) return { ok: false, error: "Say what kind of document it is." };
   const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, status: { not: "quote" } }, select: { id: true, loadNumber: true, factoringStatus: true, stops: { select: { id: true, stopType: true, stopRole: true } } } });
   if (!load) return { ok: false, error: "That load does not exist." };
@@ -39,7 +39,7 @@ export async function addLoadDocument(loadId: string, kind: string, file: Checke
       // Counted again under a lock on the load: several files added at the same moment each saw room above, and only this makes the limit hold.
       await tx.$queryRaw`select id from loads where id = ${loadId} for update`;
       if ((await tx.loadDocument.count({ where: { loadId, workspaceId } })) >= DOCS_PER_LOAD) return null;
-      const d = await tx.loadDocument.create({ data: { id: stored.id, workspaceId, loadId, kind, name: stored.name, mime: stored.mime, bytes: stored.bytes, sha256: stored.sha256, storageKey: stored.storageKey, addedBy, stopId: stopId || null } });
+      const d = await tx.loadDocument.create({ data: { id: stored.id, workspaceId, loadId, kind, name: stored.name, mime: stored.mime, bytes: stored.bytes, sha256: stored.sha256, storageKey: stored.storageKey, addedBy, stopId: stopId || null, toDriver: kind === CHOSEN_TO_DRIVER && toDriver } });
       await recordAudit({ entity: "load", action: "document_added", loadId, loadNumber: load.loadNumber, summary: `${DOC_LABEL[kind]} added: ${stored.name}`, before: null, after: { Document: stored.name, Kind: DOC_LABEL[kind] }, at: now, workspaceId }, tx);
       return d;
     });
@@ -56,7 +56,20 @@ export async function addLoadDocument(loadId: string, kind: string, file: Checke
 
 export async function listLoadDocuments(loadId: string, workspaceId = currentWorkspaceId()): Promise<DocRow[]> {
   const rows = await prisma.loadDocument.findMany({ where: { loadId, workspaceId }, orderBy: { createdAt: "asc" } });
-  return rows.map((d) => ({ id: d.id, kind: d.kind as DocKind, name: d.name, mime: d.mime, bytes: d.bytes, createdAt: d.createdAt, addedBy: d.addedBy, stopId: d.stopId }));
+  return rows.map((d) => ({ id: d.id, kind: d.kind as DocKind, name: d.name, mime: d.mime, bytes: d.bytes, createdAt: d.createdAt, addedBy: d.addedBy, stopId: d.stopId, toDriver: d.toDriver }));
+}
+
+/** Send a file of kind "other" to the load's driver, or take it back. The bridge mirror (server/bridge/documents.ts) does the sending on its next run; other kinds go or stay by their kind. */
+export async function setDocumentToDriver(id: string, toDriver: boolean, now = new Date(), workspaceId = currentWorkspaceId()): Promise<DocResult> {
+  const d = await prisma.loadDocument.findFirst({ where: { id, workspaceId }, include: { load: { select: { loadNumber: true } } } });
+  if (!d) return { ok: false, error: "That document does not exist." };
+  if (d.kind !== CHOSEN_TO_DRIVER) return { ok: false, error: `A ${DOC_LABEL[d.kind as DocKind]?.toLowerCase() ?? "document"} cannot be switched: only a file filed as Other can.` };
+  if (d.toDriver === toDriver) return { ok: true, id };
+  await prisma.$transaction(async (tx) => {
+    await tx.loadDocument.update({ where: { id }, data: { toDriver } });
+    await recordAudit({ entity: "load", action: "document_shared", loadId: d.loadId, loadNumber: d.load.loadNumber, summary: toDriver ? `${d.name} sent to the driver` : `${d.name} no longer sent to the driver`, before: { "Sent to driver": d.toDriver ? "Yes" : "No" }, after: { "Sent to driver": toDriver ? "Yes" : "No" }, at: now, workspaceId }, tx);
+  });
+  return { ok: true, id };
 }
 
 export async function removeLoadDocument(id: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<DocResult> {

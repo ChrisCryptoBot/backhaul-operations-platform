@@ -82,7 +82,8 @@ $migrations = @(
   "20270105000000_bridge_outbox_messages",
   "20270106000000_bridge_stop_events",
   "20270107000000_driver_link_kinds",
-  "20270108000000_dispatcher_names"
+  "20270108000000_dispatcher_names",
+  "20270109000000_load_document_to_driver"
 )
 foreach ($m in $migrations) {
   npx prisma migrate resolve --applied $m --schema=./prisma/schema.prisma
