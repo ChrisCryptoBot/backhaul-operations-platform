@@ -4,6 +4,7 @@ import type { LinkRow } from "@/lib/driver-link";
 import type { DriverMessageRow } from "@/lib/driver-messages";
 import type { DriverStatusRow } from "@/lib/driver-status";
 import type { LoadDocumentRow, LoadDocumentThere } from "@/lib/load-documents";
+import type { DriverBalanceRow, DriverStatementRow } from "@/lib/driver-pay";
 
 /**
  * How the desk reaches `bridge.external_dispatch`. One small interface, two implementations: the real one (PostgREST over `fetch`, with the service key) and an in-memory one the tests drive,
@@ -65,7 +66,18 @@ export interface BridgeTransport {
   /** Write one row, keyed on (org_id, driver_sub, desk_document_id): a row already there is replaced. */
   upsertLoadDocument(row: LoadDocumentRow): Promise<void>;
   deleteLoadDocuments(orgId: string, ids: string[]): Promise<void>;
+  /** Driver pay (sync plan Step 5a): this fleet's statement rows, without their lines, to compare before writing. */
+  driverStatementRows(orgId: string): Promise<StatementThere[]>;
+  /** Write one statement, keyed on (org_id, driver_sub, desk_statement_id). */
+  upsertDriverStatement(row: DriverStatementRow): Promise<void>;
+  deleteDriverStatements(orgId: string, ids: string[]): Promise<void>;
+  driverBalanceRows(orgId: string): Promise<DriverBalanceRow[]>;
+  /** Write balances, keyed on (org_id, driver_sub). */
+  upsertDriverBalances(rows: (DriverBalanceRow & { as_of: string })[]): Promise<void>;
+  deleteDriverBalances(orgId: string, driverSubs: string[]): Promise<void>;
 }
+
+export type StatementThere = { id: string; driver_sub: string; desk_statement_id: string; desk_rev: string; pdf_path: string | null };
 
 /** A row of `bridge.stop_events` (the phone project's supabase/migrations/20261122000100_bridge_stop_events.sql), as the desk reads it. */
 export type StopEventRow = {
@@ -103,6 +115,8 @@ export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = f
   const files = `${cfg.url}/storage/v1/object/bridge-files`;
   const status = `${cfg.url}/rest/v1/driver_status`;
   const docs = `${cfg.url}/rest/v1/load_documents`;
+  const statements = `${cfg.url}/rest/v1/driver_statements`;
+  const balances = `${cfg.url}/rest/v1/driver_balances`;
   const inList = (ids: string[]) => `(${ids.map(plain).join(",")})`;
   const LINK_COLUMNS = "id,org_id,desk_driver_id,driver_role,claimed_by,claimed_at,revoked_at,ended_by";
   const headers = (write: boolean): Record<string, string> => ({
@@ -269,6 +283,39 @@ export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = f
     async deleteLoadDocuments(orgId, ids) {
       if (ids.length === 0) return;
       await call(`${docs}?org_id=eq.${plain(orgId)}&id=in.${inList(ids)}`, { method: "DELETE", headers: { ...headers(true), Prefer: "return=minimal" } });
+    },
+    async driverStatementRows(orgId) {
+      const q = `?org_id=eq.${plain(orgId)}&select=id,driver_sub,desk_statement_id,desk_rev,pdf_path&limit=5000`;
+      const out = await call(statements + q, { method: "GET", headers: headers(false) });
+      return Array.isArray(out) ? (out as StatementThere[]) : [];
+    },
+    async upsertDriverStatement(row) {
+      plain(row.org_id);
+      plain(row.driver_sub);
+      const h = { ...headers(true), Prefer: "return=minimal,resolution=merge-duplicates" };
+      await call(`${statements}?on_conflict=org_id,driver_sub,desk_statement_id`, { method: "POST", headers: h, body: JSON.stringify({ ...row, updated_at: new Date().toISOString() }) });
+    },
+    async deleteDriverStatements(orgId, ids) {
+      if (ids.length === 0) return;
+      await call(`${statements}?org_id=eq.${plain(orgId)}&id=in.${inList(ids)}`, { method: "DELETE", headers: { ...headers(true), Prefer: "return=minimal" } });
+    },
+    async driverBalanceRows(orgId) {
+      const q = `?org_id=eq.${plain(orgId)}&select=org_id,driver_sub,desk_driver_id,escrow_cents,advances,next_off,unsettled_cents,unsettled_loads,unsettled_unpriced,ytd&limit=5000`;
+      const out = await call(balances + q, { method: "GET", headers: headers(false) });
+      return Array.isArray(out) ? (out as DriverBalanceRow[]) : [];
+    },
+    async upsertDriverBalances(rows) {
+      if (rows.length === 0) return;
+      for (const r of rows) {
+        plain(r.org_id);
+        plain(r.driver_sub);
+      }
+      const h = { ...headers(true), Prefer: "return=minimal,resolution=merge-duplicates" };
+      await call(`${balances}?on_conflict=org_id,driver_sub`, { method: "POST", headers: h, body: JSON.stringify(rows) });
+    },
+    async deleteDriverBalances(orgId, subs) {
+      if (subs.length === 0) return;
+      await call(`${balances}?org_id=eq.${plain(orgId)}&driver_sub=in.${inList(subs)}`, { method: "DELETE", headers: { ...headers(true), Prefer: "return=minimal" } });
     }
   };
 }
@@ -295,6 +342,8 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
   const files = new Map<string, Uint8Array>();
   const statuses: DriverStatusRow[] = [];
   const documents: LoadDocumentThere[] = [];
+  const statementTable: (DriverStatementRow & { id: string })[] = [];
+  const balanceTable: (DriverBalanceRow & { as_of: string })[] = [];
   const stopEvents: StopEventRow[] = [];
   let statusWrites = 0;
   const transport: BridgeTransport & {
@@ -302,6 +351,9 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     statuses: DriverStatusRow[];
     /** bridge.load_documents; the files themselves are in `files`. */
     documents: LoadDocumentThere[];
+    /** bridge.driver_statements and bridge.driver_balances. */
+    statements: (DriverStatementRow & { id: string })[];
+    balances: (DriverBalanceRow & { as_of: string })[];
     statusWrites: () => number;
     table: BridgeRow[];
     links: MemLink[];
@@ -324,6 +376,38 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     messages,
     files,
     statuses,
+    statements: statementTable,
+    balances: balanceTable,
+    async driverStatementRows(orgId) {
+      guard();
+      return statementTable.filter((s) => s.org_id === orgId).map(({ id, driver_sub, desk_statement_id, desk_rev, pdf_path }) => ({ id, driver_sub, desk_statement_id, desk_rev, pdf_path }));
+    },
+    async upsertDriverStatement(row) {
+      guard();
+      const i = statementTable.findIndex((s) => s.org_id === row.org_id && s.driver_sub === row.driver_sub && s.desk_statement_id === row.desk_statement_id);
+      if (i >= 0) statementTable[i] = { ...statementTable[i]!, ...row };
+      else statementTable.push({ id: `st-${++n}`, ...row });
+    },
+    async deleteDriverStatements(orgId, ids) {
+      guard();
+      for (let i = statementTable.length - 1; i >= 0; i -= 1) if (statementTable[i]!.org_id === orgId && ids.includes(statementTable[i]!.id)) statementTable.splice(i, 1);
+    },
+    async driverBalanceRows(orgId) {
+      guard();
+      return balanceTable.filter((b) => b.org_id === orgId).map(({ as_of: _at, ...b }) => (void _at, { ...b }));
+    },
+    async upsertDriverBalances(rows) {
+      guard();
+      for (const r of rows) {
+        const i = balanceTable.findIndex((b) => b.org_id === r.org_id && b.driver_sub === r.driver_sub);
+        if (i >= 0) balanceTable[i] = r;
+        else balanceTable.push(r);
+      }
+    },
+    async deleteDriverBalances(orgId, subs) {
+      guard();
+      for (let i = balanceTable.length - 1; i >= 0; i -= 1) if (balanceTable[i]!.org_id === orgId && subs.includes(balanceTable[i]!.driver_sub)) balanceTable.splice(i, 1);
+    },
     documents,
     async uploadDeskFile(path, data) {
       guard();

@@ -5,6 +5,7 @@ import { BRIDGE_ENV, bridgeConfig } from "@/server/bridge/core";
 import { flushBridgeOutbox, mirrorDriverStatus, pullBridgeResponses, pullDriverMessages, purgeDriverMessages } from "@/server/bridge/service";
 import { pullStopEvents } from "@/server/bridge/stops";
 import { mirrorLoadDocuments } from "@/server/bridge/documents";
+import { mirrorDriverPay } from "@/server/bridge/pay";
 import { supabaseTransport } from "@/server/bridge/transport";
 import { fleetsWithLinksToPull, pullDriverLinks } from "@/server/bridge/links";
 
@@ -42,7 +43,7 @@ export async function POST(req: NextRequest) {
     }
   }
   const fleets = await prisma.workspace.findMany({ where: { bridgeOrgId: { not: null } }, select: { id: true } });
-  const out = { fleets: fleets.length, delivered: 0, failed: 0, retrying: 0, read: 0, applied: 0, flagged: 0, stopEvents: 0, messages: 0, purged: 0, clocks: 0, documents: 0, ...links };
+  const out = { fleets: fleets.length, delivered: 0, failed: 0, retrying: 0, read: 0, applied: 0, flagged: 0, stopEvents: 0, messages: 0, purged: 0, clocks: 0, documents: 0, pay: 0, ...links };
   for (const f of fleets) {
     // One fleet failing (the link down, a bad row) never stops the others.
     try {
@@ -71,6 +72,10 @@ export async function POST(req: NextRequest) {
       const filed = await mirrorLoadDocuments(transport, { workspaceId: f.id });
       out.documents += filed.sent + filed.removed;
       out.retrying += filed.failed;
+      // Sync plan Step 5a: each linked driver's own statements and balances.
+      const paid = await mirrorDriverPay(transport, { workspaceId: f.id });
+      out.pay += paid.statements + paid.removed + paid.balances;
+      out.retrying += paid.failed;
     } catch {
       out.retrying += 1;
     }
