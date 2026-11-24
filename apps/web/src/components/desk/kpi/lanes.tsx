@@ -5,7 +5,7 @@ import type { LaneScore } from "@/lib/kpi-extras";
 import { DataTable, type Column, type Row, type SortHref } from "@/components/desk/data-table";
 import { emptyZone } from "@/lib/thresholds";
 import { signedPct, miles, pct, perMile, usd } from "@/lib/desk-format";
-import { ChartFrame, shortLane } from "./parts";
+import { ChartFrame } from "./parts";
 import { LaneTargetCell } from "./inputs";
 
 const STATUS: Record<LaneStatus, { label: string; tone: "ok" | "bad" | "muted" }> = {
@@ -20,23 +20,24 @@ const SCORE: Record<LaneScore, { label: string; tone: "ok" | "bad" | "muted" }> 
   no_target: { label: "NO TARGET", tone: "muted" }
 };
 
+/** The lane and the eight figures that decide it; the miles behind them are one press away under the table. */
 const COLUMNS: Column[] = [
-  { key: "lane", sortable: true, label: "Lane", sticky: true, width: 230 },
+  { key: "lane", sortable: true, label: "Lane", sticky: true, width: 230, max: 230 },
   { key: "loads", sortable: true, label: "Loads", align: "num" },
-  { key: "gross", sortable: true, label: "Gross", align: "num" },
+  { key: "gross", sortable: true, label: "Gross", align: "num", priority: 2 },
   { key: "perload", sortable: true, label: "Per load", align: "num" },
   { key: "rpm", sortable: true, label: "Per mile", align: "num" },
-  { key: "loaded", sortable: true, label: "Loaded miles", align: "num" },
-  { key: "emptytotal", sortable: true, label: "Empty miles (total)", align: "num" },
-  { key: "trip", sortable: true, label: "Trip miles", align: "num" },
-  { key: "empty", sortable: true, label: "Empty miles", align: "num" },
-  { key: "before", sortable: true, label: "Before pickup", align: "num" },
-  { key: "after", sortable: true, label: "After delivery", align: "num" },
-  { key: "market", sortable: true, label: "Against market", align: "num" },
-  { key: "target", label: "Target per load", align: "num" },
-  { key: "vs", sortable: true, label: "Vs target", align: "num" },
+  { key: "empty", sortable: true, label: "Empty", align: "num" },
+  { key: "market", sortable: true, label: "Vs market", align: "num" },
+  { key: "target", label: "Target per load", align: "num", priority: 2 },
+  { key: "vs", sortable: true, label: "Vs target", align: "num", priority: 2 },
   { key: "score", label: "Scorecard" },
-  { key: "status", label: "Status" }
+  { key: "loaded", sortable: true, label: "Loaded miles", align: "num", priority: 3 },
+  { key: "emptytotal", sortable: true, label: "Empty miles", align: "num", priority: 3 },
+  { key: "trip", sortable: true, label: "Trip miles", align: "num", priority: 3 },
+  { key: "before", sortable: true, label: "Before pickup", align: "num", priority: 3 },
+  { key: "after", sortable: true, label: "After delivery", align: "num", priority: 3 },
+  { key: "status", label: "Status", priority: 3 }
 ];
 
 /** Every lane that finished a load in the period, busiest first, with how its rate sits against the market. */
@@ -64,15 +65,13 @@ export function LaneScorecard({ k, canEdit = false, lanes, sortHref }: { k: Desk
     const s = STATUS[l.status];
     return {
       id: l.key,
+      href: `/lanes/detail?lane=${encodeURIComponent(l.key)}`,
       search: l.key,
       cells: {
         lane: (
-          <>
-            <Link href={`/lanes/detail?lane=${encodeURIComponent(l.key)}`}>
-              <b>{shortLane(l.key)}</b>
-            </Link>
-            <span className="sub">{l.key}</span>
-          </>
+          <Link className="cut" href={`/lanes/detail?lane=${encodeURIComponent(l.key)}`} title={l.key}>
+            {l.key}
+          </Link>
         ),
         loads: l.loads,
         gross: usd(l.gross),

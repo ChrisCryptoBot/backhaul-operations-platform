@@ -34,6 +34,12 @@ export function idleSentence(l: IdleLine): string {
  * "SITTING 4.2 DAYS", and when it is past its free time with no reload "SITTING 4.2 DAYS · Dwell Alert: Exceeds 48h free time · Detention Owed: +$165.00". A waived fee reads WAIVED with what it
  * would have been. `freeHours` is the company's free time.
  */
+/** The same stay in a table cell: "13.2 days · +$836.84", or what was waived. */
+export function dwellShort(d: Dwell): string {
+  if (d.waived && d.computedAmount > 0) return `${sittingText(d.hours)} · waived`;
+  return d.overFreeHours > 0 && (d.alert || d.amount > 0) ? `${sittingText(d.hours)} · +${usd(d.amount, 2)}` : sittingText(d.hours);
+}
+
 export function dwellSentence(d: Dwell, freeHours: number): string {
   const parts = [`SITTING ${sittingText(d.hours).toUpperCase()}`];
   if (d.alert) parts.push(`Dwell Alert: Exceeds ${freeHours}h free time`);

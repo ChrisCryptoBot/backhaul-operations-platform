@@ -29,7 +29,7 @@ describe("the leak ledger is the billing office's", () => {
   });
 
   test("the sidebar offers it to the roles that can bill", () => {
-    expect(read("components/desk/desk-shell.tsx")).toMatch(/href: "\/leaks", label: "Leak ledger", code: "LK", roles: \["admin", "accounting"\]/);
+    expect(read("lib/nav.ts")).toMatch(/href: "\/leaks", label: "Leak ledger", code: "LK", roles: \["admin", "accounting"\]/);
   });
 
   test("the ledger reads no estimate: its server and pure code have no market rate or invented rate", () => {

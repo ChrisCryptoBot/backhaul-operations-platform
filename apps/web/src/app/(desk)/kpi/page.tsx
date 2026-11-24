@@ -79,14 +79,14 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
           {hasFilters(params.filters) ? <Link href={href({ filters: {} })} replace className="tl-btn ghost sm">Clear filters</Link> : null}
         </LiveForm>
       </div>
-      <p className="tl-sub" style={{ margin: "0 0 14px" }}>
+      <p className="t-period">
         {windowLabel(k.window)}
         {k.previous ? ` · compared with ${windowLabel(k.previous)}` : ""}
         {hasFilters(params.filters) ? ` · ${Object.entries(params.filters).map(([f, v]) => `${FILTER_LABEL[f as keyof typeof FILTER_LABEL]}: ${v}`).join(", ")}` : ""}
       </p>
 
       {leaks && leaks.current.total + leaks.openDwell.dollars > 0 ? (
-        <p className="kleak" style={{ margin: "0 0 14px" }}>
+        <p className="kleak t-lede">
           <Link href={kpiHref("/leaks", params)}>Leak ledger</Link>: <b>{usd(leaks.current.total)}</b> leaked in this period
           {leaks.prior ? ` (${usd(leaks.prior.total)} in the period before)` : ""}
           {leaks.openDwell.dollars > 0 ? `, and ${usd(leaks.openDwell.dollars)} of trailer dwell sitting right now` : ""}

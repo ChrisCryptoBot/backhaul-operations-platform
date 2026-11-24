@@ -1,5 +1,6 @@
 import Link from "next/link";
 import React from "react";
+import { FoldToggle } from "./fold-toggle";
 
 /**
  * The desk's table. Server-rendered: banded column groups over a sticky header, sticky leading columns with a shadow seam,
@@ -21,7 +22,9 @@ export type Column = {
   accentBand?: boolean;
   /** The header becomes a button that sorts the rows (ascending, descending, then back to the page's own order). A "num" column sorts by the number in its text. */
   sortable?: boolean;
-  /** 1 always shows. 3 folds away (display:none, see terminal.css) when the table's room is short, so a board fits its screen without a sideways scroll; the Columns toggle can bring it back. Default 1. */
+  /** The widest the column may grow, in pixels: past it the words end in an ellipsis (say the whole of it in a title). For names and lanes, so one long one does not push the money off the screen. */
+  max?: number;
+  /** 1 always shows. 2 folds away at 1024 (under 960px of room), and its fact belongs on the first cell's second line then (`fold-2`). 3 folds away (display:none, see terminal.css) when the table's room is short, so a board fits its screen without a sideways scroll; "Show all columns" under the table brings it back (fold-toggle.tsx). Default 1. */
   priority?: 1 | 2 | 3;
 };
 
@@ -45,7 +48,7 @@ export type Row = {
  */
 export type SortHref = (key: string) => { href: string; dir: "asc" | "desc" | "none" };
 
-export function DataTable({ id, columns, rows, empty, label, sortHref }: { id: string; columns: Column[]; rows: Row[]; empty?: React.ReactNode; label: string; sortHref?: SortHref }) {
+export function DataTable({ id, columns, rows, empty, label, sortHref, foldNote = true, prose = false }: { id: string; columns: Column[]; rows: Row[]; empty?: React.ReactNode; label: string; sortHref?: SortHref; /** False when every folded column's fact is already on the row another way: nothing to bring back. */ foldNote?: boolean; /** A table of sentences: cells wrap, rows are as tall as they need. */ prose?: boolean }) {
   // Left offsets of the sticky columns, from their widths.
   const left: Record<string, number> = {};
   let acc = 0;
@@ -69,7 +72,8 @@ export function DataTable({ id, columns, rows, empty, label, sortHref }: { id: s
   }
   const hasBands = bands.some((b) => b.label !== "");
 
-  const cls = (c: Column, extra = "") => [c.align ?? "", c.sticky ? "is-sticky" : "", c.key === lastSticky ? "is-seam" : "", extra].filter(Boolean).join(" ");
+  const folds = columns.filter((c) => (c.priority ?? 1) > 1 && typeof c.label === "string").map((c) => c.label as string);
+  const cls = (c: Column, extra = "") => [c.align ?? "", c.sticky ? "is-sticky" : "", c.key === lastSticky ? "is-seam" : "", c.max ? "cap" : "", extra].filter(Boolean).join(" ");
   const style = (c: Column): React.CSSProperties | undefined => {
     const s: React.CSSProperties = {};
     if (c.sticky) s.left = left[c.key];
@@ -77,12 +81,13 @@ export function DataTable({ id, columns, rows, empty, label, sortHref }: { id: s
       s.width = c.width;
       s.minWidth = c.width;
     }
+    if (c.max) s.maxWidth = c.max;
     return Object.keys(s).length ? s : undefined;
   };
 
   return (
     <div className="dt-wrap">
-      <table className="dt" id={id} aria-label={label}>
+      <table className={prose ? "dt prose" : "dt"} id={id} aria-label={label}>
         <thead>
           {hasBands ? (
             <tr className="dt-band">
@@ -118,7 +123,7 @@ export function DataTable({ id, columns, rows, empty, label, sortHref }: { id: s
             </tr>
           ) : (
             rows.map((r, i) => (
-              <tr key={r.id} data-i={i} data-href={r.href} data-flag={r.flag} data-search={(r.search ?? "").toLowerCase()} aria-selected={r.selected ? "true" : undefined}>
+              <tr key={r.id} data-i={i} data-tall={prose ? "" : undefined} data-href={r.href} data-flag={r.flag} data-search={(r.search ?? "").toLowerCase()} aria-selected={r.selected ? "true" : undefined}>
                 {columns.map((c) => (
                   <td key={c.key} className={cls(c)} data-col={c.key} data-pr={c.priority && c.priority > 1 ? c.priority : undefined} style={style(c)} data-v={c.sortable && r.sort?.[c.key] != null ? String(r.sort[c.key]) : undefined}>
                     {r.cells[c.key]}
@@ -129,6 +134,7 @@ export function DataTable({ id, columns, rows, empty, label, sortHref }: { id: s
           )}
         </tbody>
       </table>
+      {foldNote && rows.length > 0 && folds.length > 0 ? <FoldToggle tableId={id} columns={folds} /> : null}
     </div>
   );
 }

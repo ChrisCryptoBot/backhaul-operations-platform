@@ -195,7 +195,8 @@ export function AddTrailer({ use }: { use?: UnitUse }) {
 }
 
 /** Archive (undoable) or restore a trailer; one on an open load says so and waits. */
-export function TrailerRowActions({ trailer, hideOpen }: { trailer: { id: string; number: string; archived: boolean; open: number }; hideOpen?: boolean }) {
+/** `list`: in a table the row opens the trailer, so nothing is repeated down it but Restore on an archived one; archiving is on the trailer's page. */
+export function TrailerRowActions({ trailer, hideOpen, list = false }: { list?: boolean; trailer: { id: string; number: string; archived: boolean; open: number }; hideOpen?: boolean }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
@@ -220,10 +221,11 @@ export function TrailerRowActions({ trailer, hideOpen }: { trailer: { id: string
         }
       });
     });
+  if (list && !trailer.archived) return null;
   return (
     <div className="row-actions">
       {locked ? <span className="tl-chip info">On {trailer.open} open {trailer.open === 1 ? "load" : "loads"}</span> : null}
-      {hideOpen ? null : (
+      {hideOpen || list ? null : (
         <Link href={`/trailers/${trailer.id}`} className="tl-btn ghost sm">
           Open
         </Link>

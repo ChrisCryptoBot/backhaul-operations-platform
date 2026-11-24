@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
-import { AT_MILES, STALE_MINUTES, closestStop, coordsText, isStanding, unitTip, whereIs, type Fix, type KnownStop, type Town, type UnitWhere } from "@/lib/whereabouts";
+import { AT_MILES, STALE_MINUTES, closestStop, coordsText, fixAge, isStanding, unitTip, whereIs, type Fix, type KnownStop, type Town, type UnitWhere } from "@/lib/whereabouts";
 
 const NOW = Date.UTC(2026, 10, 5, 18, 0, 0);
 const DOCK: KnownStop = { name: "Acme Foods dock", lat: 35.1495, lng: -90.049 };
@@ -100,6 +102,22 @@ describe("where a unit is", () => {
     expect(isStanding({ speedMph: null, engine: "moving" })).toBe(false);
     expect(isStanding({ speedMph: null, engine: "idle" })).toBe(true);
     expect(isStanding({ speedMph: null, engine: null })).toBe(true);
+  });
+});
+
+describe("an old position is not now", () => {
+  test("a fix past the stale line is old, one inside it is not, and no time is neither", () => {
+    expect(fixAge(new Date(NOW - (STALE_MINUTES + 1) * 60_000), NOW)).toEqual({ minutes: STALE_MINUTES + 1, old: true });
+    expect(fixAge(new Date(NOW - STALE_MINUTES * 60_000).toISOString(), NOW)).toEqual({ minutes: STALE_MINUTES, old: false });
+    expect(fixAge(NOW + 60_000, NOW)).toEqual({ minutes: 0, old: false });
+    expect(fixAge(null, NOW)).toBeNull();
+  });
+
+  test("the drawer's Now line and the tracker say an old fix is old instead of reading its speed as this minute's", () => {
+    const read = (p: string) => readFileSync(join(__dirname, "..", "src", p), "utf8");
+    expect(read("components/desk/load-view.tsx")).toContain("? fix?.old");
+    expect(read("components/desk/load-view.tsx")).toContain("tracking.late && !fix?.old");
+    expect(read("components/desk/load-tracker.tsx")).toContain("<StaleFix");
   });
 });
 

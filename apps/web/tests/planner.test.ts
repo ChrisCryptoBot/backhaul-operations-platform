@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildPlanner, buildWatchlist, planDays, spanText, type PlannerLoad, type PlannerStop } from "../src/lib/planner";
+import { buildPlanner, buildWatchlist, lateText, planDays, spanText, type PlannerLoad, type PlannerStop } from "../src/lib/planner";
 import type { DriverSchedule } from "../src/lib/shifts";
 
 const H = 3_600_000;
@@ -152,6 +152,8 @@ describe("the due-now watchlist", () => {
 
   test("how long is how long", () => {
     expect([35, 60, 130, 0].map(spanText)).toEqual(["35 min", "1 h", "2 h 10 min", "0 min"]);
+    // Two days and more is said in days; under that, the hours matter.
+    expect([130, 47 * 60 + 59, 48 * 60, 265 * 60 + 28].map(lateText)).toEqual(["2 h 10 min", "47 h 59 min", "2 days", "11 days"]);
   });
 });
 

@@ -133,8 +133,9 @@ describe("driver pay is the billing office's (billing_details)", () => {
 
   it("shows the Settlements and Payroll links only to someone who may see driver pay, grant included", () => {
     const shell = src("components", "desk", "desk-shell.tsx");
-    expect(shell).toContain('{ href: "/settlements", label: "Settlements", code: "ST", billing: true }');
-    expect(shell).toContain('{ href: "/payroll", label: "Payroll", code: "PY", billing: true }');
+    const nav = src("lib", "nav.ts");
+    expect(nav).toContain('{ href: "/settlements", label: "Settlements", code: "ST", billing: true }');
+    expect(nav).toContain('{ href: "/payroll", label: "Payroll", code: "PY", billing: true }');
     expect(shell).toContain("(!i.billing || data.account.billing)");
     expect(src("server", "tl", "shell.ts")).toMatch(/const billing = \(await checkAccess\("billing_details"\)\)\.ok/);
   });

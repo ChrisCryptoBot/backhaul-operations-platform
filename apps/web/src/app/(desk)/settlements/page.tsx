@@ -27,14 +27,14 @@ const UNSETTLED: Column[] = [
   { key: "driver", label: "Driver", sticky: true, width: 200 },
   { key: "loads", label: "Loads", align: "num" },
   { key: "range", label: "Delivered" },
-  { key: "amount", label: "Comes to", align: "num" },
+  { key: "amount", label: "Comes to", align: "num", max: 340 },
   { key: "act", label: "", align: "num" }
 ];
 const STATEMENTS: Column[] = [
   { key: "number", label: "Statement", sticky: true, width: 150 },
-  { key: "driver", label: "Driver" },
+  { key: "driver", label: "Driver", max: 150 },
   { key: "period", label: "Period" },
-  { key: "loads", label: "Loads", align: "num" },
+  { key: "loads", label: "Loads", align: "num", priority: 2 },
   { key: "total", label: "Total", align: "num" },
   { key: "when", label: "When" }
 ];
@@ -104,8 +104,8 @@ export default async function SettlementsPage({ searchParams }: { searchParams?:
           {u.loads === 0 ? <span className="dim">—</span> : usd(u.amount, 2)}
           {u.paidShort > 0 ? <span className="sub tone-neg">{u.paidShort} paid short by the customer</span> : null}
           {u.tonu > 0 ? (
-            <span className="sub">
-              {u.tonu} TONU {u.tonu === 1 ? "load is" : "loads are"} on no statement: add the driver&apos;s share as an adjustment if one is owed
+            <span className="sub" title="Add the driver's share as an adjustment if one is owed">
+              {u.tonu} TONU {u.tonu === 1 ? "load is" : "loads are"} on no statement
             </span>
           ) : null}
           {u.hourlyWithoutHours > 0 ? (
@@ -138,7 +138,8 @@ export default async function SettlementsPage({ searchParams }: { searchParams?:
     const badge = statementPayBadge(s);
     return badge ? (
       <>
-        <span className="t-st" data-tone={badge.tone}>{badge.label}</span> <span className="sub">{badge.detail}</span>
+        <span className="t-st say" data-tone={badge.tone} title={badge.detail ?? undefined}>{badge.label}</span>
+        <span className="sub">{badge.detail}</span>
       </>
     ) : (
       `Finalized ${dayYear(s.finalizedAt)}`
@@ -158,7 +159,7 @@ export default async function SettlementsPage({ searchParams }: { searchParams?:
       </PageHead>
       {!canBill ? <ReadOnlyBanner who={whoCan("bill")} what="driver statements" /> : null}
       {terminal && hiddenByTerminal > 0 ? (
-        <p className="tl-note" role="note" style={{ margin: "0 0 14px" }}>
+        <p className="tl-note t-lede" role="note">
           {hiddenByTerminal} {hiddenByTerminal === 1 ? "statement" : "statements"} hidden by the <b>{terminal}</b> terminal filter.
         </p>
       ) : null}

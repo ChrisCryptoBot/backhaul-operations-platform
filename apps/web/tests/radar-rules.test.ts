@@ -174,7 +174,7 @@ describe("the load drawer gains Where it is and keeps what it had", () => {
 });
 
 describe("the rail", () => {
-  const shell = read("src/components/desk/desk-shell.tsx");
+  const shell = read("src/lib/nav.ts");
   it("lists the Radar map in the Fleet group for anyone who can read, and /fleet/map is not also Trucks", () => {
     expect(shell).toMatch(/href: "\/fleet\/map", label: "Radar map", code: "MP"/);
     expect(shell).toContain("function activeItem");

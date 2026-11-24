@@ -29,20 +29,24 @@ import { unitTip } from "@/lib/whereabouts";
 export const metadata = { title: "Trucks · TrueLane" };
 
 const COLUMNS: Column[] = [
-  { key: "truck", sortable: true, label: "Truck", group: "Truck", sticky: true, width: 200 },
-  { key: "type", sortable: true, label: "Type", group: "Truck" },
-  { key: "terminal", label: "Terminal", group: "Truck" },
-  { key: "mpg", sortable: true, label: "MPG", group: "Truck", align: "num" },
-  { key: "fuel", sortable: true, label: "Fuel price", group: "Truck", align: "num" },
-  { key: "planned", sortable: true, label: "Planned miles / month", group: "Cost floor", accentBand: true, align: "num" },
-  { key: "breakEven", sortable: true, label: "Break-even floor", group: "Cost floor", accentBand: true, align: "num" },
-  { key: "survival", sortable: true, label: "Survival floor", group: "Cost floor", accentBand: true, align: "num" },
-  { key: "detention", sortable: true, label: "Detention rate", group: "Dock", align: "num" },
-  { key: "idle", label: "Idling now", group: "Telemetry" },
-  { key: "loads", label: "Loads", group: "Work", align: "num" },
-  { key: "open", label: "Open", group: "Work", align: "num" },
-  { key: "act", label: "", group: "" }
+  { key: "truck", sortable: true, label: "Truck", sticky: true, width: 120 },
+  { key: "make", label: "Make and model", max: 200, priority: 2 },
+  { key: "type", sortable: true, label: "Type", max: 110 },
+  { key: "terminal", label: "Terminal", max: 130 },
+  { key: "mpg", sortable: true, label: "MPG", align: "num" },
+  { key: "fuel", sortable: true, label: "Fuel price", align: "num", priority: 3 },
+  { key: "planned", sortable: true, label: "Miles a month", align: "num", priority: 3 },
+  { key: "breakEven", sortable: true, label: "Break-even", align: "num" },
+  { key: "survival", sortable: true, label: "Survival", align: "num" },
+  { key: "detention", sortable: true, label: "Detention", align: "num", priority: 3 },
+  { key: "idle", label: "Idling now", max: 170, priority: 2 },
+  { key: "loads", label: "Loads", align: "num", priority: 3 },
+  { key: "open", label: "Open loads", align: "num" },
+  { key: "act", label: "" }
 ];
+
+const makeOf = (t: { make?: string | null; model?: string | null; year?: number | string | null }) => [t.make, t.model, t.year].filter(Boolean).join(" ") || null;
+const archetypeOf = (t: { archetype?: string | null }) => t.archetype?.replace("_", " ") ?? "no cost profile";
 
 export default async function FleetPage({ searchParams }: { searchParams?: { q?: string; sort?: string; page?: string; near?: string; r?: string } }) {
   // Read a page at a time: the database searches, sorts and counts, so a fleet of thousands opens as fast as a fleet of three.
@@ -77,6 +81,7 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
   const sortHref: SortHref = (key) => ({ href: href({ sort: nextSortParam(sortParam, key) }), dir: sortParam?.key === key ? (sortParam.dir === "asc" ? "asc" : "desc") : "none" });
   const rows: Row[] = trucks.map((t) => ({
     id: t.id,
+    href: `/fleet/${t.id}`,
     search: [t.name, t.type, t.make, t.model].filter(Boolean).join(" "),
     cells: {
       truck: (
@@ -88,13 +93,11 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
           ) : (
             <Link href={`/fleet/${t.id}`}><b>{t.name}</b></Link>
           )}
-          <span className="sub">
-            {[t.make, t.model, t.year].filter(Boolean).join(" ")}
-            {t.make || t.model ? " · " : ""}
-            {t.archived ? <span className="tl-chip muted">Archived</span> : (t.archetype?.replace("_", " ") ?? "no cost profile")}
-          </span>
+          {t.archived ? <span className="tl-chip muted">Archived</span> : null}
+          <span className="sub fold-2">{makeOf(t) ?? archetypeOf(t)}</span>
         </>
       ),
+      make: <span className="cut q" title={[makeOf(t), archetypeOf(t)].filter(Boolean).join(" · ")}>{makeOf(t) ?? archetypeOf(t)}</span>,
       type: t.type?.replace("_", " ") ?? "—",
       terminal: t.terminal ?? <span className="dim">—</span>,
       away: nearOk?.miles.has(t.id) ? milesText(nearOk.miles.get(t.id)!) : "—",
@@ -105,7 +108,7 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
       survival: perMile(t.survivalFloorRpm),
       detention: t.detentionRate != null ? `${usd(t.detentionRate)}/h` : <span className="dim">none</span>,
       idle: radarOf.get(t.id)?.idle ? (
-        <span className="rd-leak">{`\u25A0 ${radarOf.get(t.id)!.idle!.sentence}`}</span>
+        <span className="t-st say" data-tone="warn" title={radarOf.get(t.id)!.idle!.sentence}>{radarOf.get(t.id)!.idle!.sentence}</span>
       ) : (
         <span className="dim">—</span>
       ),
@@ -113,7 +116,7 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
       open: t.open,
       act: (
         <CanGate caps={["dispatch"]}>
-          <TruckRowActions truck={{ id: t.id, name: t.name, archived: t.archived, open: t.open }} />
+          <TruckRowActions list truck={{ id: t.id, name: t.name, archived: t.archived, open: t.open }} />
         </CanGate>
       )
     }
@@ -140,7 +143,7 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
         </CanGate>
       </PageHead>
       {showMap ? <FleetMapPanel initial={points} params={{ near: nearText, r: nearOk?.radius ?? rGiven ?? 50, rGiven: rGiven != null }} fullHref={`/fleet/map?kind=tractor${nearText ? `&near=${encodeURIComponent(nearText)}${rGiven ? `&r=${rGiven}` : ""}` : ""}`}>{table}</FleetMapPanel> : table}
-      <p className="tl-note" style={{ marginTop: 12 }}>
+      <p className="tl-note t-lede">
         The break-even floor is cost per mile before fuel (fixed costs spread over planned miles, plus maintenance and tires). The verdict adds fuel for the load&apos;s own miles.
       </p>
     </>

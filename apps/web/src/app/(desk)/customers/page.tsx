@@ -21,18 +21,19 @@ export const metadata = { title: "Customers · TrueLane" };
 export const dynamic = "force-dynamic";
 
 const COLUMNS: Column[] = [
-  { key: "broker", sortable: true, label: "Customer", sticky: true, width: 230 },
-  { key: "kind", sortable: true, label: "Kind" },
+  { key: "broker", sortable: true, label: "Customer", sticky: true, width: 200, max: 200 },
+  { key: "kind", sortable: true, label: "Kind", priority: 3 },
+  { key: "mc", label: "MC", priority: 3 },
   { key: "loads", sortable: true, label: "Loads", align: "num" },
   { key: "gross", sortable: true, label: "Gross", align: "num" },
   { key: "rpm", sortable: true, label: "Per mile", align: "num" },
   { key: "market", sortable: true, label: "Against market", align: "num" },
   { key: "pay", sortable: true, label: "Days to pay", align: "num" },
-  { key: "wait", sortable: true, label: "Wait at a stop", align: "num" },
+  { key: "wait", sortable: true, label: "Wait at a stop", align: "num", priority: 2 },
   { key: "ontime", sortable: true, label: "On time", align: "num" },
-  { key: "lead", sortable: true, label: "Books ahead", align: "num" },
-  { key: "rolled", sortable: true, label: "Rolled", align: "num" },
-  { key: "lost", sortable: true, label: "Fell through", align: "num" }
+  { key: "lead", sortable: true, label: "Books ahead", align: "num", priority: 3 },
+  { key: "rolled", sortable: true, label: "Rolled", align: "num", priority: 2 },
+  { key: "lost", sortable: true, label: "Fell through", align: "num", priority: 2 }
 ];
 
 const empty = (name: string): BrokerKpi => ({ name, loads: 0, gross: 0, rpm: null, marketVariancePct: null, benchmarked: 0, paidLoads: 0, avgDaysToPay: null, avgWaitMinutes: null, waitStops: 0, lost: 0, onTimeArrivals: null, arrivalStops: 0, leadDays: null, rolled: 0 });
@@ -82,21 +83,18 @@ export default async function CustomersPage({ searchParams }: { searchParams?: R
     const rec = byName.get(b.name.toLowerCase());
     return {
       id: b.name,
+      href: rec ? `/customers/${rec.id}` : `/customers/new?name=${encodeURIComponent(b.name)}`,
       search: [b.name, rec?.mcNumber, rec ? kindLabel(rec.kind) : null].filter(Boolean).join(" "),
       cells: {
         broker: (
-          <>
-            <Link href={rec ? `/customers/${rec.id}` : `/customers/new?name=${encodeURIComponent(b.name)}`}>
-              <b>{b.name}</b>
-            </Link>
-            <span className="sub">
-              {rec?.mcNumber ? `MC ${rec.mcNumber} · ` : ""}
-              <Link href={`/loads?q=${encodeURIComponent(b.name)}`}>Their loads</Link>
-            </span>
-          </>
+          <Link className="cut" href={rec ? `/customers/${rec.id}` : `/customers/new?name=${encodeURIComponent(b.name)}`} title={[b.name, rec?.mcNumber ? `MC ${rec.mcNumber}` : null].filter(Boolean).join(" · ")}>
+            {b.name}
+          </Link>
         ),
         kind: rec ? kindLabel(rec.kind) : <span className="dim">no details yet</span>,
-        loads: b.loads,
+        mc: rec?.mcNumber ?? <span className="dim">Not on file</span>,
+        // The count is the way to their loads.
+        loads: b.loads > 0 ? <Link href={`/loads?view=history&q=${encodeURIComponent(b.name)}`} title={`${b.name}'s loads`}>{b.loads}</Link> : <span className="dim">0</span>,
         gross: usd(b.gross),
         rpm: perMile(b.rpm),
         market: b.marketVariancePct == null ? <span className="dim">no market rate</span> : <span className={b.marketVariancePct < 0 ? "tone-neg" : "tone-pos"}>{signedPct(b.marketVariancePct)}</span>,
@@ -118,7 +116,7 @@ export default async function CustomersPage({ searchParams }: { searchParams?: R
         <Link href="/customers/new" className="tl-btn primary">Add a customer</Link>
       </PageHead>
       <Tabs active={params.period} hrefFor={(key) => (key === "all" ? "/customers" : `/customers?period=${key}`)} items={KPI_PERIODS} />
-      <p className="tl-sub" style={{ margin: "0 0 12px" }}>{windowLabel(k.window)}</p>
+      <p className="t-period">{windowLabel(k.window)}</p>
       <ChartFrame
         title="Customer scorecard"
         unit="finished loads in the period, by customer"

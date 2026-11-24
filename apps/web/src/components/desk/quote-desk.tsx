@@ -874,24 +874,23 @@ export function QuoteDesk({
     <div className="qt-cockpit">
       {/* ── Top Command Bar ──────────────────────────────────────────────────────── */}
       <div className="qt-cmd-strip">
-        <div className="qt-cmd-tabs" role="tablist" aria-label="Quoting view">
+        <div className="t-seg t-views" role="tablist" aria-label="Quoting view">
           <button
             type="button"
             role="tab"
             aria-selected={viewMode === "terminal"}
-            className="qt-cmd-tab"
+            className="t-view"
             onClick={() => setViewMode("terminal")}>
-            <Icon name="calculator" size={15} />
-            <span>Quoting Terminal</span>
+            Quote
           </button>
           <button
             type="button"
             role="tab"
             aria-selected={viewMode === "saved"}
-            className="qt-cmd-tab"
+            className="t-view"
             onClick={() => setViewMode("saved")}>
-            <Icon name="document" size={15} />
-            <span>Saved Quotes {list.total > 0 ? `(${list.total})` : ""}</span>
+            Saved quotes
+            {list.total > 0 ? <em>{list.total}</em> : null}
           </button>
         </div>
 
@@ -902,7 +901,7 @@ export function QuoteDesk({
             onClick={() => setPasteOpen(true)}
             title="Paste load text from email, DAT, or chat (Shift+P)">
             <Icon name="message" size={14} />
-            <span>Quick-Paste</span>
+            <span>Quick paste</span>
           </button>
 
           <button
@@ -912,7 +911,7 @@ export function QuoteDesk({
             onClick={() => rateConInputRef.current?.click()}
             title="Upload or drop a rate confirmation PDF or image to fill this quote">
             <Icon name="document" size={14} />
-            <span>{readingRateCon ? "Reading PDF…" : "Rate-Con PDF"}</span>
+            <span>{readingRateCon ? "Reading PDF…" : "Rate con PDF"}</span>
           </button>
           <input
             ref={rateConInputRef}
@@ -929,7 +928,7 @@ export function QuoteDesk({
           <details className="menu qt-brief">
             <summary className="tl-btn ghost sm" title="Copy a ready-written brief of this quote">
               <Icon name="copy" size={14} />
-              <span>Copy Brief</span>
+              <span>Copy brief</span>
             </summary>
             <div
               className="menu-pop"
@@ -1469,33 +1468,30 @@ export function QuoteDesk({
             {/* 1. Fleet Comparison Matrix */}
             <div className="qt-matrix-wrap">
               <div className="qt-matrix-head">
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <h3 style={{ margin: 0, fontSize: "var(--db-text-sm)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-                    Which truck & driver
-                  </h3>
+                <div className="qt-mh">
+                  <h3>Which truck &amp; driver</h3>
                   <div className="t-seg" role="group" aria-label="Sort matrix">
                     <button
                       type="button"
                       aria-pressed={matrixSort === "deadhead"}
                       onClick={() => setMatrixSort("deadhead")}>
-                      Closest (Deadhead)
+                      Closest
                     </button>
                     <button
                       type="button"
                       aria-pressed={matrixSort === "margin"}
                       onClick={() => setMatrixSort("margin")}>
-                      Best Margin
+                      Best margin
                     </button>
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div className="qt-mh">
                   <span className="tl-sub">
-                    {pricing ? "Pricing…" : rows.length > 0 ? (matrixSort === "deadhead" ? `${displayRows.length} ranked by deadhead` : `${displayRows.length} ranked by margin`) : `${unpricedFleet.length} of ${fitScope?.inScope ?? fleet.length} trucks, closest first`}
+                    {pricing ? "Pricing…" : rows.length > 0 ? `${pairWords(displayRows)}, ${matrixSort === "deadhead" ? "closest first" : "best margin first"}` : `${unpricedFleet.length} of ${fitScope?.inScope ?? fleet.length} trucks, closest first`}
                   </span>
                   <button
                     type="button"
                     className="tl-btn ghost sm"
-                    style={{ padding: "2px 8px", fontSize: 11 }}
                     onClick={() => setMatrixOpen((o) => !o)}
                     aria-label={matrixOpen ? "Minimize fleet table" : "Expand fleet table"}>
                     {matrixOpen ? "Minimize" : "Expand"}
@@ -1503,7 +1499,7 @@ export function QuoteDesk({
                 </div>
               </div>
               {priced?.ok && rows.length > 0 && fitScope ? (
-                <div className="qt-chips" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "6px 0 8px" }}>
+                <div className="qt-chips">
                   <div className="t-seg" role="group" aria-label="Narrow the trucks">
                     <button type="button" aria-pressed={chips.trailer} onClick={() => setChips((c) => ({ ...c, trailer: !c.trailer }))} title="Only trucks whose trailer or body suits the load. A longer trailer takes a shorter load.">
                       Trailer fits
@@ -1564,12 +1560,10 @@ export function QuoteDesk({
                     <table className="qt-matrix-table" aria-label="Fleet trucks by deadhead">
                       <thead>
                         <tr>
-                          <th aria-label="Pick" style={{ width: 28 }} />
-                          <th>Truck & Driver (Base)</th>
-                          <th style={{ textAlign: "right" }}>Deadhead to Pickup</th>
+                          <th aria-label="Pick" className="qt-pick" />
+                          <th>Truck and driver</th>
                           <th>Status</th>
-                          <th style={{ textAlign: "right" }}>Floor</th>
-                          <th style={{ textAlign: "right" }}>Left Over</th>
+                          <th className="num">Empty to pickup</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1594,20 +1588,19 @@ export function QuoteDesk({
                                 />
                               </td>
                               <td>
-                                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                                <div className="qt-tr">
                                   <b>{t.name}</b>
-                                  <span style={{ fontSize: 10, color: "var(--db-fg-dim)", fontFamily: "monospace" }}>[{idx + 1}]</span>
-                                  {t.homeBaseAddress ? (
-                                    <span className="sub" style={{ fontSize: 11, color: "var(--db-accent-fg)", fontWeight: 500 }}>
-                                      Base: {t.homeBaseAddress}
-                                    </span>
-                                  ) : null}
+                                  <kbd>{idx + 1}</kbd>
+                                  {t.homeBaseAddress ? <span className="sub">{t.homeBaseAddress}</span> : null}
                                 </div>
                                 <span className="sub">
                                   {t.drivers.length > 0 ? t.drivers.map((d) => d.name).join(", ") : "No driver set"}
                                 </span>
                               </td>
-                              <td style={{ textAlign: "right" }}>
+                              <td>
+                                <span className="tl-sub">{t.hasCostProfile ? "Ready to price" : "No cost profile"}</span>
+                              </td>
+                              <td className="num">
                                 <input
                                   className="qt-mini"
                                   inputMode="decimal"
@@ -1621,18 +1614,7 @@ export function QuoteDesk({
                                     set({ emptyByTruck: { ...values.emptyByTruck, [t.id]: e.target.value } });
                                   }}
                                 />
-                                {values.emptyHomeByTruck[t.id] ? (
-                                  <span className="sub" style={{ fontSize: 10 }}>+{values.emptyHomeByTruck[t.id]} home</span>
-                                ) : null}
-                              </td>
-                              <td>
-                                <span className="tl-tag">{t.hasCostProfile ? "Ready to price" : "No cost profile"}</span>
-                              </td>
-                              <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: "var(--db-fg-dim)" }}>
-                                —
-                              </td>
-                              <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: "var(--db-fg-dim)" }}>
-                                —
+                                {values.emptyHomeByTruck[t.id] ? <span className="sub">+{values.emptyHomeByTruck[t.id]} home</span> : null}
                               </td>
                             </tr>
                           );
@@ -1647,12 +1629,12 @@ export function QuoteDesk({
                     <table className="qt-matrix-table" aria-label="Which truck and driver">
                       <thead>
                         <tr>
-                          <th aria-label="Pick" style={{ width: 28 }} />
-                          <th>Truck & Driver (Base)</th>
-                          <th style={{ textAlign: "right" }}>Deadhead to Pickup</th>
+                          <th aria-label="Pick" className="qt-pick" />
+                          <th>Truck and driver</th>
                           <th>Verdict</th>
-                          <th style={{ textAlign: "right" }}>$/mi</th>
-                          <th style={{ textAlign: "right" }}>Left Over</th>
+                          <th className="num">$/mi</th>
+                          <th className="num">Left over</th>
+                          <th className="num">Empty to pickup</th>
                         </tr>
                       </thead>
                       <tbody
@@ -1662,9 +1644,8 @@ export function QuoteDesk({
                         }}>
                         {displayRows.map((r, idx) => {
                           const said = verdictOf(r, benchmark, Boolean(cautions.marketRate));
-                          const truckRows = rows.filter((x) => x.truckId === r.truckId);
-                          const driverIdx = truckRows.findIndex((x) => x.key === r.key);
-                          const driverSuffix = truckRows.length > 1 ? ` (driver ${driverIdx + 1} of ${truckRows.length})` : "";
+                          // A truck with two drivers is two pairs: the second sits under the first as the same truck with another driver, not as the truck over again.
+                          const same = idx > 0 && displayRows[idx - 1]!.truckId === r.truckId;
                           const on = row?.key === r.key;
                           const truckInfo = { homeBaseAddress: r.homeBase };
                           // A note beside the verdict, never an input to it: the server's own hours check says "short", this words how far.
@@ -1687,73 +1668,62 @@ export function QuoteDesk({
                                 />
                               </td>
                               <td>
-                                <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                                  <b>{r.truckName}</b>
-                                  <span style={{ fontSize: 10, color: "var(--db-fg-dim)", fontFamily: "monospace" }}>[{idx + 1}]</span>
-                                  {truckInfo?.homeBaseAddress ? (
-                                    <span className="sub" style={{ fontSize: 11, color: "var(--db-accent-fg)", fontWeight: 500 }}>
-                                      Base: {truckInfo.homeBaseAddress}
-                                    </span>
-                                  ) : null}
+                                <div className="qt-tr">
+                                  {same ? <span className="qt-same">{r.driverName ?? "No driver set"}</span> : <b>{r.truckName}</b>}
+                                  <kbd>{idx + 1}</kbd>
+                                  {!same && truckInfo?.homeBaseAddress ? <span className="sub">{truckInfo.homeBaseAddress}</span> : null}
                                 </div>
-                                <span className="sub">{r.driverName ? `${r.driverName}${driverSuffix} · ${shortLabour(r)}` : "No driver set"}</span>
-                                {r.hos.availableHours != null ? (
-                                  <div className="qt-hos-line">
-                                    <span className="sub" style={{ fontSize: 11, color: "var(--db-fg-mid)" }}>
-                                      Hours left: {r.hos.availableHours}h{r.hos.syncedAt ? ` (${ago(r.hos.syncedAt)})` : ""}
+                                {(() => {
+                                  // One line; the inspector below says all of it for the row under the pointer.
+                                  const who = [same ? `same truck, ${r.truckName}` : r.driverName ?? "No driver set", r.driverName ? shortLabour(r) : null, r.hos.availableHours != null ? `${r.hos.availableHours}h left${r.hos.syncedAt ? ` (${ago(r.hos.syncedAt)})` : ""}` : null].filter(Boolean).join(" · ");
+                                  return (
+                                    <span className="sub cut" title={[who, r.shift?.tag].filter(Boolean).join(" · ")}>
+                                      {who}
                                     </span>
-                                    {deficit ? (
-                                      <span className="tl-chip warn" title={hosDeficitTitle(deficit)}>
-                                        {hosDeficitLabel(deficit)}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                ) : null}
-                                {r.shift?.tag ? (
-                                  <div className="qt-hos-line">
-                                    <span className="sub" style={{ fontSize: 11, color: "var(--db-fg-mid)" }}>{r.shift.tag}</span>
-                                    {r.shift.warn ? (
-                                      <span className="tl-chip warn" title={r.shift.title ?? undefined}>
-                                        {"⚠"} {r.shift.warn}
-                                      </span>
-                                    ) : null}
-                                  </div>
-                                ) : null}
+                                  );
+                                })()}
                                 {r.blocked ? <span className="sub neg">{r.blocked}</span> : null}
-                              </td>
-                              <td style={{ textAlign: "right" }}>
-                                <input
-                                  className="qt-mini"
-                                  inputMode="decimal"
-                                  aria-label={`Empty miles for ${r.truckName}`}
-                                  placeholder={values.emptyToPickup || "—"}
-                                  value={values.emptyByTruck[r.truckId] ?? ""}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onChange={(e) => {
-                                    if (e.target.value.trim() === "") manual.current.delete(`empty:${r.truckId}`);
-                                    else manual.current.add(`empty:${r.truckId}`);
-                                    set({ emptyByTruck: { ...values.emptyByTruck, [r.truckId]: e.target.value } });
-                                  }}
-                                />
-                                {values.emptyHomeByTruck[r.truckId] ? (
-                                  <span className="sub" style={{ fontSize: 10 }}>+{values.emptyHomeByTruck[r.truckId]} home</span>
-                                ) : null}
                               </td>
                               <td>
                                 <VerdictTag state={said.state} word={said.word} />
+                                {/* Beside the verdict at the same weight, and never an input to it: cost owns the verdict. */}
+                                {deficit ? (
+                                  <span className="qt-beside" title={hosDeficitTitle(deficit)}>
+                                    {hosDeficitLabel(deficit)}
+                                  </span>
+                                ) : null}
+                                {r.shift?.warn ? (
+                                  <span className="qt-beside" title={r.shift.title ?? undefined}>
+                                    {r.shift.warn}
+                                  </span>
+                                ) : null}
                               </td>
-                              <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                                <div style={{ fontWeight: 700 }}>{perMile(r.allInPerMile)}</div>
-                                <div className="sub" style={{ fontSize: 10, color: "var(--db-fg-dim)" }}>floor {perMile(r.floorPerMile)}</div>
+                              <td className="num">
+                                <b>{perMile(r.allInPerMile)}</b>
+                                <span className="sub">floor {perMile(r.floorPerMile)}</span>
                               </td>
-                              <td
-                                style={{
-                                  textAlign: "right",
-                                  fontVariantNumeric: "tabular-nums",
-                                  fontWeight: 600,
-                                  color: r.leftOver != null && r.leftOver < 0 ? "var(--db-neg)" : "var(--db-pos)"
-                                }}>
+                              <td className={`num ${r.leftOver != null && r.leftOver < 0 ? "qt-neg" : "qt-pos"}`}>
                                 {r.leftOver == null ? "—" : `${r.leftOver < 0 ? "−" : ""}${usd(Math.abs(r.leftOver), 0)}`}
+                              </td>
+                              <td className="num">
+                                {same ? (
+                                  <span className="sub">same</span>
+                                ) : (
+                                  <input
+                                    className="qt-mini"
+                                    inputMode="decimal"
+                                    aria-label={`Empty miles for ${r.truckName}`}
+                                    placeholder={values.emptyToPickup || "—"}
+                                    value={values.emptyByTruck[r.truckId] ?? ""}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => {
+                                      if (e.target.value.trim() === "") manual.current.delete(`empty:${r.truckId}`);
+                                      else manual.current.add(`empty:${r.truckId}`);
+                                      set({ emptyByTruck: { ...values.emptyByTruck, [r.truckId]: e.target.value } });
+                                    }}
+                                  />
+                                )}
+                                {!same && values.emptyHomeByTruck[r.truckId] ? <span className="sub">+{values.emptyHomeByTruck[r.truckId]} home</span> : null}
                               </td>
                             </tr>
                           );
@@ -1768,7 +1738,6 @@ export function QuoteDesk({
                 {priced?.ok && displayRows.length > 0 ? (() => {
                   const activeInspection = displayRows.find((r) => r.key === inspectedKey) || row;
                   if (!activeInspection) return null;
-                  const truckInfo = { homeBaseAddress: activeInspection.homeBase };
                   const deficit = hosDeficit({
                     level: activeInspection.hos.caution.level,
                     availableHours: activeInspection.hos.availableHours,
@@ -1810,11 +1779,6 @@ export function QuoteDesk({
                                 {activeInspection.shift.tag}
                                 {activeInspection.shift.warn ? ` · ${activeInspection.shift.warn}` : ""}
                               </span>
-                            </span>
-                          ) : null}
-                          {truckInfo?.homeBaseAddress ? (
-                            <span className="qt-mi-pill base">
-                              <span>Base: {truckInfo.homeBaseAddress}</span>
                             </span>
                           ) : null}
                           {activeInspection.blocked ? (
@@ -2202,6 +2166,12 @@ function grossNote(offer: string, loadedMiles: string): string | undefined {
 }
 
 /** Form money input with inline unit. `note` is a live figure read off the form, a quiet line below the field (not announced: the verdict aside is the one live region). */
+/** What the list counts: driver and truck pairs, and how many trucks they are on when a team makes the two differ. */
+function pairWords(list: FitRow[]): string {
+  const trucks = new Set(list.map((r) => r.truckId)).size;
+  return trucks === list.length ? `${trucks} ${trucks === 1 ? "truck" : "trucks"}` : `${list.length} driver pairs on ${trucks} ${trucks === 1 ? "truck" : "trucks"}`;
+}
+
 function Money({ label, unit, value, error, caution, onChange, hint, note, onEnter }: { label: string; unit: string; value: string; error?: string; caution?: string; onChange: (v: string) => void; hint?: string; note?: string; onEnter?: () => void }) {
   const id = `qt-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`;
   return (

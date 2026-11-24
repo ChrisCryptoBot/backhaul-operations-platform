@@ -4,6 +4,8 @@ import { trailRuns } from "@/lib/geo-line";
 import type { LoadTracking } from "@/server/tl/load-tracking";
 import { ROAD_ROUTE_NOTE, laneNote } from "@/lib/telematics";
 import { LoadMap } from "./radar-map";
+import { fixAge } from "@/lib/whereabouts";
+import { lateText } from "@/lib/planner";
 
 /**
  * Where it is: the load's lane drawn as a corridor from the pickup to the delivery, the truck's breadcrumb along it and its marker where the ELD last put it, with the speed, road, miles to go, ETA
@@ -34,7 +36,17 @@ const ago = (iso: string) => {
   return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m ago`;
 };
 
-export function LoadTracker({ t }: { t: LoadTracking }) {
+/** A position too old to speak of as now, said as that. */
+export function StaleFix({ minutes, children }: { minutes: number; children?: React.ReactNode }) {
+  return (
+    <p className="t-stale" role="status">
+      Last position is {lateText(minutes)} old.
+      {children ? <span>{children}</span> : null}
+    </p>
+  );
+}
+
+export function LoadTracker({ t, quietHead = false }: { t: LoadTracking; /** The caller already says the headline (the drawer's Now line): do not say it twice. */ quietHead?: boolean }) {
   if (t.status === "no_truck") return <p className="tl-note">No truck is on this load yet. Put one on it to see where it is.</p>;
   if (t.status === "no_lane") return <p className="tl-note">{t.truckName} is on this load, but its stops have no places yet, so there is no lane to draw. Open Route &amp; Stops and check the addresses.</p>;
   if (t.status === "no_position")
@@ -56,9 +68,11 @@ export function LoadTracker({ t }: { t: LoadTracking }) {
   const tone = t.position.state === "moving_load" || t.position.state === "moving" ? "var(--label)" : t.position.state === "idling" ? "var(--warn-fill)" : "var(--dim)";
   const heading = t.position.state === "moving_load" || t.position.state === "moving" ? t.position.headingDeg : null;
 
+  const age = fixAge(t.asOf, Date.now());
+
   return (
     <div className="lt">
-      <p className={`lt-head${t.late ? " lt-late" : ""}`}>{t.headline}</p>
+      {age?.old ? <StaleFix minutes={age.minutes}>It read: {t.headline}</StaleFix> : quietHead ? null : <p className={`lt-head${t.late ? " lt-late" : ""}`}>{t.headline}</p>}
       {/* The real map (OpenFreeMap tiles, the radar's own layers); the drawing below is its fallback where a browser cannot draw a map. */}
       <LoadMap
         t={t}
@@ -102,7 +116,7 @@ export function LoadTracker({ t }: { t: LoadTracking }) {
         <p key={g.stop} className="lt-geo">{`✔ ${g.text}`}</p>
       ))}
       <p className="lt-sub">{t.milesBasis === "road" ? ROAD_ROUTE_NOTE : `${laneNote({ offRoute: t.offRoute, hadRoad: t.road != null })}${t.road ? ` ${ROAD_ROUTE_NOTE}` : ""}`}</p>
-      <p className="lt-sub">Last fix {ago(t.asOf)}. Shown from the ELD; it does not record an arrival on the stop.</p>
+      <p className="lt-sub">Last fix {age?.old ? `${lateText(age.minutes)} ago` : ago(t.asOf)}. Shown from the ELD; it does not record an arrival on the stop.</p>
     </div>
   );
 }

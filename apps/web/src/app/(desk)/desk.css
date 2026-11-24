@@ -1260,7 +1260,6 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .rp .ev-decide .tl-btn:disabled { opacity: 0.45; }
 .rp .ev-decide .tl-note { color: #5d534b; }
 .rp .ev-decide .th-err { color: #a3262a; font-size: 12px; }
-}
 
 /* Invoice these loads together (components/desk/invoice-together.tsx): the checkbox in a ready row, and the bar that says what is chosen. */
 .tl-pick { width: 16px; height: 16px; margin: 0 8px 0 0; vertical-align: -2px; accent-color: var(--db-accent); cursor: pointer; }
@@ -1435,3 +1434,4 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 .st-back li { display: flex; justify-content: space-between; gap: 12px; }
 .rc-act { display: inline-flex; gap: 8px; white-space: nowrap; }
 .rc-why { width: min(320px, 100%); }
+}

@@ -12,14 +12,14 @@ import { CanGate } from "@/components/desk/kit/can-gate";
 export const metadata = { title: "Rate confirmations · TrueLane" };
 
 const COLUMNS: Column[] = [
-  { key: "load", label: "Load", group: "Load", sticky: true, width: 200 },
-  { key: "lane", label: "Lane", group: "Load" },
-  { key: "stops", label: "Stops", group: "Load", align: "num" },
-  { key: "pickup", label: "First stop", group: "Load" },
-  { key: "rate", label: "Agreed rate", group: "Money", accentBand: true, align: "num" },
-  { key: "perMile", label: "Per printed mile", group: "Money", accentBand: true, align: "num" },
-  { key: "status", label: "Now", group: "Where it stands" },
-  { key: "read", label: "Read", group: "Where it stands" }
+  { key: "load", label: "Load", sticky: true, width: 180, max: 200 },
+  { key: "lane", label: "Lane", max: 260 },
+  { key: "stops", label: "Stops", align: "num", priority: 2 },
+  { key: "pickup", label: "First stop" },
+  { key: "rate", label: "Agreed rate", align: "num" },
+  { key: "perMile", label: "Per printed mile", align: "num" },
+  { key: "status", label: "Now" },
+  { key: "read", label: "Read", priority: 2 }
 ];
 
 export default async function RateConsPage() {

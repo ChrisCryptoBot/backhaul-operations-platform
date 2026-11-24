@@ -22,7 +22,7 @@ export type BoardFilterable = {
 };
 
 export const BOARD_STATUSES = [
-  { key: "all", label: "All" },
+  { key: "all", label: "All open" },
   { key: "draft", label: "Needs a driver" },
   { key: "sent", label: "Sent, waiting" },
   { key: "accepted", label: "Accepted" },

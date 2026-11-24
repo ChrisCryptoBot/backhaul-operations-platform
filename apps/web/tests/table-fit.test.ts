@@ -11,7 +11,9 @@ const read = (p: string) => readFileSync(join(SRC, p), "utf8").split(String.from
 
 describe("the board folds secondary columns instead of scrolling sideways", () => {
   const table = read("components/desk/data-table.tsx");
-  const board = read("app/(desk)/loads/page.tsx");
+  const page = read("app/(desk)/loads/page.tsx");
+  // The open board's columns and cells (Loads, History has its own list of columns).
+  const board = page.slice(0, page.indexOf("const HISTORY_COLUMNS")) + page.slice(page.indexOf("// Open: what is still moving."));
   const css = read("app/terminal.css");
 
   test("DataTable takes a column priority and marks folded columns, headers and bands", () => {
@@ -19,13 +21,16 @@ describe("the board folds secondary columns instead of scrolling sideways", () =
     expect(table.match(/data-pr=/g)?.length).toBeGreaterThanOrEqual(3);
   });
 
-  test("the open board marks Truck, Driver and Answer as priority 3, and keeps money and the verdict at 1", () => {
-    for (const k of ["truck", "driver", "assignment"]) expect(board).toMatch(new RegExp(`key: "${k}"[^}]*priority: 3`));
-    for (const k of ["pay", "perMile", "floor", "verdict"]) expect(board).not.toMatch(new RegExp(`key: "${k}"[^}]*priority: 3`));
+  test("the open board folds Truck and Answer first (3), then Customer, Pickup, Driver and Miles at 1024 (2), and keeps money and the verdict at 1", () => {
+    for (const k of ["truck", "assignment"]) expect(board).toMatch(new RegExp(`key: "${k}"[^}]*priority: 3`));
+    for (const k of ["customer", "pickup", "driver", "miles"]) expect(board).toMatch(new RegExp(`key: "${k}"[^}]*priority: 2`));
+    for (const k of ["pay", "perMile", "floor", "verdict"]) expect(board).not.toMatch(new RegExp(`key: "${k}"[^}]*priority: [23]`));
   });
 
-  test("the driver and truck stay on the row when their columns fold", () => {
-    expect(board).toMatch(/className="fold-only"/);
+  test("what folds stays on the row: the truck beside its driver, and at 1024 the customer, driver and miles on the load's second line", () => {
+    expect(board).toContain('className="fold-only q">{r.vehicleName}');
+    expect(board).toContain('className="sub fold-2">{[r.brokerName, r.driverName ?? "no driver", miles(r.totalMiles)]');
+    expect(css).toMatch(/@container \(max-width:960px\)\{\s*\.dt \[data-pr="2"\]\{display:none\}/);
     expect(css).toMatch(/\.dt \.fold-only\{display:none\}/);
     expect(css).toMatch(/@container \(max-width:1400px\)\{\.dt \[data-pr="3"\]\{display:none\}/);
     expect(css).toMatch(/\.dt-wrap\{container-type:inline-size\}/);

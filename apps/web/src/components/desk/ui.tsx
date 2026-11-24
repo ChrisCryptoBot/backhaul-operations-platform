@@ -4,19 +4,14 @@ import { ASSIGNMENT_STATUS, LOAD_STATUS, type Tone, type Verdict } from "@/lib/d
 import { VERDICT_WORD, type VerdictState } from "@/lib/verdict";
 import { VerdictTag } from "./verdict-card";
 import { ScopeChip } from "./scope-menu";
-
-/** The two-letter code each module carries in the rail and on its page head. A page whose title is not here simply has no code. */
-const CODES: Record<string, string> = {
-  "Quote a load": "QT", Loads: "LD", "Dispatch queue": "DQ", Messages: "MS", Planner: "PL", Alerts: "AL", "Rate confirmations": "RC", Drivers: "DR", Trucks: "TK", Trailers: "TR",
-  Customers: "CU", Lanes: "LN", Invoices: "IV", Settlements: "ST", Payroll: "PY", "KPI dashboard": "KP", "Audit log": "AU", Settings: "SE", Fuel: "FU", IFTA: "IF", Schedules: "SC", "Radar map": "MP", "Leak ledger": "LK", "Partner issues": "PI"
-};
+import { MODULE_CODE } from "@/lib/nav";
 
 /**
  * The head of a module: its title and its actions, which stay on screen as the page scrolls (terminal.css pins `.t-pagehead`, and each module's tab or filter bar under it). The one-line description
  * is not part of that bar, so what stays pinned is slim; it scrolls away with the page.
  */
 export function PageHead({ title, sub, children }: { title: string; sub?: React.ReactNode; children?: React.ReactNode }) {
-  const code = CODES[title];
+  const code = MODULE_CODE[title];
   return (
     <>
       <div className="t-pagehead">
@@ -36,9 +31,9 @@ export function Card({ title, action, children, className }: { title?: string; a
   return (
     <section className={`tl-card${className ? ` ${className}` : ""}`}>
       {title && action ? (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
-          <h2 style={{ margin: 0 }}>{title}</h2>
-          {action}
+        <div className="t-head">
+          <h2>{title}</h2>
+          <div className="acts">{action}</div>
         </div>
       ) : title ? (
         <h2>{title}</h2>
@@ -83,16 +78,42 @@ export function AssignmentChip({ status }: { status: string | null }) {
   return <span className="t-st" data-tone={ST_TONE[s.tone]}>{s.label}</span>;
 }
 
-export function Tabs({ items, active, hrefFor, label = "Filter" }: { items: Array<{ key: string; label: string; count?: number }>; active: string; hrefFor: (key: string) => string; label?: string }) {
+/**
+ * Links that narrow the list (underlined words), or, with `view`, that swap which list this is (a segmented switch). Two kinds that look different, so two chosen words never sit side by side looking alike.
+ */
+export function Tabs({ items, active, hrefFor, label = "Filter", view = false }: { items: Array<{ key: string; label: string; count?: number }>; active: string; hrefFor: (key: string) => string; label?: string; view?: boolean }) {
+  if (view)
+    return (
+      <nav className="t-seg t-views" aria-label={label}>
+        {items.map((t) => (
+          <Link key={t.key} href={hrefFor(t.key)} className="t-view" aria-current={t.key === active ? "true" : undefined}>
+            {t.label}
+            {t.count != null ? <em>{t.count}</em> : null}
+          </Link>
+        ))}
+      </nav>
+    );
   return (
     <nav className="tl-tabs" aria-label={label}>
       {items.map((t) => (
         <Link key={t.key} href={hrefFor(t.key)} className="tl-tab" aria-current={t.key === active ? "true" : undefined}>
           {t.label}
-          {t.count != null ? ` · ${t.count}` : ""}
+          {t.count != null ? <em>{t.count}</em> : null}
         </Link>
       ))}
     </nav>
+  );
+}
+
+/**
+ * A row that opens something: the link's own target covers the whole row (terminal.css `.row-link`), so there is one tab stop and no Open button repeated down the list. Put it in an element with
+ * `.row-open`; buttons in the row sit above it and keep their own clicks.
+ */
+export function RowLink({ href, children, label }: { href: string; children: React.ReactNode; label?: string }) {
+  return (
+    <Link href={href} className="row-link" aria-label={label}>
+      {children}
+    </Link>
   );
 }
 

@@ -27,25 +27,27 @@ import { currentWorkspaceId } from "@/server/tl/workspace";
 import { getTrailerWhere } from "@/server/tl/whereabouts";
 import { Tip } from "@/components/desk/kit/tooltip";
 import { unitTip } from "@/lib/whereabouts";
+import { papersCell } from "@/lib/papers";
 
 export const metadata = { title: "Trailers · TrueLane" };
 
 export const dynamic = "force-dynamic";
 
 const COLUMNS: Column[] = [
-  { key: "number", sortable: true, label: "Trailer", group: "Trailer", sticky: true, width: 170 },
-  { key: "type", sortable: true, label: "Type", group: "Trailer" },
-  { key: "length", sortable: true, label: "Length", group: "Trailer", align: "num" },
-  { key: "plate", label: "Plate", group: "Trailer" },
-  { key: "ownership", label: "Ownership", group: "Trailer" },
-  { key: "status", sortable: true, label: "Status", group: "Where it is" },
-  { key: "terminal", sortable: true, label: "Terminal", group: "Where it is" },
-  { key: "hooked", label: "Hooked to", group: "Where it is" },
-  { key: "now", label: "On now", group: "Where it is" },
-  { key: "dwell", label: "Dwell", group: "Where it is" },
-  { key: "registration", sortable: true, label: "Registration", group: "Compliance" },
-  { key: "inspection", sortable: true, label: "Inspection", group: "Compliance" },
-  { key: "act", label: "", group: "" }
+  { key: "number", sortable: true, label: "Trailer", sticky: true, width: 110 },
+  { key: "type", sortable: true, label: "Type", max: 120 },
+  { key: "length", sortable: true, label: "Length", align: "num", priority: 2 },
+  { key: "plate", label: "Plate", priority: 2 },
+  { key: "ownership", label: "Ownership", priority: 3 },
+  { key: "status", sortable: true, label: "Status" },
+  { key: "terminal", sortable: true, label: "Terminal", max: 130 },
+  { key: "hooked", label: "Hooked to", max: 90, priority: 2 },
+  { key: "now", label: "On now", priority: 2 },
+  { key: "dwell", label: "Sitting", max: 240 },
+  { key: "papers", label: "Papers", max: 180 },
+  { key: "registration", sortable: true, label: "Registration", priority: 3 },
+  { key: "inspection", sortable: true, label: "Inspection", priority: 3 },
+  { key: "act", label: "" }
 ];
 
 type Params = { q?: string; sort?: string; page?: string; type?: string; status?: string; ownership?: string; compliance?: string; archived?: string; near?: string; r?: string };
@@ -91,6 +93,7 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
 
   const rows: Row[] = data.rows.map((t) => ({
     id: t.id,
+    href: `/trailers/${t.id}`,
     flag: t.blocker && !t.archived ? "bad" : undefined,
     search: [t.number, t.plate].filter(Boolean).join(" "),
     cells: {
@@ -103,9 +106,18 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
           ) : (
             <Link href={`/trailers/${t.id}`}><b>{t.number}</b></Link>
           )}
-          {t.archived ? <span className="sub"><span className="tl-chip muted">Archived</span></span> : t.compliance !== "ok" ? <span className="sub"><span className={`tl-chip ${t.compliance === "lapsed" ? "bad" : "warn"}`}>{t.compliance === "lapsed" ? "Papers lapsed" : "Papers due soon"}</span></span> : null}
+          {t.archived ? <span className="tl-chip muted">Archived</span> : null}
+          <span className="sub fold-2">{[feet(t.lengthFt), t.plate, t.hookedTo].filter((x) => x && x !== "—").join(" · ")}</span>
         </>
       ),
+      papers: (() => {
+        const p = papersCell([{ name: "Registration", expires: t.registrationExpiry }, { name: "Inspection", expires: t.inspectionExpiry }], now);
+        return (
+          <span className="t-st say" data-tone={p.tone === "muted" ? undefined : p.tone} title={p.title}>
+            {p.text}
+          </span>
+        );
+      })(),
       type: t.type ? trailerLabel(t.type) : <span className="dim">—</span>,
       length: feet(t.lengthFt),
       away: nearOk?.miles.has(t.id) ? milesText(nearOk.miles.get(t.id)!) : "—",
@@ -118,19 +130,18 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
         t.onLoads.length === 0 ? (
           <span className="dim">—</span>
         ) : (
-          t.onLoads.map((l) => (
-            <div key={l.id}>
-              <Link href={`/loads/${l.id}`}>{l.loadNumber ?? "A load"}</Link>
-            </div>
-          ))
+          <span title={t.onLoads.map((l) => l.loadNumber ?? "A load").join(", ")}>
+            <Link href={`/loads/${t.onLoads[0]!.id}`}>{t.onLoads[0]!.loadNumber ?? "A load"}</Link>
+            {t.onLoads.length > 1 ? <em className="more">+{t.onLoads.length - 1}</em> : null}
+          </span>
         ),
       dwell: t.dwell ? (
-        <>
-          <DwellLine d={t.dwell} freeHours={data.dwellTerms.freeHours} typed={t.dwellTyped} />
+        <span className="acts">
+          <DwellLine compact d={t.dwell} freeHours={data.dwellTerms.freeHours} typed={t.dwellTyped} />
           <CanGate caps={["dispatch", "bill"]}>
             <DwellAdjust trailerId={t.id} number={t.number} d={t.dwell} typed={t.dwellTyped} freeHours={data.dwellTerms.freeHours} />
           </CanGate>
-        </>
+        </span>
       ) : (
         <span className="dim">—</span>
       ),
@@ -138,7 +149,7 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
       inspection: expiry(t.inspectionExpiry, t.inspectionExpiry != null && t.inspectionExpiry.getTime() < now.getTime()),
       act: (
         <CanGate caps={["dispatch"]}>
-          <TrailerRowActions trailer={{ id: t.id, number: t.number, archived: t.archived, open: t.onLoads.length }} />
+          <TrailerRowActions list trailer={{ id: t.id, number: t.number, archived: t.archived, open: t.onLoads.length }} />
         </CanGate>
       )
     }
@@ -148,7 +159,7 @@ export default async function TrailersPage({ searchParams }: { searchParams?: Pa
   const use = await unitUse("trailer");
   const table = (
     <>
-      <div className="dt-toolbar" style={{ margin: "12px 0" }}>
+      <div className="dt-toolbar">
         <LiveForm path="/trailers" label="Filter the trailers" className="audit-filters">
           {nearText ? <input type="hidden" name="near" value={nearText} /> : null}
           {nearText && searchParams?.r ? <input type="hidden" name="r" value={searchParams.r} /> : null}

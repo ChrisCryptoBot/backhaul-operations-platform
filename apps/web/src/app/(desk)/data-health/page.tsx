@@ -42,7 +42,7 @@ export default async function DataHealthPage({ searchParams }: { searchParams?: 
       <div className="kbar">
         <Tabs active={params.period} hrefFor={(key) => href({ period: key as typeof params.period })} items={KPI_PERIODS} />
       </div>
-      <p className="tl-sub" style={{ margin: "0 0 14px" }}>
+      <p className="t-period">
         {windowLabel(h.window)} · {scopeWords(terminal) ?? "all terminals"}
       </p>
 

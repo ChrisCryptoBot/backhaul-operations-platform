@@ -1205,7 +1205,7 @@ export function RadarView({ initial, params, actions }: { initial: RadarPoints; 
   );
 }
 
-/** The map above the Trucks and Trailers tables: the clustered map and a radius search over a drag bar, the table beneath it (`children`, server-rendered) narrowed by the same search. */
+/** The map above the Trucks and Trailers tables, folded away until it is asked for (the table is the page; the Radar map is the map): the clustered map and a radius search over a drag bar, the table beneath it (`children`, server-rendered) narrowed by the same search. */
 export function FleetMapPanel({
   initial,
   params,
@@ -1231,8 +1231,9 @@ export function FleetMapPanel({
     <section className="fm" aria-label="Fleet radar">
       <SearchBar info={search} params={params} />
       <SplitPane
-        id="fleet-map"
+        id="fleet-list-map"
         orientation="vertical"
+        defaultHidden
         defaultSize={300}
         min={140}
         minSecond={200}

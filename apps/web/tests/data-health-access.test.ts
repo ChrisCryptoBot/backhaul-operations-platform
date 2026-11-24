@@ -17,7 +17,7 @@ describe("data health is the billing office's", () => {
   });
 
   test("the sidebar offers it to the roles that can bill", () => {
-    expect(read("components/desk/desk-shell.tsx")).toMatch(/href: "\/data-health", label: "Data health", code: "DH", roles: \["admin", "accounting"\]/);
+    expect(read("lib/nav.ts")).toMatch(/href: "\/data-health", label: "Data health", code: "DH", roles: \["admin", "accounting"\]/);
   });
 
   test("the report is a printed sheet in the same style as the management report", () => {

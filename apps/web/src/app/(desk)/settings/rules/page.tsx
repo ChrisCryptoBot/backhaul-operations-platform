@@ -10,8 +10,8 @@ const TONE = { block: "bad", warn: "warn", info: "info" } as const;
 
 const COLUMNS: Column[] = [
   { key: "level", label: "Level", sticky: true, width: 110 },
-  { key: "rule", label: "Rule" },
-  { key: "applies", label: "Applies to" },
+  { key: "rule", label: "Rule", width: 250 },
+  { key: "applies", label: "Applies to", width: 210 },
   { key: "when", label: "When it fires" }
 ];
 
@@ -38,8 +38,8 @@ export default async function RulesPage() {
         <Link href="/alerts" className="tl-btn">See the alerts</Link>
         <Link href="/settings" className="tl-btn">Change the timings</Link>
       </PageHead>
-      <DataTable id="rules-table" label="Alert rules" columns={COLUMNS} rows={rows} />
-      <p className="tl-note" style={{ marginTop: 12, maxWidth: "72ch" }}>
+      <DataTable id="rules-table" label="Alert rules" columns={COLUMNS} rows={rows} prose />
+      <p className="tl-note t-after">
         The timings come from Settings: {t.pickupHours} hours before a pickup, {t.sentNoAnswerHours} hours waiting for an answer, {t.clearanceDays} days before a card lapses.
         Assigning a driver who is already on another load at the same time is refused unless you give a reason, and the reason goes in the audit log.
       </p>

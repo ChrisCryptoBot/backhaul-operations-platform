@@ -45,7 +45,7 @@ export default async function AlertsPage({ searchParams }: { searchParams?: { le
       ) : (
         LEVELS.filter((l) => shown.some((a) => a.level === l)).map((l) => (
           <section key={l} style={{ marginBottom: 24, maxWidth: 820 }}>
-            <h2 style={{ fontFamily: "var(--db-font-sans)", fontSize: "var(--db-text-xs)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--db-fg-dim)", fontWeight: 700, margin: "0 0 10px" }}>
+            <h2 className="t-sec">
               {HEADING[l]} · {counts[l]}
             </h2>
             <AlertList alerts={shown.filter((a) => a.level === l)} withLoad />

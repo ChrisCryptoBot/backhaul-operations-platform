@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { MODULE_CODE } from "@/lib/nav";
 import { carrierIndicators } from "@/lib/carrier-status";
 import { statementPayBadge } from "@/lib/statement-pay";
 import { paidMethodLabel } from "@/lib/pay-method";
@@ -68,12 +69,12 @@ describe("a driver statement's pay badge", () => {
 });
 
 describe("the screens are on the rail for the people who use them", () => {
-  const shell = src("src/components/desk/desk-shell.tsx");
+  const shell = src("src/lib/nav.ts");
 
   it("Fuel is for dispatch and billing, IFTA is billing's, each with its two-letter code", () => {
     expect(shell).toMatch(/href: "\/fuel", label: "Fuel", code: "FU", roles: \["admin", "dispatcher", "accounting"\]/);
     expect(shell).toMatch(/href: "\/ifta", label: "IFTA", code: "IF", roles: \["admin", "accounting"\]/);
-    expect(src("src/components/desk/ui.tsx")).toContain('Fuel: "FU", IFTA: "IF"');
+    expect(MODULE_CODE).toMatchObject({ Fuel: "FU", IFTA: "IF" });
   });
 
   it("the actions behind them ask the same roles", () => {

@@ -21,18 +21,18 @@ export const dynamic = "force-dynamic";
 
 const PERIODS = [30, 90] as const;
 const COLUMNS: Column[] = [
-  { key: "date", label: "Date", group: "Purchase" },
-  { key: "truck", label: "Truck", group: "Purchase" },
-  { key: "where", label: "Where", group: "Purchase" },
-  { key: "state", label: "State", group: "Purchase" },
-  { key: "flags", label: "Flags", group: "Purchase" },
-  { key: "product", label: "Product", group: "Fuel" },
-  { key: "gallons", label: "Gallons", group: "Fuel", align: "num" },
-  { key: "ppg", label: "$/gal", group: "Fuel", align: "num" },
-  { key: "disc", label: "Discount/gal", group: "Fuel", align: "num" },
-  { key: "charged", label: "Charged", group: "Fuel", align: "num", accentBand: true },
-  { key: "load", label: "Load", group: "Tied to" },
-  { key: "statement", label: "Driver statement", group: "Tied to" }
+  { key: "date", label: "Date" },
+  { key: "truck", label: "Truck" },
+  { key: "where", label: "Where", max: 220 },
+  { key: "state", label: "State", priority: 2 },
+  { key: "flags", label: "Flags", max: 140 },
+  { key: "product", label: "Product", priority: 2 },
+  { key: "gallons", label: "Gallons", align: "num" },
+  { key: "ppg", label: "$/gal", align: "num" },
+  { key: "disc", label: "Discount/gal", align: "num", priority: 2 },
+  { key: "charged", label: "Charged", align: "num", accentBand: true },
+  { key: "load", label: "Load" },
+  { key: "statement", label: "Statement", priority: 2 }
 ];
 
 
@@ -118,7 +118,7 @@ export default async function FuelPage({ searchParams }: { searchParams?: { days
           <FuelSyncButton days={days} reason={cardReason} />
         </CanGate>
       </PageHead>
-      <div className="tl-tabs" role="tablist" aria-label="Period" style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+      <div className="tl-tabs" role="tablist" aria-label="Period">
         {PERIODS.map((p) => (
           <Link key={p} href={href({ days: p, flagged: false })} className="tl-tab" aria-current={!flagged && days === p ? "true" : undefined}>
             Last {p} days

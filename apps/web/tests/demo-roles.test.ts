@@ -89,18 +89,19 @@ describe("the demo desk holds each person to the real role matrix", () => {
 
 describe("what each person is shown", () => {
   const shell = src("src/components/desk/desk-shell.tsx");
+  const nav = src("src/lib/nav.ts");
 
   it("the rail hides what a role does not use, and a heading with nothing under it", () => {
     expect(shell).toContain("i.roles.includes(role as Role)");
     expect(shell).toContain(".filter((group) => group.items.length > 0)");
     // Dispatching is not for the billing office; billing is not for a dispatcher.
-    expect(shell).toMatch(/label: "Quote a load"[^}]*roles: \["admin", "dispatcher"\]/);
+    expect(nav).toMatch(/label: "Quote a load"[^}]*roles: \["admin", "dispatcher"\]/);
     // Driver pay links follow billing_details (a dispatcher with the billing grant sees them too), not a role list.
-    expect(shell).toMatch(/label: "Payroll"[^}]*billing: true/);
-    expect(shell).toMatch(/label: "Settlements"[^}]*billing: true/);
+    expect(nav).toMatch(/label: "Payroll"[^}]*billing: true/);
+    expect(nav).toMatch(/label: "Settlements"[^}]*billing: true/);
     // A driver manager sees the people-side screens and not the freight or billing ones.
-    expect(shell).toMatch(/label: "Schedules"[^}]*roles: \["admin", "dispatcher", "driver_manager", "viewer"\]/);
-    expect(shell).toMatch(/label: "Planner"[^}]*roles: \["admin", "dispatcher", "driver_manager", "viewer"\]/);
+    expect(nav).toMatch(/label: "Schedules"[^}]*roles: \["admin", "dispatcher", "driver_manager", "viewer"\]/);
+    expect(nav).toMatch(/label: "Planner"[^}]*roles: \["admin", "dispatcher", "driver_manager", "viewer"\]/);
   });
 
   it("Settings is tabs, and the company, plan, team and integrations are only offered to an admin", () => {

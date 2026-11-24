@@ -2,6 +2,7 @@ import Link from "next/link";
 import React from "react";
 import { PageHead } from "@/components/desk/ui";
 import { Pager } from "@/components/desk/pager";
+import { LiveSearch } from "@/components/desk/kit/search-box";
 import { EmptyState } from "@/components/desk/kit/states";
 import { RosterTable, type RosterRow } from "@/components/desk/roster-table";
 import { asPage } from "@/lib/paging";
@@ -41,16 +42,15 @@ export default async function SchedulesPage({ searchParams }: { searchParams?: {
     <>
       <PageHead title="Schedules" sub={`When each driver works, on the carrier's clock (${zoneAbbr(data.tz)}). The Planner shows these as on shift and off duty, and warns when a load falls outside a shift.`} />
       {!access.ok ? <p className="tl-note">You can look at schedules. A driver manager or an admin sets them.</p> : null}
-      <form className="pl-find" action="/schedules" method="get" role="search" style={{ display: "flex", gap: 8, alignItems: "center", margin: "0 0 10px", flexWrap: "wrap" }}>
-        <label className="db-sr-only" htmlFor="sc-q">Find a driver</label>
-        <input id="sc-q" type="search" name="q" defaultValue={q} placeholder="Find a driver or code" autoComplete="off" />
-        <button type="submit" className="tl-btn sm">Find</button>
+      <div className="pl-find">
+        <LiveSearch path="/schedules" q={q} placeholder="Search a driver or code" label="Find a driver" />
         <span className="tl-sub">
+          {data.unset > 0 ? <b>{data.unset} with no schedule</b> : null}
+          {data.unset > 0 ? " (never flagged, not counted as available) · " : ""}
           {data.total} {data.total === 1 ? "driver" : "drivers"}
-          {data.unset > 0 ? ` · ${data.unset} with no schedule (never flagged, not counted as available)` : ""}
           {terminals.length === 0 ? <> {"·"} <Link href="/settings">Add terminals in Settings</Link></> : null}
         </span>
-      </form>
+      </div>
       {rows.length === 0 ? (
         <EmptyState icon="drivers" title={q ? "No driver matches" : "No drivers yet"}>{q ? "Try a name or a code." : "Add drivers on the Drivers page, then set their shifts here."}</EmptyState>
       ) : (

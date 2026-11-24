@@ -21,7 +21,7 @@ const NAMES: Record<string, string> = { triumphpay: "TriumphPay", motive: "Motiv
 /** A button that, when it cannot be used, says why beside it. */
 export function ReasonButton({ label, busyLabel, reason, busy, onClick, primary, small }: { label: string; busyLabel?: string; reason: string | null; busy?: boolean; onClick: () => void; primary?: boolean; small?: boolean }) {
   return (
-    <span className="rb" style={{ display: "inline-flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
+    <span className="rb" title={reason ?? undefined}>
       <button type="button" className={`tl-btn${primary ? " primary" : ""}${small ? " sm" : ""}`} disabled={!!reason || busy} aria-busy={busy || undefined} onClick={onClick} title={reason ?? undefined}>
         {busy ? (busyLabel ?? "Working…") : label}
       </button>

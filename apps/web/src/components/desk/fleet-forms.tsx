@@ -378,7 +378,8 @@ export function AddDriver({ use }: { use?: UnitUse }) {
 }
 
 /** Edit, and take out of service or bring back. A driver on an open load shows that and cannot be taken out until they are off it. */
-export function DriverRowActions({ driver }: { driver: DriverRow }) {
+/** `list`: in a table the row opens the driver, so only Edit is there (and Reactivate on one out of service); taking someone out of service is on their page. */
+export function DriverRowActions({ driver, list = false }: { driver: DriverRow; list?: boolean }) {
   const router = useRouter();
   const toast = useToast();
   const [open, setOpen] = React.useState(false);
@@ -406,7 +407,7 @@ export function DriverRowActions({ driver }: { driver: DriverRow }) {
     });
   return (
     <div className="row-actions">
-      {locked ? (
+      {locked && !list ? (
         <span className="tl-chip info" title={`On ${driver.onLoadNumbers.join(", ")}`}>
           On {driver.onLoads} {driver.onLoads === 1 ? "load" : "loads"}
         </span>
@@ -415,9 +416,11 @@ export function DriverRowActions({ driver }: { driver: DriverRow }) {
         Edit
       </button>
       {driver.active ? (
-        <button type="button" className="tl-btn ghost sm" disabled={pending || locked} title={locked ? "Take them off their open loads first" : undefined} onClick={() => toggle(false)}>
-          Deactivate
-        </button>
+        list ? null : (
+          <button type="button" className="tl-btn ghost sm" disabled={pending || locked} title={locked ? "Take them off their open loads first" : undefined} onClick={() => toggle(false)}>
+            Deactivate
+          </button>
+        )
       ) : (
         <button type="button" className="tl-btn sm" disabled={pending} onClick={() => toggle(true)}>
           Reactivate
@@ -734,7 +737,8 @@ export function AddTruck({ use }: { use?: UnitUse }) {
 }
 
 /** Open the truck, and archive or restore it. A truck with an open load shows that and cannot be archived until the load is done. */
-export function TruckRowActions({ truck, hideOpen }: { truck: { id: string; name: string | null; archived: boolean; open: number }; hideOpen?: boolean }) {
+/** `list`: in a table the row opens the truck, so nothing is repeated down it but Restore on an archived one; archiving is on the truck's page. */
+export function TruckRowActions({ truck, hideOpen, list = false }: { list?: boolean; truck: { id: string; name: string | null; archived: boolean; open: number }; hideOpen?: boolean }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
@@ -759,6 +763,7 @@ export function TruckRowActions({ truck, hideOpen }: { truck: { id: string; name
         }
       });
     });
+  if (list && !truck.archived) return null;
   return (
     <div className="row-actions">
       {locked ? (
@@ -766,7 +771,7 @@ export function TruckRowActions({ truck, hideOpen }: { truck: { id: string; name
           On {truck.open} open {truck.open === 1 ? "load" : "loads"}
         </span>
       ) : null}
-      {hideOpen ? null : (
+      {hideOpen || list ? null : (
         <Link href={`/fleet/${truck.id}`} className="tl-btn ghost sm">
           Open
         </Link>

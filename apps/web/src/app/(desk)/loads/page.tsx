@@ -17,7 +17,7 @@ import { EmptyState } from "@/components/desk/kit/states";
 import { NewLoad } from "@/components/desk/new-load";
 import { RestoreLoadButton } from "@/components/desk/restore-load";
 import { countDeletedLoads, listDeletedLoads } from "@/server/tl/deleted";
-import { dateTime } from "@/lib/desk-format";
+import { ASSIGNMENT_STATUS, dateTime, dockTime } from "@/lib/desk-format";
 import { asBoardStatus, BOARD_STATUSES, filterBoard, isBelowCost, onTab, searchBoard } from "@/lib/board-filter";
 import { reasonLabel } from "@/lib/disruptions";
 import { asHistoryFilter, asHistorySort, fellThrough, HISTORY_FILTERS, HISTORY_SORTS, historyDate, monthGroups } from "@/lib/loads-history";
@@ -43,43 +43,48 @@ const OPEN_SORT_VALUE: Record<(typeof OPEN_SORTS)[number], (r: BoardRow) => stri
   driver: (r) => r.driverName?.toLowerCase() ?? null
 };
 
+/**
+ * What a dispatcher reads left to right: which load, how it stands, whose it is, where, when, who has it, then the money with its judgement first. One line a row. Truck and Answer fold (priority 3) onto the
+ * driver's cell; at 1024 the customer, the driver and the miles fold too, onto the load's second line, and the pickup onto the lane's.
+ */
 const COLUMNS: Column[] = [
-  { key: "load", sortable: true, label: "Load", group: "Load", sticky: true, width: 150 },
-  { key: "status", label: "Status", group: "Load", sticky: true, width: 150 },
-  { key: "lane", sortable: true, label: "Lane", group: "Route" },
-  { key: "pickup", sortable: true, label: "Pickup", group: "Route" },
-  { key: "truck", label: "Truck", group: "Route", priority: 3 },
-  { key: "miles", sortable: true, label: "Miles", group: "Route", align: "num" },
-  { key: "pay", sortable: true, label: "Pay", group: "Money", accentBand: true, align: "num" },
-  { key: "perMile", sortable: true, label: "$/mi", group: "Money", accentBand: true, align: "num" },
-  { key: "floor", sortable: true, label: "Floor", group: "Money", accentBand: true, align: "num" },
-  { key: "verdict", label: "Verdict", group: "Money", accentBand: true },
-  { key: "driver", sortable: true, label: "Driver", group: "Dispatch", priority: 3 },
-  { key: "assignment", label: "Answer", group: "Dispatch", priority: 3 }
+  { key: "load", sortable: true, label: "Load", sticky: true, width: 112, max: 180 },
+  { key: "status", label: "Status", sticky: true, width: 138 },
+  { key: "customer", label: "Customer", max: 140, priority: 2 },
+  { key: "lane", sortable: true, label: "Lane" },
+  { key: "pickup", sortable: true, label: "Pickup", priority: 2 },
+  { key: "driver", sortable: true, label: "Driver", max: 160, priority: 2 },
+  { key: "truck", label: "Truck", priority: 3 },
+  { key: "assignment", label: "Answer", priority: 3 },
+  { key: "miles", sortable: true, label: "Miles", align: "num", priority: 2 },
+  { key: "pay", sortable: true, label: "Pay", align: "num" },
+  { key: "verdict", label: "Verdict" },
+  { key: "perMile", sortable: true, label: "$/mi", align: "num" },
+  { key: "floor", sortable: true, label: "Floor", align: "num" }
 ];
 
 const HISTORY_COLUMNS: Column[] = [
-  { key: "load", label: "Load", group: "Load", sticky: true, width: 150 },
-  { key: "status", label: "Status", group: "Load", sticky: true, width: 150 },
-  { key: "lane", label: "Lane", group: "Route" },
-  { key: "done", label: "Date", group: "Route" },
-  { key: "truck", label: "Truck", group: "Route" },
-  { key: "driver", label: "Driver", group: "Route" },
-  { key: "pay", label: "Pay", group: "Money", accentBand: true, align: "num" },
-  { key: "perMile", label: "$/mi", group: "Money", accentBand: true, align: "num" },
-  { key: "net", label: "Net pay", group: "Money", accentBand: true, align: "num" },
-  { key: "profit", label: "Profit/mi", group: "Money", accentBand: true, align: "num" },
-  { key: "rph", label: "$/hr", group: "Money", accentBand: true, align: "num" },
-  { key: "money", label: "Where the money is", group: "Money", accentBand: true }
+  { key: "load", label: "Load", sticky: true, width: 130, max: 170 },
+  { key: "status", label: "Status", width: 112 },
+  { key: "lane", label: "Lane", max: 190 },
+  { key: "done", label: "Date", priority: 2 },
+  { key: "truck", label: "Truck", priority: 3 },
+  { key: "driver", label: "Driver", max: 130, priority: 2 },
+  { key: "pay", label: "Pay", align: "num" },
+  { key: "perMile", label: "$/mi", align: "num", priority: 2 },
+  { key: "net", label: "Net pay", align: "num", priority: 2 },
+  { key: "profit", label: "Profit/mi", align: "num" },
+  { key: "rph", label: "$/hr", align: "num", priority: 2 },
+  { key: "money", label: "Where the money is", max: 220 }
 ];
 
 const DELETED_COLUMNS: Column[] = [
-  { key: "load", label: "Load", group: "Load", sticky: true, width: 150 },
-  { key: "lane", label: "Lane", group: "Load" },
-  { key: "status", label: "Was", group: "Load" },
-  { key: "deleted", label: "Deleted", group: "Load" },
-  { key: "why", label: "Why", group: "Load" },
-  { key: "restore", label: "", group: "Load" }
+  { key: "load", label: "Load", sticky: true, width: 150 },
+  { key: "lane", label: "Lane", max: 220 },
+  { key: "status", label: "Was" },
+  { key: "deleted", label: "Deleted" },
+  { key: "why", label: "Why", max: 260 },
+  { key: "restore", label: "" }
 ];
 
 type Params = { view?: string; status?: string; flag?: string; q?: string; filter?: string; sort?: string; page?: string };
@@ -136,6 +141,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   );
   const views = (
     <Tabs
+      view
       label="View"
       active={view}
       hrefFor={viewHref}
@@ -181,10 +187,8 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
     return (
       <>
         {head}
-        <DataTableTools tableId="loads-deleted" total={gone.length} placeholder="Search deleted loads…">
-          {views}
-        </DataTableTools>
-        <p className="tl-note" style={{ margin: "0 0 12px" }}>Deleted loads are hidden, not erased: their record and audit trail stay. Restoring one checks that its number, truck and driver are still free.</p>
+        <DataTableTools tableId="loads-deleted" total={gone.length} placeholder="Search deleted loads…" views={views} />
+        <p className="tl-note t-lede">Deleted loads are hidden, not erased: their record and audit trail stay. Restoring one checks that its number, truck and driver are still free.</p>
         <DataTable
           id="loads-deleted"
           label="Deleted loads"
@@ -230,13 +234,14 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
           load: (
             <>
               <Link href={`/loads/${r.id}`}>{r.loadNumber ?? "—"}</Link>
-              <span className="sub">{r.brokerName}</span>
+              <span className="sub" title={r.brokerName ?? undefined}>{r.brokerName}</span>
             </>
           ),
           status: <StatusChip status={r.status} />,
           lane: (
             <>
               {r.origin} → {r.destination}
+              <span className="sub fold-2">{[shortDate(done), r.driverName].filter(Boolean).join(" · ")}</span>
             </>
           ),
           done: shortDate(done),
@@ -255,9 +260,9 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
                 const m = moneyState({ paymentStatus: r.paymentStatus, billed: r.invoicedAmount ?? r.grossRevenue, received: r.paidAmount, writeOffAmount: r.writeOffAmount, writeOffReason: r.writeOffReason, overdueDays: pastDue ? daysPastDue(r.invoicedAt, r.payTermsDays) : null });
                 return (
                   <>
-                    <span className={`tl-chip ${m.tone}`}>{m.label}</span>
+                    <span className={`tl-chip say ${m.tone}`}>{m.label}</span>
                     {r.paymentStatus ? (
-                      <span className="sub">
+                      <span className="sub" title={m.detail ?? undefined}>
                         {r.invoiceNumber} · {r.paymentStatus === "paid" ? shortDate(r.paidAt) : `sent ${shortDate(r.invoicedAt)}`}
                         {m.detail ? ` · ${m.detail}` : ""}
                         {r.status === "tonu" ? " · TONU" : ""}
@@ -274,10 +279,9 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
     return (
       <>
         {head}
-        <DataTableTools tableId="loads-history" total={hist.total} placeholder="Search load, PO, invoice, customer, MC, city, driver…">
-          {views}
+        <DataTableTools tableId="loads-history" total={hist.total} placeholder="Search load, PO, customer, city, driver…" views={views}>
           <Tabs label="Filter" active={filter} hrefFor={(k) => hrefFor({ filter: k })} items={HISTORY_FILTERS.map((f) => ({ ...f, count: counts[f.key] }))} />
-          <span className="tl-sub" style={{ alignSelf: "center" }}>
+          <span className="tl-sub">
             Sort by
           </span>
           <Tabs label="Sort" active={sort} hrefFor={(k) => hrefFor({ sort: k })} items={HISTORY_SORTS.map((s) => ({ key: s.key, label: s.label }))} />
@@ -288,7 +292,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
           ) : null}
         </DataTableTools>
         {record ? (
-          <p className="tl-note" style={{ margin: "0 0 12px" }}>
+          <p className="tl-note t-lede">
             <b>{record.broker}</b>: {record.loads} {record.loads === 1 ? "load" : "loads"} finished, {record.invoices} invoiced, {record.paid} paid
             {record.averageDaysToPay != null ? ` in ${record.averageDaysToPay.toFixed(1)} days on average` : ""}
             {record.shortPaid > 0 ? `, ${record.shortPaid} paid short` : ""}
@@ -303,7 +307,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
             const month = hist.months[g.key];
             return (
               <section key={g.key} style={{ marginTop: 18 }}>
-                <h2 style={{ fontFamily: "var(--db-font-sans)", fontSize: "var(--db-text-xs)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--db-fg-dim)", fontWeight: 700, margin: "0 0 10px" }}>
+                <h2 className="t-sec">
                   {g.label} · {month ? month.loads : g.rows.length} {(month ? month.loads : g.rows.length) === 1 ? "load" : "loads"}
                   {month && month.loads > g.rows.length ? ` (${g.rows.length} on this page)` : ""}
                   {month && month.earned > 0 ? ` · ${usd(month.earned)} earned` : ""}
@@ -366,15 +370,12 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
           <>
             <Link href={`/loads/${r.id}`}>{r.loadNumber ?? "—"}</Link>
             <AlertDot alerts={byLoad.get(r.id)?.filter((a) => a.code !== "BELOW_COST_UNASSIGNED")} />
-            <span className="sub">
-              {r.brokerName}
-              <span className="fold-only">{`${r.driverName ?? "no driver"}${r.vehicleName ? ` · ${r.vehicleName}` : ""}`}</span>
-            </span>
+            <span className="sub fold-2">{[r.brokerName, r.driverName ?? "no driver", miles(r.totalMiles)].filter(Boolean).join(" · ")}</span>
           </>
         ),
         status: (
           <>
-            <StatusChip status={r.status} />
+            {r.status === "draft" && r.assignmentStatus ? <AssignmentChip status={r.assignmentStatus} /> : <StatusChip status={r.status} />}
             {r.status !== "in_progress" && r.pickupClosesAt && r.pickupClosesAt.getTime() < now ? (
               <span className="t-sq" data-tone="bad" role="img" title="Pickup passed: the pickup window has closed and the load has not been picked up" aria-label="Pickup passed" />
             ) : null}
@@ -383,17 +384,24 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
         lane: (
           <>
             {r.origin} → {r.destination}
+            <span className="sub fold-2">{r.pickupAt ? dockTime(r.pickupAt, r.pickupZone) : shortDate(r.scheduledDate)}</span>
           </>
         ),
-        // The appointment where the dock is, with the carrier's clock beside it when the two differ (the same rule as the load drawer); a load with no appointment time shows its day.
-        pickup: r.pickupAt ? stopTime(r.pickupAt, r.pickupZone) : shortDate(r.scheduledDate),
+        // The appointment on the dock's clock; the carrier's, when the two differ, is in the title (and beside it in the load drawer). A load with no appointment time shows its day.
+        pickup: r.pickupAt ? <span title={stopTime(r.pickupAt, r.pickupZone)}>{dockTime(r.pickupAt, r.pickupZone)}</span> : shortDate(r.scheduledDate),
+        customer: r.brokerName ? <span className="cut q" title={r.brokerName}>{r.brokerName}</span> : <span className="dim">—</span>,
         truck: r.vehicleName ?? "—",
-        miles: miles(r.totalMiles),
+        miles: <span className="q">{miles(r.totalMiles)}</span>,
         pay: usd(r.grossRevenue),
         perMile: perMile(r.perMile),
         floor: <span className="dim">{perMile(r.floorPerMile)}</span>,
         verdict: <VerdictChip verdict={r.verdict} />,
-        driver: r.driverName ?? <span className="dim">—</span>,
+        driver: (
+          <span className="cut" title={[r.driverName ?? "No driver", r.vehicleName, r.assignmentStatus ? ASSIGNMENT_STATUS[r.assignmentStatus]?.label : null].filter(Boolean).join(" · ")}>
+            {r.driverName ?? <span className="dim">No driver</span>}
+            {r.vehicleName ? <span className="fold-only q">{r.vehicleName}</span> : null}
+          </span>
+        ),
         assignment: r.assignmentStatus ? <AssignmentChip status={r.assignmentStatus} /> : <span className="dim">—</span>
       }
     };
@@ -402,11 +410,10 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   return (
     <>
       {head}
-      <DataTableTools tableId="loads-table" total={shown.length} placeholder="Search load, PO, customer, MC, city, driver…" server={{ path: "/loads", q, keep: { ...(active !== "all" ? { status: active } : {}), ...(below ? { flag: "below" } : {}), ...(searchParams?.sort ? { sort: searchParams.sort } : {}) } }}>
-        {views}
+      <DataTableTools tableId="loads-table" total={shown.length} placeholder="Search load, PO, customer, city, driver…" views={views} server={{ path: "/loads", q, keep: { ...(active !== "all" ? { status: active } : {}), ...(below ? { flag: "below" } : {}), ...(searchParams?.sort ? { sort: searchParams.sort } : {}) } }}>
         <Tabs active={active} hrefFor={(k) => href(k, below)} items={OPEN_FILTERS.map((f) => ({ ...f, count: counts(f.key) }))} />
         <Link href={href(active, !below)} className="tl-tab" aria-current={below ? "true" : undefined}>
-          Below cost · {belowCount}
+          Below cost<em>{belowCount}</em>
         </Link>
         {q ? (
           <Link href={href(active, below, "")} className="tl-tab" aria-current="true" title="Clear this filter">
@@ -419,6 +426,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
         label="Loads"
         columns={COLUMNS}
         rows={rows}
+        foldNote={false}
         sortHref={sortHref}
         empty={<EmptyState icon="loads" title="No open loads match">Another status, or clear the search.</EmptyState>}
       />

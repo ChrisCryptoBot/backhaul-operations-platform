@@ -15,12 +15,12 @@ import { DateInput } from "@/components/desk/date-input";
 export const metadata = { title: "Audit log · TrueLane" };
 
 const COLUMNS: Column[] = [
-  { key: "when", label: "When", sticky: true, width: 170 },
-  { key: "load", label: "Load" },
-  { key: "what", label: "What" },
-  { key: "summary", label: "Detail" },
-  { key: "reason", label: "Reason" },
-  { key: "by", label: "By" },
+  { key: "when", label: "When", sticky: true, width: 160 },
+  { key: "load", label: "Load", max: 120, priority: 2 },
+  { key: "what", label: "What", max: 170 },
+  { key: "summary", label: "Detail", max: 330 },
+  { key: "reason", label: "Reason", max: 170, priority: 2 },
+  { key: "by", label: "By", max: 110, priority: 2 },
   { key: "more", label: "", align: "num" }
 ];
 
@@ -52,11 +52,16 @@ export default async function AuditPage({ searchParams }: { searchParams?: { q?:
   const rows: Row[] = events.map((e) => ({
     id: e.id,
     cells: {
-      when: dateTime(e.createdAt),
+      when: (
+        <>
+          {dateTime(e.createdAt)}
+          <span className="sub fold-2">{[e.loadNumber, e.actor].filter(Boolean).join(" · ")}</span>
+        </>
+      ),
       load: e.loadId && e.loadNumber ? <Link href={`/loads/${e.loadId}`}>{e.loadNumber}</Link> : <span className="dim">{e.loadNumber ?? "—"}</span>,
-      what: <span className={`tl-chip ${ACTION_TONE[e.action] ?? "muted"}`}>{ACTION_LABEL[e.action] ?? e.action}</span>,
-      summary: e.summary,
-      reason: e.reason ? <>“{e.reason}”</> : <span className="dim">—</span>,
+      what: <span className={`tl-chip say ${ACTION_TONE[e.action] ?? "muted"}`}>{ACTION_LABEL[e.action] ?? e.action}</span>,
+      summary: <span className="cut" title={e.summary ?? undefined}>{e.summary}</span>,
+      reason: e.reason ? <span className="cut" title={e.reason}>“{e.reason}”</span> : <span className="dim">—</span>,
       by: e.actor,
       more:
         e.before || e.after ? (
@@ -72,7 +77,7 @@ export default async function AuditPage({ searchParams }: { searchParams?: { q?:
     <>
       <PageHead title="Audit log" sub="Every assignment, send, answer, invoice and payment, with who did it and why. Events are only ever added. Days are Dallas days." />
       <Tabs active={group || "all"} hrefFor={(k) => href({ group: k === "all" ? "" : k })} items={[{ key: "all", label: "All" }, ...AUDIT_GROUPS.map((g) => ({ key: g.key, label: g.label }))]} label="Area" />
-      <div className="dt-toolbar" style={{ margin: "12px 0" }}>
+      <div className="dt-toolbar">
         <LiveForm path="/audit" label="Filter the audit log" className="audit-filters">
           <input type="search" name="q" defaultValue={q} placeholder="Search load, detail or reason…" aria-label="Search the audit log" autoComplete="off" className="audit-q" />
           {group ? <input type="hidden" name="group" value={group} /> : null}

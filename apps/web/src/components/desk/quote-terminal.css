@@ -24,40 +24,6 @@
   flex-wrap: wrap;
 }
 
-.qt-cmd-tabs {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.qt-cmd-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: var(--db-r-field);
-  font-family: var(--db-font-head);
-  font-size: var(--db-text-sm);
-  font-weight: 600;
-  color: var(--db-fg-dim);
-  background: transparent;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.qt-cmd-tab:hover {
-  color: var(--db-fg);
-  background: var(--db-bg-elev-2);
-}
-
-.qt-cmd-tab[aria-selected="true"] {
-  color: var(--db-fg);
-  background: var(--db-bg-card);
-  border-color: var(--db-border-strong);
-  box-shadow: var(--db-shadow-sm, 0 1px 2px rgba(0,0,0,0.05));
-}
-
 .qt-cmd-actions {
   display: flex;
   align-items: center;
@@ -287,20 +253,6 @@
   display: flex;
   padding-left: 96px;
   margin: calc(var(--db-1) * -1) 0;
-}
-
-/* A truck's hours left on the clock, with the deficit tag beside it when the load needs more than the truck has. A line of its own, so it
-   never runs into the driver line above it (the .sub spans carry no layout rule inside this table). */
-.qt-hos-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--db-1) var(--db-2);
-}
-
-.qt-hos-line .tl-chip {
-  font-size: 11px;
-  letter-spacing: 0.06em;
 }
 
 /* ── Counter-Offer Negotiation Bar ─────────────────────────────────────────── */

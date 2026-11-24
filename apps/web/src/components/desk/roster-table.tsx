@@ -46,7 +46,8 @@ function toWeek(edit: WeekEdit): { ok: true; week: Array<Shift | null> } | { ok:
   return { ok: true, week };
 }
 
-const dayCell = (s: Shift | null | undefined) => (s ? shiftText(s) : "Off");
+/** "06:00–18:00"; how many hours that is, is in the title. */
+const dayCell = (s: Shift | null | undefined) => (s ? <span title={shiftText(s)}>{shiftText(s).replace(/ \(.*\)$/, "")}</span> : "Off");
 
 function Conflicts({ items, onAnyway, busy }: { items: ConflictView[]; onAnyway: () => void; busy: boolean }) {
   return (
@@ -379,8 +380,8 @@ export function RosterTable({ rows, terminals, canEdit }: { rows: RosterRow[]; t
   return (
     <>
       {canEdit && ticked.length > 0 ? <BulkBar ids={ticked} terminals={terminals} clear={() => setTicked([])} /> : null}
-      <div className="pl-wrap">
-        <table className="dt" aria-label="Driver shifts">
+      <div className="dt-wrap">
+        <table className="dt roster" aria-label="Driver shifts">
           <thead>
             <tr>
               {canEdit ? (
@@ -393,15 +394,14 @@ export function RosterTable({ rows, terminals, canEdit }: { rows: RosterRow[]; t
                   />
                 </th>
               ) : null}
-              <th scope="col">Code</th>
               <th scope="col">Driver</th>
-              <th scope="col">Home</th>
+              <th scope="col" data-pr="2">Home</th>
               {DAYS.map((d) => (
                 <th scope="col" key={d}>
                   {d}
                 </th>
               ))}
-              <th scope="col">Time off</th>
+              <th scope="col" data-pr="2">Time off</th>
               <th scope="col" />
             </tr>
           </thead>
@@ -413,16 +413,21 @@ export function RosterTable({ rows, terminals, canEdit }: { rows: RosterRow[]; t
                     <input type="checkbox" aria-label={`Tick ${r.name}`} checked={ticked.includes(r.driverId)} onChange={() => toggle(r.driverId)} />
                   </td>
                 ) : null}
-                <td>{r.code ? <i className="pl-code">{r.code}</i> : <span className="dim">{"—"}</span>}</td>
-                <td>{r.name}</td>
-                <td>{r.terminal ?? <span className="dim">{"—"}</span>}</td>
+                <td>
+                  <button type="button" className="t-linkbtn" onClick={() => setOpen(r.driverId)}>
+                    {r.name}
+                  </button>
+                  {r.code ? <i className="pl-code">{r.code}</i> : null}
+                  <span className="sub fold-2">{[r.terminal, r.timeOff.length > 0 ? `${r.timeOff.length} off` : null].filter(Boolean).join(" · ")}</span>
+                </td>
+                <td data-pr="2">{r.terminal ?? <span className="dim">{"—"}</span>}</td>
                 {DAYS.map((d, i) => (
                   <td key={d} className={r.week && !r.week[i] ? "dim" : undefined}>
-                    {r.week ? dayCell(r.week[i]) : <span className="dim">not set</span>}
+                    {r.week ? dayCell(r.week[i]) : <span className="dim">No shift</span>}
                   </td>
                 ))}
-                <td>{r.timeOff.length > 0 ? r.timeOff.length : <span className="dim">{"—"}</span>}</td>
-                <td>
+                <td data-pr="2">{r.timeOff.length > 0 ? r.timeOff.length : <span className="dim">{"—"}</span>}</td>
+                <td data-col="act">
                   <button type="button" className="tl-btn ghost sm" onClick={() => setOpen(r.driverId)}>
                     {canEdit ? "Edit" : "View"}
                   </button>

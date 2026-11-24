@@ -61,6 +61,15 @@ export const TOWN_MAX_MILES = 60;
 /** A fix older than this is called out as possibly moved. */
 export const STALE_MINUTES = 90;
 
+/** Minutes since a position was read, and whether it is too old to be spoken of as now (the unit may have moved since). */
+export function fixAge(at: Date | string | number | null | undefined, now: number): { minutes: number; old: boolean } | null {
+  if (at == null) return null;
+  const ms = at instanceof Date ? at.getTime() : typeof at === "number" ? at : Date.parse(at);
+  if (!Number.isFinite(ms)) return null;
+  const minutes = Math.max(0, Math.floor((now - ms) / 60_000));
+  return { minutes, old: minutes > STALE_MINUTES };
+}
+
 /** "62 MPH". */
 export const mphText = (mph: number): string => `${Math.round(mph)} MPH`;
 

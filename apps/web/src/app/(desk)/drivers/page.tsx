@@ -11,7 +11,8 @@ import { AddDriver, DriverRowActions, type DriverRow } from "@/components/desk/f
 import { unitUse } from "@/server/tl/plan";
 import { EmptyState } from "@/components/desk/kit/states";
 import { ymdOf } from "@/lib/fleet-forms";
-import { payLabel, shortDate } from "@/lib/desk-format";
+import { ASSIGNMENT_STATUS, payLabel, shortDate } from "@/lib/desk-format";
+import { papersCell } from "@/lib/papers";
 import { currentTerminal } from "@/server/tl/terminal";
 import { partnerState } from "@/server/partners/call";
 import { vetLabel } from "@/server/partners/vetting";
@@ -21,20 +22,25 @@ import { CarrierStatus } from "@/components/desk/carrier-status";
 
 export const metadata = { title: "Drivers · TrueLane" };
 
+/** Who, how to reach them, what they drive and are paid, whether their papers hold, and what they are on. Each paper has its own column behind "Show all columns". */
 const COLUMNS: Column[] = [
-  { key: "code", label: "Code", group: "Driver", width: 80 },
-  { key: "driver", sortable: true, label: "Driver", group: "Driver", sticky: true, width: 220 },
-  { key: "truck", sortable: true, label: "Truck", group: "Driver" },
-  { key: "terminal", label: "Terminal", group: "Driver" },
-  { key: "pay", label: "Usual pay", group: "Driver", align: "num" },
-  { key: "cdl", label: "CDL", group: "Compliance" },
-  { key: "medical", label: "Medical card", group: "Compliance" },
-  { key: "clearance", label: "Clearance", group: "Compliance" },
-  { key: "carrier", label: "Carrier insurance", group: "Compliance" },
-  { key: "now", label: "On now", group: "Work" },
-  { key: "delivered", label: "Delivered", group: "Work", align: "num" },
-  { key: "act", label: "", group: "" }
+  { key: "driver", sortable: true, label: "Driver", sticky: true, width: 190 },
+  { key: "phone", label: "Phone", priority: 2 },
+  { key: "truck", sortable: true, label: "Truck" },
+  { key: "terminal", label: "Terminal", max: 130, priority: 2 },
+  { key: "pay", label: "Usual pay", align: "num" },
+  { key: "papers", label: "Papers", max: 190 },
+  { key: "now", label: "On now", max: 220 },
+  { key: "delivered", label: "Delivered", align: "num", priority: 2 },
+  { key: "cdl", label: "CDL", priority: 3 },
+  { key: "medical", label: "Medical card", priority: 3 },
+  { key: "clearance", label: "Clearance", priority: 3 },
+  { key: "carrier", label: "Carrier insurance", priority: 3 },
+  { key: "act", label: "" }
 ];
+
+/** Furthest along first: what they are on now before what they have said yes to, before what is waiting on them. */
+const NOW_ORDER = ["in_progress", "accepted", "dispatched", "draft"];
 
 export default async function DriversPage({ searchParams }: { searchParams?: { q?: string; sort?: string; page?: string } }) {
   const terminal = await currentTerminal();
@@ -51,6 +57,7 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
     return s ? `/drivers?${s}` : "/drivers";
   };
   const sortHref: SortHref = (key) => ({ href: href({ sort: nextSortParam(sortParam, key) }), dir: sortParam?.key === key ? (sortParam.dir === "asc" ? "asc" : "desc") : "none" });
+  const now = new Date();
   const rows: Row[] = drivers.map((d) => {
     const row: DriverRow = {
       id: d.id,
@@ -74,17 +81,27 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
       onLoads: d.openLoadNumbers.length,
       onLoadNumbers: d.openLoadNumbers
     };
+    const papers = papersCell([{ name: "CDL", expires: d.cdlExpiry }, { name: "Medical", expires: d.medicalCardExpiry }], now);
+    const current = [...d.current].sort((x, y) => NOW_ORDER.indexOf(x.status) - NOW_ORDER.indexOf(y.status));
     return {
       id: d.id,
+      href: `/drivers/${d.id}`,
       flag: d.active && d.blocker ? "bad" : undefined,
       search: [d.name, d.code, d.phone, d.truck].filter(Boolean).join(" "),
       cells: {
-        code: d.code ? <i className="pl-code">{d.code}</i> : <span className="dim">—</span>,
         driver: (
           <>
-            <Link href={`/drivers/${d.id}`}><b>{d.name}</b></Link>
-            {d.active ? <span className="sub">{d.phone}</span> : <span className="sub"><span className="tl-chip muted">Out of service</span></span>}
+            <Link href={`/drivers/${d.id}`}>{d.name}</Link>
+            {d.code ? <i className="pl-code">{d.code}</i> : null}
+            {d.active ? null : <span className="tl-chip muted">Out</span>}
+            <span className="sub fold-2">{[d.phone, d.terminal].filter(Boolean).join(" · ") || "No phone on file"}</span>
           </>
+        ),
+        phone: d.phone ?? <span className="dim">Not on file</span>,
+        papers: (
+          <span className="t-st say" data-tone={d.active && d.blocker ? "bad" : papers.tone === "muted" ? undefined : papers.tone} title={papers.title}>
+            {d.active && d.blocker ? d.blocker : papers.text}
+          </span>
         ),
         truck: d.truck ?? "—",
         terminal: d.terminal ?? <span className="dim">—</span>,
@@ -102,23 +119,22 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
             <span className="dim">—</span>
           ),
         pay: payLabel(d.payKind, d.payRate),
-        cdl: <>Class {d.cdlClass ?? "?"} · to {shortDate(d.cdlExpiry)}</>,
-        medical: <>to {shortDate(d.medicalCardExpiry)}</>,
+        cdl: d.cdlClass || d.cdlExpiry ? [d.cdlClass ? `Class ${d.cdlClass}` : null, d.cdlExpiry ? `to ${shortDate(d.cdlExpiry)}` : "no date"].filter(Boolean).join(" · ") : <span className="dim">Not on file</span>,
+        medical: d.medicalCardExpiry ? `to ${shortDate(d.medicalCardExpiry)}` : <span className="dim">Not on file</span>,
         clearance: !d.active ? <span className="dim">—</span> : d.blocker ? <span className="tl-chip bad">{d.blocker}</span> : <span className="dim">—</span>,
-        now:
-          d.current.length === 0 ? (
-            <span className="dim">—</span>
-          ) : (
-            d.current.map((c) => (
-              <div key={c.loadId}>
-                <Link href={`/loads/${c.loadId}`}>{c.loadNumber}</Link> <AssignmentChip status={c.status} />
-              </div>
-            ))
-          ),
+        // One line: the load they are furthest into, and how many more. All of them are in the title and on the driver's page.
+        now: current.length === 0 ? (
+          <span className="dim">—</span>
+        ) : (
+          <span title={current.map((c) => `${c.loadNumber ?? "A load"}: ${ASSIGNMENT_STATUS[c.status]?.label ?? c.status}`).join(" · ")}>
+            <Link href={`/loads/${current[0]!.loadId}`}>{current[0]!.loadNumber}</Link> <AssignmentChip status={current[0]!.status} />
+            {current.length > 1 ? <em className="more">+{current.length - 1}</em> : null}
+          </span>
+        ),
         delivered: d.delivered,
         act: (
           <CanGate caps={["dispatch"]}>
-            <DriverRowActions driver={row} />
+            <DriverRowActions driver={row} list />
           </CanGate>
         )
       }

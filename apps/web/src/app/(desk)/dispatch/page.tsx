@@ -7,11 +7,10 @@ import { getAlerts } from "@/server/tl/alerts";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { checkAccess } from "@/server/tl/access";
 import { topLevel, type Alert } from "@/lib/alerts";
-import { Card, PageHead, VerdictChip } from "@/components/desk/ui";
-import { AlertList } from "@/components/desk/alert-bits";
+import { Card, PageHead, RowLink, VerdictChip } from "@/components/desk/ui";
 import { AssignButton } from "@/components/desk/assign-modal";
 import { EmptyState } from "@/components/desk/kit/states";
-import { miles, shortDate, stopTime, usd } from "@/lib/desk-format";
+import { dockTime, miles, shortDate, stopTime, usd } from "@/lib/desk-format";
 import { recalledLoads, type RecalledLoad } from "@/server/tl/assignment-events";
 import { RECALL_LABELS, recallDeliveryText } from "@/lib/recall-reasons";
 import { openHandoffs, type OpenHandoff } from "@/server/tl/relay";
@@ -31,20 +30,24 @@ function Signal({ r, alerts }: { r: BoardRow; alerts: Alert[] | undefined }) {
   return null;
 }
 
+/** One load in a column: which and for how much, where and when, the one thing to know about it, and the one thing to do. The whole row opens the load; the button does the next step without opening it. */
 function Row({ r, alerts, assign, recall }: { r: BoardRow; alerts: Alert[] | undefined; assign?: boolean; recall?: RecalledLoad }) {
   return (
-    <li className="dq-row">
+    <li className="dq-row row-open">
       <div className="dq-top">
-        <Link href={`/loads/${r.id}`}>
-          {r.loadNumber} <span className="dq-rate">{usd(r.grossRevenue)}</span>
-        </Link>
-        <span className="tl-sub">{r.pickupAt ? stopTime(r.pickupAt, r.pickupZone) : shortDate(r.scheduledDate)}</span>
+        <span>
+          <RowLink href={`/loads/${r.id}`}>{r.loadNumber ?? "Load"}</RowLink> <span className="dq-rate">{usd(r.grossRevenue)}</span>
+        </span>
+        <span className="tl-sub" title={r.pickupAt ? stopTime(r.pickupAt, r.pickupZone) : undefined}>{r.pickupAt ? dockTime(r.pickupAt, r.pickupZone) : shortDate(r.scheduledDate)}</span>
       </div>
-      <div className="tl-sub">
-        {r.origin} → {r.destination} · {miles(r.totalMiles)}
+      <div className="dq-lane">
+        <span className="cut">
+          {r.origin} → {r.destination} · {miles(r.totalMiles)}
+        </span>
+        {r.driverName ? <span>{r.driverName}</span> : null}
       </div>
       {recall ? (
-        <div className="tl-sub" style={{ marginTop: 4 }}>
+        <div className="tl-sub">
           <span className="dq-sig warn">Recalled{recall.code ? ` · ${RECALL_LABELS[recall.code]}` : ""}{recall.driverName ? ` · was ${recall.driverName}` : ""}</span>
           <div>{recallDeliveryText(recall.delivery)}</div>
           {recall.note ? <div>“{recall.note}”</div> : null}
@@ -53,9 +56,8 @@ function Row({ r, alerts, assign, recall }: { r: BoardRow; alerts: Alert[] | und
       <div className="dq-foot">
         <span className="dq-who">
           <Signal r={r} alerts={alerts} />
-          {r.driverName ? <span className="tl-sub">{r.driverName}</span> : null}
         </span>
-        {assign ? <AssignButton loadId={r.id} loadNumber={r.loadNumber ?? "This load"} label={r.driverName ? "Change driver" : "Assign"} /> : null}
+        {assign ? <AssignButton loadId={r.id} loadNumber={r.loadNumber ?? "This load"} label={r.driverName ? "Change driver" : "Assign"} /> : <span className="row-go" aria-hidden="true">›</span>}
       </div>
     </li>
   );
@@ -65,9 +67,9 @@ function Row({ r, alerts, assign, recall }: { r: BoardRow; alerts: Alert[] | und
 function HandoffRow({ h, may }: { h: OpenHandoff; may: boolean }) {
   const level = handoffLevel(h, new Date());
   return (
-    <li className="dq-row">
+    <li className="dq-row row-open">
       <div className="dq-top">
-        <Link href={`/loads/${h.load.id}`}>{h.load.loadNumber ?? "Load"}</Link>
+        <RowLink href={`/loads/${h.load.id}`}>{h.load.loadNumber ?? "Load"}</RowLink>
         <span className="tl-sub">{waitWords(h.waitedMinutes)} waiting</span>
       </div>
       <div className="tl-sub">{h.badge}</div>
@@ -101,7 +103,12 @@ export default async function DispatchPage({ searchParams }: { searchParams?: { 
   const sent = rows.filter((r) => r.assignmentStatus === "dispatched").sort(soonest);
   const inYard = new Set(waiting.map((h) => h.loadId));
   const road = rows.filter((r) => r.status === "accepted" || r.status === "in_progress").filter((r) => r.assignmentStatus !== "dispatched" && !inYard.has(r.id)).sort(soonest);
-  const urgent = alerts.filter((a) => a.level !== "info");
+  // The alerts are said once, on the Alerts page and on each load below; here they are a count and a way in, so the three columns are what is on screen.
+  const blocks = alerts.filter((a) => a.level === "block");
+  const warns = alerts.filter((a) => a.level === "warn");
+  const unsent = blocks.filter((a) => a.code === "PICKUP_NO_DRIVER").length;
+  const clashes = blocks.filter((a) => a.code === "DOUBLE_BOOKED" || a.code === "TRUCK_DOUBLE_BOOKED").length;
+  const other = blocks.length - unsent - clashes;
   const shownOf = (param: string | undefined) => Math.max(COLUMN_STEP, Math.min(Number.parseInt(param ?? "", 10) || COLUMN_STEP, 5_000));
   const limits = { needs: shownOf(searchParams?.needs), sent: shownOf(searchParams?.sent), road: shownOf(searchParams?.road) };
   const moreHref = (column: keyof typeof limits) => {
@@ -119,18 +126,25 @@ export default async function DispatchPage({ searchParams }: { searchParams?: { 
   return (
     <>
       <PageHead title="Dispatch queue" sub="What needs a driver, what is waiting on an answer, and what is moving. Soonest pickup first.">
-        <Link href="/quote" className="tl-btn">Price an offer</Link>
+        <Link href="/quote" className="tl-btn ghost">Price an offer</Link>
       </PageHead>
 
-      {urgent.length > 0 ? (
-        <Card title={`Needs attention · ${urgent.length}`} className="tl-card">
-          <AlertList alerts={urgent.slice(0, 5)} withLoad />
-          {urgent.length > 5 ? (
-            <p className="tl-note" style={{ marginTop: 10 }}>
-              <Link href="/alerts">See all {urgent.length} alerts</Link>
-            </p>
-          ) : null}
-        </Card>
+      {blocks.length + warns.length > 0 ? (
+        <p className="dq-strip row-open" data-level={blocks.length > 0 ? "block" : "warn"} role="status">
+          <b>{blocks.length > 0 ? `${blocks.length} to fix before they go out` : `${warns.length} to look at soon`}</b>
+          <span>
+            {[
+              unsent > 0 ? `${unsent} ${unsent === 1 ? "pickup" : "pickups"} with no driver sent` : null,
+              clashes > 0 ? `${clashes} on overlapping loads` : null,
+              other > 0 ? `${other} other` : null,
+              blocks.length > 0 && warns.length > 0 ? `${warns.length} more to look at soon` : null
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+          <RowLink href={blocks.length > 0 ? "/alerts?level=block" : "/alerts?level=warn"}>See them in Alerts</RowLink>
+          <i className="row-go" aria-hidden="true">›</i>
+        </p>
       ) : null}
 
       {waiting.length > 0 ? (
@@ -143,7 +157,7 @@ export default async function DispatchPage({ searchParams }: { searchParams?: { 
         </Card>
       ) : null}
 
-      <div className="tl-cols" style={{ marginTop: urgent.length > 0 || waiting.length > 0 ? 16 : 0 }}>
+      <div className="tl-cols dq-cols">
         <Card title={`Needs a driver · ${needs.length}`}>
           {needs.length === 0 ? (
             <EmptyState icon="check" title="Nothing waiting">Every load has a driver.</EmptyState>

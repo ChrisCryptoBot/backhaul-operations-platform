@@ -37,6 +37,14 @@ describe("cascade layers", () => {
       const css = strip(read(f)).trim();
       expect(css.startsWith("@layer legacy {"), f).toBe(true);
       expect(css.endsWith("}"), f).toBe(true);
+      // Wholly: the layer closes once, at the very end. (desk.css once closed it 170 lines early; the rest was unlayered and beat every layer.)
+      let depth = 0;
+      let closes = 0;
+      for (const ch of css) {
+        if (ch === "{") depth += 1;
+        else if (ch === "}" && --depth === 0) closes += 1;
+      }
+      expect([depth, closes], `${f} leaves its layer`).toEqual([0, 1]);
     }
   });
 
@@ -68,7 +76,7 @@ describe("ratchets (only ever lowered)", () => {
   const legacyCss = LEGACY.filter((f) => !f.endsWith("globals.css")).map((f) => join(SRC, f));
 
   test("inline style={{ }} in desk screens", () => {
-    expect(count(desk, /style=\{\{/g)).toBeLessThanOrEqual(601);
+    expect(count(desk, /style=\{\{/g)).toBeLessThanOrEqual(537);
   });
 
   test("non-zero border-radius written in the legacy sheets (legacy-flat.css still flattens them; remove it only when this is 0)", () => {

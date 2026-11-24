@@ -67,6 +67,8 @@ import { LoadCockpit, SplitDocViewer, DriverCabSheet } from "./load-cockpit";
 import { LoadTracker } from "./load-tracker";
 import { LoadDocuments } from "./load-documents";
 import { getLoadTracking } from "@/server/tl/load-tracking";
+import { fixAge } from "@/lib/whereabouts";
+import { lateText } from "@/lib/planner";
 import "./cockpit.css";
 
 const TONE: Record<string, "ok" | "warn" | "bad"> = { accept: "ok", caution: "warn", reject: "bad" };
@@ -1255,6 +1257,8 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   const pickupCity = originCity;
   const pickupWhen = firstStop?.timeWindowEarliest ? stopTime(firstStop.timeWindowEarliest, zoneOfStop(firstStop)) : null;
   const driverName = a?.driver.name ?? null;
+  // An old position is not "now": the line says how old it is instead of reading last week's speed as this minute's.
+  const fix = tracking.status === "tracking" ? fixAge(tracking.asOf, Date.now()) : null;
   const nextText: string | null = fellThrough
     ? null
     : load.paymentStatus === "paid"
@@ -1267,7 +1271,9 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
             : "Delivered. Next: invoice it."
           : load.status === "in_progress"
             ? tracking.status === "tracking"
-              ? tracking.headline
+              ? fix?.old
+                ? `On the road${driverName ? ` with ${driverName}` : ""}. The last position is ${lateText(fix.minutes)} old.`
+                : tracking.headline
               : `On the road${driverName ? ` with ${driverName}` : ""}.`
             : !a
               ? "Next: put a driver on it."
@@ -1278,7 +1284,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
                 : a.status === "dispatched"
                   ? `Waiting on ${a.driver.name} to accept.`
                   : `Next: pickup${pickupWhen ? ` ${pickupWhen}` : ""} at ${pickupCity}${driverName ? `, ${driverName}` : ""}.`;
-  const nextLate = load.status === "in_progress" && tracking.status === "tracking" && tracking.late;
+  const nextLate = load.status === "in_progress" && tracking.status === "tracking" && tracking.late && !fix?.old;
   const nextLine = nextText ? (
     <p className={`lv-next${nextLate ? " late" : ""}`} role="status">
       <b>{load.status === "in_progress" ? "Now" : "Next"}</b>
@@ -1362,7 +1368,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   );
   const drawerTrip = (
     <>
-      {moving ? <LoadTracker t={tracking} /> : null}
+      {moving ? <LoadTracker t={tracking} quietHead /> : null}
       {drawerStops}
       {preTrip && open ? gate(driverSec, "dispatch") : null}
       {open && !trailerOk ? gate(trailerSec, "dispatch") : null}
@@ -1440,7 +1446,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     if (!trailerOk) stillNeeds.push("a trailer");
     if (!weightOk) stillNeeds.push("weight over 45,000 lb");
   }
-  if ((open || (delivered && !load.paymentStatus)) && !refsOk) stillNeeds.push(gapsPhrase(gaps));
+  if ((open || (delivered && !load.paymentStatus)) && !refsOk) stillNeeds.push(`${gapsPhrase(gaps)} entered`);
   const drawerDeck = (
     <div className="lv-sum">
       {nextLine}

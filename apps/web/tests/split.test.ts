@@ -31,6 +31,10 @@ describe("a split keeps the first pane inside its limits", () => {
     expect(parseKept(null)).toEqual({ size: null, hidden: false });
     expect(parseKept("not json")).toEqual({ size: null, hidden: false });
     expect(parseKept('{"size":"wide","hidden":"yes"}')).toEqual({ size: null, hidden: false });
+    // A pane that starts hidden: nothing kept means hidden, and a choice either way is the choice.
+    expect(parseKept(null, true)).toEqual({ size: null, hidden: true });
+    expect(parseKept("not json", true)).toEqual({ size: null, hidden: true });
+    expect(parseKept(keptText({ size: 280, hidden: false }), true)).toEqual({ size: 280, hidden: false });
     expect(splitStorageKey("fleet-map")).toBe("tl_split_fleet-map");
   });
 });
@@ -45,6 +49,12 @@ describe("the split pane component", () => {
     expect(src).toContain("setPointerCapture");
     expect(src).toContain("onKeyDown");
     expect(src).toContain("onDoubleClick");
+  });
+  it("Trucks and Trailers start on their table, with the map one press away; the Radar starts on its map", () => {
+    const radar = fs.readFileSync(path.join(__dirname, "..", "src", "components", "desk", "radar-map.tsx"), "utf8").replace(/\r\n/g, "\n");
+    expect(radar).toMatch(/id="fleet-list-map"\n\s+orientation="vertical"\n\s+defaultHidden/);
+    expect(radar.match(/defaultHidden/g)).toHaveLength(1);
+    expect(src).toContain("localStorage.getItem(splitStorageKey(id)), defaultHidden)");
   });
   it("has Expand, Contract and Hide, and remembers the choice without ever throwing", () => {
     for (const w of ["Expand", "Contract", "Hide ", "Show "]) expect(src).toContain(w);

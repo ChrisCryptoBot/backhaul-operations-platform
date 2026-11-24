@@ -37,35 +37,35 @@ type Inv = Awaited<ReturnType<typeof listInvoiceRows>>[number];
 
 const DETENTION: Column[] = [
   { key: "load", label: "Load", sticky: true, width: 150 },
-  { key: "broker", label: "Customer" },
-  { key: "done", label: "Delivered" },
-  { key: "waited", label: "Waited", align: "num" },
-  { key: "billable", label: "Past free time", align: "num" },
-  { key: "status", label: "Where it stands" },
+  { key: "broker", label: "Customer", max: 170 },
+  { key: "done", label: "Delivered", priority: 2 },
+  { key: "waited", label: "Waited", align: "num", priority: 2 },
+  { key: "billable", label: "Past free time", align: "num", priority: 2 },
+  { key: "status", label: "Where it stands", max: 220 },
   { key: "amount", label: "Still owed", align: "num" },
   { key: "act", label: "", align: "num" }
 ];
 const READY: Column[] = [
   { key: "load", label: "Load", sticky: true, width: 150, sortable: true },
-  { key: "lane", label: "Lane" },
-  { key: "done", label: "Delivered", sortable: true },
+  { key: "lane", label: "Lane", max: 240 },
+  { key: "done", label: "Delivered", sortable: true, priority: 2 },
   { key: "amount", label: "Amount", align: "num", sortable: true },
   { key: "act", label: "", align: "num" }
 ];
 const OUT: Column[] = [
-  { key: "invoice", label: "Invoice", sticky: true, width: 150, sortable: true },
-  { key: "broker", label: "Customer", sortable: true },
-  { key: "sent", label: "Sent", sortable: true },
+  { key: "invoice", label: "Invoice", sticky: true, width: 150, max: 160, sortable: true },
+  { key: "broker", label: "Customer", sortable: true, max: 170 },
+  { key: "sent", label: "Sent", sortable: true, priority: 2 },
   { key: "due", label: "Due", sortable: true },
   { key: "amount", label: "Owed", align: "num", sortable: true },
   { key: "act", label: "", align: "num" }
 ];
 const PAID: Column[] = [
-  { key: "invoice", label: "Invoice", sticky: true, width: 150, sortable: true },
-  { key: "broker", label: "Customer", sortable: true },
-  { key: "sent", label: "Sent", sortable: true },
+  { key: "invoice", label: "Invoice", sticky: true, width: 150, max: 160, sortable: true },
+  { key: "broker", label: "Customer", sortable: true, max: 170 },
+  { key: "sent", label: "Sent", sortable: true, priority: 2 },
   { key: "paid", label: "Paid", sortable: true },
-  { key: "amount", label: "Received", align: "num", sortable: true }
+  { key: "amount", label: "Received", align: "num", sortable: true, max: 360 }
 ];
 
 const READY_PAGE = 25;
@@ -167,7 +167,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
         done: dayYear(r.completedAt),
         waited: spanText(r.totalWaitMinutes),
         billable: spanText(r.billableMinutes),
-        status: r.noRate ? <span className="tl-chip muted">No detention rate on this truck</span> : r.invoiced ? <span className="tl-chip warn">Left off the invoice</span> : <span className="tl-chip info">Not invoiced yet</span>,
+        status: r.noRate ? <span className="tl-chip say muted">No detention rate on this truck</span> : r.invoiced ? <span className="tl-chip say warn">Left off the invoice</span> : <span className="tl-chip info">Not invoiced yet</span>,
         amount: r.noRate ? <span className="dim">—</span> : usd(r.unbilled, 2),
         act: canBill && r.unbilled > 0 ? <WaiveDetentionButton loadId={r.loadId} loadNumber={r.loadNumber} amount={r.unbilled} /> : null
       }
@@ -218,8 +218,8 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
             <span className="sub">
               {r.loadNumber}
               {r.loadsOnInvoice > 1 ? ` · ${r.loadsOnInvoice} loads` : ""}
-              {r.imported ? <> · <span className="tl-chip muted">Imported</span></> : null}
-              {r.factoringStatus !== "none" ? <> · <span className="tl-chip info">{factoringLabel(r.factoringStatus)}</span></> : null}
+              {r.imported ? <> · <span className="tl-chip say muted">Imported</span></> : null}
+              {r.factoringStatus !== "none" ? <> · <span className="tl-chip say info">{factoringLabel(r.factoringStatus)}</span></> : null}
             </span>
           </>
         ),
@@ -267,7 +267,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
           {r.loadsOnInvoice > 1 || r.imported ? (
             <span className="sub">
               {r.loadsOnInvoice > 1 ? `${r.loadsOnInvoice} loads` : ""}
-              {r.imported ? <>{r.loadsOnInvoice > 1 ? " · " : ""}<span className="tl-chip muted">Imported</span></> : null}
+              {r.imported ? <>{r.loadsOnInvoice > 1 ? " · " : ""}<span className="tl-chip say muted">Imported</span></> : null}
             </span>
           ) : null}
         </>
@@ -280,7 +280,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
           {usd(r.paidAmount ?? r.amount, 2)}
           {(() => {
             const m = moneyState({ paymentStatus: "paid", billed: r.amount, received: r.paidAmount ?? r.amount, writeOffAmount: r.writeOffAmount, writeOffReason: r.writeOffReason });
-            return m.detail ? <span className={`sub${m.tone === "bad" ? " tone-neg" : ""}`}>{m.label}: {m.detail}</span> : null;
+            return m.detail ? <span className={`sub${m.tone === "bad" ? " tone-neg" : ""}`} title={`${m.label}: ${m.detail}`}>{m.label}: {m.detail}</span> : null;
           })()}
         </>
       )
@@ -305,7 +305,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
       </PageHead>
       {!canBill ? <ReadOnlyBanner who={whoCan("bill")} what="invoices" /> : null}
       {terminal && hiddenByTerminal > 0 ? (
-        <p className="tl-note" role="note" style={{ margin: "0 0 14px" }}>
+        <p className="tl-note t-lede" role="note">
           {hiddenByTerminal} {hiddenByTerminal === 1 ? "invoice or delivered load" : "invoices or delivered loads"} hidden by the <b>{terminal}</b> terminal filter.
         </p>
       ) : null}

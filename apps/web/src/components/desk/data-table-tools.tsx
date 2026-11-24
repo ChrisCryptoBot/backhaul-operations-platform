@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import React from "react";
 import { compareKeys, nextSort, sortKey, type SortDir, type SortKind } from "@/lib/table-sort";
-import { Icon } from "./kit/icons";
+import { SearchBox } from "./kit/search-box";
 
 
 /** The table with this id, and any table whose id continues it with "--" (a long list split into month tables shares one toolbar). */
@@ -13,7 +13,7 @@ const tablesOf = (tableId: string) => Array.from(document.querySelectorAll<HTMLE
  * The toolbar above a <DataTable>: search, the filter chips passed in as children, and a row count.
  * It also makes whole rows clickable (any row with a data-href) without making them focusable: the link in the first cell stays the one tab stop.
  */
-export function DataTableTools({ tableId, placeholder = "Search…", children, total, server }: { tableId: string; placeholder?: string; children?: React.ReactNode; total: number; server?: { path: string; q: string; keep?: Record<string, string> } }) {
+export function DataTableTools({ tableId, placeholder = "Search…", views, children, total, server }: { tableId: string; placeholder?: string; /** Which list this is (Open, History): a switch, drawn before the search. The filters inside the list are the children. */ views?: React.ReactNode; children?: React.ReactNode; total: number; server?: { path: string; q: string; keep?: Record<string, string> } }) {
   const router = useRouter();
   const serverMode = server != null;
   const [q, setQ] = React.useState(server?.q ?? "");
@@ -101,11 +101,16 @@ export function DataTableTools({ tableId, placeholder = "Search…", children, t
 
   return (
     <div className="dt-toolbar">
-      <label className="dt-search">
-        <Icon name="search" />
-        <span className="db-sr-only">Search this table</span>
-        <input type="search" value={q} onChange={(e) => { typed.current = true; setQ(e.target.value); }} placeholder={placeholder} autoComplete="off" />
-      </label>
+      {views}
+      <SearchBox
+        value={q}
+        onChange={(v) => {
+          typed.current = true;
+          setQ(v);
+        }}
+        placeholder={placeholder}
+        label="Search this table"
+      />
       {children}
       <span className="dt-spacer" />
       <span className="dt-count" aria-live="polite">{server || q.trim() === "" ? `${total} rows` : `${shown} of ${total}`}</span>

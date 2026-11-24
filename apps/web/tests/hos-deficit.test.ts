@@ -54,16 +54,16 @@ describe("hosDeficit", () => {
 /** The matrix is client code with no component tests here, so these read the source for the two things that must stay true. */
 describe("the deficit tag in the Fleet Matrix row", () => {
   const tsx = fs.readFileSync(path.join(__dirname, "../src/components/desk/quote-desk.tsx"), "utf8");
-  const css = fs.readFileSync(path.join(__dirname, "../src/components/desk/quote-terminal.css"), "utf8");
+  const css = fs.readFileSync(path.join(__dirname, "../src/app/terminal.css"), "utf8");
 
-  it("sits with the hours left, inside the same hours-left block, and only when the truck has hours", () => {
-    const start = tsx.indexOf("r.hos.availableHours != null ? (");
-    const end = tsx.indexOf("r.blocked ?", start);
-    expect(start).toBeGreaterThan(-1);
-    const block = tsx.slice(start, end);
-    expect(block).toMatch(/Hours left:/);
-    expect(block).toMatch(/hosDeficitLabel\(deficit\)/);
-    expect(block).toMatch(/className="tl-chip warn"/);
+  it("stands beside the verdict, in the verdict's own cell and after it, with the hours left on the driver's line (finalization pass, 2026-11-23: a warning has the verdict's weight and is never its input)", () => {
+    const tag = tsx.indexOf("<VerdictTag state={said.state} word={said.word} />");
+    const cell = tsx.slice(tag, tsx.indexOf("</td>", tag));
+    expect(tag).toBeGreaterThan(-1);
+    expect(cell).toMatch(/hosDeficitLabel\(deficit\)/);
+    expect(cell).toMatch(/className="qt-beside" title=\{hosDeficitTitle\(deficit\)\}/);
+    // The hours left stay on the driver's line, only when the truck has them (hosDeficit itself is null without hours).
+    expect(tsx).toMatch(/r\.hos\.availableHours != null \? `\$\{r\.hos\.availableHours\}h left/);
   });
 
   it("is built from the server's own caution level and the trip's on-duty hours, not from elapsed hours", () => {
@@ -76,12 +76,11 @@ describe("the deficit tag in the Fleet Matrix row", () => {
     expect(tsx.match(/aria-live="polite"/g)).toHaveLength(1);
   });
 
-  it("has its own line in the matrix CSS and uses only the design tokens (no hex colours)", () => {
-    const rule = css.match(/\.qt-hos-line \{[^}]*\}/)?.[0] ?? "";
-    expect(rule).toMatch(/display:\s*flex/);
+  it("has its own line under the verdict and uses only the design tokens (no hex colours)", () => {
+    const rule = css.match(/\.qt-beside\{[^}]*\}/)?.[0] ?? "";
+    expect(rule).toMatch(/display:\s*block/);
+    expect(rule).toMatch(/color:var\(--warn\)/);
     expect(rule).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
-    const chip = css.match(/\.qt-hos-line \.tl-chip \{[^}]*\}/)?.[0] ?? "";
-    expect(chip).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 });
 

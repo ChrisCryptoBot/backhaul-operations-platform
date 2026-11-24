@@ -52,13 +52,13 @@ export default async function LeaksPage({ searchParams }: { searchParams?: Recor
           </Link>
         ) : null}
       </div>
-      <p className="tl-sub" style={{ margin: "0 0 14px" }}>
+      <p className="t-period">
         {windowLabel(ledger.window)}
         {ledger.previous ? ` · compared with ${windowLabel(ledger.previous)}` : ""} · {scopeWords(terminal) ?? "all terminals"}
       </p>
 
       {imported > 0 ? (
-        <p className="tl-note" style={{ margin: "0 0 14px", maxWidth: "90ch" }} data-testid="intake-summary">
+        <p className="tl-note t-lede" data-testid="intake-summary">
           {intakeIsEmpty(intake) ? (
             <>
               {imported} imported {imported === 1 ? "load is" : "loads are"} in this period and the Leak Read intake is empty, so their empty miles and waits are counted and not priced. <Link href="/leaks/intake">Set the intake</Link> to price them.

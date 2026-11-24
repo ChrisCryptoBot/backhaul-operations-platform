@@ -80,6 +80,14 @@ export function stopTime(d: Date | string | null | undefined, stopZone: string |
   return `${there} (${mine} ${zoneAbbr(tz)})`;
 }
 
+/** A stop's appointment on the clock at the stop, one clock only ("Nov 2, 6:24 PM ET"), for a board cell that has no room for two: the cell's title carries `stopTime`, with the carrier's clock as well. */
+export function dockTime(d: Date | string | null | undefined, stopZone: string | null | undefined, tz: string = activeTz()): string {
+  if (!d) return "—";
+  const date = typeof d === "string" ? new Date(d) : d;
+  const zone = stopZone || tz;
+  return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: zone }) + " " + zoneAbbr(zone);
+}
+
 /**
  * The time of day at a stop, with no date, for a cell that already sits on a day: "6:00 AM ET (5:00 AM CT)" when the dock is not on the carrier's clock, and just "5:00 AM" when it is
  * (the day column already says which clock). The same rule as `stopTime`, so the board, the planner and the drawer read alike.

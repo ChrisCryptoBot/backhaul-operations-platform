@@ -5,7 +5,7 @@ import { EmptyState } from "@/components/desk/kit/states";
 import { Pager } from "@/components/desk/pager";
 import { PayrollSend } from "@/components/desk/partner-actions";
 import { CanGate } from "@/components/desk/kit/can-gate";
-import { PageHead, Stat } from "@/components/desk/ui";
+import { PageHead, Stat, Tabs } from "@/components/desk/ui";
 import { dayYear, usd } from "@/lib/desk-format";
 import { asPage } from "@/lib/paging";
 import { can, whoCan } from "@/lib/roles";
@@ -20,12 +20,12 @@ export const dynamic = "force-dynamic";
 
 const PICK_COLUMN: Column = { key: "pick", label: "", width: 44 };
 const BASE_COLUMNS: Column[] = [
-  { key: "statement", label: "Statement", sticky: true, width: 150 },
+  { key: "statement", label: "Statement", sticky: true, width: 110, max: 180 },
   { key: "driver", label: "Driver" },
-  { key: "period", label: "Period" },
+  { key: "period", label: "Period", priority: 2 },
   { key: "total", label: "Gross pay", align: "num" },
-  { key: "worker", label: "Worker type" },
-  { key: "state", label: "Payroll" }
+  { key: "worker", label: "Worker type", max: 200, priority: 2 },
+  { key: "state", label: "Payroll", max: 380 }
 ];
 
 type Params = { page?: string; show?: string };
@@ -58,29 +58,34 @@ export default async function PayrollPage({ searchParams }: { searchParams?: Par
     search: [r.number, r.driverName].join(" "),
     cells: {
       ...(canPayout ? { pick: r.notReady ? null : <input type="checkbox" data-payroll value={r.id} aria-label={`Send ${r.number}`} /> } : {}),
-      statement: <Link href={`/settlements/${r.id}`}>{r.number}</Link>,
+      statement: (
+        <>
+          <Link href={`/settlements/${r.id}`}>{r.number}</Link>
+          <span className="sub fold-2">{periodText(r.periodStart.toISOString().slice(0, 10), r.periodEnd.toISOString().slice(0, 10))}</span>
+        </>
+      ),
       driver: <Link href={`/drivers/${r.driverId}`}>{r.driverName}</Link>,
       period: periodText(r.periodStart.toISOString().slice(0, 10), r.periodEnd.toISOString().slice(0, 10)),
       total: usd(r.total, 2),
       worker: r.workerType ? `${WORKER_TYPES.find((w) => w.key === r.workerType)?.label ?? r.workerType}${r.employeeId ? ` · ${r.employeeId}` : ""}` : <span className="dim">Not set</span>,
       state: r.paidAt && r.paidMethod === "payroll" ? (
-        <span className="t-st" data-tone="ok" title="The payroll company's run cleared">
+        <span className="t-st say" data-tone="ok" title="The payroll company's run cleared">
           Paid by payroll {dayYear(r.paidAt)}
           {r.reference ? ` · ${r.reference}` : ""}
         </span>
       ) : r.sentAt ? (
-        <span className="t-st" data-tone="warn" title="Sent to the payroll company; its run has not cleared yet">
+        <span className="t-st say" data-tone="warn" title="Sent to the payroll company; its run has not cleared yet">
           With payroll, sent {dayYear(r.sentAt)}
           {r.reference ? ` · ${r.reference}` : ""}
         </span>
       ) : r.rejectedAt && !r.sentAt ? (
-        <span className="tl-chip warn" title={`Payroll refused it ${dayYear(r.rejectedAt)}. Fix it, then send it again.`}>
+        <span className="t-st say" data-tone="warn" title={`${r.rejectReason ?? "No reason given"}. Payroll refused it ${dayYear(r.rejectedAt)}. Fix it, then send it again.`}>
           Rejected by payroll: {r.rejectReason ?? "no reason given"}
         </span>
       ) : r.notReady ? (
-        <span className="tl-chip warn">{r.notReady}</span>
+        <span className="t-st say" data-tone="warn" title={r.notReady}>{r.notReady}</span>
       ) : (
-        <span className="tl-chip info">Ready</span>
+        <span className="t-st say" data-tone="info">Ready</span>
       )
     }
   }));
@@ -98,7 +103,7 @@ export default async function PayrollPage({ searchParams }: { searchParams?: Par
         </a>
       </PageHead>
       {terminal && data.hiddenByTerminal > 0 ? (
-        <p className="tl-note" role="note" style={{ margin: "0 0 14px" }}>
+        <p className="tl-note t-lede" role="note">
           {data.hiddenByTerminal} finalized {data.hiddenByTerminal === 1 ? "statement" : "statements"} hidden by the <b>{terminal}</b> terminal filter.
         </p>
       ) : null}
@@ -112,19 +117,9 @@ export default async function PayrollPage({ searchParams }: { searchParams?: Par
         />
         <Stat label="Sent" value={String(data.sent)} />
       </div>
-      <div className="tl-form-row" style={{ margin: "14px 0" }}>
-        <Link href={href({ show: "ready", page: 1 })} className="tl-btn sm" aria-current={show === "ready" ? "true" : undefined}>
-          Not sent
-        </Link>
-        <Link href={href({ show: "sent", page: 1 })} className="tl-btn sm" aria-current={show === "sent" ? "true" : undefined}>
-          Sent
-        </Link>
-        <Link href={href({ show: "all", page: 1 })} className="tl-btn sm" aria-current={show === "all" ? "true" : undefined}>
-          All
-        </Link>
-      </div>
+      <Tabs active={show} label="Which statements" hrefFor={(k) => href({ show: k, page: 1 })} items={[{ key: "ready", label: "Not sent" }, { key: "sent", label: "Sent" }, { key: "all", label: "All" }]} />
       <PayrollSend readyIds={data.readyIds} reason={data.state.reason} canAct={canPayout} who={whoCan("payout")} />
-      <div style={{ marginTop: 12 }}>
+      <div>
         <DataTable
           id="payroll-table"
           label="Statements for payroll"

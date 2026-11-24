@@ -19,7 +19,8 @@ export function SplitPane({
   min = 120,
   minSecond = 160,
   firstLabel,
-  tools
+  tools,
+  defaultHidden = false
 }: {
   id: string;
   orientation: "vertical" | "horizontal";
@@ -31,10 +32,12 @@ export function SplitPane({
   /** What the first pane is called in the buttons: "map" gives "Hide map" and "Show map". */
   firstLabel: string;
   tools?: React.ReactNode;
+  /** The first pane starts folded away until someone shows it; what they choose is remembered like the rest. */
+  defaultHidden?: boolean;
 }) {
   const box = React.useRef<HTMLDivElement>(null);
   const [size, setSize] = React.useState(defaultSize);
-  const [hidden, setHidden] = React.useState(false);
+  const [hidden, setHidden] = React.useState(defaultHidden);
   const [total, setTotal] = React.useState(0);
   const [dragging, setDragging] = React.useState(false);
   const drag = React.useRef<{ at: number; from: number } | null>(null);
@@ -60,13 +63,13 @@ export function SplitPane({
   const useLayout = typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
   useLayout(() => {
     try {
-      const kept = parseKept(window.localStorage.getItem(splitStorageKey(id)));
+      const kept = parseKept(window.localStorage.getItem(splitStorageKey(id)), defaultHidden);
       if (kept.size != null) setSize(kept.size);
       setHidden(kept.hidden);
     } catch {
       /* nothing kept */
     }
-  }, [id]);
+  }, [id, defaultHidden]);
   React.useEffect(() => {
     const el = box.current;
     if (!el) return;

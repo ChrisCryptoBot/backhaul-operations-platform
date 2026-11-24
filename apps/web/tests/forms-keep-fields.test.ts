@@ -56,13 +56,12 @@ const EXEMPT: Record<string, string> = {
   "components/desk/load-import-panel.tsx": "a file import: the file cannot be kept, and the column match is read back from the file each time it is chosen",
   "components/desk/ifta-rates-panel.tsx": "a file import: the file cannot be kept, and the column match is read back from the file each time it is chosen",
   "components/desk/fuel-import-panel.tsx": "a file import: the file cannot be kept, and the column match is read back from the file each time it is chosen",
-  "components/desk/data-table-tools.tsx": "a search and filter that go into the address",
+  "components/desk/kit/search-box.tsx": "the search box: what is typed goes into the address, or narrows the rows on screen",
   "components/desk/live-form.tsx": "a filter form that goes into the address",
   "components/desk/kpi/choice.tsx": "a filter box that goes into the address (the filter form around it applies the chosen name)",
   "app/(desk)/trailers/page.tsx": "filters that go into the address",
   "app/(desk)/audit/page.tsx": "filters that go into the address",
   "app/(desk)/planner/page.tsx": "filters that go into the address",
-  "app/(desk)/schedules/page.tsx": "a search that goes into the address; the shift editor itself (components/desk/roster-table.tsx) keeps its fields with useDraft",
   "app/(desk)/messages/page.tsx": "picks a conversation, which goes into the address",
   "app/(desk)/settings/page.tsx": "appearance buttons that save at once"
 };

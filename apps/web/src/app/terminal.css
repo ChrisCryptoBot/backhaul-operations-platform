@@ -12,6 +12,7 @@ h1,h2,h3,p,ul,ol,dl,dd{margin:0;padding:0}
 ul,ol{list-style:none}
 a{color:var(--ink);text-decoration:underline;text-decoration-color:var(--line-hi);text-underline-offset:2px}
 button,input,select,textarea{font:inherit;color:inherit}
+input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]):not([type=submit]):not([type=button]),select,textarea{border:1px solid var(--line-hi);background:var(--sunk);padding:0 6px}
 kbd{font:inherit;font-size:11px;border:1px solid var(--line-hi);padding:0 4px;color:var(--mid);background:var(--sunk)}
 table{border-collapse:collapse;border-spacing:0}
 }
@@ -680,6 +681,7 @@ dd>.sub{display:block;color:var(--dim)}
 .spl-dragging{cursor:inherit}
 .spl-dragging .spl-first,.spl-dragging .spl-second{pointer-events:none}
 .spl-folded>.spl-bar{cursor:default}
+.spl-folded>.spl-bar .spl-grip{display:none}
 
 /* Radar: the panel's tabs, the list, the radius search, and the map panel above the Trucks and Trailers tables. Flat, square, 1px rules. */
 .rd-tabs{display:flex;gap:0;margin:0 -14px 10px;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:2;background:var(--panel)}
@@ -774,7 +776,7 @@ dd>.sub{display:block;color:var(--dim)}
    The description line is not part of the bar, so what is pinned stays slim. Solid backgrounds, 1px rules, no shadow. */
 .t-main>.t-pagehead{position:sticky;top:0;z-index:12;margin:0 0 6px}
 .t-main>.t-pagesub{margin:0 10px 10px}
-.t-main>.t-pagesub p{margin:0;max-width:90ch;color:var(--dim);font:12px/1.45 var(--sans)}
+.t-main>.t-pagesub p{margin:0;color:var(--dim);font:12px/1.45 var(--sans)}
 .t-main>.t-pagehead~:is(.kbar,.tl-tabs,.eq-tabs){position:sticky;top:var(--ph-h,49px);z-index:11;margin-left:0;margin-right:0;padding:4px 10px;background:var(--bg);border-bottom:1px solid var(--line)}
 
 /* The scope menu in the header and the scope chip at the head of every page. Flat: solid ground, 1px rules, no shadow. */
@@ -810,6 +812,234 @@ dd>.sub{display:block;color:var(--dim)}
   .pl-link-switches .tl-check:last-child{border-bottom:1px solid var(--line)}
   .pl-link-switches .tl-check input{accent-color:var(--label);margin:2px 0 0}
   .pl-link-row > .tl-btn{order:2}
+
+/* ============================================================================================================================
+   THE GRID (finalization pass, 2026-11-23; docs/DESIGN_BRIEF.md "The grid"). The few shapes every module is made of, in one place, for both looks: a table row, the page's left edge, a section head, a strip of
+   figures, three levels of button, a row that opens something, the two kinds of tab, the search box. Curves and tints for the TrueLane app style are in the app layer below. scripts/check-layout.mjs holds every
+   module to it.
+   ============================================================================================================================ */
+/* Rows: 30px and one line. A table whose rows really carry a second line (a lane under its load, a reason under a figure) is 40px in every row, so the two lines have room and the rhythm does not change from row
+   to row. A column's own words never wrap a row taller: they end in an ellipsis and the whole of it is in the title. */
+.dt{min-width:100%}
+.dt tbody td{height:30px;line-height:16px}
+.dt:has(tbody .sub:not(.fold-2)) tbody td{height:40px}
+.dt .sub{line-height:14px;font-size:11px;overflow:hidden;text-overflow:ellipsis}
+.dt thead th{font-size:11px;letter-spacing:.06em}
+.dt thead .dt-band th{height:22px;padding-top:2px;padding-bottom:2px;font-weight:500;color:var(--dim)}
+.dt thead .dt-cols th{top:22px;height:24px}
+.dt .cut,.cut{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.dt .cap{overflow:hidden;text-overflow:ellipsis}
+.dt .cap .cut{display:block}
+.dt td.q,.dt .q{color:var(--mid)}
+.dt td[data-col=act]{text-align:right;white-space:nowrap}
+.dt td .acts{display:inline-flex;gap:6px;align-items:center;justify-content:flex-end}
+.dt.prose{min-width:0;table-layout:auto}
+.dt.prose td{white-space:normal;height:auto;padding-top:7px;padding-bottom:7px;vertical-align:top}
+.tl-table .sub{font-size:11px;line-height:14px}
+.tl-table td,.tl-table th{height:30px;padding:3px 8px;vertical-align:middle}
+.tl-table:has(tbody .sub) tbody td{height:40px}
+@container (max-width:1400px){.dt th,.dt td{padding-left:8px;padding-right:8px}}
+/* What folds at 1024 (the table has under 960px): priority 2 leaves its column and its fact moves to the first cell's second line, so nothing scrolls sideways and nothing is lost. */
+.dt .fold-2{display:none}
+@container (max-width:960px){
+  .dt [data-pr="2"]{display:none}
+  .dt:has(tbody .fold-2) tbody td{height:40px}
+  .dt .sub.fold-2{display:block}
+  .dt span.fold-2:not(.sub){display:inline}
+  .dt thead .dt-band th{display:none}
+  .dt thead .dt-cols th{top:0}
+}
+
+.dt .more{margin-left:6px;font-style:normal;color:var(--dim)}
+.dt .pl-code{margin:0 0 0 8px}
+.dt td .tl-chip{margin-left:8px}
+.dt td>.tl-chip:first-child{margin-left:0}
+.dt .t-st.say{max-width:100%;overflow:hidden}
+.dt .cap>.t-st.say,.dt .cap>.tl-chip.say{display:block;text-overflow:ellipsis;white-space:nowrap}
+.dt .cap>.t-st.say::before,.dt .cap>.tl-chip.say::before{display:inline-block;margin-right:6px;vertical-align:1px}
+.dt[data-all] [data-pr]{display:table-cell}
+.dt[data-all] :is(.fold-only,.fold-2){display:none}
+@container (max-width:960px){.dt.roster :is(th,td){padding-left:4px;padding-right:4px;font-size:12px}}
+/* Loads between the two (the big-screen zoom at 1500 leaves 1,110px): the truck's name goes to the driver's title and the customer is cut sooner, so the money stays. */
+@container (max-width:1150px){#loads-table .fold-only{display:none}#loads-table [data-col=customer]{max-width:108px!important}#loads-table [data-col=driver]{max-width:112px!important}}
+/* The way back to what folded: shown only where something has. */
+.dt-more{display:none;position:sticky;left:0;padding:3px 10px;border-top:1px solid var(--line);background:var(--panel);text-align:right}
+.dt-more .t-linkbtn{color:var(--dim);font:12px/16px var(--sans)}
+
+@container (max-width:1400px){.dt:has([data-pr="3"])+.dt-more{display:block}}
+@container (max-width:960px){.dt:has([data-pr])+.dt-more{display:block}}
+
+/* One left edge: 10px in from the main area's own. The pinned bars run edge to edge and pad themselves by the same 10px. */
+.t-main>:not(.t-pagehead,.t-banner,.kbar,.tl-tabs,.eq-tabs){margin-left:10px;margin-right:10px}
+.t-main>.t-pagesub p{max-width:150ch}
+.t-period{margin-top:0;margin-bottom:12px;color:var(--dim);font:12px/16px var(--sans)}
+.t-lede{margin-top:0;margin-bottom:12px}
+.t-after{margin-top:12px}
+.t-main>:is(.f1099-note,.f1099-years,.irate-note){margin-left:10px;margin-right:10px}
+.tl-note{max-width:110ch}
+
+/* A section head is one thing: a small gold word and, where the card has an action, the action at the end of its line. */
+.tl-card>h2,.tl-card>.t-head h2,.t-head>h2,.kc>header>h2,.pl-head>h2,h2.t-sec{margin:0;padding:0;border:0;font:600 12px/16px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--label)}
+.tl-card>h2{margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+.t-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px;margin:0 0 8px;padding-bottom:6px;border-bottom:1px solid var(--line)}
+.t-head>h2+.t-note,.t-head .t-meta{color:var(--dim);font:12px/16px var(--sans)}
+.t-head>.acts{display:flex;gap:6px;align-items:center;margin-left:auto}
+h2.t-sec{margin:14px 10px 8px;color:var(--mid)}
+.tl-card+.tl-card,.tl-grid+.tl-card,.tl-card+.tl-grid,.tl-grid+.tl-grid{margin-top:12px}
+
+/* Figures side by side are one strip: one panel, a rule between cells. The figure is 20px: the page's one hero is the only thing louder. */
+.tl-grid:has(>.tl-stat){gap:0;margin-bottom:12px;background:var(--panel);border:1px solid var(--line);border-top-color:var(--line-hi)}
+.tl-grid>.tl-card.tl-stat,.tl-grid>.tl-card.tl-stat:nth-child(n){margin:0;padding:8px 14px 10px;border:0;background:transparent}
+.tl-grid>.tl-card.tl-stat+.tl-card.tl-stat{border-left:1px solid var(--line)}
+.tl-stat .l,.km-label{margin:0 0 2px;font:500 11px/16px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+.tl-stat .v,.km-value{font:500 var(--fs-figure)/26px var(--mono);letter-spacing:-.01em}
+.tl-stat .s,.km-sub{margin-top:2px;font:12px/16px var(--sans);color:var(--mid)}
+.km-hero{padding:10px 14px;background:var(--panel);border:1px solid var(--line);border-top-color:var(--line-hi)}
+.km-big{font:500 var(--fs-hero)/38px var(--mono);letter-spacing:-.02em}
+.km{gap:1px;background:var(--line);border:1px solid var(--line)}
+.km-hero+.km{border-top-width:0}
+.km-cell{padding:8px 14px 10px;background:var(--panel)}
+.tl-card .km{border-width:1px 0 0}
+
+/* Buttons, three levels. Primary is the one gold button of a screen; standard is outlined; quiet (.ghost) is the same button with its outline turned down, so it still reads as something to press. */
+.tl-btn.ghost{border-color:var(--line);background:transparent;color:var(--mid)}
+.tl-btn.ghost:hover{border-color:var(--line-hi);background:var(--hover);color:var(--ink)}
+.tl-btn{background:transparent}
+.tl-btn:hover{background:var(--hover)}
+.tl-btn.primary,.tl-btn.primary:hover{background:var(--bar)}
+
+/* A row that opens something (components/desk/ui.tsx RowLink): the link's target is the whole row, a chevron says so, buttons in the row sit above it. One tab stop, no Open button down the list. */
+.row-open{position:relative}
+.row-link,.row-link:hover{color:inherit;text-decoration:none;background:transparent}
+.row-link::after{content:"";position:absolute;inset:0}
+.row-open:hover{background:var(--hover)}
+.row-open:focus-within:has(.row-link:focus-visible){outline:2px solid var(--label-hi);outline-offset:-2px}
+.row-link:focus-visible{outline:none}
+.row-open :is(button,a:not(.row-link),input,label,select){position:relative;z-index:1}
+.row-go{align-self:center;color:var(--dim);font:500 16px/16px var(--mono)}
+.row-open:hover .row-go{color:var(--label-hi)}
+.al{grid-template-columns:64px minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:7px 8px}
+.al[data-level=block]{margin:0;padding:7px 8px;border-radius:0}
+.al>div{min-width:0}
+.al b{font-weight:600}
+.al .who{margin-top:1px;font:12px/16px var(--sans)}
+.al .who a{color:var(--mid)}
+
+/* Dispatch queue: the alerts are one line, the column that asks for something is the widest, and a load is three short lines. */
+.dq-strip{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;margin-top:0;margin-bottom:10px;padding:7px 14px;border:1px solid var(--line);background:var(--panel);color:var(--mid);font:13px/18px var(--sans)}
+.dq-strip b{display:inline-flex;gap:8px;align-items:center;color:var(--ink);font-weight:600}
+.dq-strip b::before{content:"";width:8px;height:8px;background:var(--warn-fill)}
+.dq-strip[data-level=block] b::before{background:var(--neg-fill)}
+.dq-strip .row-link{margin-left:auto;color:var(--ink);font-weight:500}
+.dq-cols{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}
+.dq-cols>.tl-card{margin:0}
+.dq-row{gap:2px;padding:8px}
+.dq-row:last-child{border-bottom:0}
+.dq-top{align-items:center}
+.dq-top .row-link{font-weight:600;color:var(--ink)}
+.dq-lane{display:flex;gap:4px 10px;justify-content:space-between;min-width:0;color:var(--mid);font:12px/16px var(--sans)}
+.dq-lane>span:last-child:not(:first-child){flex:none;color:var(--ink)}
+.dq-foot{min-height:24px}
+.dq-sig{font:500 12px/16px var(--sans)}
+
+/* Quote. The form is tight, a unit sits inside its field, and the truck list is capped so the verdict's mark, word and figure are on screen without a scroll. */
+.tl-btn,summary.tl-btn{display:inline-flex}
+.qt-cockpit{width:auto;gap:8px}
+.qt-cmd-strip{padding:0;border:0;background:transparent;gap:6px 12px}
+.qt-cmd-actions{gap:6px}
+.t-views>button{height:26px;padding:0 10px;border-width:0;background:transparent;color:var(--mid);text-transform:none;letter-spacing:0;font-size:12px;cursor:pointer}
+.t-views>button[aria-selected=true]{background:var(--bar);color:var(--on-bar);font-weight:600}
+.qt-workspace{min-height:0}
+.qt-pane-entry{gap:10px}
+.qt-pane-entry>.tl-card{margin:0}
+.qt-pane-eval{top:calc(var(--ph-h,40px) + 8px);max-height:calc(var(--vh,100vh) - 150px);gap:10px}
+.qt-grid{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 12px}
+.qt-stops{gap:6px}
+.qt-stop{grid-template-columns:72px minmax(0,1fr) 186px 26px;gap:8px;align-items:center}
+.qt-stops-foot{margin-top:8px}
+.qt-swap{padding-left:80px;margin:-2px 0}
+.th-field{gap:3px}
+.th-field>label,.th-field>span.th-label{font:500 11px/14px var(--mono);letter-spacing:.05em;text-transform:uppercase;color:var(--mid)}
+.th-field .th-hint,.th-field .th-err{font:11px/14px var(--sans);text-transform:none;letter-spacing:0}
+.th-input{position:relative;gap:6px}
+.th-input input:not([type=checkbox]){min-height:30px;height:30px}
+.qt-cockpit .th-input>input{padding-right:64px}
+.qt-cockpit .th-input>input+span{position:absolute;right:10px;top:0;line-height:30px;font:11px/30px var(--sans);color:var(--dim);pointer-events:none}
+.qt-cockpit .th-input:has(.t-seg)>input{padding-right:8px}
+.qt-cockpit :is(.tl-field,.th-field)>input,.qt-cockpit .qt-stop :is(input,select){min-height:30px}
+.qt-matrix-head{padding:5px 10px;gap:6px 10px;flex-wrap:wrap}
+.qt-mh{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}
+.qt-mh h3,.qt-matrix-head h3{margin:0;font:600 12px/16px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--label)}
+.qt-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:6px 10px;border-bottom:1px solid var(--line)}
+.qt-matrix-body-scroll{max-height:clamp(168px,calc(var(--vh,100vh) - 610px),420px);overflow:auto}
+.qt-matrix-table thead th{position:sticky;top:0;z-index:1;height:24px;padding:0 8px;background:var(--head);white-space:nowrap}
+.qt-matrix-table th.num,.qt-matrix-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+.qt-matrix-table td{height:40px;padding:3px 8px;line-height:16px}
+.qt-matrix-table td:nth-child(2){max-width:0;width:60%}
+.qt-matrix-table :is(td,th):not(:nth-child(2)){white-space:nowrap}
+.qt-tr{white-space:nowrap;overflow:hidden}
+.qt-chips select{height:26px;padding:0 8px;border:1px solid var(--line);background:var(--sunk);color:var(--ink);font:12px/16px var(--sans)}
+.qt-cockpit :is(.tl-field,.th-field),.qt-cockpit .th-field>div>span:first-child{color:var(--mid)}
+.qt-matrix-table .sub{display:block;font:11px/14px var(--sans);color:var(--dim)}
+.qt-matrix-table .sub.neg{color:var(--neg)}
+.qt-matrix-table .qt-pick{width:28px}
+.qt-tr{display:flex;align-items:baseline;gap:6px}
+.qt-tr kbd{font-size:10px;line-height:12px}
+.qt-tr .sub{display:inline}
+.qt-same{padding-left:10px;color:var(--ink)}
+.qt-beside{display:block;margin-top:1px;font:500 11px/14px var(--sans);color:var(--warn)}
+.qt-beside::before{content:"▲";margin-right:4px;font-size:9px}
+.qt-pos{color:var(--pos);font-weight:600}
+.qt-neg{color:var(--neg);font-weight:600}
+.qt-mini{min-height:26px;height:26px}
+.qt-matrix-inspector{padding:6px 10px}
+/* The verdict is the box; what holds it is not a second one. */
+.qt-eval-card{padding:0;gap:8px;border-width:0;background:transparent;overflow:visible}
+.qt-eval-card>.rc-eyebrow{margin:0;padding:0;border-width:0}
+.qt-pane-eval{padding-right:2px}
+.qt-list-tools{margin-bottom:8px}
+
+/* Tabs. A view switch (which list this is) is segmented; filters inside the list are underlined words, and the chosen one is gold as well as ruled. */
+.tl-tabs{gap:16px}
+.tl-tab{min-height:30px;color:var(--mid);font-weight:500}
+.tl-tab[aria-current=true]{color:var(--label-hi);font-weight:600}
+.tl-tab em,.t-views em{margin-left:5px;font-style:normal;font-weight:500;color:var(--dim);font-variant-numeric:tabular-nums}
+.tl-tab[aria-current=true] em,.t-views [aria-current=true] em{color:inherit}
+.t-views{align-self:center}
+.t-views>a,.t-views>a:hover{height:26px;padding:0 10px;color:var(--mid);text-transform:none;letter-spacing:0;font-size:12px}
+.t-views>a[aria-current=true],.t-views>a[aria-current=true]:hover{color:var(--on-bar)}
+.dt-toolbar{gap:6px 14px;margin-bottom:8px}
+.dt-toolbar .tl-tabs{gap:14px}
+
+/* The one search box. */
+.dt-search{flex:0 1 300px}
+.dt-search input{min-height:30px;height:30px;padding-right:28px;text-overflow:ellipsis}
+.dt-search input::-webkit-search-cancel-button{display:none}
+.dt-search svg{width:14px;height:14px}
+.dt-clear{position:absolute;right:4px;top:50%;width:22px;height:22px;margin-top:-11px;padding:0;border:0;background:transparent;color:var(--dim);font:500 16px/20px var(--mono);cursor:pointer}
+.dt-clear:hover{color:var(--ink);background:var(--hover)}
+.pl-find{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;margin-top:0;margin-bottom:8px}
+
+/* Filters in a row: the height of the search box beside them. */
+.audit-filters{gap:6px 8px}
+.audit-filters :is(input:not([type=checkbox]),select){min-height:30px;height:30px}
+.lt-form input{width:72px;height:24px;min-height:24px}
+.kc+.kc,.kc+.kstack,.tl-card+.kc,.kc+.tl-card{margin-top:12px}
+.fm>.rs{padding:8px 10px}
+.fm .rs-form .tl-field{flex-direction:row;align-items:center;gap:8px}
+.fm .rs-form .tl-field input{height:26px;min-height:26px}
+.fm .spl-folded>.spl-bar{border-top-width:0}
+/* A button that cannot be pressed yet says why under it; in a page's head the why sits beside it on the same line, cut to the room (the whole of it is in the title). */
+.rb{display:inline-flex;flex-direction:column;gap:4px;align-items:flex-start}
+.t-pagehead .rb{flex-direction:row-reverse;align-items:center;gap:8px}
+.t-pagehead .rb .tl-sub{max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:1180px){.t-pagehead .rb .tl-sub{display:none}}
+/* A status that has to say a sentence is said as one: no capitals, and it may wrap where the row allows it. */
+.tl-chip.say,.t-st.say{text-transform:none;letter-spacing:0;font:500 12px/16px var(--sans)}
+/* What is old is said, not shown as now: an amber dot, the age, and what to do about it. */
+.t-stale{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:0;font:500 12px/16px var(--sans);color:var(--warn)}
+.t-stale::before{content:"";width:7px;height:7px;flex:none;background:var(--warn-fill)}
+.t-stale span{color:var(--mid)}
 }
 
 @layer app {
@@ -895,6 +1125,12 @@ html{zoom:var(--ui-zoom)}
 /* ---- Chips and codes: fully round. ---- */
 [data-ui="app"] :is(.t-scope-chip,.rd-x-chip,.pl-code,.eq-key,.t-pager,.spl-grip,.t-pagehead h1 i,.t-ph i) { border-radius:var(--r-pill) !important; }
 
+/* ---- The count beside a module, the clear cross in a search box. ---- */
+[data-ui="app"] :is(.t-rail a em[data-tone=bad],.dt-clear) { border-radius:var(--r-press) !important; }
+[data-ui="app"] .t-stale::before { border-radius:50%; }
+[data-ui="app"] .dq-strip b::before { border-radius:50%; }
+[data-ui="app"] .dq-strip { border-radius:var(--r-note) !important; }
+
 /* ---- Every dot: status dots, the status square, map dots, the verdict mark, the shift marker. ---- */
 [data-ui="app"] :is(.rd-dot,.vm) { border-radius:50% !important; }
 /* The flag square (Loads: "Pickup passed") is a warning, not a status: it keeps a square shape (softened) so it never reads as a second status dot. */
@@ -909,14 +1145,27 @@ html{zoom:var(--ui-zoom)}
 [data-ui="app"] :is(.dp-day) { border-radius:var(--r-press) !important; }
 
 /* ---- Note: panels, notes, banners, detail boxes, the drawer's cards, toasts, every table panel. ---- */
-[data-ui="app"] :is(.dt-wrap,.tl-card,.cp-card,.t-banner,.al[data-level=block],.t-det,.t-doc,.t-status,.t-scope-region,.vc-explain,.ai-list,.rs-filters,
+[data-ui="app"] :is(.dt-wrap,.tl-card,.cp-card,.t-banner,.t-det,.t-doc,.t-scope-region,.vc-explain,.ai-list,.rs-filters,
   .rd,.rd-rail,.rd-sched,.rd-strip,.rd-empty,.eq-map,.fm,.fm>.rs,.k-toast,.t-toast,
   :is(.dr,.lv-page) .cp-detention-box,:is(.dr,.lv-page) .cp-gate,:is(.dr,.lv-page) .cp-ledger-card,:is(.dr,.lv-page) .cp-metric,:is(.dr,.lv-page) .cp-metrics-bar,:is(.dr,.lv-page) .cp-ribbon) { border-radius:var(--r-note) !important; }
-[data-ui="app"] :is(.dt-wrap,.t-det,.t-doc,.rd,.fm,.eq-map,:is(.dr,.lv-page) .cp-metrics-bar,:is(.dr,.lv-page) .cp-ribbon) { overflow:hidden; }
+/* A table's panel clips to its curve and still scrolls: hidden here once made the columns past the edge unreachable. */
+[data-ui="app"] .dt-wrap { overflow:auto; }
+[data-ui="app"] :is(.t-det,.t-doc,.rd,.fm,.eq-map,:is(.dr,.lv-page) .cp-metrics-bar,:is(.dr,.lv-page) .cp-ribbon) { overflow:hidden; }
 /* A card is a phone group: the panel colour, a hairline, the note curve and room inside, so its ruled rows sit in a container the way the phone's do. A card inside
    a card stays bare (no panel on a panel). */
 [data-ui="app"] .tl-card { background:var(--panel); border:1px solid var(--line); padding:12px 14px; }
 [data-ui="app"] .tl-card .tl-card { background:transparent; border:0; padding:0; border-radius:0 !important; }
+/* A strip of figures is one panel: the panel curves, the cells inside it do not (docs/DESIGN_BRIEF.md "The grid"). The hero over a strip shares its panel. */
+[data-ui="app"] .tl-grid:has(>.tl-stat) { border-radius:var(--r-note) !important; overflow:hidden; }
+[data-ui="app"] .tl-grid>.tl-card.tl-stat { background:transparent; border-width:0; border-radius:0 !important; padding:8px 14px 10px; }
+[data-ui="app"] .tl-grid>.tl-card.tl-stat+.tl-card.tl-stat { border-left-width:1px; }
+[data-ui="app"] .km { border-radius:var(--r-note) !important; overflow:hidden; }
+[data-ui="app"] .km-hero { border-radius:var(--r-note) !important; }
+[data-ui="app"] .km-hero:has(+.km) { border-bottom-left-radius:0 !important; border-bottom-right-radius:0 !important; }
+[data-ui="app"] .km-hero+.km { border-top-left-radius:0 !important; border-top-right-radius:0 !important; }
+[data-ui="app"] .km-cell { border-radius:0 !important; }
+[data-ui="app"] .tl-card .km { border-radius:0 !important; }
+[data-ui="app"] .kc { border-radius:var(--r-note) !important; background:var(--panel); border-color:var(--line); padding:12px 14px; }
 /* Cards side by side in a grid start level (desk.css's stacked-card gap, .tl-card + .tl-card, was pushing the second and third columns down). */
 [data-ui="app"] :is(.tl-cols,.tl-grid)>.tl-card { margin-top:0; }
 
@@ -945,7 +1194,7 @@ html{zoom:var(--ui-zoom)}
         badge reads in muted tones. On top of it: a chosen tab, toggle, menu item or section is a gold TINT with gold text, never a solid gold slab (the slab is
         kept for the main button); card heads are grey. ---- */
 [data-ui="app"] :is(.t-rail a[aria-current=page],.t-tabs [aria-current=true],.t-tabs [aria-selected=true],.t-pop-hit[aria-selected=true],.t-seg>[aria-current=true],
-  .t-seg>[aria-pressed=true],.cp-tab-btn[aria-selected=true],.st-tab[aria-selected=true],.rd-tab[aria-selected=true],.rd-region[aria-pressed=true],
+  .t-seg>[aria-selected=true],.t-seg>[aria-pressed=true],.cp-tab-btn[aria-selected=true],.st-tab[aria-selected=true],.rd-tab[aria-selected=true],.rd-region[aria-pressed=true],
   .eq-tab[aria-selected=true]) { --bar:rgba(232,160,32,.16); --on-bar:var(--label-hi); }
 [data-ui="app"] :is(.cp-ledger-card h4,.cp-hero-lbl) { color:var(--mid) !important; }
 /* A scrollbar thumb under the mouse was gold (globals.css: --db-scrollbar-thumb-hover is --label); it reads as a stray gold line under a tab row. Grey instead. */

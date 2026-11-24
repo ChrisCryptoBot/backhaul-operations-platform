@@ -42,7 +42,7 @@ export default async function LanesPage({ searchParams }: { searchParams?: Recor
         <a className="tl-btn" href={`/export/kpi-lanes${query}`}>Export CSV</a>
       </PageHead>
       <Tabs active={params.period} hrefFor={(key) => (key === "all" ? "/lanes" : `/lanes?period=${key}`)} items={KPI_PERIODS} />
-      <p className="tl-sub" style={{ margin: "0 0 12px" }}>{windowLabel(k.window)}</p>
+      <p className="t-period">{windowLabel(k.window)}</p>
       <DataTableTools tableId="kpi-lanes" total={list.total} placeholder="Search lanes…" server={{ path: "/lanes", q: list.q, keep: { ...(params.period !== "all" ? { period: params.period } : {}), ...(list.sort ? { sort: `${list.sort.dir === "desc" ? "-" : ""}${list.sort.key}` } : {}) } }} />
       <LaneScorecard k={k} canEdit={edit.ok} lanes={list.rows} sortHref={sortHref} />
       <Pager page={list.page} pageSize={list.pageSize} total={list.total} hrefFor={(n) => href({ page: n })} newer="Previous" older="Next" />

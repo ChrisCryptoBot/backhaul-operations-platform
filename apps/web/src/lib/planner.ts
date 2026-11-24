@@ -261,3 +261,9 @@ export function spanText(minutes: number): string {
   const m = Math.max(0, Math.round(minutes));
   return m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}` : `${m} min`;
 }
+
+/** How long something has been late or waiting, to be read at a glance: "2 h 10 min", and past two days "11 days" (265 hours is a sum, not a reading). Money never uses this: billed waits keep `spanText`. */
+export function lateText(minutes: number): string {
+  const m = Math.max(0, Math.round(minutes));
+  return m >= 48 * 60 ? `${Math.floor(m / (24 * 60))} days` : spanText(m);
+}

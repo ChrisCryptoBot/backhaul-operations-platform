@@ -31,14 +31,14 @@ export type SplitKept = { size: number | null; hidden: boolean };
 
 export const splitStorageKey = (id: string) => `tl_split_${id}`;
 
-/** What was kept for a split: a size (any number is clamped when it is used) and whether the first pane was hidden. Anything else reads as nothing kept. */
-export function parseKept(text: string | null | undefined): SplitKept {
-  if (!text) return { size: null, hidden: false };
+/** What was kept for a split: a size (any number is clamped when it is used) and whether the first pane was hidden. Anything else reads as nothing kept; `hiddenDefault` is what hidden is then. */
+export function parseKept(text: string | null | undefined, hiddenDefault = false): SplitKept {
+  if (!text) return { size: null, hidden: hiddenDefault };
   try {
     const v = JSON.parse(text) as { size?: unknown; hidden?: unknown };
-    return { size: typeof v.size === "number" && Number.isFinite(v.size) ? v.size : null, hidden: v.hidden === true };
+    return { size: typeof v.size === "number" && Number.isFinite(v.size) ? v.size : null, hidden: typeof v.hidden === "boolean" ? v.hidden : hiddenDefault };
   } catch {
-    return { size: null, hidden: false };
+    return { size: null, hidden: hiddenDefault };
   }
 }
 

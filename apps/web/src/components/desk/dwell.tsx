@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import React from "react";
 import { adjustTrailerDwellAction, clearTrailerDwellAction, waiveTrailerDwellAction } from "@/app/(desk)/actions";
 import { usd } from "@/lib/desk-format";
-import { dwellSentence } from "@/lib/radar";
+import { dwellSentence, dwellShort } from "@/lib/radar";
 import type { Dwell } from "@/lib/telematics";
 import { tried } from "./kit/tried";
 import { Modal } from "./kit/modal";
@@ -18,7 +18,7 @@ import { useDraft } from "./kit/use-draft";
 export type DwellTyped = { rate: number | null; days: number | null; waived: boolean; by: string | null; note: string | null };
 
 /** The one line (a square, the words) and, beneath it, whose figures they are. */
-export function DwellLine({ d, freeHours, typed }: { d: Dwell; freeHours: number; typed: DwellTyped }) {
+export function DwellLine({ d, freeHours, typed, compact = false }: { d: Dwell; freeHours: number; typed: DwellTyped; /** A table cell: the days and the money on one line, the whole sentence and whose figures they are in the title. */ compact?: boolean }) {
   const isTyped = d.source.rate === "typed" || d.source.days === "typed" || d.waived;
   const tone = isTyped ? "rd-typed" : d.alert ? "rd-leak" : "rd-sub";
   const source = d.waived
@@ -26,6 +26,12 @@ export function DwellLine({ d, freeHours, typed }: { d: Dwell; freeHours: number
     : isTyped
       ? `Typed${typed.by ? ` by ${typed.by}` : ""}: ${[d.source.rate === "typed" ? `${usd(d.rate, 2)} a day` : null, d.source.days === "typed" ? `${d.billableDays} billable days` : null].filter(Boolean).join(", ")}. Company: ${usd(d.computedRate, 2)} a day, ${d.computedDays} days over.${typed.note ? ` ${typed.note}` : ""}`
       : `Company terms: ${freeHours}h free, then ${usd(d.computedRate, 2)} a day.`;
+  if (compact)
+    return (
+      <span className={`t-st say${isTyped ? " rd-typed" : ""}`} data-tone={!isTyped && d.alert ? "warn" : undefined} title={`${dwellSentence(d, freeHours)}. ${source}`}>
+        {dwellShort(d)}
+      </span>
+    );
   return (
     <div>
       <div className={tone} style={{ font: "600 11px/16px var(--mono)" }}>{`■ ${dwellSentence(d, freeHours)}`}</div>
