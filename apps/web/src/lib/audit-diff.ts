@@ -51,6 +51,7 @@ export type AuditAction =
   | "document_added"
   | "document_removed"
   | "document_shared"
+  | "receipt_decided"
   | "member_added"
   | "member_scope_changed"
   | "region_added"
@@ -212,6 +213,7 @@ export const ACTION_LABEL: Record<string, string> = {
   document_added: "Document kept",
   document_removed: "Document removed",
   document_shared: "Document shared",
+  receipt_decided: "Receipt decided",
   member_added: "Person added to the desk",
   member_scope_changed: "What a person can see changed",
   region_added: "Region added",
@@ -374,6 +376,7 @@ export const ACTION_TONE: Record<string, "ok" | "warn" | "bad" | "info" | "muted
   document_added: "muted",
   document_removed: "muted",
   document_shared: "muted",
+  receipt_decided: "muted",
   member_added: "info",
   member_scope_changed: "info",
   region_added: "ok",

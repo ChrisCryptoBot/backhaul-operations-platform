@@ -123,6 +123,7 @@ model Workspace {
   driverDeductions    DriverDeduction[]
   driverAdvances      DriverAdvance[]
   driverLedgerEntries DriverLedgerEntry[]
+  driverReceipts      DriverReceipt[]
   customers           Customer[]
   invoices            Invoice[]
   factoringTerms      FactoringTerms?
@@ -386,6 +387,7 @@ model Load {
   trailer          Trailer?          @relation(fields: [trailerId], references: [id], onDelete: SetNull)
   stops            Stop[]
   documents        LoadDocument[]
+  receipts         DriverReceipt[]
   fuelTransactions FuelTransaction[]
   payments         LoadPayment[]
   segments         TripSegment[]
@@ -553,6 +555,7 @@ model Driver {
   deductions      DriverDeduction[]
   advances        DriverAdvance[]
   ledger          DriverLedgerEntry[]
+  receipts        DriverReceipt[]
   timeOff         DriverShiftException[]
   linkInvites     DriverLinkInvite[]
 
@@ -804,6 +807,7 @@ model Settlement {
   /// Draft only: the deductions skipped on this statement (with the reason) and an escrow release (with the reason). Wave 4 step 3.
   deductionChoices    Json?               @map("deduction_choices")
   ledger              DriverLedgerEntry[]
+  receipts            DriverReceipt[]
 
   @@unique([workspaceId, number])
   @@index([workspaceId, status])
@@ -937,6 +941,42 @@ model DriverAdvance {
 
   @@index([workspaceId, driverId, active])
   @@map("driver_advances")
+}
+
+/// Money a driver spent on the job and asked for from their phone (sync plan Step 5b). The desk's record and its photo; `bridgeId` is the phone link's row. state: submitted | approved |
+/// declined. An approved one goes on the driver's next statement as a reimbursement line and is tied to it when that is finalized; voiding the statement frees it.
+model DriverReceipt {
+  id           String    @id @default(cuid())
+  workspaceId  String    @map("workspace_id")
+  driverId     String    @map("driver_id")
+  bridgeId     String    @unique @map("bridge_id")
+  loadId       String?   @map("load_id")
+  kind         String
+  amount       Decimal   @db.Decimal(12, 2)
+  spentOn      DateTime  @map("spent_on") @db.Date
+  note         String?
+  state        String    @default("submitted")
+  reason       String?
+  decidedBy    String?   @map("decided_by")
+  decidedAt    DateTime? @map("decided_at")
+  settlementId String?   @map("settlement_id")
+  storageKey   String?   @map("storage_key")
+  mime         String?
+  bytes        Int       @default(0)
+  /// Why there is no photo, in words, when one could not be kept.
+  photoMissing String?   @map("photo_missing")
+  sentAt       DateTime  @map("sent_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  workspace  Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  driver     Driver      @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  load       Load?       @relation(fields: [loadId], references: [id], onDelete: SetNull)
+  settlement Settlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, state])
+  @@index([driverId, state])
+  @@index([settlementId])
+  @@map("driver_receipts")
 }
 
 /// A trailer unit in the registry: owned, leased, a customer's or a pool trailer. Desk-only (the phone has no trailer record). It is hooked to at most one

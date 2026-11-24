@@ -12,6 +12,7 @@ import { SLEEP_COOKIE, THEME_COOKIE, UI_COOKIE, asSleepMinutes, asTheme, asUi } 
 import { redirect, RedirectType } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { checkAccess, requireCan } from "@/server/tl/access";
+import { decideReceipt, type ReceiptResult } from "@/server/tl/receipts";
 import { removeLoadDocument, setDocumentToDriver, type DocResult } from "@/server/tl/documents";
 import { addMember, setMemberGrants, removeMember, setMemberRole, type MemberResult } from "@/server/tl/members";
 import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
@@ -1260,6 +1261,14 @@ export async function finalizeSettlementAction(id: string, draft: Draft, confirm
   await requireCan("bill");
   const out = await finalizeSettlement(id, draft, new Date(), undefined, confirmedTotal, confirmNegative === true);
   if (out.ok) refreshSettlements(id);
+  return out;
+}
+
+/** Approve or decline a receipt a driver sent, or put the decision back (bill: it is money on a statement). */
+export async function decideReceiptAction(id: string, to: "approved" | "declined" | "submitted", reason: string | null = null): Promise<ReceiptResult> {
+  await requireCan("bill");
+  const out = await decideReceipt(String(id), to, reason);
+  if (out.ok) revalidatePath("/settlements", "layout");
   return out;
 }
 

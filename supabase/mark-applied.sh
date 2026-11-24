@@ -84,6 +84,7 @@ for m in \
   20270106000000_bridge_stop_events \
   20270107000000_driver_link_kinds \
   20270108000000_dispatcher_names \
-  20270109000000_load_document_to_driver; do
+  20270109000000_load_document_to_driver \
+  20270110000000_driver_receipts; do
   npx prisma migrate resolve --applied "$m" --schema=./prisma/schema.prisma
 done

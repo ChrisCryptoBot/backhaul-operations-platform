@@ -184,6 +184,7 @@ export function SettlementEditor({
   deductionOptions = [],
   initialDeductions = NO_CHOICES,
   escrowHeldCents = 0,
+  reimbursements = [],
   canEdit = true,
   who = "Accounting or Admin"
 }: {
@@ -202,6 +203,8 @@ export function SettlementEditor({
   deductionOptions?: DeductionOption[];
   initialDeductions?: DeductionChoices;
   escrowHeldCents?: number;
+  /** Approved receipts this statement pays back (server/tl/receipts.ts). */
+  reimbursements?: { receiptId: string; label: string; amount: number }[];
   canEdit?: boolean;
   who?: string;
 }) {
@@ -227,7 +230,7 @@ export function SettlementEditor({
   const choices = form.deductions ?? initialDeductions;
   const setChoices = (u: (c: DeductionChoices) => DeductionChoices) => setForm((f) => ({ ...f, deductions: u(f.deductions ?? initialDeductions) }));
   const ded = deductionLines(deductionOptions, choices, escrowHeldCents);
-  const st = computeStatement({ loads, hours, adjustments: rows, fuel: fuelOptions.filter((f) => pickedFuel.includes(f.id)), deductions: ded.lines, deductionErrors: ded.errors });
+  const st = computeStatement({ loads, hours, adjustments: rows, fuel: fuelOptions.filter((f) => pickedFuel.includes(f.id)), deductions: ded.lines, deductionErrors: ded.errors, reimbursements });
   const errors = { ...(tried ? st.errors : {}), ...serverErrors };
   const draft = { hours, adjustments: rows, fuel: pickedFuel, deductions: choices };
   const setRow = (i: number, patch: Partial<AdjustmentInput>) => setRows((r) => r.map((x, k) => (k === i ? { ...x, ...patch } : x)));
@@ -357,7 +360,16 @@ export function SettlementEditor({
 
           <section className="tl-card">
             <h2>Adjustments</h2>
-            <p className="tl-note" style={{ marginBottom: 10 }}>For anything that is not a load: an advance, a fuel card charge, a reimbursement, a bonus, a share of detention. A deduction is a negative amount, for example -100.</p>
+            <p className="tl-note" style={{ marginBottom: 10 }}>For anything that is not a load: an advance, a fuel card charge, a bonus, a share of detention. A deduction is a negative amount, for example -100.</p>
+            {reimbursements.length > 0 ? (
+              <ul className="st-back" aria-label="Receipts paid back on this statement">
+                {reimbursements.map((r) => (
+                  <li key={r.receiptId}>
+                    <span>{r.label}</span> <b>{usd(r.amount, 2)}</b>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {rows.map((r, i) => (
               <div key={i} className="dlg-two" style={{ alignItems: "end", marginBottom: 8, gridTemplateColumns: "1fr 160px auto" }}>
                 <Fld label={i === 0 ? "What for" : "What for (line " + (i + 1) + ")"} error={errors[`adj${i}.label`]}>

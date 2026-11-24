@@ -5,6 +5,7 @@ import type { DriverMessageRow } from "@/lib/driver-messages";
 import type { DriverStatusRow } from "@/lib/driver-status";
 import type { LoadDocumentRow, LoadDocumentThere } from "@/lib/load-documents";
 import type { DriverBalanceRow, DriverStatementRow } from "@/lib/driver-pay";
+import type { BridgeReceiptRow } from "@/lib/driver-receipts";
 
 /**
  * How the desk reaches `bridge.external_dispatch`. One small interface, two implementations: the real one (PostgREST over `fetch`, with the service key) and an in-memory one the tests drive,
@@ -75,6 +76,11 @@ export interface BridgeTransport {
   /** Write balances, keyed on (org_id, driver_sub). */
   upsertDriverBalances(rows: (DriverBalanceRow & { as_of: string })[]): Promise<void>;
   deleteDriverBalances(orgId: string, driverSubs: string[]): Promise<void>;
+  /** Receipts (sync plan Step 5b): this fleet's rows the desk has not taken, oldest first. */
+  receiptsToTake(orgId: string, limit: number): Promise<BridgeReceiptRow[]>;
+  /** What the phone is told now, for receipts sent since `since`. */
+  receiptStates(orgId: string, since: Date): Promise<Pick<BridgeReceiptRow, "id" | "state" | "reason" | "statement_number">[]>;
+  patchReceipt(orgId: string, id: string, changes: Record<string, unknown>): Promise<void>;
 }
 
 export type StatementThere = { id: string; driver_sub: string; desk_statement_id: string; desk_rev: string; pdf_path: string | null };
@@ -117,6 +123,7 @@ export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = f
   const docs = `${cfg.url}/rest/v1/load_documents`;
   const statements = `${cfg.url}/rest/v1/driver_statements`;
   const balances = `${cfg.url}/rest/v1/driver_balances`;
+  const receipts = `${cfg.url}/rest/v1/driver_receipts`;
   const inList = (ids: string[]) => `(${ids.map(plain).join(",")})`;
   const LINK_COLUMNS = "id,org_id,desk_driver_id,driver_role,claimed_by,claimed_at,revoked_at,ended_by";
   const headers = (write: boolean): Record<string, string> => ({
@@ -316,6 +323,19 @@ export function supabaseTransport(cfg: BridgeConfig, fetchImpl: typeof fetch = f
     async deleteDriverBalances(orgId, subs) {
       if (subs.length === 0) return;
       await call(`${balances}?org_id=eq.${plain(orgId)}&driver_sub=in.${inList(subs)}`, { method: "DELETE", headers: { ...headers(true), Prefer: "return=minimal" } });
+    },
+    async receiptsToTake(orgId, limit) {
+      const q = `?org_id=eq.${plain(orgId)}&taken_at=is.null&order=created_at.asc&limit=${Math.min(Math.max(wholeOf(limit), 1), 500)}`;
+      const out = await call(receipts + q, { method: "GET", headers: headers(false) });
+      return Array.isArray(out) ? (out as BridgeReceiptRow[]) : [];
+    },
+    async receiptStates(orgId, since) {
+      const q = `?org_id=eq.${plain(orgId)}&created_at=gte.${plain(since.toISOString())}&select=id,state,reason,statement_number&limit=5000`;
+      const out = await call(receipts + q, { method: "GET", headers: headers(false) });
+      return Array.isArray(out) ? (out as Pick<BridgeReceiptRow, "id" | "state" | "reason" | "statement_number">[]) : [];
+    },
+    async patchReceipt(orgId, id, changes) {
+      await call(`${receipts}?org_id=eq.${plain(orgId)}&id=eq.${plain(id)}`, { method: "PATCH", headers: { ...headers(true), Prefer: "return=minimal" }, body: JSON.stringify(changes) });
     }
   };
 }
@@ -344,6 +364,7 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
   const documents: LoadDocumentThere[] = [];
   const statementTable: (DriverStatementRow & { id: string })[] = [];
   const balanceTable: (DriverBalanceRow & { as_of: string })[] = [];
+  const receiptTable: BridgeReceiptRow[] = [];
   const stopEvents: StopEventRow[] = [];
   let statusWrites = 0;
   const transport: BridgeTransport & {
@@ -354,6 +375,8 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     /** bridge.driver_statements and bridge.driver_balances. */
     statements: (DriverStatementRow & { id: string })[];
     balances: (DriverBalanceRow & { as_of: string })[];
+    /** bridge.driver_receipts: a phone puts its photo in `files` and its row here. */
+    receipts: BridgeReceiptRow[];
     statusWrites: () => number;
     table: BridgeRow[];
     links: MemLink[];
@@ -378,6 +401,20 @@ export function memoryTransport(opts: { down?: () => boolean } = {}) {
     statuses,
     statements: statementTable,
     balances: balanceTable,
+    receipts: receiptTable,
+    async receiptsToTake(orgId, limit) {
+      guard();
+      return receiptTable.filter((r) => r.org_id === orgId && !r.taken_at).slice(0, limit).map((r) => ({ ...r }));
+    },
+    async receiptStates(orgId, since) {
+      guard();
+      return receiptTable.filter((r) => r.org_id === orgId && Date.parse(r.created_at) >= since.getTime()).map(({ id, state, reason, statement_number }) => ({ id, state, reason, statement_number }));
+    },
+    async patchReceipt(orgId, id, changes) {
+      guard();
+      const i = receiptTable.findIndex((r) => r.org_id === orgId && r.id === id);
+      if (i >= 0) receiptTable[i] = { ...receiptTable[i]!, ...changes } as BridgeReceiptRow;
+    },
     async driverStatementRows(orgId) {
       guard();
       return statementTable.filter((s) => s.org_id === orgId).map(({ id, driver_sub, desk_statement_id, desk_rev, pdf_path }) => ({ id, driver_sub, desk_statement_id, desk_rev, pdf_path }));

@@ -68,6 +68,12 @@ export type LoadSummary = {
   weight_lbs?: number;
   /** Additive to schema 3 (2026-11-22): the dispatcher who sent it, by name, so the phone says "From <company> · <name>". Never an id or a contact. */
   dispatcher?: { name: string };
+  /**
+   * Finalization plan F2 (sync plan Step 5c): a CONTRACTOR's own load money, never an employee's. `gross` is what the load pays the contractor's business (the agreed rate plus fuel
+   * surcharge on percent pay; their own pay otherwise) and `fee_pct` the share the desk keeps (100 - their percent; 0 otherwise). `assertDriverSafe` lets it through only when told
+   * the link is a contractor's, with exactly these two keys.
+   */
+  contractor?: { gross: number; fee_pct: number };
 };
 
 /**
@@ -86,6 +92,12 @@ export function payEstimate(pay: AssignmentPay, loadedMiles: number, estimatedHo
 }
 
 /** The pay as the driver is told it: a percent of the rate becomes the set amount it comes to, so the driver is never sent the rate itself. */
+/** A contractor's load money for `LoadSummary.contractor`: percent pay p = the agreed rate + fuel surcharge as gross and 100 - p as the fee; flat, per mile or hourly = their own pay as gross, no fee. */
+export function contractorMoney(pay: AssignmentPay, rateConTotal: number, ownPay: number): { gross: number; fee_pct: number } {
+  if (pay.kind === "percent") return { gross: new Prisma.Decimal(rateConTotal).toDecimalPlaces(2).toNumber(), fee_pct: new Prisma.Decimal(100).minus(pay.rate).toDecimalPlaces(2).toNumber() };
+  return { gross: new Prisma.Decimal(ownPay).toDecimalPlaces(2).toNumber(), fee_pct: 0 };
+}
+
 export function driverFacingPay(pay: AssignmentPay, rateConTotal: number): { kind: DriverPayKind; rate: number } {
   if (pay.kind === "percent") return { kind: "flat", rate: payEstimate(pay, 0, null, rateConTotal) };
   return { kind: pay.kind, rate: pay.rate };
@@ -164,7 +176,18 @@ function keysOf(value: unknown, out: string[] = []): string[] {
  * Throws if the summary leaks. Checks (1) no forbidden key anywhere, (2) driver_pay has only kind/rate/estimate, and
  * (3) none of the load's secret numbers appear as values under an innocent key.
  */
-export function assertDriverSafe(summary: LoadSummary, secrets: { numbers?: number[] } = {}): void {
+export function assertDriverSafe(summary: LoadSummary, secrets: { numbers?: number[] } = {}, opts: { contractor?: boolean } = {}): void {
+  if (summary.contractor !== undefined) {
+    // A contractor's own load money (Step 5c), and only theirs: exactly gross + fee_pct, finite, then the usual checks on the rest of the summary.
+    if (!opts.contractor) throw new Error("driver payload leaks keys: contractor (the link is not a contractor's)");
+    const c = summary.contractor as Record<string, unknown>;
+    const keys = Object.keys(c).sort().join(",");
+    if (keys !== "fee_pct,gross") throw new Error(`contractor has unexpected keys: ${keys}`);
+    if (!Number.isFinite(c.gross) || !Number.isFinite(c.fee_pct)) throw new Error("contractor money is not a number");
+    const { contractor: _own, ...rest } = summary;
+    void _own;
+    return assertDriverSafe(rest as LoadSummary, secrets);
+  }
   const bad = keysOf(summary).filter((k) => FORBIDDEN_KEY.test(k));
   if (bad.length > 0) throw new Error(`driver payload leaks keys: ${bad.join(", ")}`);
   const payKeys = Object.keys(summary.driver_pay).sort().join(",");

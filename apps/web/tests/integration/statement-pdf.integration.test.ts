@@ -75,7 +75,7 @@ describe.skipIf(!run)("the statement PDF", () => {
     expect(d.statement).toMatchObject({ loadsTotal: 400, deductionsTotal: -250, total: 150 });
     expect(d.statement.deductions.map((x) => x.kind)).toEqual(["escrow", "advance_repaid"]);
     // Two finalized statements in 2026 (week 3 was voided; last year's does not count): $800 gross, $200 escrow, $300 repaid, $300 net.
-    expect(d.ytd).toEqual({ year: 2026, statements: 2, grossCents: 80000, fuelCents: 0, adjustmentsOffCents: 0, deductionsCents: -20000, advancesRepaidCents: -30000, escrowReleasedCents: 0, netCents: 30000 });
+    expect(d.ytd).toEqual({ year: 2026, statements: 2, grossCents: 80000, fuelCents: 0, adjustmentsOffCents: 0, deductionsCents: -20000, advancesRepaidCents: -30000, escrowReleasedCents: 0, reimbursedCents: 0, netCents: 30000 });
     expect(d.balances).toEqual({ escrowHeldCents: 20000, advanceOwedCents: 20000, asOf: "Nov 12, 2026" });
     // The first week's year to date stops at itself.
     expect((await statementPdfData(st.w1!, W, null, NOW))!.ytd).toMatchObject({ statements: 1, grossCents: 40000, netCents: 15000 });

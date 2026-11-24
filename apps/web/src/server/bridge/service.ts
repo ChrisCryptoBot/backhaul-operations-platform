@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { driverSummaryFor, DispatchError, recordDriverResponse } from "@/server/tl/dispatch";
+import { driverIsContractor, driverSummaryFor, DispatchError, recordDriverResponse } from "@/server/tl/dispatch";
 import { completeTrip, startTrip } from "@/server/tl/execution";
 import { recordAudit } from "@/server/tl/audit";
 import { currentWorkspaceId } from "@/server/tl/workspace";
@@ -126,7 +126,7 @@ export async function flushBridgeOutbox(transport: BridgeTransport, opts: { work
 /** Put one waiting item on the phone's table. Returns the bridge row id, or null when there is nothing left to send (the load or the assignment is gone). */
 async function deliver(transport: BridgeTransport, orgId: string, workspaceId: string, item: { kind: string; loadId: string; phoneUserId: string; dispatchId: string | null }, now: Date): Promise<{ rowId: string } | null> {
   void now;
-  const a = await prisma.assignment.findFirst({ where: { loadId: item.loadId, load: { workspaceId, deletedAt: null } }, select: { assignmentVersion: true, status: true, bridgeDispatchId: true, driver: { select: { phoneUserId: true } } } });
+  const a = await prisma.assignment.findFirst({ where: { loadId: item.loadId, load: { workspaceId, deletedAt: null } }, select: { assignmentVersion: true, status: true, bridgeDispatchId: true, driverId: true, driver: { select: { phoneUserId: true } } } });
   if (item.kind === "reassign_old" || item.kind === "cancel") {
     const existing = await transport.findOpenRow(orgId, item.loadId, item.phoneUserId);
     if (!existing) return null;
@@ -142,7 +142,8 @@ async function deliver(transport: BridgeTransport, orgId: string, workspaceId: s
   if (!a || a.driver.phoneUserId !== item.phoneUserId || !onThePhone.includes(a.status)) return null;
   const summary = await driverSummaryFor(item.loadId, workspaceId);
   const load = await prisma.load.findFirst({ where: { id: item.loadId, workspaceId }, select: { quotedRevenue: true, actualRevenue: true, fuelSurcharge: true } });
-  assertDriverSafe(summary, { numbers: [num(load?.quotedRevenue), num(load?.actualRevenue), num(load?.fuelSurcharge)] });
+  // Checked again at the door, with the link looked up again: contractor money goes only to a contractor's phone (finalization plan F2).
+  assertDriverSafe(summary, { numbers: [num(load?.quotedRevenue), num(load?.actualRevenue), num(load?.fuelSurcharge)] }, { contractor: summary.contractor !== undefined && (await driverIsContractor(a.driverId, workspaceId)) });
   const existing = await transport.findOpenRow(orgId, item.loadId, item.phoneUserId);
   if (!existing) {
     const row = await transport.insert(newDispatchRow({ orgId, phoneUserId: item.phoneUserId, loadId: item.loadId, summary, assignmentVersion: a.assignmentVersion }));

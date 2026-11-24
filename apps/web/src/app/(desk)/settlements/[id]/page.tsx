@@ -68,6 +68,7 @@ export default async function StatementPage({ params }: { params: { id: string }
           deductionOptions={s.deductionOptions}
           initialDeductions={s.deductionChoices}
           escrowHeldCents={s.escrowHeldCents}
+          reimbursements={s.reimbursements}
           canEdit={canBill}
           who={whoCan("bill")}
         />

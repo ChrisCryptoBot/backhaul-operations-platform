@@ -68,7 +68,7 @@ describe("balances", () => {
     advances: [{ label: "Advance of $500.00", owedCents: 20000 }, { label: "Cleared", owedCents: 0 }],
     options: [{ deductionId: "x", source: "rule", kind: "lease", label: "Truck lease", perStatementCents: 30000, proposedCents: 30000, goalCents: null, soFarCents: 0, note: null }, { deductionId: "y", source: "rule", kind: "eld", label: "ELD", perStatementCents: 1, proposedCents: 0, goalCents: 1, soFarCents: 1, note: null }],
     unsettled: { cents: 54000, loads: 2, unpriced: 1 },
-    ytd: { year: 2026, statements: 3, grossCents: 900000, fuelCents: 0, adjustmentsOffCents: 0, deductionsCents: 0, advancesRepaidCents: 0, escrowReleasedCents: 0, netCents: 800000 }
+    ytd: { year: 2026, statements: 3, grossCents: 900000, fuelCents: 0, adjustmentsOffCents: 0, deductionsCents: 0, advancesRepaidCents: 0, escrowReleasedCents: 0, reimbursedCents: 0, netCents: 800000 }
   });
   test("what is owed, held and coming off; a cleared advance and a met cap are left out", () => {
     expect(b).toMatchObject({ escrow_cents: 50000, advances: [{ label: "Advance of $500.00", owed_cents: 20000 }], next_off: [{ label: "Truck lease", amount_cents: 30000 }], unsettled_cents: 54000, unsettled_loads: 2, unsettled_unpriced: 1, ytd: { year: 2026, statements: 3, pay_cents: 900000, net_cents: 800000 } });

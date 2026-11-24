@@ -5,7 +5,7 @@ import { driverBlocker } from "@/lib/clearance";
 import { dateTime, usd } from "@/lib/desk-format";
 import { loadWindow, windowsOverlap, type StopWindow, type Window } from "@/lib/schedule";
 import { PAY_KIND_KEYS, PERCENT_MAX, rateConTotal } from "@/lib/pay";
-import { assertDriverSafe, driverFacingPay, payEstimate, projectLoadToSummary, type AssignmentPay, type LoadSummary, type PayKind } from "./projector";
+import { assertDriverSafe, contractorMoney, driverFacingPay, payEstimate, projectLoadToSummary, type AssignmentPay, type LoadSummary, type PayKind } from "./projector";
 import { num, numOrNull } from "./convert";
 import { recordAudit } from "./audit";
 import { loadStatusFor } from "@/lib/load-state";
@@ -315,12 +315,23 @@ export async function unassignLoad(loadId: string, reason: string | null, now = 
   });
 }
 
-/** What the driver is sent: the driver-safe summary, checked against the confidentiality gate before it goes anywhere. */
+/**
+ * Whether the driver's live phone link is a contractor's (finalization plan F2): the latest claimed code not withdrawn, role `owner_op_leased`. Anything else, or no link, is an employee:
+ * the safe answer, as an employee is never sent load money.
+ */
+export async function driverIsContractor(driverId: string, workspaceId = currentWorkspaceId(), db: Pick<typeof prisma, "driverLinkInvite"> = prisma): Promise<boolean> {
+  const live = await db.driverLinkInvite.findFirst({ where: { workspaceId, driverId, claimedAt: { not: null }, revokedAt: null }, orderBy: { claimedAt: "desc" }, select: { driverRole: true } });
+  return live?.driverRole === "owner_op_leased";
+}
+
+/** What the driver is sent: the driver-safe summary, checked against the confidentiality gate before it goes anywhere. A contractor also gets their load's gross and the fee. */
 export async function driverSummaryFor(loadId: string, workspaceId = currentWorkspaceId()): Promise<LoadSummary> {
   const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId }, include: { stops: true, assignment: true } });
   if (!load || load.deletedAt) throw new DispatchError("load_not_found", "That load does not exist.");
   if (!load.assignment) throw new DispatchError("not_assigned", "Assign a driver first.");
-  const pay = driverFacingPay({ kind: load.assignment.payKind as PayKind, rate: num(load.assignment.payRate) }, rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge)));
+  const assignmentPay: AssignmentPay = { kind: load.assignment.payKind as PayKind, rate: num(load.assignment.payRate) };
+  const total = rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge));
+  const pay = driverFacingPay(assignmentPay, total);
   const summary = projectLoadToSummary(
     {
       loadNumber: load.loadNumber,
@@ -351,8 +362,10 @@ export async function driverSummaryFor(loadId: string, workspaceId = currentWork
   // Who sent it, by name only (the phone's "From <company> · <name>").
   const by = senderNameOf(load.assignment.dispatchedBy);
   if (by) summary.dispatcher = { name: by };
+  const contractor = await driverIsContractor(load.assignment.driverId, workspaceId);
+  if (contractor) summary.contractor = contractorMoney(assignmentPay, total, summary.driver_pay.estimate);
   try {
-    assertDriverSafe(summary, { numbers: [num(load.quotedRevenue), num(load.actualRevenue), num(load.fuelSurcharge)] });
+    assertDriverSafe(summary, { numbers: [num(load.quotedRevenue), num(load.actualRevenue), num(load.fuelSurcharge)] }, { contractor });
   } catch (e) {
     // A note that says what the load pays is the one real case: say where, so it can be reworded, instead of an error page.
     const m = e instanceof Error ? /secret value: ([\d.]+) \(in ([^)]+)\)/.exec(e.message) : null;

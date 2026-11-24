@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertDriverSafe, payEstimate, projectLoadToSummary, type ProjectableLoad } from "@/server/tl/projector";
+import { assertDriverSafe, contractorMoney, payEstimate, projectLoadToSummary, type ProjectableLoad } from "@/server/tl/projector";
 
 const load: ProjectableLoad = {
   loadNumber: "DM-40021",
@@ -63,5 +63,31 @@ describe("driver payload projector", () => {
     const same = { ...s, reference: { ...s.reference, load_number: "650" }, miles: { loaded: 45 }, origin: { address: "A", window_earliest: "2026-11-02T13:45:00.000Z", window_latest: "2026-11-02T15:45:00Z" } };
     expect(() => assertDriverSafe(same as never, { numbers: [650, 45] })).not.toThrow();
     expect(() => assertDriverSafe({ ...s, driver_pay: { ...s.driver_pay, margin: 1 } as never })).toThrow();
+  });
+});
+
+describe("a contractor's load money (finalization plan F2)", () => {
+  const s = projectLoadToSummary(load, { kind: "flat", rate: 400 });
+
+  it("percent pay: the agreed rate plus fuel surcharge is gross, and the fee is what the percent leaves", () => {
+    expect(contractorMoney({ kind: "percent", rate: 75 }, 1499.5, 1124.63)).toEqual({ gross: 1499.5, fee_pct: 25 });
+  });
+
+  it("flat, per mile or hourly: their own pay is the gross and there is no fee", () => {
+    expect(contractorMoney({ kind: "flat", rate: 400 }, 1499.5, 400)).toEqual({ gross: 400, fee_pct: 0 });
+    expect(contractorMoney({ kind: "cpm", rate: 0.65 }, 1499.5, 167.18)).toEqual({ gross: 167.18, fee_pct: 0 });
+  });
+
+  it("goes only to a contractor's phone, with exactly gross and fee_pct, and does not trip the secret check on its own gross", () => {
+    const c = { ...s, contractor: { gross: 1499.5, fee_pct: 25 } };
+    expect(() => assertDriverSafe(c, { numbers: [1499.5] })).toThrow(/not a contractor/);
+    expect(() => assertDriverSafe(c, { numbers: [1499.5] }, { contractor: true })).not.toThrow();
+    expect(() => assertDriverSafe({ ...s, contractor: { gross: 1, fee_pct: 0, rate: 2 } } as never, {}, { contractor: true })).toThrow(/unexpected keys/);
+    expect(() => assertDriverSafe({ ...s, contractor: { gross: Number.NaN, fee_pct: 0 } }, {}, { contractor: true })).toThrow(/not a number/);
+  });
+
+  it("the rest of a contractor's summary is still checked: a note that repeats the rate is caught", () => {
+    const leaky = { ...s, contractor: { gross: 1499.5, fee_pct: 25 }, destination: { address: "Columbus, OH", dock_notes: "pays 1499.5" } };
+    expect(() => assertDriverSafe(leaky, { numbers: [1499.5] }, { contractor: true })).toThrow(/secret value/);
   });
 });

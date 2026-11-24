@@ -1429,3 +1429,9 @@ th[aria-sort="descending"] .dt-sortbtn::after { content: "▼"; color: var(--db-
 /* Load documents: the send-to-driver switch on a file of kind Other, and its tick when adding one. */
 .ld-doc-share { font-size: 11px; padding: 3px 8px; }
 .ld-doc-tick { display: inline-flex; gap: 6px; align-items: center; }
+
+/* Settlements: receipts drivers sent, and the ones a draft statement pays back. */
+.st-back { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 4px; }
+.st-back li { display: flex; justify-content: space-between; gap: 12px; }
+.rc-act { display: inline-flex; gap: 8px; white-space: nowrap; }
+.rc-why { width: min(320px, 100%); }

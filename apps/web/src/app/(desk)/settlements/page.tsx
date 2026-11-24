@@ -4,6 +4,7 @@ import { DataTable, type Column, type Row } from "@/components/desk/data-table";
 import { ReadOnlyBanner } from "@/components/desk/kit/read-only";
 import { EmptyState } from "@/components/desk/kit/states";
 import { Pager } from "@/components/desk/pager";
+import { ReceiptQueue } from "@/components/desk/receipt-queue";
 import { StartStatement } from "@/components/desk/settlement-forms";
 import { Card, PageHead, Stat } from "@/components/desk/ui";
 import { dayYear, shortDate, usd } from "@/lib/desk-format";
@@ -12,6 +13,7 @@ import { statementPayBadge } from "@/lib/statement-pay";
 import { can, whoCan } from "@/lib/roles";
 import { periodPresets } from "@/lib/settlement";
 import { checkAccess, requirePage } from "@/server/tl/access";
+import { receiptQueue } from "@/server/tl/receipts";
 import { listSettlements, settlementCounts, STATEMENTS_PAGE, unsettledByDriver } from "@/server/tl/settlement";
 import { currentTerminal } from "@/server/tl/terminal";
 import { currentWorkspaceId } from "@/server/tl/workspace";
@@ -66,7 +68,8 @@ export default async function SettlementsPage({ searchParams }: { searchParams?:
   const draftPage = Math.min(asPage(searchParams?.drafts), Math.max(1, Math.ceil(counts.draft / DRAFT_PAGE)));
   const voidPage = Math.min(asPage(searchParams?.voided), Math.max(1, Math.ceil(counts.void / STATEMENTS_PAGE)));
 
-  const [unsettled, drafts, final, voided] = await Promise.all([
+  const [receipts, unsettled, drafts, final, voided] = await Promise.all([
+    receiptQueue(undefined, terminal),
     unsettledByDriver(undefined, new Date(), terminal),
     listSettlements(undefined, { status: "draft", terminal, skip: (draftPage - 1) * DRAFT_PAGE, take: DRAFT_PAGE }),
     listSettlements(undefined, { status: "final", terminal, skip: (page - 1) * STATEMENTS_PAGE, take: STATEMENTS_PAGE }),
@@ -170,6 +173,8 @@ export default async function SettlementsPage({ searchParams }: { searchParams?:
         <Stat label="Finalized" value={String(counts.final)} sub={counts.final > 0 ? usd(counts.finalTotal, 2) : "none yet"} />
         <Stat label="Voided" value={String(counts.void)} />
       </div>
+
+      <ReceiptQueue waiting={receipts.waiting} decided={receipts.decided} canDecide={canBill} />
 
       <Card title={`Delivered and not yet settled · ${unsettled.length}`}>
         <DataTable

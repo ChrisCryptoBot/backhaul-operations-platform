@@ -154,4 +154,13 @@ describe("advances (step 4)", () => {
     expect(payNote({ fuel: [], deductions: [line("advance_repaid", -1)] })).toBe("Net pay: pay for the loads, plus the adjustments, less the advance repaid above.");
     expect(payNote({ fuel: [], deductions: [line("escrow", -1), line("escrow_release", 1)] })).toBe("Net pay: pay for the loads, plus the adjustments, less the deductions and escrow held, plus the escrow released above.");
   });
+
+  test("a receipt paid back is never called gross pay, and the note says it is not pay (sync plan Step 5b)", () => {
+    const line = (kind: DeductionLine["kind"], amount: number): DeductionLine => ({ deductionId: null, advanceId: null, kind, label: kind, basis: null, amount });
+    const receipt = { label: "Fuel receipt", amount: 42, receiptId: "r1" };
+    const plain = { label: "Bonus", amount: 50 };
+    expect(payNote({ fuel: [], deductions: [], adjustments: [plain] })).toBe("Gross pay for the loads and adjustments above.");
+    expect(payNote({ fuel: [], deductions: [], adjustments: [plain, receipt] })).toBe("Pay for the loads, plus the adjustments and receipts paid back (money back, not pay) above.");
+    expect(payNote({ fuel: [], deductions: [line("advance_repaid", -1)], adjustments: [receipt] })).toBe("Net pay: pay for the loads, plus the adjustments and receipts paid back (money back, not pay), less the advance repaid above.");
+  });
 });

@@ -8,11 +8,12 @@ import { currentWorkspaceId } from "./workspace";
  * What a desk keeps in pictures and files, and whether one more would pass its plan's allowance: the files on messages and the documents on loads count together.
  */
 export async function storageUsed(workspaceId = currentWorkspaceId()): Promise<number> {
-  const [messages, documents] = await Promise.all([
+  const [messages, documents, receipts] = await Promise.all([
     prisma.messageAttachment.aggregate({ _sum: { bytes: true }, where: { message: { thread: { workspaceId } } } }),
-    prisma.loadDocument.aggregate({ _sum: { bytes: true }, where: { workspaceId } })
+    prisma.loadDocument.aggregate({ _sum: { bytes: true }, where: { workspaceId } }),
+    prisma.driverReceipt.aggregate({ _sum: { bytes: true }, where: { workspaceId } })
   ]);
-  return (messages._sum.bytes ?? 0) + (documents._sum.bytes ?? 0);
+  return (messages._sum.bytes ?? 0) + (documents._sum.bytes ?? 0) + (receipts._sum.bytes ?? 0);
 }
 
 /** The refusal to show when adding `adding` bytes would pass the plan's allowance, or null when it fits (or the plan has no allowance). */

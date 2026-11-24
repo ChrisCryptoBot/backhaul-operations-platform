@@ -11,6 +11,7 @@ import { DEDUCTION_ROW_KINDS, deductionLines, NO_CHOICES, typedChoices, type Ded
 import { recordAudit } from "./audit";
 import { emitStatement } from "@/server/webhooks/emit";
 import { draftDeductionOptions } from "./deductions";
+import { openReimbursements, type Reimbursement } from "./receipts";
 import { num, numOrNull } from "./convert";
 import { currentWorkspaceId } from "./workspace";
 import { workspaceTimezone } from "./zone";
@@ -159,7 +160,7 @@ export async function startSettlement(input: { driverId: string; start: string; 
 }
 
 /** What a draft says today: its loads from the database, and the totals those and the typed values come to. */
-type DraftParts = { loads: SettlementLoad[]; fuelOptions: FuelLine[]; deductionOptions: DeductionOption[]; escrowHeldCents: number; choices: DeductionChoices; statement: Statement };
+type DraftParts = { loads: SettlementLoad[]; fuelOptions: FuelLine[]; deductionOptions: DeductionOption[]; escrowHeldCents: number; choices: DeductionChoices; reimbursements: Reimbursement[]; statement: Statement };
 
 /** A draft's choices kept only for the deductions it is offered: a skip of a rule that is not on offer any more means nothing. */
 function cleanChoices(choices: DeductionChoices, options: readonly DeductionOption[]): DeductionChoices {
@@ -174,16 +175,18 @@ function cleanChoices(choices: DeductionChoices, options: readonly DeductionOpti
 async function draftStatement(s: SettlementWithDriver, draft: Draft, db: Db = prisma): Promise<DraftParts> {
   const start = ymd(s.periodStart);
   const end = ymd(s.periodEnd);
-  const [loads, fuelOptions, [ded]] = await Promise.all([
+  const [loads, fuelOptions, [ded], back] = await Promise.all([
     eligibleLoads(s.driverId, start, end, s.workspaceId, db),
     eligibleFuel(s.driverId, start, end, s.workspaceId, db),
-    draftDeductionOptions(db, s.workspaceId, [{ driverId: s.driverId, start, end, workerType: s.driver.payrollWorkerType }])
+    draftDeductionOptions(db, s.workspaceId, [{ driverId: s.driverId, start, end, workerType: s.driver.payrollWorkerType }]),
+    openReimbursements(db, s.workspaceId, [s.driverId])
   ]);
+  const reimbursements = back.get(s.driverId)!;
   const picked = new Set(draft.fuel ?? []);
   const fuel = fuelOptions.filter((f) => picked.has(f.id));
   const choices = cleanChoices(draft.deductions ?? NO_CHOICES, ded!.options);
   const { lines: deductions, errors: deductionErrors } = deductionLines(ded!.options, choices, ded!.escrowHeldCents);
-  return { loads, fuelOptions, deductionOptions: ded!.options, escrowHeldCents: ded!.escrowHeldCents, choices, statement: computeStatement({ loads, hours: draft.hours, adjustments: draft.adjustments, fuel, deductions, deductionErrors }) };
+  return { loads, fuelOptions, deductionOptions: ded!.options, escrowHeldCents: ded!.escrowHeldCents, choices, reimbursements, statement: computeStatement({ loads, hours: draft.hours, adjustments: draft.adjustments, fuel, deductions, deductionErrors, reimbursements }) };
 }
 
 /** Keep what has been typed. Hours and lines can be saved unfinished; only what is plainly wrong (a bad number) is refused. */
@@ -295,6 +298,12 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
         const taken = await tx.fuelTransaction.updateMany({ where: { id: { in: statement.fuel.map((f) => f.id) }, workspaceId, settlementId: null, status: "settled" }, data: { settlementId: id } });
         if (taken.count !== statement.fuel.length) throw new FuelTaken();
       }
+      // The receipts paid back on it: each is on one statement, once. One declined, put back or taken by another statement since the draft was read stops this one.
+      const receiptIds = statement.adjustments.flatMap((a) => (a.receiptId ? [a.receiptId] : []));
+      if (receiptIds.length > 0) {
+        const taken = await tx.driverReceipt.updateMany({ where: { id: { in: receiptIds }, workspaceId, driverId: s.driverId, state: "approved", settlementId: null }, data: { settlementId: id } });
+        if (taken.count !== receiptIds.length) throw new ReceiptsMoved();
+      }
       // Each load's own history says it was paid, and on what.
       for (const l of statement.lines) {
         await recordAudit({ entity: "settlement", action: "load_settled", loadId: l.loadId, loadNumber: l.loadNumber, summary: `Paid to ${s.driver.name} on ${s.number}: ${money(l.amount ?? 0)}`, before: null, after: { Statement: s.number, Pay: money(l.amount ?? 0) }, at: now, workspaceId }, tx);
@@ -308,11 +317,18 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
   } catch (e) {
     if (e instanceof LostDraft) return { ok: false, error: `${s.number} was just finalized or discarded by someone else. Reload it.` };
     if (e instanceof FuelTaken) return { ok: false, error: "A fuel purchase on this statement was just deducted on another statement, or the card voided it. Reload it and pick again." };
+    if (e instanceof ReceiptsMoved) return { ok: false, error: `A receipt on ${s.number} was just changed or paid back on another statement. Reload it and review.` };
     if (e instanceof DeductionsMoved) return { ok: false, error: `${s.driver.name}'s deductions or escrow balance changed while you were looking (another statement was finalized or voided). Reload ${s.number} and review it.` };
     if (isUniqueViolation(e)) return { ok: false, error: "A load on this statement was just settled on another one. Reload it and try again." };
     throw e;
   }
   return { ok: true, id };
+}
+
+class ReceiptsMoved extends Error {
+  constructor() {
+    super("a receipt moved");
+  }
 }
 
 class DeductionsMoved extends Error {
@@ -365,6 +381,8 @@ export async function voidSettlement(id: string, reason: string, now = new Date(
       await tx.settlementLoad.deleteMany({ where: { settlementId: id } });
       // Its fuel purchases go back to being available: they were deducted on a statement that no longer stands.
       await tx.fuelTransaction.updateMany({ where: { settlementId: id, workspaceId }, data: { settlementId: null } });
+      // So do the receipts paid back on it: still approved, for the next statement.
+      await tx.driverReceipt.updateMany({ where: { settlementId: id, workspaceId }, data: { settlementId: null } });
       // The ledger entries this statement made go with it (its statement rows stay, rule J). Escrow it held that a later statement already paid back would leave less than nothing held.
       await tx.$queryRaw`select id from drivers where id = ${s.driverId} for update`;
       const mine = await tx.driverLedgerEntry.findMany({ where: { settlementId: id, workspaceId }, select: { advanceId: true } });
@@ -474,6 +492,8 @@ export type SettlementView = {
   deductionOptions: DeductionOption[];
   deductionChoices: DeductionChoices;
   escrowHeldCents: number;
+  /** Draft only: the approved receipts it pays back. */
+  reimbursements: Reimbursement[];
   /** The totals: live for a draft, as frozen for a final or void statement. */
   statement: Statement;
   finalizedAt: string | null;
@@ -509,14 +529,14 @@ export async function getSettlement(id: string, workspaceId = currentWorkspaceId
     const hours = typedHours(s.hours);
     const adjustmentRows = typedAdjustments(s.adjustments);
     const fuelPicked = typedFuelIds(s.fuelIds);
-    const { loads, fuelOptions, statement, deductionOptions, escrowHeldCents, choices } = await draftStatement(s, { hours, adjustments: adjustmentRows, fuel: fuelPicked, deductions: typedChoices(s.deductionChoices) });
-    return { ...base, status: "draft", loads, hours, adjustmentRows, fuelOptions, fuelPicked: fuelPicked.filter((id) => fuelOptions.some((f) => f.id === id)), deductionOptions, deductionChoices: choices, escrowHeldCents, statement };
+    const { loads, fuelOptions, statement, deductionOptions, escrowHeldCents, choices, reimbursements } = await draftStatement(s, { hours, adjustments: adjustmentRows, fuel: fuelPicked, deductions: typedChoices(s.deductionChoices) });
+    return { ...base, status: "draft", loads, hours, adjustmentRows, fuelOptions, fuelPicked: fuelPicked.filter((id) => fuelOptions.some((f) => f.id === id)), deductionOptions, deductionChoices: choices, escrowHeldCents, reimbursements, statement };
   }
   const lines = (Array.isArray(s.lines) ? s.lines : []) as unknown as StatementLine[];
   const adjustments = (Array.isArray(s.adjustments) ? s.adjustments : []) as unknown as Adjustment[];
   const fuel = (Array.isArray(s.fuel) ? s.fuel : []) as unknown as FuelLine[];
   const deductions = (await frozenDeductions([s.id])).get(s.id) ?? [];
-  return { ...base, status: s.status as "final" | "void", loads: [], hours: typedHours(s.hours), adjustmentRows: [], fuelOptions: [], fuelPicked: [], deductionOptions: [], deductionChoices: NO_CHOICES, escrowHeldCents: 0, statement: statementOf(lines, adjustments, fuel, deductions) };
+  return { ...base, status: s.status as "final" | "void", loads: [], hours: typedHours(s.hours), adjustmentRows: [], fuelOptions: [], fuelPicked: [], deductionOptions: [], deductionChoices: NO_CHOICES, escrowHeldCents: 0, reimbursements: [], statement: statementOf(lines, adjustments, fuel, deductions) };
 }
 
 export type SettlementRow = {
@@ -610,13 +630,14 @@ async function resolveSettlementRows(rows: SettlementWithDriver[], workspaceId: 
     const pickedFuel = pickedIds.length > 0 ? (await prisma.fuelTransaction.findMany({ where: { id: { in: pickedIds }, workspaceId, settlementId: null }, include: { load: { select: { loadNumber: true } } } })).map(toFuelLine) : [];
     // The deductions each draft is offered, against the ledger as it stands, read for all of them at once.
     const offered = await draftDeductionOptions(prisma, workspaceId, drafts.map((d) => ({ driverId: d.driverId, start: ymd(d.periodStart), end: ymd(d.periodEnd), workerType: d.driver.payrollWorkerType })));
+    const back = await openReimbursements(prisma, workspaceId, driverIds);
     for (const [k, s] of drafts.entries()) {
       const b = boundsById.get(s.id);
       const loads = b ? (byDriver.get(s.driverId) ?? []).filter((x) => x.completedAt >= b.from && x.completedAt < b.to).map((x) => x.sl) : [];
       const mine = new Set(typedFuelIds(s.fuelIds));
       const ded = offered[k]!;
       const { lines: deductions, errors: deductionErrors } = deductionLines(ded.options, cleanChoices(typedChoices(s.deductionChoices), ded.options), ded.escrowHeldCents);
-      const statement = computeStatement({ loads, hours: typedHours(s.hours), adjustments: typedAdjustments(s.adjustments), fuel: pickedFuel.filter((f) => mine.has(f.id)), deductions, deductionErrors });
+      const statement = computeStatement({ loads, hours: typedHours(s.hours), adjustments: typedAdjustments(s.adjustments), fuel: pickedFuel.filter((f) => mine.has(f.id)), deductions, deductionErrors, reimbursements: back.get(s.driverId) ?? [] });
       draftMap.set(s.id, { loads, statement });
     }
   }

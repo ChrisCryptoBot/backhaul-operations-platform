@@ -35,9 +35,9 @@ export const MONEY_OFF_KINDS: readonly string[] = ["fuel", "deduction", "escrow"
 /**
  * Money passing through a statement that is not earnings: counts in net paid only, never in gross and never as unknown. An escrow release pays back the driver's own withheld earnings. An
  * advance is cash fronted ahead of pay, and its repayment returns that cash out of net pay: neither is compensation, so neither moves box 1. ("advance" is listed for an advance paid as a
- * statement line; today an advance is given outside a statement and only its repayment is a row.)
+ * statement line; today an advance is given outside a statement and only its repayment is a row.) A reimbursement pays back what the driver spent for the company, against a receipt.
  */
-export const PASS_THROUGH_KINDS: readonly string[] = ["escrow_release", "advance", "advance_repaid"];
+export const PASS_THROUGH_KINDS: readonly string[] = ["escrow_release", "advance", "advance_repaid", "reimbursement"];
 
 export type LineClass = "gross" | "off" | "pass" | "unknown";
 

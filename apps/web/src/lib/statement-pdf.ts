@@ -21,6 +21,8 @@ export type StatementYtd = {
   deductionsCents: number;
   advancesRepaidCents: number;
   escrowReleasedCents: number;
+  /** Receipts paid back: not pay. */
+  reimbursedCents: number;
   netCents: number;
 };
 
@@ -44,7 +46,7 @@ export type StatementPdfData = {
 
 /** The year to date from frozen statement rows: each row's kind and signed amount in cents. Net is every row; the rest split it, so they always add back up to net. */
 export function ytdFromRows(year: number, statements: number, rows: ReadonlyArray<{ kind: string; cents: number }>): StatementYtd {
-  const y: StatementYtd = { year, statements, grossCents: 0, fuelCents: 0, adjustmentsOffCents: 0, deductionsCents: 0, advancesRepaidCents: 0, escrowReleasedCents: 0, netCents: 0 };
+  const y: StatementYtd = { year, statements, grossCents: 0, fuelCents: 0, adjustmentsOffCents: 0, deductionsCents: 0, advancesRepaidCents: 0, escrowReleasedCents: 0, reimbursedCents: 0, netCents: 0 };
   for (const r of rows) {
     y.netCents += r.cents;
     if (classifyLine(r.kind, r.cents) === "gross") y.grossCents += r.cents;
@@ -53,6 +55,7 @@ export function ytdFromRows(year: number, statements: number, rows: ReadonlyArra
     else if (r.kind === "deduction" || r.kind === "escrow") y.deductionsCents += r.cents;
     else if (r.kind === "advance_repaid") y.advancesRepaidCents += r.cents;
     else if (r.kind === "escrow_release") y.escrowReleasedCents += r.cents;
+    else if (r.kind === "reimbursement") y.reimbursedCents += r.cents;
   }
   return y;
 }
@@ -117,6 +120,7 @@ export function statementPdfModel(d: StatementPdfData): StatementPdfModel {
           ...(y.deductionsCents !== 0 ? [{ label: "Deductions and escrow held", amount: c2d(y.deductionsCents) }] : []),
           ...(y.advancesRepaidCents !== 0 ? [{ label: "Advances repaid", amount: c2d(y.advancesRepaidCents) }] : []),
           ...(y.escrowReleasedCents !== 0 ? [{ label: "Escrow released", amount: c2d(y.escrowReleasedCents) }] : []),
+          ...(y.reimbursedCents !== 0 ? [{ label: "Receipts paid back", amount: c2d(y.reimbursedCents) }] : []),
           { label: "Net pay", amount: c2d(y.netCents) }
         ]
       : []
