@@ -1363,21 +1363,17 @@ export function QuoteDesk({
                       {values.stops[0]?.address ? `Pickup: ${values.stops[0].address}` : "Enter pickup address"}
                     </span>
                   </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  <div className="qt-near-list">
                     {nearestTen.map((t) => {
                       const deadhead = values.emptyByTruck[t.id] ?? (values.emptyToPickup || null);
                       const isSelected = row?.truckId === t.id || (selected ? selected.startsWith(t.id) : initial?.vehicleId === t.id);
                       return (
+                        // A tile sized to its three lines (unit, base, miles): a fixed-height button let them spill onto the next row (terminal.css .qt-near).
                         <button
                           key={t.id}
                           type="button"
-                          className="tl-btn ghost sm"
-                          style={{
-                            fontSize: 11,
-                            padding: "4px 8px",
-                            borderColor: isSelected ? "var(--db-accent)" : undefined,
-                            background: isSelected ? "var(--db-bg-card)" : undefined
-                          }}
+                          className="tl-btn ghost sm qt-near"
+                          aria-pressed={isSelected}
                           onClick={() => {
                             if (priced?.ok) {
                               const match = rows.find((r) => r.truckId === t.id);
@@ -1388,8 +1384,8 @@ export function QuoteDesk({
                             }
                           }}>
                           <b>{t.name}</b>
-                          <span style={{ color: "var(--db-fg-dim)", marginLeft: 4 }}>({t.homeBaseAddress || "Base"}):</span>
-                          <b style={{ color: "var(--db-accent-fg)", marginLeft: 4 }}>{deadhead != null && deadhead !== "" ? `${deadhead} mi` : "unmeasured"}</b>
+                          <span className="qt-near-base">{t.homeBaseAddress || "Base"}</span>
+                          <b className="qt-near-mi">{deadhead != null && deadhead !== "" ? `${deadhead} mi` : "unmeasured"}</b>
                         </button>
                       );
                     })}

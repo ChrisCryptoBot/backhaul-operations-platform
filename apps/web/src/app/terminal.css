@@ -343,6 +343,75 @@ textarea.t-ta{width:100%;min-height:56px;border:1px solid var(--line-hi);backgro
 .vc-explain b{color:var(--ink);font-weight:600}
 [data-learn]{cursor:help}
 .qt-verdict{display:grid;gap:10px}
+/* ---- The load drawer's summary (components/desk/load-view.tsx drawerDeck; Chris 2026-11-23 redesign: minimal, to the point). No boxes and no pills: the next step,
+        the trip in two lines, one row of three figures, and what still blocks this stage. Small grey labels, ink for what matters, colour only on the margin. ---- */
+.lv-deck{padding:12px var(--pad,10px) 10px}
+.lv-sum{display:grid;gap:12px}
+.lv-sum .lv-next,.lv-sum .lv-needs,.lv-sum .lv-fell{display:flex;align-items:baseline;gap:10px;margin:0;font:500 13px/18px var(--sans);color:var(--ink)}
+.lv-sum :is(.lv-next,.lv-needs,.lv-fell) b{flex:none;min-width:44px;font:600 10px/16px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--label)}
+.lv-sum .lv-next.late span{color:var(--neg)}
+.lv-sum .lv-needs span{color:var(--warn)}
+.lv-sum .lv-fell span{color:var(--mid)}
+.lv-route{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:end;gap:14px}
+.lv-stop{display:grid;gap:2px;min-width:0}
+.lv-stop:last-child{text-align:right}
+.lv-k{font:600 10px/14px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.lv-stop b{font:600 15px/20px var(--sans);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lv-stop>span:last-child{font:12px/16px var(--sans);color:var(--dim)}
+.lv-arrow{padding-bottom:18px;color:var(--dim)}
+.lv-meta{margin:-4px 0 0;font:12px/16px var(--sans);color:var(--mid)}
+.lv-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));margin:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.lv-stats>div{display:grid;gap:2px;align-content:start;padding:9px 12px 9px 0;min-width:0}
+.lv-stats>div+div{padding-left:14px;border-left:1px solid var(--line)}
+.lv-stats dt{font:600 10px/14px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.lv-stats dd{margin:0;font:600 20px/24px var(--display,var(--sans));color:var(--ink);font-variant-numeric:tabular-nums}
+.lv-stats dd.ok{color:var(--pos)}
+.lv-stats dd.bad{color:var(--neg)}
+.lv-stats>div>span{font:12px/16px var(--sans);color:var(--dim)}
+/* The drawer's tabs: words with an underline, no boxes and no key badges (1, 2, 3 still switch them). */
+.lv-tabs{display:flex;gap:22px;padding:0 var(--pad,10px);border-bottom:1px solid var(--line)}
+.lv-tabs button{display:inline-flex;align-items:center;gap:6px;height:34px;margin:0 0 -1px;padding:0;border:0;border-bottom:2px solid transparent;background:none;color:var(--mid);
+  font:600 11px/16px var(--mono);letter-spacing:.08em;text-transform:uppercase;cursor:pointer}
+.lv-tabs button:hover{color:var(--ink)}
+.lv-tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--label)}
+.lv-tabs .lv-count{color:var(--dim);font-weight:500}
+.dr-nav-strip:has(>.lv-tabs){padding:0;border-top:0}
+/* ---- The drawer's tab bodies (Trip / Money / Paperwork; load-view.tsx drawerStops, drawerDetails, drawerMoney, drawerPaper): short ruled lists under a small grey
+        label, no cards. The form sections that stay (driver, trailer, relay, cancel / reschedule, invoice) take the same quiet head and lose their boxes. ---- */
+.dr .cp-panel{gap:18px}
+.dr .lv-sec{display:grid;gap:8px}
+.dr .lv-sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.dr :is(.lv-sec h3,.cp-panel .sec>h3){margin:0;padding:0;border:0;font:600 10px/14px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.dr .lv-link{font:12px/16px var(--sans);color:var(--mid);text-decoration:underline;text-underline-offset:2px}
+.dr .lv-link:hover{color:var(--ink)}
+.dr .cp-panel .sec{display:grid;gap:8px;margin:0}
+.dr .cp-panel .sec-box{padding:0;border:0;background:none}
+.lv-stops{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+.lv-stops li{position:relative;display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px solid var(--line)}
+.lv-stops .lv-dot{width:8px;height:8px;margin-top:6px;border:1.5px solid var(--dim);background:transparent}
+.lv-stops li[data-done] .lv-dot{border-color:var(--pos-fill);background:var(--pos-fill)}
+.lv-stop-main,.lv-stop-when{display:grid;gap:2px;min-width:0}
+.lv-stop-when{text-align:right}
+.lv-stop-main b,.lv-stop-when b{font:600 13px/18px var(--sans);color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lv-stop-main span,.lv-stop-when span{font:12px/16px var(--sans);color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lv-kv,.lv-ledger{display:grid;margin:0;border-top:1px solid var(--line)}
+.lv-kv>div,.lv-ledger>div{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line)}
+.lv-kv dt,.lv-ledger dt{font:13px/18px var(--sans);color:var(--mid)}
+.lv-kv dd,.lv-ledger dd{margin:0;font:500 13px/18px var(--sans);color:var(--ink);text-align:right;font-variant-numeric:tabular-nums}
+.lv-ledger dt span{margin-left:8px;font-size:12px;color:var(--dim)}
+.lv-ledger .lv-total{padding-top:10px;border-bottom:0}
+.lv-ledger .lv-total dt{color:var(--ink);font-weight:600}
+.lv-ledger .lv-total dd{font:600 18px/22px var(--display,var(--sans))}
+.lv-ledger dd.ok{color:var(--pos)}
+.lv-ledger dd.bad{color:var(--neg)}
+/* In the TrueLane app style the stop marks are round, like every dot. */
+[data-ui="app"] .lv-stops .lv-dot{border-radius:50%}
+/* Quote, "Nearest to the pickup": one tile per truck, as tall as its three lines (unit, base, empty miles), so a wrapped row never sits on top of the next. */
+.qt-near-list{display:flex;flex-wrap:wrap;gap:6px}
+.qt-near-list .qt-near{display:inline-grid;justify-items:center;align-content:center;gap:1px;height:auto;min-height:46px;padding:5px 12px;line-height:14px;white-space:nowrap}
+.qt-near-list .qt-near .qt-near-base{color:var(--dim);text-transform:none;letter-spacing:0}
+.qt-near-list .qt-near .qt-near-mi{color:var(--label)}
+.qt-near-list .qt-near[aria-pressed=true]{border-color:var(--bar);background:var(--panel)}
 .qt-verdict .t-kv{margin:0}
 .vc-rest .firm i{color:var(--ink)}
 
@@ -766,14 +835,17 @@ html{zoom:var(--ui-zoom)}
    Where the phone's value fails the desk's contrast test it is nudged: --dim (#7E8794 is 4.3:1 on a hovered row), --typed (AtMarketBlue #5980A6 is 4.2:1 on the panel), --neg-fill
    (WarningRed #DC2626 under black ink is 4.3:1), --line-hi (the phone's hairlines are too faint to rule a table).
    ============================================================================================================================ */
+/* Soft by default (Chris 2026-11-23: "flat or soft colors should reach the subconscious"): the phone's gold for labels (its BrandRed), muted green / rose / amber
+   for every figure, dot and bar (--pos/--neg/--warn and their fills). Full strength is kept for a short list only (the "Full colour, on purpose" block at the end
+   of this layer). The gold bar (--bar: the main button) stays the brand gold. (Comments stay outside this block: tests/theme-contrast.test.ts reads it.) */
 [data-ui="app"] {
   color-scheme: dark;
   --bg:#0E1117; --panel:#161B24; --head:#0A0D12; --sunk:#0B0F17; --hover:#1E2635;
   --line:#303846; --line-hi:#71819A;
   --ink:#E8EDF2; --mid:#AAB6C2; --dim:#95A1AE; --faint:#4A5361;
-  --label:#E8A020; --label-hi:#F2B642; --typed:#7FB0DE; --bar:#E8A020; --bar-hi:#F2B642; --on-bar:#000;
-  --pos:#22C55E; --neg:#F87171; --warn:#F97316;
-  --pos-fill:#22C55E; --neg-fill:#EF4444; --warn-fill:#F97316; --on-fill:#000; --on-label:#000; --prompt:#1f2937;
+  --label:#E8A020; --label-hi:#F2B642; --typed:#8DB4DA; --bar:#E8A020; --bar-hi:#F2B642; --on-bar:#000;
+  --pos:#8CC9A3; --neg:#E59A9A; --warn:#E2AD74;
+  --pos-fill:#63A57E; --neg-fill:#C77474; --warn-fill:#C9925A; --on-fill:#000; --on-label:#000; --prompt:#1f2937;
   --scrim:rgba(5,7,10,.75);
   --map-water:#1a2d42; --map-land:#121723; --map-road-lo:#2c3442; --map-road:#3d4757; --map-road-hi:#485263; --map-casing:#0E1117; --map-border:#5a6577;
   --glass:rgba(14,17,23,.9);
@@ -788,4 +860,104 @@ html{zoom:var(--ui-zoom)}
 [data-ui="app"] body{font-size:13px;line-height:17px;font-variant-numeric:tabular-nums}
 /* Headings, column heads and labels in the phone's display face (Barlow Condensed, tracked, uppercase where the cockpit already is). */
 [data-ui="app"] :is(.t-rail h2,.t-pagehead h1,.t-tbl th,.dr .dr-head h2,.dr .sec>h3,.lv-page .sec>h3,.dr .cp-metric-lbl,.dr .cp-ledger-card h4,.t-banner b,.vc-word,.st-tab,.dr .cp-tab-btn,.th-label,.t-scope-chip,.t-hero){font-family:var(--display)}
+/* ============================================================================================================================
+   TrueLane app: the phone's curvature, committed (Chris 2026-11-23: "every dot, every table, every field"). The phone's radius by role (components/ui/curve.ts in the
+   phone repo; docs/DESIGN_BRIEF.md): press 6, field 8, tile 10, note 14, card 20, pills and dots fully round, and a parent's curve always larger than its child's.
+   Containers curve; the rows and cells inside them stay square and ruled, as on the phone. The window frame (command bar, fleet totals, page header, section rail)
+   stays square, like the phone's headers. app/legacy-flat.css no longer flattens this style, so the legacy sheets' --db-r-* radii come back at the phone's scale
+   (set below); shadows, blur and gradients stay flattened. Cockpit Night and Day are untouched. Delete this block (and the :not([data-ui="app"]) in legacy-flat.css)
+   to go back to square.
+   ============================================================================================================================ */
+[data-ui="app"] {
+  --r-press:6px; --r-field:8px; --r-tile:10px; --r-note:14px; --r-card:20px; --r-pill:999px;
+  /* The legacy sheets' tokens (globals.css sets them to 0) at the phone's scale. */
+  --db-r-sm:6px; --db-r-press:6px; --db-r-md:8px; --db-r-field:8px; --db-r-tile:10px; --db-r-lg:14px; --db-r-note:14px; --db-r-card:20px; --db-r-pill:999px;
+}
+
+/* ---- Press: buttons, icon buttons, menu items, keycaps. ---- */
+[data-ui="app"] :is(.t-btn,.tl-btn,.t-go,.t-collapse,.t-linkbtn,.dr .dr-btn-icon,.dr .dr-close,.dp-nav,.dp-open,.dp-link,.t-scope-all,.fm-pick,.t-pop-hit,.gs-hit,
+  .t-scope-menu>.t-scope,.rd-region,kbd,.st-kbd,:is(.dr,.lv-page) .cp-kbd) { border-radius:var(--r-press) !important; }
+
+/* ---- Field: every typed or chosen value. ---- */
+[data-ui="app"] :is(.t-in,textarea.t-ta,.kn-form textarea,.tl-field input,.tl-field select,.tl-field textarea,.dt-search input,.gs-input,.kfilters select,.tl-scope select,
+  .audit-filters select,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden]),select,textarea) { border-radius:var(--r-field) !important; }
+[data-ui="app"] :is(input[type=checkbox],.tl-check) { border-radius:4px !important; }
+
+/* ---- A row of controls (segmented buttons, tab strips), drawn as the phone draws them: the track holds its options 2px in from its edge, and every option is a
+        press-curve pill, so the track's curve (8) is the pill's (6) plus that 2px and the chosen pill's corners sit exactly inside the track's, with no wedge of
+        track showing at a corner. The ruled dividers between options go: they cut through the pills. Underline tabs (.tl-tabs: a gold bar
+        under the chosen one, no track) are not toggles and stay as they are. ---- */
+[data-ui="app"] :is(.t-seg,.st-tablist,.eq-tabs,.rd-tabs,.rd-regions,.t-tabs,:is(.dr,.lv-page) .cp-nav) {
+  border-radius:calc(var(--r-press) + 3px) !important; overflow:hidden; padding:2px; gap:2px; } /* 6 + the 1px border + the 2px inset: concentric with the pills */
+[data-ui="app"] :is(.t-seg>*,.st-tablist>*,.st-tab,.eq-tab,.rd-tab,.rd-regions>*,.t-tabs a,.t-tabs button,:is(.dr,.lv-page) .cp-tab-btn) {
+  border-radius:var(--r-press) !important; border-right:0 !important; border-left:0 !important; }
+
+/* ---- Chips and codes: fully round. ---- */
+[data-ui="app"] :is(.t-scope-chip,.rd-x-chip,.pl-code,.eq-key,.t-pager,.spl-grip,.t-pagehead h1 i,.t-ph i) { border-radius:var(--r-pill) !important; }
+
+/* ---- Every dot: status dots, the status square, map dots, the verdict mark, the shift marker. ---- */
+[data-ui="app"] :is(.rd-dot,.vm) { border-radius:50% !important; }
+/* The flag square (Loads: "Pickup passed") is a warning, not a status: it keeps a square shape (softened) so it never reads as a second status dot. */
+[data-ui="app"] .t-sq { border-radius:2px !important; }
+/* Pseudo-elements cannot sit inside :is(), so the dots drawn by ::before are listed one by one. */
+[data-ui="app"] .t-st::before,[data-ui="app"] .pl-shift.on::before,[data-ui="app"] :is(.dr,.lv-page) .cp-gate::before,[data-ui="app"] :is(.dr,.lv-page) .cp-metric-val::before,
+[data-ui="app"] .cp-hero-fig::before { border-radius:50% !important; }
+
+/* ---- Tile: pop-ups, menus, the date picker, tooltips, planner blocks, map controls. ---- */
+[data-ui="app"] :is(.t-pop,.t-pop-group,.t-scope-pop,.t-scope-menu,.menu-pop,.gs-pop,.dp.dp,.vc-tip,.pl-load,.rd .maplibregl-ctrl-group,.fm .maplibregl-ctrl-group,
+  .rd-key,.rd-attrib,.rd-pinned,.lt-svg) { border-radius:var(--r-tile) !important; }
+[data-ui="app"] :is(.dp-day) { border-radius:var(--r-press) !important; }
+
+/* ---- Note: panels, notes, banners, detail boxes, the drawer's cards, toasts, every table panel. ---- */
+[data-ui="app"] :is(.dt-wrap,.tl-card,.cp-card,.t-banner,.al[data-level=block],.t-det,.t-doc,.t-status,.t-scope-region,.vc-explain,.ai-list,.rs-filters,
+  .rd,.rd-rail,.rd-sched,.rd-strip,.rd-empty,.eq-map,.fm,.fm>.rs,.k-toast,.t-toast,
+  :is(.dr,.lv-page) .cp-detention-box,:is(.dr,.lv-page) .cp-gate,:is(.dr,.lv-page) .cp-ledger-card,:is(.dr,.lv-page) .cp-metric,:is(.dr,.lv-page) .cp-metrics-bar,:is(.dr,.lv-page) .cp-ribbon) { border-radius:var(--r-note) !important; }
+[data-ui="app"] :is(.dt-wrap,.t-det,.t-doc,.rd,.fm,.eq-map,:is(.dr,.lv-page) .cp-metrics-bar,:is(.dr,.lv-page) .cp-ribbon) { overflow:hidden; }
+/* A card is a phone group: the panel colour, a hairline, the note curve and room inside, so its ruled rows sit in a container the way the phone's do. A card inside
+   a card stays bare (no panel on a panel). */
+[data-ui="app"] .tl-card { background:var(--panel); border:1px solid var(--line); padding:12px 14px; }
+[data-ui="app"] .tl-card .tl-card { background:transparent; border:0; padding:0; border-radius:0 !important; }
+/* Cards side by side in a grid start level (desk.css's stacked-card gap, .tl-card + .tl-card, was pushing the second and third columns down). */
+[data-ui="app"] :is(.tl-cols,.tl-grid)>.tl-card { margin-top:0; }
+
+/* ---- Every table: the table's own outer corners curve (header row on top, last row at the foot); cells stay square and ruled. Separate borders so the
+        corners can round; every rule is a bottom border, so nothing doubles. ---- */
+[data-ui="app"] :is(.t-tbl,table.dt,.rd-table) { border-collapse:separate; border-spacing:0; }
+[data-ui="app"] :is(.t-tbl,table.dt,.rd-table) tr:first-child>:first-child { border-top-left-radius:var(--r-note) !important; }
+[data-ui="app"] :is(.t-tbl,table.dt,.rd-table) tr:first-child>:last-child { border-top-right-radius:var(--r-note) !important; }
+[data-ui="app"] :is(.t-tbl,table.dt,.rd-table) tbody tr:last-child>:first-child { border-bottom-left-radius:var(--r-note) !important; }
+[data-ui="app"] :is(.t-tbl,table.dt,.rd-table) tbody tr:last-child>:last-child { border-bottom-right-radius:var(--r-note) !important; }
+/* Inside a curved panel the panel already rounds the corners. */
+[data-ui="app"] :is(.dt-wrap,.t-det,.t-doc) :is(.t-tbl,table.dt) :is(th,td) { border-radius:0 !important; }
+
+/* ---- Card: dialogs, the drawer (its free edge; it sits against the right of the window), the load page. ---- */
+[data-ui="app"] :is(.k-modal,.t-dlg,.lv-page) { border-radius:var(--r-card) !important; }
+[data-ui="app"] :is(.dr,.t-drawer) { border-radius:var(--r-card) 0 0 var(--r-card) !important; overflow:hidden; }
+
+/* ---- The active section: a rounded bar inside the rail, not a band across it. ---- */
+[data-ui="app"] .t-rail a[href] { border-radius:var(--r-press) !important; margin-left:6px; margin-right:6px; }
+
+/* ---- The one hero: the Quote verdict, drawn like the phone's hero cards (a card curve, a gold hairline along the top, a faint warm light from the top-left corner). ---- */
+[data-ui="app"] .qt-verdict { border-radius:var(--r-card) !important; padding:14px 16px; border:1px solid var(--line); border-top-color:rgba(232,160,32,.55);
+  background:radial-gradient(120% 90% at 0% 0%,rgba(232,160,32,.10),transparent 60%),var(--panel) !important; }
+
+/* ---- Calm everywhere (Chris 2026-11-23: "way too much neon … exhausting and over-stimulating"). The soft palette above does most of it: every figure, dot, bar and
+        badge reads in muted tones. On top of it: a chosen tab, toggle, menu item or section is a gold TINT with gold text, never a solid gold slab (the slab is
+        kept for the main button); card heads are grey. ---- */
+[data-ui="app"] :is(.t-rail a[aria-current=page],.t-tabs [aria-current=true],.t-tabs [aria-selected=true],.t-pop-hit[aria-selected=true],.t-seg>[aria-current=true],
+  .t-seg>[aria-pressed=true],.cp-tab-btn[aria-selected=true],.st-tab[aria-selected=true],.rd-tab[aria-selected=true],.rd-region[aria-pressed=true],
+  .eq-tab[aria-selected=true]) { --bar:rgba(232,160,32,.16); --on-bar:var(--label-hi); }
+[data-ui="app"] :is(.cp-ledger-card h4,.cp-hero-lbl) { color:var(--mid) !important; }
+/* A scrollbar thumb under the mouse was gold (globals.css: --db-scrollbar-thumb-hover is --label); it reads as a stray gold line under a tab row. Grey instead. */
+[data-ui="app"] { --db-scrollbar-thumb-hover:var(--mid); }
+
+/* ---- Full colour, on purpose: the only places the full-strength green, red and orange stay. The verdict mark (the product's one constant), a blocking alert,
+        and the red count of things overdue on the section rail. Everything else is soft, so these few are the ones the eye goes to. ---- */
+[data-ui="app"] :is(.vm,.al[data-level=block],.t-rail a em[data-tone=bad]) {
+  --pos-fill:#22C55E; --neg-fill:#EF4444; --warn-fill:#F97316; --pos:#22C55E; --neg:#F87171; --warn:#F97316;
+  --db-pos-fill:#22C55E; --db-neg-fill:#EF4444; --db-warn-fill:#F97316; --db-pos:#22C55E; --db-neg:#F87171; --db-warn:#F97316;
+}
+
+/* ---- Less gold: column heads and the fleet totals' labels read in the mid grey, so gold means a heading, the main button, the active item or the hero. ---- */
+[data-ui="app"] :is(.t-tbl th,.dt th,.t-tick span) { color:var(--mid) !important; }
 }

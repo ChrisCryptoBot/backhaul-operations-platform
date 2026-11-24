@@ -31,6 +31,7 @@ export function DrawerFrame({
   nav,
   footer,
   fullHref,
+  minimal = false,
   children
 }: {
   title: React.ReactNode;
@@ -40,6 +41,8 @@ export function DrawerFrame({
   nav?: React.ReactNode;
   footer?: React.ReactNode;
   fullHref: string;
+  /** The load drawer's quiet header (Chris 2026-11-23 redesign): position, up/down and close only; expand (\\) and shortcuts (?) stay on their keys; no deck resizer. */
+  minimal?: boolean;
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -249,9 +252,11 @@ export function DrawerFrame({
                     title="Next load (J)">
                     <Icon name="chevronDown" size={14} />
                   </button>
-                  <span className="cp-kbd">J/K</span>
+                  {minimal ? null : <span className="cp-kbd">J/K</span>}
                 </div>
               ) : null}
+              {minimal ? null : (
+              <>
               <button
                 type="button"
                 className="dr-btn-icon"
@@ -270,13 +275,15 @@ export function DrawerFrame({
                 <Icon name="help" size={15} />
               </button>
               <span className="cp-kbd">?</span>
+              </>
+              )}
               <button type="button" className="dr-close" onClick={close} aria-label="Close drawer (Esc)" title="Close (Esc)">
                 <Icon name="close" size={16} />
               </button>
             </div>
           </header>
 
-          {deck ? (
+          {deck && minimal ? <div className="dr-deck-strip lv-deck">{deck}</div> : deck ? (
             <div
               ref={deckRef}
               className="dr-deck-strip"
@@ -289,6 +296,7 @@ export function DrawerFrame({
             </div>
           ) : null}
           {nav ? <div className="dr-nav-strip">{nav}</div> : null}
+          {minimal ? null : (
           <div
             className="dr-resizer"
             onMouseDown={handleMouseDown}
@@ -298,6 +306,7 @@ export function DrawerFrame({
             role="separator"
             aria-orientation="horizontal"
           />
+          )}
         </div>
 
         {/* Scrollable body: starts right below the workbench tab bar, zero gap, zero underlap */}

@@ -3,11 +3,12 @@ import React from "react";
 import { trailRuns } from "@/lib/geo-line";
 import type { LoadTracking } from "@/server/tl/load-tracking";
 import { ROAD_ROUTE_NOTE, laneNote } from "@/lib/telematics";
+import { LoadMap } from "./radar-map";
 
 /**
  * Where it is: the load's lane drawn as a corridor from the pickup to the delivery, the truck's breadcrumb along it and its marker where the ELD last put it, with the speed, road, miles to go, ETA
- * and whether that is on schedule. A truck inside a mile of a stop gets the green geofence line. Drawn as plain SVG from the desk's tokens (no map library in the drawer), and it only shows: it
- * writes no arrival, because detention and money depend on what a person or the driver's phone says.
+ * and whether that is on schedule. A truck inside a mile of a stop gets the green geofence line. Drawn on the real map (radar-map.tsx LoadMap: the radar's tiles and layers, Chris 2026-11-23);
+ * the plain SVG below is kept as its fallback where a browser cannot draw a map. It only shows: it writes no arrival, because detention and money depend on what a person or the driver's phone says.
  */
 const W = 640;
 const H = 250;
@@ -58,6 +59,10 @@ export function LoadTracker({ t }: { t: LoadTracking }) {
   return (
     <div className="lt">
       <p className={`lt-head${t.late ? " lt-late" : ""}`}>{t.headline}</p>
+      {/* The real map (OpenFreeMap tiles, the radar's own layers); the drawing below is its fallback where a browser cannot draw a map. */}
+      <LoadMap
+        t={t}
+        fallback={
       <svg viewBox={`0 0 ${W} ${H}`} className="lt-svg" role="img" aria-label={`${t.truckName}: ${t.headline}`}>
         {roadLine.length > 1 ? (
           <polyline points={roadLine.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")} fill="none" style={{ stroke: "var(--line-hi)", strokeWidth: 2 }} />
@@ -91,6 +96,8 @@ export function LoadTracker({ t }: { t: LoadTracking }) {
           {t.truckName}
         </text>
       </svg>
+        }
+      />
       {t.geofences.map((g) => (
         <p key={g.stop} className="lt-geo">{`✔ ${g.text}`}</p>
       ))}

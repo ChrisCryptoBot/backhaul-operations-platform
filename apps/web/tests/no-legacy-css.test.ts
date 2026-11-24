@@ -85,3 +85,30 @@ describe("ratchets (only ever lowered)", () => {
     if (!flat) expect(radii).toBe(0);
   });
 });
+
+describe("the TrueLane app style's curvature (committed, 2026-11-23)", () => {
+  const css = strip(read("app/terminal.css"));
+  const appLayer = css.slice(css.lastIndexOf("@layer app {"));
+
+  test("the curve tokens are the phone's radius by role (press 6, field 8, tile 10, note 14, card 20, pill), set only under the app style", () => {
+    expect(appLayer).toContain("--r-press:6px; --r-field:8px; --r-tile:10px; --r-note:14px; --r-card:20px; --r-pill:999px;");
+    expect(appLayer).toContain("--db-r-sm:6px; --db-r-press:6px; --db-r-md:8px; --db-r-field:8px; --db-r-tile:10px; --db-r-lg:14px; --db-r-note:14px; --db-r-card:20px; --db-r-pill:999px;");
+    // Defined once, under [data-ui="app"]: Night and Day have none.
+    expect(css.match(/--r-(press|field|tile|note|card|pill):/g)?.length).toBe(6);
+  });
+
+  test("every curve is scoped to the app style; rows, cells and the status word stay square (a status dot is round)", () => {
+    const curved = [...css.matchAll(/([^{}]+)\{[^{}]*border-radius:var\(--r-[a-z]+\)/g)].map((m) => m[1]!.trim());
+    expect(curved.length).toBeGreaterThan(10);
+    for (const sel of curved) {
+      expect(sel.startsWith('[data-ui="app"]')).toBe(true);
+      expect(sel).not.toMatch(/\.tl-chip\b|\.t-st(?!::before)\b/);
+    }
+  });
+
+  test("legacy-flat.css flattens Cockpit Night and Day only, never the app style", () => {
+    const flat = read("app/legacy-flat.css");
+    expect(flat).toContain(':root:not([data-ui="app"]) *:not(.vm):not(.vm *),');
+    expect(flat).not.toMatch(/^\*:not\(\.vm\)/m);
+  });
+});

@@ -2,9 +2,10 @@
    cockpit.css and quote-terminal.css. This flattens them so that nothing on the desk is round or frosted while the move is under way.
    Deleted with those stylesheets (docs/TERMINAL_MIGRATION.md). The verdict mark (.vm) and the status squares keep their own shapes. */
 
-*:not(.vm):not(.vm *),
-*::before,
-*::after {
+/* The TrueLane app style (data-ui="app") keeps its curves: terminal.css draws them at the phone's scale. Cockpit Night and Day stay flat. */
+:root:not([data-ui="app"]) *:not(.vm):not(.vm *),
+:root:not([data-ui="app"]) *::before,
+:root:not([data-ui="app"]) *::after {
   border-radius: 0 !important;
 }
 .vm[data-s="take"], .vm[data-s="unjudged"] { border-radius: 50% !important; }

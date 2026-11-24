@@ -32,6 +32,86 @@ interface LoadCockpitProps {
 
   docsCount: number;
   alertsCount?: number;
+  /**
+   * The drawer's focused view (Chris 2026-11-23: "cut off the fat, refocus on what is immediately important"): one "next" line for the load's stage and three tabs,
+   * Trip, Money and Paperwork. Everything else stays on the full page ("Open full page"), which keeps its five workbenches.
+   */
+  drawer?: { next: React.ReactNode | null; trip: React.ReactNode; money: React.ReactNode; paper: React.ReactNode };
+}
+
+type DrawerTab = "trip" | "money" | "paper";
+const DRAWER_TABS: { key: DrawerTab; label: string; kbd: string }[] = [
+  { key: "trip", label: "Trip", kbd: "1" },
+  { key: "money", label: "Money", kbd: "2" },
+  { key: "paper", label: "Paperwork", kbd: "3" }
+];
+
+/** The drawer's three tabs: keys 1 to 3, and the last one chosen is remembered for this browser tab (after the first render, so server and browser agree). */
+function DrawerView({ title, sub, chips, deck, footer, fullHref, drawer, docsCount }: { title: React.ReactNode; sub: React.ReactNode; chips: React.ReactNode; deck: React.ReactNode; footer: React.ReactNode; fullHref: string; drawer: NonNullable<LoadCockpitProps["drawer"]>; docsCount: number }) {
+  const [tab, setTabState] = React.useState<DrawerTab>("trip");
+  React.useEffect(() => {
+    try {
+      const saved = window.sessionStorage?.getItem("tl_drawer_tab");
+      if (saved === "money" || saved === "paper") setTabState(saved);
+    } catch {
+      /* storage blocked: stay on Trip */
+    }
+  }, []);
+  const setTab = React.useCallback((t: DrawerTab) => {
+    setTabState(t);
+    try {
+      window.sessionStorage?.setItem("tl_drawer_tab", t);
+    } catch {
+      /* not remembered */
+    }
+  }, []);
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (document.querySelector(".k-scrim")) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
+      const hit = DRAWER_TABS.find((d) => d.kbd === e.key);
+      if (hit) {
+        e.preventDefault();
+        setTab(hit.key);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [setTab]);
+  const nav = (
+    <nav className="lv-tabs" role="tablist" aria-label="Load">
+      {DRAWER_TABS.map((d) => (
+        <button key={d.key} type="button" role="tab" id={`dtab-${d.key}`} aria-controls={`dpanel-${d.key}`} aria-selected={tab === d.key} title={`${d.label} (${d.kbd})`} onClick={() => setTab(d.key)}>
+          {d.label}
+          {d.key === "paper" && docsCount > 0 ? <span className="lv-count">{docsCount}</span> : null}
+        </button>
+      ))}
+    </nav>
+  );
+  const body = tab === "trip" ? drawer.trip : tab === "money" ? drawer.money : drawer.paper;
+  return (
+    <DrawerFrame
+      title={title}
+      sub={sub}
+      chips={chips}
+      deck={
+        <>
+          {drawer.next}
+          {deck}
+        </>
+      }
+      nav={nav}
+      footer={footer}
+      fullHref={fullHref}
+      minimal>
+      <div className="cp-workbench-area">
+        <div role="tabpanel" id={`dpanel-${tab}`} aria-labelledby={`dtab-${tab}`} className="cp-panel">
+          {body}
+        </div>
+      </div>
+    </DrawerFrame>
+  );
 }
 
 export function LoadCockpit({
@@ -48,22 +128,27 @@ export function LoadCockpit({
   partnersWorkbench,
   trackingWorkbench,
   docsCount,
-  alertsCount
+  alertsCount,
+  drawer
 }: LoadCockpitProps) {
-  const [activeTab, setActiveTabState] = React.useState<WorkbenchTab>(() => {
-    if (typeof window !== "undefined") {
+  // The server has no sessionStorage, so the first render is always "route" on both sides; the remembered tab is put back right after (reading it during render made the
+  // server's and the browser's first render differ: a hydration error on every load page).
+  const [activeTab, setActiveTabState] = React.useState<WorkbenchTab>("route");
+  React.useEffect(() => {
+    try {
       const saved = window.sessionStorage?.getItem("tl_cockpit_tab");
-      if (saved === "route" || saved === "margin" || saved === "docs" || saved === "partners" || saved === "tracking") {
-        return saved;
-      }
+      if (saved === "margin" || saved === "docs" || saved === "partners" || saved === "tracking") setActiveTabState(saved);
+    } catch {
+      /* storage blocked: stay on the first tab */
     }
-    return "route";
-  });
+  }, []);
 
   const setActiveTab = React.useCallback((tab: WorkbenchTab) => {
     setActiveTabState(tab);
-    if (typeof window !== "undefined") {
+    try {
       window.sessionStorage?.setItem("tl_cockpit_tab", tab);
+    } catch {
+      /* storage blocked: the tab is not remembered */
     }
   }, []);
 
@@ -214,6 +299,10 @@ export function LoadCockpit({
       )}
     </div>
   );
+
+  if (variant === "drawer" && drawer) {
+    return <DrawerView title={headerTitle} sub={sub} chips={chips} deck={deck} footer={footer} fullHref={fullHref} drawer={drawer} docsCount={docsCount} />;
+  }
 
   if (variant === "drawer") {
     return (

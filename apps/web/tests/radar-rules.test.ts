@@ -119,7 +119,11 @@ describe("the radar clusters thousands of units and hands stacks over as a list"
 
 describe("the radar and dwell styles keep to the design rules", () => {
   const css = read("src/app/terminal.css");
-  const rules = css.slice(css.indexOf("/* Radar map"));
+  // The Cockpit's radar rules: from the radar section to where the TrueLane app style's layer begins (that style curves on purpose; its own rules are pinned in
+  // tests/no-legacy-css.test.ts).
+  const from = css.indexOf("/* Radar map");
+  const appLayer = css.indexOf("@layer app {", from);
+  const rules = css.slice(from, appLayer > from ? appLayer : undefined);
   it("has no radius, no shadow, no gradient, and no coloured edge strip", () => {
     expect(rules).not.toMatch(/border-radius\s*:\s*[1-9]/);
     expect(rules).not.toMatch(/box-shadow\s*:\s*(?!none)/);

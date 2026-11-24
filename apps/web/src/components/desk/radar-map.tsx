@@ -17,6 +17,7 @@ import type { RadarTractor, RadarTrailer } from "@/server/tl/radar";
 import type { RadarPoints } from "@/server/tl/radar-query";
 import type { OpenLoadPin, RadarOpenLoads } from "@/server/tl/radar-open-loads";
 import type { RadarRoute } from "@/server/tl/radar-route";
+import type { LoadTracking } from "@/server/tl/load-tracking";
 import type { RadarWeather } from "@/server/tl/radar-weather";
 import { RadarList } from "./radar-list";
 import { RadiusSearch } from "./radius-search";
@@ -349,6 +350,7 @@ export function Canvas({
   compact,
   bare = false,
   overlays = NO_OVERLAYS,
+  extent,
   onLive
 }: {
   points: RadarPoint[];
@@ -364,6 +366,8 @@ export function Canvas({
   /** No region buttons: a map of a single unit has nothing to switch between. */
   bare?: boolean;
   overlays?: Overlays;
+  /** Places the first view must also hold besides the points (a load's stops and road): the map fits all of them, closer in than a fleet view. */
+  extent?: ReadonlyArray<{ lat: number; lng: number }>;
   /** Told whether the live OpenFreeMap tiles loaded (tolls and fuel stops exist only on them). */
   onLive?: (live: boolean) => void;
 }) {
@@ -375,8 +379,8 @@ export function Canvas({
   const regionRef = React.useRef<RegionKey>(firstRegion(points));
   const [region, setRegion] = React.useState<RegionKey>(regionRef.current);
   const counts = React.useMemo(() => regionCounts(points), [points]);
-  const latest = React.useRef({ points, sel, ring: ring ?? null, fitKey: fitKey ?? "", clustered, overlays });
-  latest.current = { points, sel, ring: ring ?? null, fitKey: fitKey ?? "", clustered, overlays };
+  const latest = React.useRef({ points, sel, ring: ring ?? null, fitKey: fitKey ?? "", clustered, overlays, extent: extent ?? null });
+  latest.current = { points, sel, ring: ring ?? null, fitKey: fitKey ?? "", clustered, overlays, extent: extent ?? null };
   const live = React.useRef(onLive);
   live.current = onLive;
   const router = useRouter();
@@ -410,7 +414,7 @@ export function Canvas({
   const push = React.useCallback(() => {
     const map = mapRef.current;
     if (!map || !ready.current) return;
-    const { points: pts, sel: chosen, ring: rg, fitKey: key, overlays: ov } = latest.current;
+    const { points: pts, sel: chosen, ring: rg, fitKey: key, overlays: ov, extent: ext } = latest.current;
     (map.getSource("route") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: routeFeatures(ov.route) } as never);
     (map.getSource("open-loads") as GeoJSONSource | undefined)?.setData(collection(openLoadFeatures(ov.openLoads ?? [])) as never);
     (map.getSource("weather") as GeoJSONSource | undefined)?.setData({ type: "FeatureCollection", features: ov.weather?.features ?? [] } as never);
@@ -432,6 +436,12 @@ export function Canvas({
         if (k !== regionRef.current) hold(k);
         const b = boundsAround({ lat: rg.lat, lng: mapLng(rg.lat, rg.lng) }, rg.radius * 1.08);
         map.fitBounds(ll(withinRegion([b.minLng, b.minLat, b.maxLng, b.maxLat], k)), { padding: compact ? 16 : 40, maxZoom: 11, duration: 0 });
+      } else if (ext && ext.length > 0) {
+        // A load: the truck, its stops and its road all in view, as close as they allow.
+        const k = firstRegion(pts);
+        if (k !== regionRef.current) hold(k);
+        const box = boxAround([...pts, ...ext], 0.25, 0.8) ?? REGIONS[k].fit;
+        map.fitBounds(ll(withinRegion(box, k)), { padding: compact ? 24 : 48, maxZoom: 10, duration: 0 });
       } else {
         // Open on the region with the most units, fitted to the units in it (one truck in Anchorage does not stretch the first view across the world).
         const k = firstRegion(pts);
@@ -667,6 +677,42 @@ export function UnitMap({ unit }: { unit: { id: string; kind: "truck" | "trailer
   return (
     <div className="eq-map" aria-label={`Map of ${unit.name}`}>
       <Canvas key={theme} points={[point]} sel={null} onSelect={() => undefined} clustered={false} compact bare fitKey={unit.id} focus={{ lat: unit.lat, lng: unit.lng, zoom: 9, n: 1 }} />
+    </div>
+  );
+}
+
+/**
+ * A load on the real map, for the drawer's Where it is tab: the truck's mark where the ELD last put it, the load's road (or its straight lane when no road route
+ * could be had), the breadcrumb and the stops, drawn by the radar's own layers on the same tiles (OpenFreeMap; its built-in states and interstates when those cannot
+ * load). `fallback` is the plain drawing, shown only where the browser cannot draw a map at all (no WebGL). It shows; it records nothing.
+ */
+export function LoadMap({ t, fallback }: { t: LoadTracking; fallback: React.ReactNode }) {
+  const theme = useTheme();
+  const [canDraw, setCanDraw] = React.useState<boolean | null>(null);
+  React.useEffect(() => {
+    try {
+      const c = document.createElement("canvas");
+      setCanDraw(!!(c.getContext("webgl2") ?? c.getContext("webgl")));
+    } catch {
+      setCanDraw(false);
+    }
+  }, []);
+  if (t.status !== "tracking") return null;
+  if (canDraw === false) return <>{fallback}</>;
+  const p = t.position;
+  const icon = p.state === "moving_load" ? "t-load" : p.state === "moving" ? "t-moving" : p.state === "idling" ? "t-idle" : p.state === "parked" ? "t-parked" : "t-none";
+  const truck: RadarPoint = { id: "load-truck", k: "t", lat: p.lat, lng: p.lng, icon, h: p.headingDeg ?? 0, sev: p.state === "idling" ? 1 : 0, t: 1, r: 0, name: t.truckName };
+  const route: RadarRoute = {
+    mode: "route", status: "tracking", loadId: "drawer", loadNumber: null, truckId: null, stops: t.stops, trail: t.trail, road: t.road?.coords ?? null,
+    milesBasis: t.milesBasis, offRoute: t.offRoute, headline: t.headline, late: t.late, driver: null, hos: null, eta: null, nextStop: null, trailer: null
+  };
+  const extent = [...t.stops, ...(t.road?.coords ?? []).map((c) => ({ lat: c[1], lng: c[0] }))];
+  const key = `${t.stops.map((s) => `${s.lat},${s.lng}`).join("|")}`;
+  return (
+    <div className="eq-map lt-map" aria-label={`${t.truckName}: ${t.headline}`}>
+      {canDraw ? (
+        <Canvas key={theme} points={[truck]} sel={null} onSelect={() => undefined} clustered={false} compact bare fitKey={key} extent={extent} overlays={{ ...NO_OVERLAYS, route }} />
+      ) : null}
     </div>
   );
 }

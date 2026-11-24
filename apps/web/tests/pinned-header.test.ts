@@ -10,7 +10,10 @@ const SRC = join(__dirname, "..", "src");
 const CR = String.fromCharCode(13);
 const read = (p: string) => readFileSync(join(SRC, p), "utf8").split(CR).join("");
 const css = read("app/terminal.css");
-const block = css.slice(css.indexOf("/* Pinned chrome:"));
+// From the pinned-chrome rules to where the TrueLane app style's layer begins (that style's own rules, its warm hero light among them, are pinned in no-legacy-css.test.ts).
+const pinnedFrom = css.indexOf("/* Pinned chrome:");
+const appLayerAt = css.indexOf("@layer app {", pinnedFrom);
+const block = css.slice(pinnedFrom, appLayerAt > pinnedFrom ? appLayerAt : undefined);
 
 describe("the page head and tab bar stay on screen", () => {
   test("the head is pinned, and the tab, filter and unit-tab bars pin under it by the measured height", () => {

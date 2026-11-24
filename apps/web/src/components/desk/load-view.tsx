@@ -65,6 +65,7 @@ import { rateConTotal } from "@/lib/pay";
 import { telHref } from "@/lib/contact";
 import { LoadCockpit, SplitDocViewer, DriverCabSheet } from "./load-cockpit";
 import { LoadTracker } from "./load-tracker";
+import { LoadDocuments } from "./load-documents";
 import { getLoadTracking } from "@/server/tl/load-tracking";
 import "./cockpit.css";
 
@@ -883,7 +884,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         </div>
       </section>
 
-      {countSec}
+      {variant === "page" ? countSec : null}
     </>
   );
 
@@ -1190,7 +1191,8 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         </>,
         "bill"
       )}
-      {gate(
+      {/* Corrections (take a pickup, delivery or cancellation back) are rare: on the full page only, so the drawer's foot holds this stage's next action. */}
+      {variant === "page" ? gate(
         <>
           {load.status === "in_progress" && a ? (
             <ConfirmForm action={undoStartAction} fields={{ loadId: load.id }} label="Take the pickup back" title={`Take back the pickup on ${load.loadNumber ?? "this load"}?`} eyebrow="Trip" confirmLabel="Take it back" destructive askReason>
@@ -1209,16 +1211,16 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           ) : null}
         </>,
         "dispatch"
-      )}
+      ) : null}
       {gate(
         <>
           {load.paymentStatus === "invoiced" ? <PaidDialog loadId={load.id} invoiceNumber={load.invoiceNumber} billed={billed} owing={owing} canWriteOff={may("writeoff")} /> : null}
-          {load.paymentStatus === "invoiced" && (load.factoringStatus === "none" || load.factoringStatus === "rejected") && !(paidAmount != null && paidAmount > 0) ? (
+          {variant === "page" && load.paymentStatus === "invoiced" && (load.factoringStatus === "none" || load.factoringStatus === "rejected") && !(paidAmount != null && paidAmount > 0) ? (
             <ConfirmForm action={voidInvoiceAction} fields={{ loadId: load.id }} label="Take the invoice back" title={`Take back ${load.invoiceNumber ?? "this invoice"}?`} eyebrow="Invoice" confirmLabel="Take it back" destructive askReason>
               <p className="tl-note">For an invoice made for the wrong amount or the wrong customer.</p>
             </ConfirmForm>
           ) : null}
-          {load.paymentStatus === "paid" || (load.paymentStatus === "invoiced" && paidAmount != null && paidAmount > 0) ? (
+          {variant === "page" && (load.paymentStatus === "paid" || (load.paymentStatus === "invoiced" && paidAmount != null && paidAmount > 0)) ? (
             <ConfirmForm action={undoPaidAction} fields={{ loadId: load.id }} label="Undo payment" title={`Take back the latest payment on ${load.invoiceNumber ?? "this invoice"}?`} eyebrow="Payment" confirmLabel="Take it back" destructive askReason>
               <p className="tl-note">For a payment entered against the wrong invoice.</p>
             </ConfirmForm>
@@ -1233,7 +1235,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     <>
       <StatusChip status={load.status} />
       {fellThrough ? null : <VerdictChip verdict={evaluation?.finalDecision ?? null} />}
-      {a ? <AssignmentChip status={a.status} /> : null}
+      {a && variant === "page" ? <AssignmentChip status={a.status} /> : null}
     </>
   );
 
@@ -1249,15 +1251,277 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     </span>
   );
 
+  // ── The drawer's focused view (Chris 2026-11-23): what this load is waiting on, then Trip / Money / Paperwork. The full page keeps every workbench. ──────────
+  const pickupCity = originCity;
+  const pickupWhen = firstStop?.timeWindowEarliest ? stopTime(firstStop.timeWindowEarliest, zoneOfStop(firstStop)) : null;
+  const driverName = a?.driver.name ?? null;
+  const nextText: string | null = fellThrough
+    ? null
+    : load.paymentStatus === "paid"
+      ? "Paid. Nothing left to do on this load."
+      : load.paymentStatus === "invoiced"
+        ? `Invoiced${load.invoiceNumber ? ` ${load.invoiceNumber}` : ""}. Waiting on ${usd(owing, 2)} from ${load.brokerName ?? "the customer"}.`
+        : delivered
+          ? readiness.blockers.length > 0
+            ? `Delivered. Before it can be invoiced: ${readiness.blockers[0]}`
+            : "Delivered. Next: invoice it."
+          : load.status === "in_progress"
+            ? tracking.status === "tracking"
+              ? tracking.headline
+              : `On the road${driverName ? ` with ${driverName}` : ""}.`
+            : !a
+              ? "Next: put a driver on it."
+              : a.status === "draft"
+                ? gaps.length > 0
+                  ? `Next: send it to ${a.driver.name}. Still missing ${gapsPhrase(gaps)}.`
+                  : `Next: send it to ${a.driver.name}.`
+                : a.status === "dispatched"
+                  ? `Waiting on ${a.driver.name} to accept.`
+                  : `Next: pickup${pickupWhen ? ` ${pickupWhen}` : ""} at ${pickupCity}${driverName ? `, ${driverName}` : ""}.`;
+  const nextLate = load.status === "in_progress" && tracking.status === "tracking" && tracking.late;
+  const nextLine = nextText ? (
+    <p className={`lv-next${nextLate ? " late" : ""}`} role="status">
+      <b>{load.status === "in_progress" ? "Now" : "Next"}</b>
+      <span>{nextText.replace(/^Next: /, "")}</span>
+    </p>
+  ) : null;
+
+  const open = ["draft", "accepted", "in_progress"].includes(load.status);
+  const preTrip = !a || ["draft", "dispatched", "accepted"].includes(a.status);
+  const moving = load.status === "in_progress";
+  // Only what this stage needs, in the order a dispatcher reaches for it. A section with nothing to say is not drawn.
+  // Trip: the stops as a short list (when, where, and what happened there), the few details a dispatcher quotes on the phone, and the wait in one line.
+  const roleWord = (s: (typeof load.stops)[number]) => ((s.stopRole ?? s.stopType) === "pickup" || s.stopType === "origin" ? "Pickup" : "Delivery");
+  const drawerStops = (
+    <section className="lv-sec">
+      <header className="lv-sec-h">
+        <h3>Stops</h3>
+        <a href={`/loads/${load.id}`} className="lv-link">Edit on the full page</a>
+      </header>
+      <ol className="lv-stops">
+        {load.stops.map((s) => {
+          const ref = refList(s.referenceNumbers)[0] ?? null;
+          const done = s.arrivedAt != null;
+          return (
+            <li key={s.id} data-done={done ? "true" : undefined}>
+              <span className="lv-dot" aria-hidden="true" />
+              <div className="lv-stop-main">
+                <b>{`${roleWord(s)} · ${s.facilityName ?? s.addressString.split(",")[0]}`}</b>
+                <span>{s.addressString}</span>
+              </div>
+              <div className="lv-stop-when">
+                <b>{s.timeWindowEarliest ? stopTime(s.timeWindowEarliest, zoneOfStop(s)) : "Window open"}</b>
+                <span>
+                  {done
+                    ? `Arrived ${stopTime(s.arrivedAt!, zoneOfStop(s))}${s.waitMinutes ? ` · waited ${s.waitMinutes} min` : ""}`
+                    : ref
+                      ? `Ref ${ref}`
+                      : "Not reached yet"}
+                </span>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+  const drawerDetails = (
+    <section className="lv-sec">
+      <h3>Details</h3>
+      <dl className="lv-kv">
+        {load.poNumber ? (
+          <div>
+            <dt>Customer PO</dt>
+            <dd>{load.poNumber}</dd>
+          </div>
+        ) : null}
+        <div>
+          <dt>Equipment</dt>
+          <dd>{load.trailer ? `Trailer ${load.trailer.number}` : load.trailerType ? load.trailerType.replace(/_/g, " ") : "Not stated"}</dd>
+        </div>
+        <div>
+          <dt>Weight</dt>
+          <dd>{weightVal != null ? `${weightVal.toLocaleString("en-US")} lb` : "Not set"}</dd>
+        </div>
+        {dt.totalWaitMinutes > 0 ? (
+          <div>
+            <dt>Dock wait</dt>
+            <dd>
+              {`${dt.totalWaitMinutes} min · ${dt.billable > 0 ? `${usd(dt.billable, 2)} billable` : "nothing billable"}`}
+              {evidence.total > 0 ? (
+                <>
+                  {" · "}
+                  <Link href={`/detention/${load.id}`}>Evidence</Link>
+                </>
+              ) : null}
+            </dd>
+          </div>
+        ) : null}
+      </dl>
+    </section>
+  );
+  const drawerTrip = (
+    <>
+      {moving ? <LoadTracker t={tracking} /> : null}
+      {drawerStops}
+      {preTrip && open ? gate(driverSec, "dispatch") : null}
+      {open && !trailerOk ? gate(trailerSec, "dispatch") : null}
+      {gate(relaySec, "dispatch")}
+      {drawerDetails}
+      {/* Booked and heading to the pickup: where the truck is now. After delivery the tracker is history, not news, so it stays on the full page. */}
+      {load.status === "accepted" && tracking.status === "tracking" ? <LoadTracker t={tracking} /> : null}
+      {open ? gate(moreSec, "dispatch") : null}
+    </>
+  );
+
+  // Money: one ruled list, what came in, what went out, and what is left. The breakdown cards and Count Every Mile stay on the full page.
+  const moneyRow = (label: string, amount: number, opts: { cost?: boolean; strong?: boolean; note?: string } = {}) => (
+    <div key={label} className={opts.strong ? "lv-total" : undefined}>
+      <dt>
+        {label}
+        {opts.note ? <span>{opts.note}</span> : null}
+      </dt>
+      <dd>{opts.cost && amount > 0 ? `−${usd(amount, 2)}` : usd(amount, 2)}</dd>
+    </div>
+  );
+  const drawerMoney = (
+    <section className="lv-sec">
+      <header className="lv-sec-h">
+        <h3>Money</h3>
+        <a href={`/loads/${load.id}`} className="lv-link">Full breakdown</a>
+      </header>
+      <dl className="lv-ledger">
+        {moneyRow("Linehaul", revLinehaul)}
+        {revFsc > 0 ? moneyRow("Fuel surcharge", revFsc) : null}
+        {revDetention > 0 ? moneyRow("Detention", revDetention) : null}
+        {revLayover > 0 ? moneyRow("Layover", revLayover) : null}
+        {revTonu > 0 ? moneyRow("TONU fee", revTonu) : null}
+        {moneyRow("Driver pay", expDriver, { cost: true, note: a?.payEstimate != null ? "estimate" : undefined })}
+        {moneyRow("Fuel", expFuel, { cost: true, note: num(load.expenseFuelActual) > 0 ? "actual" : "forecast" })}
+        {expTolls > 0 ? moneyRow("Tolls", expTolls, { cost: true }) : null}
+        {expRider > 0 ? moneyRow("Insurance rider", expRider, { cost: true }) : null}
+        {expMisc > 0 ? moneyRow("Lumpers and other", expMisc, { cost: true }) : null}
+        <div className="lv-total">
+          <dt>
+            Left over
+            <span>{`${netMarginPct.toFixed(1)}% · ${perMile(netProfitPerMile)} over all miles`}</span>
+          </dt>
+          <dd className={netProfit >= 0 ? "ok" : "bad"}>{usd(netProfit, 2)}</dd>
+        </div>
+      </dl>
+    </section>
+  );
+
+  // Paperwork: the documents as a list with the upload, then the invoice. The large inspector stays on the full page.
+  const drawerPaper = (
+    <>
+      <section className="lv-sec">
+        <h3>Documents</h3>
+        {gate(
+          <LoadDocuments
+            loadId={load.id}
+            items={docs.map((d) => ({ id: d.id, kind: d.kind, name: d.name, bytes: d.bytes, when: dateTime(d.createdAt), by: d.addedBy, stop: stopLabelOf(d.stopId), toDriver: d.toDriver }))}
+            locked={docsLocked}
+            defaultKind={load.status === "completed" ? "pod" : "rate_con"}
+            deliveryStops={deliveryStopOptions}
+          />,
+          "documents"
+        )}
+      </section>
+      {gate(invoiceSec, "bill")}
+    </>
+  );
+  // The drawer's summary: the next step, the trip in two lines, three figures, and what still blocks this stage. No boxes; one figure row.
+  const marginTone = deckMargin == null ? "" : deckMargin >= 0 ? "ok" : "bad";
+  const stillNeeds: string[] = [];
+  if (open) {
+    if (!a) stillNeeds.push("a driver");
+    else if (!driverOk && a.status !== "completed") stillNeeds.push("driver clearance");
+    if (!trailerOk) stillNeeds.push("a trailer");
+    if (!weightOk) stillNeeds.push("weight over 45,000 lb");
+  }
+  if ((open || (delivered && !load.paymentStatus)) && !refsOk) stillNeeds.push(gapsPhrase(gaps));
+  const drawerDeck = (
+    <div className="lv-sum">
+      {nextLine}
+      <div className="lv-route">
+        <div className="lv-stop">
+          <span className="lv-k">Pickup</span>
+          <b title={load.originAddress ?? undefined}>{originCity}</b>
+          <span>{firstStop?.timeWindowEarliest ? stopTime(firstStop.timeWindowEarliest, zoneOfStop(firstStop)) : "Window open"}</span>
+        </div>
+        <span className="lv-arrow" aria-hidden="true">→</span>
+        <div className="lv-stop">
+          <span className="lv-k">Delivery</span>
+          <b title={load.destinationAddress ?? undefined}>{destCity}</b>
+          <span>{lastStop?.timeWindowEarliest ? stopTime(lastStop.timeWindowEarliest, zoneOfStop(lastStop)) : "Window open"}</span>
+        </div>
+      </div>
+      <p className="lv-meta">
+        {`${miles(loadedMiles)} loaded · ${miles(totalMiles)} total · ${wayHome.toLowerCase()}`}
+        {a ? ` · ${a.driver.name}` : ""}
+      </p>
+      <dl className="lv-stats">
+        <div>
+          <dt>{deckTonu ? "TONU fee" : deckMargin != null ? "Margin" : delivered ? "Paid" : "Gross"}</dt>
+          <dd className={deckMargin != null ? marginTone : undefined}>{deckHeroText}</dd>
+          {deckMargin != null ? <span>{`${deckHeroLabel} · floor ${perMile(floorThreshold)}`}</span> : null}
+        </div>
+        {deckMargin != null ? (
+          <div>
+            <dt>{delivered ? "Paid" : "Gross"}</dt>
+            <dd>{deckGross}</dd>
+            {paidDiffers ? <span>{`${usd(num(load.quotedRevenue), 2)} agreed`}</span> : null}
+          </div>
+        ) : null}
+        {!deckTonu && allIn != null ? (
+          <div>
+            <dt>Per mile</dt>
+            <dd>{perMile(allIn)}</dd>
+            {perLoaded != null ? <span>{`${perMile(perLoaded)} loaded`}</span> : null}
+          </div>
+        ) : null}
+      </dl>
+      {stillNeeds.length > 0 ? (
+        <p className="lv-needs">
+          <b>Needs</b>
+          <span>{stillNeeds.join(" · ")}</span>
+        </p>
+      ) : null}
+      {readOnlyNote}
+      {alerts.length > 0 ? <AlertList alerts={alerts} /> : null}
+      {fellThrough ? (
+        <p className="lv-fell">
+          <b>{load.status === "tonu" ? "TONU" : "Cancelled"}</b>
+          <span>
+            {reasonLabel(load.cancelReason)}
+            {load.cancelNote ? `. ${load.cancelNote}` : ""}
+          </span>
+        </p>
+      ) : null}
+    </div>
+  );
+
+  const drawer =
+    variant === "drawer"
+      ? {
+          next: null,
+          trip: drawerTrip,
+          money: drawerMoney,
+          paper: drawerPaper
+        }
+      : undefined;
+
   return (
     <LoadCockpit
       variant={variant}
+      drawer={drawer}
       title={`Load ${load.loadNumber ?? ""}`}
       sub={sub}
       chips={chips}
       fullHref={`/loads/${load.id}`}
       footer={footer}
-      deck={deck}
+      deck={variant === "drawer" ? drawerDeck : deck}
       routeWorkbench={routeWorkbench}
       marginWorkbench={marginWorkbench}
       docsWorkbench={docsWorkbench}
