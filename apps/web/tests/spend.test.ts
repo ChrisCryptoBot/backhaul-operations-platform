@@ -3,7 +3,7 @@ import path from "path";
 import { describe, expect, it } from "vitest";
 import { MAX_RATE_CON_PAGES, pdfPageCount } from "../src/lib/pdf-pages";
 import { burstReadsPerDay, hardMonthlyReads } from "../src/lib/plans";
-import { SPEND, decideClaim, refusalText, switchedOff, windowStarts, type Counts } from "../src/lib/spend";
+import { BACKGROUND_DIRECTIONS, SPEND, decideClaim, refusalText, switchedOff, windowStarts, type Counts } from "../src/lib/spend";
 import { BUDGETS } from "../src/server/tl/budget";
 
 const zero: Counts = { workspaceDay: 0, workspaceMonth: 0, globalDay: 0, globalMonth: 0, globalMonthCents: 0 };
@@ -121,9 +121,15 @@ describe("every paid call goes through the ledger (static guard)", () => {
     const hits = files.filter((f) => fs.readFileSync(f, "utf8").includes("api.mapbox.com")).map((f) => path.relative(SRC, f).split(path.sep).join("/"));
     expect(hits).toEqual(["server/geo/mapbox.ts"]);
     const m = read("server/geo/mapbox.ts");
-    expect(m).toContain("claimUsage(service)");
+    // One claim, before the one fetch; a background call is claimed the same way, only against tighter limits.
+    const claim = m.indexOf("await claimUsage(service, background ? { limits: BACKGROUND_DIRECTIONS } : {})");
+    expect(claim).toBeGreaterThan(0);
+    expect(claim).toBeLessThan(m.indexOf("await fetch("));
+    expect(m.match(/claimUsage\(/g)).toHaveLength(1);
+    expect(m.match(/await fetch\(/g)).toHaveLength(1);
+    for (const [k, v] of Object.entries(BACKGROUND_DIRECTIONS)) expect(v!, k).toBeLessThan(SPEND.mapbox_directions.limits[k as keyof typeof BACKGROUND_DIRECTIONS]!);
     const calls = (m.match(/getJson\(/g) ?? []).length - 1; // minus the definition
-    const claimed = (m.match(/"mapbox_(geocode|directions|permanent)"\)/g) ?? []).length;
+    const claimed = (m.match(/"mapbox_(geocode|directions|permanent)"(?:, opts\.background)?\)/g) ?? []).length;
     expect(calls).toBe(4);
     expect(claimed).toBe(calls);
   });
