@@ -2,10 +2,10 @@ import Link from "next/link";
 import React from "react";
 import { trailRuns } from "@/lib/geo-line";
 import type { LoadTracking } from "@/server/tl/load-tracking";
-import { ROAD_ROUTE_NOTE, laneNote } from "@/lib/telematics";
+import { ROAD_ROUTE_NOTE, agoText, laneNote } from "@/lib/telematics";
 import { LoadMap } from "./radar-map";
+import { StaleFix } from "./kit/stale-fix";
 import { fixAge } from "@/lib/whereabouts";
-import { lateText } from "@/lib/planner";
 
 /**
  * Where it is: the load's lane drawn as a corridor from the pickup to the delivery, the truck's breadcrumb along it and its marker where the ELD last put it, with the speed, road, miles to go, ETA
@@ -29,21 +29,6 @@ function projector(points: Pt[]) {
   const cx = (Math.min(...lngs) + Math.max(...lngs)) / 2;
   const cy = (Math.min(...lats) + Math.max(...lats)) / 2;
   return (p: Pt) => ({ x: W / 2 + (p.lng - cx) * k * s, y: H / 2 - (p.lat - cy) * s });
-}
-
-const ago = (iso: string) => {
-  const m = Math.max(0, Math.floor((Date.now() - Date.parse(iso)) / 60_000));
-  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m ago`;
-};
-
-/** A position too old to speak of as now, said as that. */
-export function StaleFix({ minutes, children }: { minutes: number; children?: React.ReactNode }) {
-  return (
-    <p className="t-stale" role="status">
-      Last position is {lateText(minutes)} old.
-      {children ? <span>{children}</span> : null}
-    </p>
-  );
 }
 
 export function LoadTracker({ t, quietHead = false }: { t: LoadTracking; /** The caller already says the headline (the drawer's Now line): do not say it twice. */ quietHead?: boolean }) {
@@ -116,7 +101,7 @@ export function LoadTracker({ t, quietHead = false }: { t: LoadTracking; /** The
         <p key={g.stop} className="lt-geo">{`✔ ${g.text}`}</p>
       ))}
       <p className="lt-sub">{t.milesBasis === "road" ? ROAD_ROUTE_NOTE : `${laneNote({ offRoute: t.offRoute, hadRoad: t.road != null })}${t.road ? ` ${ROAD_ROUTE_NOTE}` : ""}`}</p>
-      <p className="lt-sub">Last fix {age?.old ? `${lateText(age.minutes)} ago` : ago(t.asOf)}. Shown from the ELD; it does not record an arrival on the stop.</p>
+      <p className="lt-sub">Last fix {agoText(t.asOf, Date.now())}. Shown from the ELD; it does not record an arrival on the stop.</p>
     </div>
   );
 }

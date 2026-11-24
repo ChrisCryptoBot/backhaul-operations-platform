@@ -1,6 +1,6 @@
 import { haversineMiles, METERS_TO_MILES } from "./geo";
 import { compass } from "./geo-line";
-import { MOVING_MPH, durationText, nearestCorridor, type EngineState } from "./telematics";
+import { MOVING_MPH, ageWords, nearestCorridor, type EngineState } from "./telematics";
 
 /**
  * Where a truck or trailer is, in words a dispatcher can act on: at a facility the desk already knows from a load's stops, near a town, on a highway, or just a point. Pure: plain data in, plain
@@ -123,7 +123,7 @@ export function whereIs(f: Fix, stops: readonly KnownStop[], town: Town | null, 
   const road = roadOf(f, standing);
   const at = toMs(f.locatedAt);
   const ageMinutes = at == null ? null : Math.max(0, (now - at) / 60_000);
-  const base = { town: townLabel, road, standing, coords: coordsText(f.lat, f.lng), ageMinutes, ageText: ageMinutes == null ? null : `${durationText(ageMinutes)} ago`, stale: ageMinutes != null && ageMinutes > STALE_MINUTES };
+  const base = { town: townLabel, road, standing, coords: coordsText(f.lat, f.lng), ageMinutes, ageText: ageMinutes == null ? null : `${ageWords(ageMinutes)} ago`, stale: ageMinutes != null && ageMinutes > STALE_MINUTES };
   const inTown = (label: string): string => (facilityTown && !label.includes(facilityTown) ? `${label}, ${facilityTown}` : label);
 
   if (stop && stop.miles <= AT_MILES) {
@@ -190,14 +190,15 @@ export function unitTip(u: UnitWhere): UnitTip {
   rows.push(["Position", w.coords]);
   if (w.road && !w.label.startsWith("On ")) rows.push(["Road", w.road]);
   const status = [u.state, u.speed].filter(Boolean).join(" · ");
-  if (status) rows.push(["Status", status]);
+  if (status) rows.push([w.stale ? "Status then" : "Status", status]);
   // The idle and dwell sentences are long: one clause to a line keeps the box narrow (the tooltip keeps line breaks).
-  if (u.idle) rows.push(["Idle", u.idle.split(" · ").join("\n")]);
+  if (u.idle) rows.push([w.stale ? "Idle then" : "Idle", u.idle.split(" · ").join("\n")]);
   if (u.dwell) rows.push(["Dwell", u.dwell.split(" · ").join("\n")]);
   if (u.driver) rows.push(["Driver", u.driver]);
   if (u.hos) rows.push(["HOS left", u.hos]);
   if (u.load) rows.push(["Load", `${u.load.number}${u.load.route ? ` · ${u.load.route}` : ""}`]);
-  if (u.eta) rows.push(["ETA", u.eta]);
+  // An ETA worked out from an old fix is not one to act on: the next stop and the age of the fix say what is known.
+  if (u.eta && !w.stale) rows.push(["ETA", u.eta]);
   if (u.nextStop) rows.push(["Next stop", u.nextStop]);
   if (u.hitched) rows.push([u.hitched.kind === "trailer" ? "Pulling" : "Hooked to", u.hitched.name]);
   if (u.typedPlace) rows.push(["Noted as", u.typedPlace]);

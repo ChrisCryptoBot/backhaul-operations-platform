@@ -31,9 +31,10 @@ export default async function RadarPage({ searchParams }: { searchParams?: Recor
       <RadarView
         initial={initial}
         params={params}
+        eldReason={eld.reason}
         actions={
           <CanGate caps={["dispatch"]}>
-            <SyncEldButton reason={eld.reason} />
+            <SyncEldButton reason={eld.reason} hideReason small />
           </CanGate>
         }
       />

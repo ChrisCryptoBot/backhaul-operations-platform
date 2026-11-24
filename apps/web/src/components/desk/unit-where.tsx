@@ -2,6 +2,7 @@ import Link from "next/link";
 import React from "react";
 import type { UnitWhere } from "@/lib/whereabouts";
 import { Card } from "./ui";
+import { StaleFix } from "./kit/stale-fix";
 import { UnitMap } from "./radar-map";
 
 /**
@@ -10,11 +11,13 @@ import { UnitMap } from "./radar-map";
  */
 export function UnitWherePanel({ u }: { u: UnitWhere }) {
   const w = u.where;
+  // What an old fix read is what was true then: the labels say so, and the place is where it was last seen. A dropped trailer stands where it was left.
+  const old = w?.stale === true && !(u.kind === "trailer" && !u.hitched);
   const rows: Array<{ k: string; v: React.ReactNode }> = [];
   if (u.driver) rows.push({ k: "Driver", v: u.driver });
   if (u.load) rows.push({ k: "On load", v: <><Link href={`/loads/${u.load.id}`}>{u.load.number}</Link>{u.load.route ? ` · ${u.load.route}` : ""}</> });
   if (u.hitched) rows.push({ k: u.hitched.kind === "trailer" ? "Pulling" : "Hooked to", v: u.hitched.id ? <Link href={u.hitched.kind === "trailer" ? `/trailers/${u.hitched.id}` : `/fleet/${u.hitched.id}`}>{u.hitched.name}</Link> : u.hitched.name });
-  if (u.idle) rows.push({ k: "Idle", v: <span className="rd-leak">{`■ ${u.idle}`}</span> });
+  if (u.idle) rows.push({ k: old ? "Idle when last read" : "Idle", v: <span className="rd-leak">{`■ ${u.idle}`}</span> });
   if (u.dwell) rows.push({ k: "Dwell", v: <span className="rd-leak">{`■ ${u.dwell}`}</span> });
   if (u.typedPlace) rows.push({ k: "Noted as", v: u.typedPlace });
   if (w?.nearestStop) rows.push({ k: "Nearest stop on file", v: `${w.nearestStop.name} · ${w.nearestStop.miles} mi` });
@@ -24,30 +27,30 @@ export function UnitWherePanel({ u }: { u: UnitWhere }) {
     <div id="panel-where" role="tabpanel" aria-labelledby="tab-where">
       <section className="tk-hero" aria-label="Where it is">
         <div>
-          <div className="tk-label">Where it is</div>
+          <div className="tk-label">{old ? "Last seen" : "Where it is"}</div>
           <div className="qt-big">{w ? w.label : "No position yet"}</div>
           <p className="tl-sub" style={{ marginTop: 6 }}>
-            {w ? [w.coords, w.ageText ? `last fix ${w.ageText}` : null].filter(Boolean).join(" · ") : "It shows here as soon as an ELD reports where it is."}
-            {w?.stale ? <span className="tl-chip warn" style={{ marginLeft: 8 }}>Old position</span> : null}
+            {w ? [w.coords, w.ageText && !old ? `last fix ${w.ageText}` : null].filter(Boolean).join(" · ") : "It shows here as soon as an ELD reports where it is."}
           </p>
+          {old && w?.ageMinutes != null ? <StaleFix minutes={w.ageMinutes}>It may have moved since.</StaleFix> : null}
         </div>
         <dl className="tk-facts">
           <div>
-            <dt>Status</dt>
+            <dt>{old ? "Status then" : "Status"}</dt>
             <dd>{u.state ?? "No signal"}</dd>
           </div>
           <div>
-            <dt>Speed</dt>
+            <dt>{old ? "Speed then" : "Speed"}</dt>
             <dd>{u.speed ?? (w ? "Standing" : "—")}</dd>
           </div>
           <div>
-            <dt>Road</dt>
+            <dt>{old ? "Road then" : "Road"}</dt>
             <dd>{w?.road ?? "—"}</dd>
           </div>
         </dl>
       </section>
       <div className="tl-grid cols-2" style={{ marginTop: 14 }}>
-        <Card title="Right now">
+        <Card title={old ? "On file" : "Right now"}>
           {rows.length === 0 ? (
             <p className="tl-note">Nothing else is attached to it at the moment.</p>
           ) : (

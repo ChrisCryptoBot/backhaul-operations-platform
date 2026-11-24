@@ -139,7 +139,14 @@ describe("the hover tooltip", () => {
     expect(none.rows).toBeUndefined();
     expect(none.note).toMatch(/No position on file/);
     const old = whereIs({ ...standingAt(0.001), locatedAt: new Date(NOW - 5 * 3_600_000) }, [], noTown, NOW);
-    expect(unitTip({ ...base, where: old }).note).toMatch(/may have moved/);
+    const tip = unitTip({ ...base, speed: "64 MPH", idle: "IDLING (Stationary 5h 00m)", eta: "142 mi left", where: old });
+    expect(tip.note).toMatch(/may have moved/);
+    // What it read is labelled as then, and no arrival is worked out from it.
+    const keys = tip.rows!.map(([k]) => k);
+    expect(keys).toContain("Status then");
+    expect(keys).toContain("Idle then");
+    expect(keys).not.toContain("Status");
+    expect(keys).not.toContain("ETA");
   });
 
   test("a trailer's own lines (dwell, the yard a person typed) appear only when they exist", () => {

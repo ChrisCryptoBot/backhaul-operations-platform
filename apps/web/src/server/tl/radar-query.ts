@@ -1,5 +1,7 @@
 import { nearestPlace } from "@/lib/gazetteer/place-index";
 import { pageCount } from "@/lib/paging";
+import { dwellRowText, idleShort } from "@/lib/radar";
+import { fixAge } from "@/lib/whereabouts";
 import { STATE_WORD, type ExceptionCounts, type ExceptionKey, type ListGroup, type ListRow, type RadarPoint, type RadarQueryParams, type SearchInfo, type StateKey } from "@/lib/radar-points";
 import { siteKey, within } from "@/lib/radius";
 import type { FleetCounts } from "@/lib/telematics";
@@ -33,11 +35,13 @@ type Unit = {
   loadId: string | null;
   loadNumber: string | null;
   leak: string | null;
+  leakFull: string | null;
   glyphOnly: boolean;
   /** A loaded tractor running late, or a trailer past its free time (a dwell alert). */
   alert: boolean;
   /** Hours a dropped trailer has stood, when known. */
   dropHours: number | null;
+  locatedAt: string | null;
 };
 
 const DROPPED_LONG_HOURS = 48;
@@ -78,13 +82,15 @@ function unitsOf(data: RadarData, withHooked: boolean): Unit[] {
       who: u.driver,
       loadId: u.loadId,
       loadNumber: u.loadNumber,
-      leak: u.idle?.sentence ?? null,
+      leak: u.idle ? idleShort(u.idle) : null,
+      leakFull: u.idle?.sentence ?? null,
       glyphOnly: false,
       alert: u.late,
-      dropHours: null
+      dropHours: null,
+      locatedAt: u.locatedAt
     });
     if (withHooked && u.trailer) {
-      out.push({ kind: "tractor", counts: "r", id: u.id, name: u.trailer.number, code: u.trailer.code, lengthFt: null, state: "hooked", lat: u.lat, lng: u.lng, heading: 0, icon: `tr-h-${u.trailer.loaded ? "l" : "e"}`, sev: 0, who: u.driver, loadId: u.loadId, loadNumber: u.loadNumber, leak: null, glyphOnly: true, alert: false, dropHours: null });
+      out.push({ kind: "tractor", counts: "r", id: u.id, name: u.trailer.number, code: u.trailer.code, lengthFt: null, state: "hooked", lat: u.lat, lng: u.lng, heading: 0, icon: `tr-h-${u.trailer.loaded ? "l" : "e"}`, sev: 0, who: u.driver, loadId: u.loadId, loadNumber: u.loadNumber, leak: null, leakFull: null, glyphOnly: true, alert: false, dropHours: null, locatedAt: u.locatedAt });
     }
   }
   for (const u of data.trailers) {
@@ -104,10 +110,12 @@ function unitsOf(data: RadarData, withHooked: boolean): Unit[] {
       who: u.hookedTo,
       loadId: null,
       loadNumber: null,
-      leak: u.dwell?.sentence ?? null,
+      leak: u.dwell ? dwellRowText(u.dwell) : null,
+      leakFull: u.dwell?.sentence ?? null,
       glyphOnly: false,
       alert: u.dwell?.alert ?? false,
-      dropHours: u.hooked ? null : (u.dwell?.hours ?? null)
+      dropHours: u.hooked ? null : (u.dwell?.hours ?? null),
+      locatedAt: u.locatedAt
     });
   }
   return out;
@@ -181,6 +189,11 @@ export async function radarList(data: RadarData, p: RadarQueryParams): Promise<R
   else if (centre) units = [...units].sort((a, b) => (miles.get(`${a.kind}:${a.id}`) ?? 0) - (miles.get(`${b.kind}:${b.id}`) ?? 0) || byName(a, b));
   else units = [...units].sort(byName);
 
+  const now = Date.now();
+  const oldFixOf = (u: Unit): number | null => {
+    const age = (u.kind === "tractor" || u.state === "hooked") ? fixAge(u.locatedAt, now) : null;
+    return age?.old ? age.minutes : null;
+  };
   const rowOf = (u: Unit): ListRow => ({
     id: u.id,
     kind: u.kind,
@@ -188,12 +201,14 @@ export async function radarList(data: RadarData, p: RadarQueryParams): Promise<R
     code: u.code,
     lengthFt: u.lengthFt,
     state: u.state,
+    oldFix: oldFixOf(u),
     near: nearestPlace(u.lat, u.lng)?.label ?? null,
     miles: miles.get(`${u.kind}:${u.id}`) ?? null,
     who: u.who,
     loadId: u.loadId,
     loadNumber: u.loadNumber,
     leak: u.leak,
+    leakFull: u.leakFull,
     site: siteKey(u),
     lat: u.lat,
     lng: u.lng,

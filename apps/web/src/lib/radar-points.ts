@@ -47,6 +47,8 @@ export type ListRow = {
   code: string | null;
   lengthFt: number | null;
   state: StateKey;
+  /** Minutes since its fix when that is too old to speak of as now (a dropped trailer stands where it was left, so never for one). */
+  oldFix: number | null;
   /** The nearest city, "Dallas, TX". */
   near: string | null;
   /** Distance from the search centre, when there is one. */
@@ -54,8 +56,9 @@ export type ListRow = {
   who: string | null;
   loadId: string | null;
   loadNumber: string | null;
-  /** The idle or dwell line, short. */
+  /** The idle or dwell line, short ("16.8 days · +$1,110.19"), and the whole sentence for its title. */
   leak: string | null;
+  leakFull: string | null;
   site: string;
   lat: number;
   lng: number;

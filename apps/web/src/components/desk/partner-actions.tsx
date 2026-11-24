@@ -18,14 +18,14 @@ import { tried } from "./kit/tried";
  */
 const NAMES: Record<string, string> = { triumphpay: "TriumphPay", motive: "Motive", samsara: "Samsara", atob: "AtoB", wex: "WEX" };
 
-/** A button that, when it cannot be used, says why beside it. */
-export function ReasonButton({ label, busyLabel, reason, busy, onClick, primary, small }: { label: string; busyLabel?: string; reason: string | null; busy?: boolean; onClick: () => void; primary?: boolean; small?: boolean }) {
+/** A button that, when it cannot be used, says why beside it unless `hideReason` moves the note elsewhere. */
+export function ReasonButton({ label, busyLabel, reason, busy, onClick, primary, small, hideReason }: { label: string; busyLabel?: string; reason: string | null; busy?: boolean; onClick: () => void; primary?: boolean; small?: boolean; hideReason?: boolean }) {
   return (
     <span className="rb" title={reason ?? undefined}>
       <button type="button" className={`tl-btn${primary ? " primary" : ""}${small ? " sm" : ""}`} disabled={!!reason || busy} aria-busy={busy || undefined} onClick={onClick} title={reason ?? undefined}>
         {busy ? (busyLabel ?? "Working…") : label}
       </button>
-      {reason ? <span className="tl-sub">{reason}</span> : null}
+      {reason && !hideReason ? <span className="tl-sub">{reason}</span> : null}
     </span>
   );
 }
@@ -259,7 +259,7 @@ const NEXT_STEPS: Record<string, Array<{ status: string; label: string; done: st
 
 // ── Hours of service ───────────────────────────────────────────────────────────────────────────
 
-export function SyncEldButton({ reason }: { reason: string | null }) {
+export function SyncEldButton({ reason, hideReason, small }: { reason: string | null; hideReason?: boolean; small?: boolean }) {
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
@@ -268,6 +268,8 @@ export function SyncEldButton({ reason }: { reason: string | null }) {
       label="Sync hours from the ELD"
       busyLabel="Syncing…"
       reason={reason}
+      hideReason={hideReason}
+      small={small}
       busy={pending}
       onClick={() =>
         start(async () => {

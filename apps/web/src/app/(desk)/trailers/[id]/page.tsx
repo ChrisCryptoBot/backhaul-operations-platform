@@ -58,18 +58,16 @@ export default async function TrailerPage({ params, searchParams }: { params: { 
   const range = historyDays(searchParams?.days);
   const past = tab === "history" ? await getTrailerHistory(t.id, range) : null;
   const open = t.loads.length;
-  const when = (d: Date | null) => (d ? shortDate(d) : "Not set");
+  const when = (d: Date | null) => (d ? shortDate(d) : "Not on file");
 
   return (
     <>
       <PageHead title={t.number} sub={`${t.type ? trailerLabel(t.type) : "No type set"} · ${OWNERSHIPS.find((o) => o.key === t.ownership)?.label ?? t.ownership}${t.archivedAt ? " · archived" : ""} · ${open} open ${open === 1 ? "load" : "loads"}`}>
         <Link href="/trailers" className="tl-btn">All trailers</Link>
-        <CanGate caps={["dispatch"]}>
-          <TrailerRowActions hideOpen trailer={{ id: t.id, number: t.number, archived: t.archivedAt != null, open }} />
-        </CanGate>
       </PageHead>
 
       <UnitTabs tabs={TABS} active={tab} label="Trailer" />
+      {t.archivedAt && tab !== "details" ? <p className="tl-note">This trailer is archived. <Link href={`/trailers/${t.id}?tab=details`}>Restore it in Details &amp; changes</Link>.</p> : null}
 
       {tab === "where" ? (
         here ? <UnitWherePanel u={here} /> : <p className="tl-note">Could not read where this trailer is.</p>
@@ -107,20 +105,21 @@ export default async function TrailerPage({ params, searchParams }: { params: { 
         </dl>
       </section>
 
-      {stay ? (
-        <Card title="Dwell">
-          <DwellLine d={stay} freeHours={company.dwellFreeHours} typed={typed} />
-          <CanGate caps={["dispatch", "bill"]}>
-            <DwellAdjust trailerId={t.id} number={t.number} d={stay} typed={typed} freeHours={company.dwellFreeHours} />
-          </CanGate>
-          <p className="tl-note" style={{ marginTop: 10 }}>A trailer dropped for longer than the free time with nothing booked for it is a dwell alert. The company sets the terms in Settings, Rules; a dispatcher or billing person can change the rate or the days, or waive the fee, for this stay.</p>
+      <div className={stay ? "tl-grid cols-2" : undefined}>
+        {stay ? (
+          <Card title="Dwell">
+            <DwellLine d={stay} freeHours={company.dwellFreeHours} typed={typed} />
+            <CanGate caps={["dispatch", "bill"]}>
+              <DwellAdjust trailerId={t.id} number={t.number} d={stay} typed={typed} freeHours={company.dwellFreeHours} />
+            </CanGate>
+            <p className="tl-note" style={{ marginTop: 10 }}>A trailer dropped for longer than the free time with nothing booked for it is a dwell alert. The company sets the terms in Settings, Rules; a dispatcher or billing person can change the rate or the days, or waive the fee, for this stay.</p>
+          </Card>
+        ) : null}
+        <Card title="Hooked to">
+          {t.archivedAt ? <p className="tl-note">An archived trailer is not hooked to anything.</p> : <CanGate caps={["dispatch"]}><HookTrailer trailerId={t.id} tractor={t.currentVehicle} /></CanGate>}
+          <p className="tl-note" style={{ marginTop: 10 }}>A tractor pulls one trailer at a time. Where it is: {t.location ?? "not on file"}{t.terminal ? ` · ${t.terminal} terminal` : ""}.</p>
         </Card>
-      ) : null}
-
-      <Card title="Hooked to">
-        {t.archivedAt ? <p className="tl-note">An archived trailer is not hooked to anything.</p> : <CanGate caps={["dispatch"]}><HookTrailer trailerId={t.id} tractor={t.currentVehicle} /></CanGate>}
-        <p className="tl-note" style={{ marginTop: 10 }}>A tractor pulls one trailer at a time. Where it is: {t.location ?? "not set"}{t.terminal ? ` · ${t.terminal} terminal` : ""}.</p>
-      </Card>
+      </div>
 
         </div>
       ) : null}
@@ -150,14 +149,19 @@ export default async function TrailerPage({ params, searchParams }: { params: { 
 
       {tab === "details" ? (
         <div id="panel-details" role="tabpanel" aria-labelledby="tab-details">
-      <details className="qt-more" open>
-        <summary>Details</summary>
+      <Card
+        title="Details"
+        action={
+          <CanGate caps={["dispatch"]}>
+            <TrailerRowActions hideOpen trailer={{ id: t.id, number: t.number, archived: t.archivedAt != null, open }} />
+          </CanGate>
+        }>
         <CanGate caps={["dispatch"]} banner who="A dispatcher" what="this trailer">
           <TrailerForm inline trailer={{ id: t.id, ...valuesOf(t) }} />
         </CanGate>
-      </details>
+      </Card>
 
-      <div style={{ marginTop: 14 }}>
+      <div style={{ marginTop: 12 }}>
         <Card title="Changes">
           {history.length === 0 ? (
             <p className="tl-note">Nothing has been changed on this trailer yet.</p>

@@ -10,7 +10,8 @@ import { basemapPaint, radarBasemapLayers } from "@/lib/basemap/paint";
 import { US_STATES } from "@/lib/basemap/us-states";
 import { EXCEPTION_FILTERS, radarParamsText, readLiveSeconds, type ExceptionKey, type RadarPoint, type RadarQueryParams, type SearchInfo } from "@/lib/radar-points";
 import { trailRuns } from "@/lib/geo-line";
-import { ROAD_ROUTE_NOTE, laneNote } from "@/lib/telematics";
+import { ROAD_ROUTE_NOTE, agoText, laneNote } from "@/lib/telematics";
+import { fixAge } from "@/lib/whereabouts";
 import { boundsAround, radiusRing } from "@/lib/radius";
 import { REGIONS, REGION_KEYS, boxAround, firstRegion, mapLng, regionCounts, regionOf, within as withinRegion, type Box, type RegionKey } from "@/lib/radar-regions";
 import type { RadarTractor, RadarTrailer } from "@/server/tl/radar";
@@ -22,6 +23,7 @@ import type { RadarWeather } from "@/server/tl/radar-weather";
 import { RadarList } from "./radar-list";
 import { RadiusSearch } from "./radius-search";
 import { SplitPane } from "./kit/split-pane";
+import { StaleFix } from "./kit/stale-fix";
 import { TipPopup, type TipData } from "./kit/tooltip";
 
 /**
@@ -157,7 +159,7 @@ const selectRing = (color: string): Draw => (g) => {
 
 /** A cluster: a square with a heavy edge in the worst tone inside it (ink, amber for idling, red for a dwell alert) and the count in the middle. Square, never round; drawn when the map first asks for it. */
 function clusterImage(count: number, sev: number, t: Tokens, family: string): { width: number; height: number; data: Uint8ClampedArray } {
-  const side = count < 10 ? 26 : count < 100 ? 34 : count < 1000 ? 42 : 50;
+  const side = count < 10 ? 32 : count < 100 ? 38 : count < 1000 ? 44 : 50;
   const px = side * 2;
   const c = document.createElement("canvas");
   c.width = c.height = px;
@@ -717,11 +719,87 @@ export function LoadMap({ t, fallback }: { t: LoadTracking; fallback: React.Reac
   );
 }
 
-const ago = (iso: string | null, now: number) => {
-  if (!iso) return "no fix yet";
-  const m = Math.max(0, Math.floor((now - Date.parse(iso)) / 60_000));
-  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m ago`;
-};
+type KeyKind = "load" | "moving" | "idle" | "parked" | "none" | "hooked" | "dropped" | "dwell" | "loaded" | "cluster" | "open" | "tolls" | "weather";
+const KEY_SQUARE: Partial<Record<KeyKind, number>> = { hooked: 1.5, dropped: 2.5, dwell: 2.5, loaded: 2.5 };
+/** One mark of the key, the shape the map draws for it (addImages, clusterImage), in the same colour tokens. */
+function KeyMark({ kind }: { kind: KeyKind }) {
+  const stroke = KEY_SQUARE[kind];
+  return (
+    <svg className="rd-mark" data-mark={kind} width={14} height={14} viewBox="0 0 16 16" aria-hidden="true">
+      {kind === "load" || kind === "moving" ? (
+        <>
+          <polygon points="8,1 11,5 5,5" />
+          <rect x="4" y="6" width="8" height="8" />
+        </>
+      ) : stroke ? (
+        <>
+          <rect x="4" y="4" width="8" height="8" fill="none" strokeWidth={stroke} />
+          {kind === "loaded" ? <rect className="rd-dot-in" x="6" y="6" width="4" height="4" /> : null}
+        </>
+      ) : kind === "cluster" ? (
+        <>
+          <rect x="2" y="2" width="12" height="12" fill="none" strokeWidth={1.5} />
+          <rect className="rd-cl-in" x="5" y="5" width="6" height="6" fill="none" strokeWidth={1} />
+        </>
+      ) : kind === "open" ? (
+        <path d="M3 3h10v10H3zM8 5.5v5M5.5 8h5" fill="none" strokeWidth={1.5} />
+      ) : kind === "tolls" ? (
+        <path d="M2 8h12" strokeWidth={3} />
+      ) : kind === "weather" ? (
+        <rect x="3" y="3" width="10" height="10" strokeWidth={1.5} />
+      ) : (
+        <rect x="4" y="5" width="8" height="8" />
+      )}
+    </svg>
+  );
+}
+
+const KEY_ALWAYS: ReadonlyArray<{ kind: KeyKind; words: string }> = [
+  { kind: "load", words: "Moving under a load (the point is its heading)" },
+  { kind: "moving", words: "Moving, no load" },
+  { kind: "idle", words: "Engine on, standing" },
+  { kind: "parked", words: "Parked" },
+  { kind: "none", words: "No signal" },
+  { kind: "hooked", words: "Trailer, hooked (thin edge)" },
+  { kind: "dropped", words: "Trailer, dropped (heavy edge)" },
+  { kind: "dwell", words: "Trailer past its free time (heavy edge, amber)" },
+  { kind: "loaded", words: "Trailer, loaded (filled centre)" },
+  { kind: "cluster", words: "Units close together: click to split; a stack on one spot opens as a list" }
+];
+
+/** What every mark on the map is, in shape and in words; a layer's own mark joins when the layer is on. */
+function RadarKey({ loads, tolls, weather }: { loads: boolean; tolls: boolean; weather: boolean }) {
+  const items = [
+    ...KEY_ALWAYS,
+    ...(loads ? [{ kind: "open" as const, words: "A load that needs a driver, at its pickup" }] : []),
+    ...(tolls ? [{ kind: "tolls" as const, words: "Toll road (from OpenStreetMap). Toll prices need a tolling or routing partner." }] : []),
+    ...(weather ? [{ kind: "weather" as const, words: "Severe (amber) or extreme (red) weather alert, National Weather Service" }] : [])
+  ];
+  return (
+    <ul className="rd-key" aria-label="Key">
+      {items.map((k) => (
+        <li key={k.kind}>
+          <KeyMark kind={k.kind} />
+          <span>{k.words}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** How old the picture is, beside the button that reads it again, and why that button cannot be pressed when it cannot. */
+function RadarAge({ asOf, now, reason, children }: { asOf: string | null; now: number; reason?: string | null; children?: React.ReactNode }) {
+  const age = fixAge(asOf, now);
+  return (
+    <>
+      <div className="rd-sync">
+        {age?.old ? <StaleFix minutes={age.minutes}>Units may have moved.</StaleFix> : <p className="rd-sub">As of {agoText(asOf, now)}</p>}
+        {children ? <div className="rd-actions">{children}</div> : null}
+      </div>
+      {reason ? <p className="rd-sub">{reason}</p> : null}
+    </>
+  );
+}
 
 const STATE_WORD: Record<string, { tone: string; word: string }> = {
   moving_load: { tone: "label", word: "Moving under load" },
@@ -739,7 +817,7 @@ function etaParts(r: RadarRoute | null): { text: string | null; chip: "late" | "
 }
 
 /** The live lines of a unit on a load: driver, hours left, ETA with its schedule chip, the next stop and its window, the trailer. */
-function RouteLines({ r, fallbackDriver, fallbackTrailer }: { r: RadarRoute | null; fallbackDriver: string | null; fallbackTrailer: string | null }) {
+function RouteLines({ r, old, fallbackDriver, fallbackTrailer }: { r: RadarRoute | null; /** The fix is too old to work an arrival out from. */ old: boolean; fallbackDriver: string | null; fallbackTrailer: string | null }) {
   const on = r && r.status !== "none" ? r : null;
   const eta = etaParts(r);
   return (
@@ -752,8 +830,8 @@ function RouteLines({ r, fallbackDriver, fallbackTrailer }: { r: RadarRoute | nu
           <dd>{on.hos ?? "—"}</dd>
           <dt>ETA</dt>
           <dd>
-            {eta.text ?? "—"}
-            {eta.chip ? (
+            {old ? <span className="dim">Needs a newer position</span> : (eta.text ?? "—")}
+            {eta.chip && !old ? (
               <>
                 {" "}
                 <b className="rd-sched" data-tone={eta.chip === "late" ? "warn" : "pos"}>
@@ -791,6 +869,8 @@ function RouteNote({ r }: { r: RadarRoute | null }) {
 
 function TractorCard({ u, now, route }: { u: RadarTractor; now: number; route: RadarRoute | null }) {
   const st = u.state ? STATE_WORD[u.state] : null;
+  const age = fixAge(u.locatedAt, now);
+  const old = age?.old === true;
   const loadId = route && route.status !== "none" ? route.loadId : u.loadId;
   const loadNumber = route && route.status !== "none" ? route.loadNumber : u.loadNumber;
   return (
@@ -798,17 +878,18 @@ function TractorCard({ u, now, route }: { u: RadarTractor; now: number; route: R
       <div className="rd-card-head">
         <b>{u.name}</b>
         <span className="rd-st">
-          <i className="rd-dot" data-tone={st?.tone ?? "dim"} aria-hidden="true" /> {st?.word ?? "No signal"}
+          <i className="rd-dot" data-tone={old ? "dim" : (st?.tone ?? "dim")} aria-hidden="true" /> {st ? (old ? `Then: ${st.word.toLowerCase()}` : st.word) : "No signal"}
         </span>
       </div>
+      {old ? <StaleFix minutes={age.minutes}>May have moved.</StaleFix> : null}
       <dl className="rd-kv">
-        <dt>Road</dt>
+        <dt>{old ? "Road then" : "Road"}</dt>
         <dd>{u.road || "—"}</dd>
-        <RouteLines r={route} fallbackDriver={u.driver} fallbackTrailer={u.trailer ? `${u.trailer.number}${u.trailer.code ? ` [${u.trailer.code}]` : ""}` : null} />
+        <RouteLines r={route} old={old} fallbackDriver={u.driver} fallbackTrailer={u.trailer ? `${u.trailer.number}${u.trailer.code ? ` [${u.trailer.code}]` : ""}` : null} />
         <dt>Last fix</dt>
-        <dd>{ago(u.locatedAt, now)}</dd>
+        <dd>{agoText(u.locatedAt, now)}</dd>
       </dl>
-      {u.idle ? <p className="rd-leak">{`■ ${u.idle.sentence}`}</p> : null}
+      {u.idle ? <p className="rd-leak">{`■ ${old ? "When last read: " : ""}${u.idle.sentence}`}</p> : null}
       {u.idle?.todayHours != null ? <p className="rd-sub">{u.idle.todayHours.toFixed(1)} h idling today</p> : null}
       <RouteNote r={route} />
       <p className="rd-links">
@@ -827,6 +908,9 @@ function TractorCard({ u, now, route }: { u: RadarTractor; now: number; route: R
 
 function TrailerCard({ u, now, route }: { u: RadarTrailer; now: number; route: RadarRoute | null }) {
   const on = route && route.status !== "none" ? route : null;
+  const age = fixAge(u.locatedAt, now);
+  // A dropped trailer stands where it was left, so only one that is hooked to a tractor can have moved since its fix.
+  const old = age?.old === true && u.hooked;
   return (
     <div className="rd-card">
       <div className="rd-card-head">
@@ -835,12 +919,13 @@ function TrailerCard({ u, now, route }: { u: RadarTrailer; now: number; route: R
           <i className="rd-dot" data-tone={u.dwell?.alert ? "warn" : u.hooked ? "dim" : "ink"} aria-hidden="true" /> {u.hooked ? `Hooked to ${u.hookedTo ?? "a tractor"}` : "Dropped"}
         </span>
       </div>
+      {old && age ? <StaleFix minutes={age.minutes}>May have moved.</StaleFix> : null}
       <dl className="rd-kv">
         <dt>Cargo</dt>
         <dd>{u.loaded ? "Loaded" : "Empty"}</dd>
-        {on ? <RouteLines r={on} fallbackDriver={null} fallbackTrailer={null} /> : null}
+        {on ? <RouteLines r={on} old={old} fallbackDriver={null} fallbackTrailer={null} /> : null}
         <dt>Last fix</dt>
-        <dd>{ago(u.locatedAt, now)}</dd>
+        <dd>{agoText(u.locatedAt, now)}</dd>
       </dl>
       {u.dwell ? <p className={`rd-leak${u.dwell.typed ? " rd-typed" : ""}`}>{`■ ${u.dwell.sentence}`}</p> : null}
       <RouteNote r={route} />
@@ -1007,7 +1092,7 @@ function writeUrl(p: Partial<RadarQueryParams>) {
  * The full radar: the map on the left and, beside it on a draggable bar, a panel with Telemetry (the counts and the key), Search (a ZIP, city or state and a radius) and List (every unit in view,
  * nearest first, optionally grouped by place). `actions` is the server-rendered Read ELD button.
  */
-export function RadarView({ initial, params, actions }: { initial: RadarPoints; params: RadarQueryParams; actions?: React.ReactNode }) {
+export function RadarView({ initial, params, actions, eldReason }: { initial: RadarPoints; params: RadarQueryParams; actions?: React.ReactNode; eldReason?: string | null }) {
   const theme = useTheme();
   const [p, setP] = React.useState<RadarQueryParams>(params);
   // ?live=5 (a demo or a recording): the page asks every 5 seconds, so a moving unit is seen to move. Without it the rhythm is the usual 30 s and 60 s.
@@ -1058,6 +1143,8 @@ export function RadarView({ initial, params, actions }: { initial: RadarPoints; 
     setTab("list");
   };
 
+  // Grouping is how the units are drawn, not a layer: only what adds marks to the map counts as on.
+  const layersOn = [p.hooked, showLoads, tolls, pois, showWeather].filter(Boolean).length;
   return (
     <div className="rd">
       <SplitPane
@@ -1105,7 +1192,7 @@ export function RadarView({ initial, params, actions }: { initial: RadarPoints; 
                   ))}
                 </div>
                 <dl className="rd-hud">
-                  <dt>Total units</dt>
+                  <dt>Tractors</dt>
                   <dd>{c.tractors}</dd>
                   <dt>Moving under load</dt>
                   <dd>{c.movingLoad}</dd>
@@ -1113,6 +1200,12 @@ export function RadarView({ initial, params, actions }: { initial: RadarPoints; 
                     <>
                       <dt>Moving, no load</dt>
                       <dd>{c.moving}</dd>
+                    </>
+                  ) : null}
+                  {c.idling > 0 ? (
+                    <>
+                      <dt>Idling</dt>
+                      <dd>{c.idling}</dd>
                     </>
                   ) : null}
                   <dt>Parked</dt>
@@ -1126,54 +1219,39 @@ export function RadarView({ initial, params, actions }: { initial: RadarPoints; 
                   <dt>Dropped trailers</dt>
                   <dd>{c.droppedTrailers}</dd>
                 </dl>
-                <p className="rd-sub">As of {ago(data.asOf, now)}</p>
-                <div className="rd-actions">{actions}</div>
-                <label className="rd-check">
-                  <input type="checkbox" checked={clustered} onChange={(e) => setClustered(e.target.checked)} /> Group nearby units into clusters
-                </label>
-                <label className="rd-check">
-                  <input type="checkbox" checked={p.hooked} onChange={(e) => update({ hooked: e.target.checked })} /> Show hooked trailers
-                </label>
-                <label className="rd-check">
-                  <input type="checkbox" checked={showLoads} onChange={(e) => setShowLoads(e.target.checked)} /> Show open loads
-                  {showLoads && openLoads ? <em>{`${openLoads.pins.length} need a driver${openLoads.unplaced > 0 ? `, ${openLoads.unplaced} with no map point` : ""}`}</em> : null}
-                </label>
-                <label className="rd-check">
-                  <input type="checkbox" checked={tolls} disabled={live === false} onChange={(e) => setTolls(e.target.checked)} /> Show toll roads
-                  {tolls ? <em>from zoom 9</em> : null}
-                </label>
-                <label className="rd-check">
-                  <input type="checkbox" checked={pois} disabled={live === false} onChange={(e) => setPois(e.target.checked)} /> Show fuel &amp; rest areas
-                  {pois ? <em>from zoom 14</em> : null}
-                </label>
-                {live === false ? <p className="rd-sub">Toll roads and fuel stops need the street map, which did not load; the outline map is showing.</p> : null}
-                <label className="rd-check">
-                  <input type="checkbox" checked={showWeather} onChange={(e) => setShowWeather(e.target.checked)} /> Show weather alerts
-                  {showWeather && weather ? <em>{weather.ok ? `${weather.features.length} severe${weather.skippedNoShape > 0 ? `, ${weather.skippedNoShape} by county only` : ""}` : "Weather alerts unavailable right now"}</em> : null}
-                </label>
-                <ul className="rd-key" aria-label="Key">
-                  <li>
-                    <i className="rd-dot" data-tone="label" aria-hidden="true" /> Moving under a load
-                  </li>
-                  <li>
-                    <i className="rd-dot" data-tone="warn" aria-hidden="true" /> Engine on, standing
-                  </li>
-                  <li>
-                    <i className="rd-dot" data-tone="ink" aria-hidden="true" /> Moving, no load
-                  </li>
-                  <li>
-                    <i className="rd-dot" data-tone="dim" aria-hidden="true" /> Parked
-                  </li>
-                  <li>Square: a trailer. Heavy: dropped. Green: loaded.</li>
-                  <li>A numbered square is a cluster: zoom in to split it, or click it. Units on one spot open as a list.</li>
-                  {showLoads ? <li>Square with a cross: a load that needs a driver, at its pickup.</li> : null}
-                  {tolls ? (
-                    <li>
-                      <i className="rd-dot" data-tone="typed" aria-hidden="true" /> Toll roads (from OpenStreetMap). Toll prices need a tolling or routing partner.
-                    </li>
-                  ) : null}
-                  {showWeather ? <li>Tinted areas: severe (amber) and extreme (red) alerts from the National Weather Service.</li> : null}
-                </ul>
+                <RadarAge asOf={data.asOf} now={now} reason={eldReason}>{actions}</RadarAge>
+                <details className="rd-layers">
+                  <summary>
+                    Layers
+                    {layersOn > 0 ? <em>{layersOn} on</em> : null}
+                  </summary>
+                  <div className="rd-layer-list">
+                    <label className="rd-check">
+                      <input type="checkbox" checked={clustered} onChange={(e) => setClustered(e.target.checked)} /> Group nearby units into clusters
+                    </label>
+                    <label className="rd-check">
+                      <input type="checkbox" checked={p.hooked} onChange={(e) => update({ hooked: e.target.checked })} /> Show hooked trailers
+                    </label>
+                    <label className="rd-check">
+                      <input type="checkbox" checked={showLoads} onChange={(e) => setShowLoads(e.target.checked)} /> Show open loads
+                      {showLoads && openLoads ? <em>{`${openLoads.pins.length} need a driver${openLoads.unplaced > 0 ? `, ${openLoads.unplaced} with no map point` : ""}`}</em> : null}
+                    </label>
+                    <label className="rd-check">
+                      <input type="checkbox" checked={tolls} disabled={live === false} onChange={(e) => setTolls(e.target.checked)} /> Show toll roads
+                      {tolls ? <em>from zoom 9</em> : null}
+                    </label>
+                    <label className="rd-check">
+                      <input type="checkbox" checked={pois} disabled={live === false} onChange={(e) => setPois(e.target.checked)} /> Show fuel &amp; rest areas
+                      {pois ? <em>from zoom 14</em> : null}
+                    </label>
+                    {live === false ? <p className="rd-sub">Toll roads and fuel stops need the street map, which did not load; the outline map is showing.</p> : null}
+                    <label className="rd-check">
+                      <input type="checkbox" checked={showWeather} onChange={(e) => setShowWeather(e.target.checked)} /> Show weather alerts
+                      {showWeather && weather ? <em>{weather.ok ? `${weather.features.length} severe${weather.skippedNoShape > 0 ? `, ${weather.skippedNoShape} by county only` : ""}` : "Weather alerts unavailable right now"}</em> : null}
+                    </label>
+                  </div>
+                </details>
+                <RadarKey loads={showLoads} tolls={tolls} weather={showWeather} />
                 {!sel ? <p className="rd-sub">Click a unit on the map.</p> : null}
               </>
             ) : null}

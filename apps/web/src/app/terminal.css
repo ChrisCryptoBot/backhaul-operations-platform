@@ -1118,6 +1118,39 @@ h2.t-sec{margin:14px 10px 8px;color:var(--mid)}
 .t-stale{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:0;font:500 12px/16px var(--sans);color:var(--warn)}
 .t-stale::before{content:"";width:7px;height:7px;flex:none;background:var(--warn-fill)}
 .t-stale span{color:var(--mid)}
+/* Radar panel: stale/sync row, folded layers disclosure, shape+word legend. */
+.rd-sync{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px;margin:0 0 8px}
+.rd-sync>.rd-sub,.rd-sync>.t-stale{margin:0;flex:1 1 160px}
+.rd-sync>.rd-actions{margin:0}
+.rd-layers{margin:0 0 10px;border-top:1px solid var(--line)}
+.rd-layers>summary{display:flex;align-items:center;gap:8px;min-height:30px;padding:4px 0;cursor:pointer;list-style:none;font:600 12px/16px var(--sans);color:var(--mid)}
+.rd-layers>summary::-webkit-details-marker{display:none}
+.rd-layers>summary::before{content:"▸";font-size:11px;color:var(--dim)}
+.rd-layers[open]>summary::before{content:"▾"}
+.rd-layers>summary:hover{color:var(--ink)}
+.rd-layers>summary em{margin-left:auto;font-style:normal;font-weight:500;color:var(--label-hi)}
+.rd-layer-list{padding:2px 0 4px}
+.rd-key li{display:grid;grid-template-columns:16px minmax(0,1fr);gap:8px;align-items:start}
+.rd-key li+li{margin-top:4px}
+.rd-mark{margin-top:2px;flex:none}
+.rd-mark{fill:var(--dim);stroke:none}
+.rd-mark[data-mark=load]{fill:var(--label)}
+.rd-mark[data-mark=moving]{fill:var(--ink)}
+.rd-mark[data-mark=idle]{fill:var(--warn-fill)}
+.rd-mark[data-mark=none]{fill:var(--line-hi)}
+.rd-mark[data-mark=hooked]{stroke:var(--dim)}
+.rd-mark:is([data-mark=dropped],[data-mark=loaded],[data-mark=cluster]){stroke:var(--ink)}
+.rd-mark[data-mark=dwell]{stroke:var(--warn-fill)}
+.rd-mark .rd-dot-in{fill:var(--pos-fill);stroke:none}
+.rd-mark .rd-cl-in{stroke:var(--line-hi)}
+.rd-mark[data-mark=open]{stroke:var(--label-hi)}
+.rd-mark[data-mark=tolls]{stroke:var(--typed)}
+.rd-mark[data-mark=weather]{fill:var(--warn-fill);fill-opacity:.2;stroke:var(--warn-fill)}
+.rd-table th[scope=row]{text-align:left;white-space:nowrap}
+.rd-table td:last-child{white-space:nowrap}
+.rd-card .t-stale{margin:0 0 6px}
+.tk-hero .t-stale{margin-top:6px}
+.tl-kv .tl-field input{height:28px;min-height:28px;padding-block:2px}
 }
 
 @layer app {
@@ -1198,6 +1231,9 @@ html{zoom:var(--ui-zoom)}
 [data-ui="app"] :is(.t-seg>*,.st-tablist>*,.st-tab,.eq-tab,.rd-tab,.rd-regions>*,.t-tabs a,.t-tabs button) {
   border-radius:var(--r-press) !important; border-right:0 !important; border-left:0 !important; }
 
+/* A unit's tabs are a bar under the page head, full width: a straight rule, and the first tab on the page's own left edge. */
+[data-ui="app"] .t-main>.t-pagehead~.eq-tabs { border-radius:0 !important; padding:4px 10px; }
+
 /* ---- Chips and codes: fully round. ---- */
 [data-ui="app"] :is(.t-scope-chip,.rd-x-chip,.pl-code,.eq-key,.t-pager,.spl-grip,.t-pagehead h1 i,.t-ph i) { border-radius:var(--r-pill) !important; }
 
@@ -1217,7 +1253,7 @@ html{zoom:var(--ui-zoom)}
 [data-ui="app"] .pl-shift.on::before { border-radius:50% !important; }
 
 /* ---- Tile: pop-ups, menus, the date picker, tooltips, planner blocks, map controls. ---- */
-[data-ui="app"] :is(.t-pop,.t-pop-group,.t-scope-pop,.t-scope-menu,.menu-pop,.gs-pop,.dp.dp,.vc-tip,.pl-load,.rd .maplibregl-ctrl-group,.fm .maplibregl-ctrl-group,.rd-key,.rd-attrib,.rd-pinned,.lt-svg) { border-radius:var(--r-tile) !important; }
+[data-ui="app"] :is(.t-pop,.t-pop-group,.t-scope-pop,.t-scope-menu,.menu-pop,.gs-pop,.dp.dp,.vc-tip,.pl-load,.rd .maplibregl-ctrl-group,.fm .maplibregl-ctrl-group,.rd-attrib,.lt-svg) { border-radius:var(--r-tile) !important; }
 [data-ui="app"] .dp-day { border-radius:var(--r-press) !important; }
 
 /* ---- Note: panels, notes, banners, detail boxes, the drawer's cards, toasts, every table panel. ---- */

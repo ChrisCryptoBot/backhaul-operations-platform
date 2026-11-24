@@ -49,12 +49,10 @@ export default async function TruckPage({ params, searchParams }: { params: { id
     <>
       <PageHead title={t.name ?? "Truck"} sub={`${[t.make, t.model, t.year].filter(Boolean).join(" ") || (t.type?.replace("_", " ") ?? "No type set")}${t.archivedAt ? " · archived" : ""} · ${open} open ${open === 1 ? "load" : "loads"}`}>
         <Link href="/fleet" className="tl-btn">All trucks</Link>
-        <CanGate caps={["dispatch"]}>
-          <TruckRowActions hideOpen truck={{ id: t.id, name: t.name, archived: t.archivedAt != null, open }} />
-        </CanGate>
       </PageHead>
 
       <UnitTabs tabs={TABS} active={tab} label="Truck" />
+      {t.archivedAt && tab !== "details" ? <p className="tl-note">This truck is archived. <Link href={`/fleet/${t.id}?tab=details`}>Restore it in Details &amp; changes</Link>.</p> : null}
 
       {tab === "where" ? (
         here ? <UnitWherePanel u={here} /> : <p className="tl-note">Could not read where this truck is.</p>
@@ -136,8 +134,9 @@ export default async function TruckPage({ params, searchParams }: { params: { id
       {tab === "details" ? (
         <div id="panel-details" role="tabpanel" aria-labelledby="tab-details">
       <CanGate caps={["dispatch"]} banner who="A dispatcher" what="this truck">
-      <details className="qt-more" open>
-        <summary>Details</summary>
+      <Card
+        title="Details"
+        action={<TruckRowActions hideOpen truck={{ id: t.id, name: t.name, archived: t.archivedAt != null, open }} />}>
         <TruckForm
           inline
           truck={{
@@ -161,10 +160,10 @@ export default async function TruckPage({ params, searchParams }: { params: { id
             hasPalletJack: t.hasPalletJack
           }}
         />
-      </details>
+      </Card>
 
       </CanGate>
-      <div style={{ marginTop: 14 }}>
+      <div style={{ marginTop: 12 }}>
         <Card title="Changes">
           {history.length === 0 ? (
             <p className="tl-note">Nothing has been changed on this truck yet.</p>

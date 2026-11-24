@@ -38,11 +38,24 @@ export function idleWaste(idleHours: number, pricePerGallon: number | null): Idl
   return { gallons, cashLost: pricePerGallon == null ? null : gallons * pricePerGallon };
 }
 
-/** "3h 14m", "42m", "0m". */
+/** "3h 14m", "42m", "0m". Exact at any length: it words a stay in a truck's history and an idle episode beside its gallons and cash, where a rounded day would hide hours. */
 export function durationText(minutes: number): string {
   const m = Math.max(0, Math.floor(minutes));
   const h = Math.floor(m / 60);
   return h > 0 ? `${h}h ${String(m % 60).padStart(2, "0")}m` : `${m}m`;
+}
+
+/** The same length for a person scanning, in days past two of them: "3h 14m", "10 days". For an age or a table cell only, never for time that backs a figure. */
+export function ageWords(minutes: number): string {
+  const m = Math.max(0, Math.floor(minutes));
+  return m >= 48 * 60 ? `${Math.floor(m / (24 * 60))} days` : durationText(m);
+}
+
+/** "no fix yet", "just now", "42 min ago", "3h 14m ago", "10 days ago". */
+export function agoText(at: string | null | undefined, now: number): string {
+  if (!at) return "no fix yet";
+  const m = Math.max(0, Math.floor((now - Date.parse(at)) / 60_000));
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : `${ageWords(m)} ago`;
 }
 
 // ── Trailers ────────────────────────────────────────────────────────────────────────────────────

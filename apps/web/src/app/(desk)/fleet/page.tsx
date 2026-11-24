@@ -18,13 +18,15 @@ import { CanGate } from "@/components/desk/kit/can-gate";
 import { FleetMapPanel } from "@/components/desk/radar-map";
 import { readRadarParams } from "@/lib/radar-points";
 import { clampRadius, milesText } from "@/lib/radius";
-import { getRadarData } from "@/server/tl/radar";
+import { getRadarData, type RadarTractor } from "@/server/tl/radar";
 import { radarPoints } from "@/server/tl/radar-query";
 import { unitsNear } from "@/server/tl/radar-near";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { getTruckWhere } from "@/server/tl/whereabouts";
 import { Tip } from "@/components/desk/kit/tooltip";
-import { unitTip } from "@/lib/whereabouts";
+import { fixAge, unitTip } from "@/lib/whereabouts";
+import { idleShort } from "@/lib/radar";
+import { ageWords } from "@/lib/telematics";
 
 export const metadata = { title: "Trucks · TrueLane" };
 
@@ -39,7 +41,7 @@ const COLUMNS: Column[] = [
   { key: "breakEven", sortable: true, label: "Break-even", align: "num" },
   { key: "survival", sortable: true, label: "Survival", align: "num" },
   { key: "detention", sortable: true, label: "Detention", align: "num", priority: 3 },
-  { key: "idle", label: "Idling now", max: 170, priority: 2 },
+  { key: "idle", label: "Idling", max: 170, priority: 2 },
   { key: "loads", label: "Loads", align: "num", priority: 3 },
   { key: "open", label: "Open loads", align: "num" },
   { key: "act", label: "" }
@@ -47,6 +49,17 @@ const COLUMNS: Column[] = [
 
 const makeOf = (t: { make?: string | null; model?: string | null; year?: number | string | null }) => [t.make, t.model, t.year].filter(Boolean).join(" ") || null;
 const archetypeOf = (t: { archetype?: string | null }) => t.archetype?.replace("_", " ") ?? "no cost profile";
+
+/** What standing with the engine on has cost. From an old fix it is what was read then, not an alarm for now: no tone, and the title says how old. */
+function idleCell(u: RadarTractor | undefined) {
+  if (!u?.idle) return <span className="dim">—</span>;
+  const age = fixAge(u.locatedAt, Date.now());
+  return (
+    <span className="t-st say" data-tone={age?.old ? undefined : "warn"} title={age?.old ? `From a position ${ageWords(age.minutes)} old. ${u.idle.sentence}` : u.idle.sentence}>
+      {idleShort(u.idle)}
+    </span>
+  );
+}
 
 export default async function FleetPage({ searchParams }: { searchParams?: { q?: string; sort?: string; page?: string; near?: string; r?: string } }) {
   // Read a page at a time: the database searches, sorts and counts, so a fleet of thousands opens as fast as a fleet of three.
@@ -107,11 +120,7 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
       breakEven: perMile(t.breakEvenRpm),
       survival: perMile(t.survivalFloorRpm),
       detention: t.detentionRate != null ? `${usd(t.detentionRate)}/h` : <span className="dim">none</span>,
-      idle: radarOf.get(t.id)?.idle ? (
-        <span className="t-st say" data-tone="warn" title={radarOf.get(t.id)!.idle!.sentence}>{radarOf.get(t.id)!.idle!.sentence}</span>
-      ) : (
-        <span className="dim">—</span>
-      ),
+      idle: idleCell(radarOf.get(t.id)),
       loads: t.loads,
       open: t.open,
       act: (
@@ -135,13 +144,14 @@ export default async function FleetPage({ searchParams }: { searchParams?: { q?:
     <>
       <PageHead title="Trucks" sub={`${scopeWords(terminal) ? `${scopeWords(terminal)}. ` : ""}Each truck's break-even floor, from its own cost profile. Every verdict on the Loads screen is measured against it. Open a truck to change its costs and see the floor move.`}>
         <CanGate caps={["dispatch"]}>
-          <SyncEldButton reason={eld.reason} />
+          <SyncEldButton reason={eld.reason} hideReason />
         </CanGate>
         <Link href="/fleet/import" className="tl-btn">Import from a file</Link>
         <CanGate caps={["dispatch"]}>
           <AddTruck use={use} />
         </CanGate>
       </PageHead>
+      {eld.reason ? <p className="tl-note t-lede">{eld.reason}</p> : null}
       {showMap ? <FleetMapPanel initial={points} params={{ near: nearText, r: nearOk?.radius ?? rGiven ?? 50, rGiven: rGiven != null }} fullHref={`/fleet/map?kind=tractor${nearText ? `&near=${encodeURIComponent(nearText)}${rGiven ? `&r=${rGiven}` : ""}` : ""}`}>{table}</FleetMapPanel> : table}
       <p className="tl-note t-lede">
         The break-even floor is cost per mile before fuel (fixed costs spread over planned miles, plus maintenance and tires). The verdict adds fuel for the load&apos;s own miles.

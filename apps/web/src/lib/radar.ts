@@ -1,5 +1,5 @@
 import { usd } from "./desk-format";
-import { durationText, idleWaste, sittingText, type Dwell } from "./telematics";
+import { ageWords, durationText, idleWaste, sittingText, type Dwell } from "./telematics";
 
 /**
  * The words the radar, the Trucks list and the Trailers list say about a unit: its equipment code, what idling has cost, how long a trailer has sat and what that owes. Pure, so every screen
@@ -30,6 +30,11 @@ export function idleSentence(l: IdleLine): string {
   return parts.join(" · ");
 }
 
+/** The same episode in a table cell: "10 days · −$964.92". The whole sentence, to the minute, goes in the cell's title. */
+export function idleShort(l: IdleLine): string {
+  return l.cashLost != null ? `${ageWords(l.minutes)} · ${usd(-l.cashLost, 2)}` : ageWords(l.minutes);
+}
+
 /**
  * "SITTING 4.2 DAYS", and when it is past its free time with no reload "SITTING 4.2 DAYS · Dwell Alert: Exceeds 48h free time · Detention Owed: +$165.00". A waived fee reads WAIVED with what it
  * would have been. `freeHours` is the company's free time.
@@ -38,6 +43,11 @@ export function idleSentence(l: IdleLine): string {
 export function dwellShort(d: Dwell): string {
   if (d.waived && d.computedAmount > 0) return `${sittingText(d.hours)} · waived`;
   return d.overFreeHours > 0 && (d.alert || d.amount > 0) ? `${sittingText(d.hours)} · +${usd(d.amount, 2)}` : sittingText(d.hours);
+}
+
+/** A dropped trailer's stay in a list row: "16.8 days · +$1,110.19", or that it was waived. */
+export function dwellRowText(d: { hours: number; amount: number; waived: boolean }): string {
+  return d.waived ? `${sittingText(d.hours)} · waived` : d.amount > 0 ? `${sittingText(d.hours)} · +${usd(d.amount, 2)}` : sittingText(d.hours);
 }
 
 export function dwellSentence(d: Dwell, freeHours: number): string {

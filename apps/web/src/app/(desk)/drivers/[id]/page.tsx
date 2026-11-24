@@ -44,7 +44,7 @@ export default async function DriverPage({ params }: { params: { id: string } })
   const me = access.ok ? access.identity : null;
   const canBill = !!me && can(me.role, me.grants, "bill");
   const seeTax = !!me && can(me.role, me.grants, "billing_details");
-  const canLink = !!me && can(me.role, me.grants, "roster");
+  const canRoster = !!me && can(me.role, me.grants, "roster");
   // Dates cross to the client as text.
   const linkView: PhoneLinkView =
     link.state.kind === "linked"
@@ -86,18 +86,30 @@ export default async function DriverPage({ params }: { params: { id: string } })
     return <span className="tl-chip ok">Finalized {dayYear(st.finalizedAt)}</span>;
   };
 
+  // Beside Their phone when there is no tax card to pair it with, else last on the page.
+  const changes = (
+    <Card title="Changes">
+      {history.rows.length === 0 ? (
+        <p className="tl-note">Nothing has been changed on this driver yet.</p>
+      ) : (
+        <ul className="feed">
+          {history.rows.map((e) => (
+            <li key={e.id}>
+              <div><b>{ACTION_LABEL[e.action] ?? e.action}</b> · {e.summary}</div>
+              <div className="t">{dateTime(e.createdAt)} · {e.actor}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+
   return (
     <>
       <PageHead title={p.name} sub={`${p.code ? `${p.code} · ` : ""}${p.active ? "Active" : "Out of service"}${p.terminal ? ` · based at ${p.terminal}` : ""}${p.assignedVehicle ? ` · drives ${p.assignedVehicle.name}` : ""} · ${d.open.length} open ${d.open.length === 1 ? "load" : "loads"}`}>
         <Link href="/drivers" className="tl-btn">All drivers</Link>
         <Link href={`/messages?driver=${p.id}`} className="tl-btn">Message driver</Link>
         <Link href={`/schedules?q=${encodeURIComponent(p.code ?? p.name)}`} className="tl-btn">Shifts</Link>
-        <CanGate caps={["roster"]}>
-          <DriverCodeEdit driverId={p.id} code={p.code} />
-        </CanGate>
-        <CanGate caps={["dispatch"]}>
-          <DriverRowActions driver={row} />
-        </CanGate>
       </PageHead>
 
       {p.active && d.blocker ? <p className="tl-note warn" role="alert" style={{ marginBottom: 14 }}>{d.blocker}. This driver cannot be assigned a load until it is fixed.</p> : null}
@@ -134,54 +146,70 @@ export default async function DriverPage({ params }: { params: { id: string } })
             </ul>
           )}
         </Card>
-        <Card title="Details">
+        <Card
+          title="Details"
+          action={
+            <CanGate caps={["dispatch"]}>
+              <DriverRowActions driver={row} />
+            </CanGate>
+          }>
           <dl className="tl-kv">
             <dt>Phone</dt>
-            <dd>{p.phone ?? "—"}</dd>
+            <dd>{p.phone ?? <span className="dim">Not on file</span>}</dd>
             <dt>Email</dt>
-            <dd>{p.email ?? "—"}</dd>
+            <dd>{p.email ?? <span className="dim">Not on file</span>}</dd>
             <dt>CDL</dt>
-            <dd>Class {p.cdlClass ?? "?"} · to {shortDate(p.cdlExpiry)}</dd>
+            <dd>{p.cdlClass || p.cdlExpiry ? [p.cdlClass ? `Class ${p.cdlClass}` : null, p.cdlExpiry ? `to ${shortDate(p.cdlExpiry)}` : null].filter(Boolean).join(" · ") : <span className="dim">Not on file</span>}</dd>
             <dt>Medical card</dt>
-            <dd>to {shortDate(p.medicalCardExpiry)}</dd>
+            <dd>{p.medicalCardExpiry ? `to ${shortDate(p.medicalCardExpiry)}` : <span className="dim">Not on file</span>}</dd>
             <dt>Usual pay</dt>
             <dd>{payLabel(p.defaultPayKind, numOrNull(p.defaultPayRate))}</dd>
+            <dt>Driver code</dt>
+            <dd>
+              {canRoster ? (
+                <CanGate caps={["roster"]}>
+                  <DriverCodeEdit driverId={p.id} code={p.code} />
+                </CanGate>
+              ) : (
+                (p.code ?? <span className="dim">Not on file</span>)
+              )}
+            </dd>
           </dl>
         </Card>
         <Card title="Their phone">
-          <DriverPhoneLink driverId={p.id} driverName={p.name} view={linkView} suggestedRole={link.role ?? suggestedLinkRole(p.payrollWorkerType)} canEdit={canLink} />
+          <DriverPhoneLink driverId={p.id} driverName={p.name} view={linkView} suggestedRole={link.role ?? suggestedLinkRole(p.payrollWorkerType)} canEdit={canRoster} />
         </Card>
+        {seeTax ? (
+          <Card
+            title="Tax profile (1099)"
+            action={
+              <CanGate caps={["payout"]}>
+                <DriverTaxEdit driverId={p.id} driverName={p.name} initial={driverTaxValuesOf(p)} />
+              </CanGate>
+            }>
+            <dl className="tl-kv">
+              <dt>Worker type</dt>
+              <dd>{p.payrollWorkerType === "contractor" ? "Contractor (1099)" : p.payrollWorkerType === "employee" ? "Employee (W-2, through payroll)" : "Not set"}</dd>
+              <dt>Legal name</dt>
+              <dd>{p.legalName ?? <span className="dim">Not on file</span>}</dd>
+              <dt>TIN</dt>
+              <dd>{p.tinLast4 ? `${tinTypeLabel(p.tinType) ?? "TIN"} ending ${p.tinLast4}` : <span className="dim">Not on file</span>}</dd>
+              <dt>TIN status</dt>
+              <dd>{tinStatusLabel(p.tinStatus)}</dd>
+              <dt>Mailing address</dt>
+              <dd>{addressText(p) ?? <span className="dim">Not on file</span>}</dd>
+            </dl>
+            {p.payrollWorkerType === "contractor" && profileGaps(p).length > 0 ? (
+              <p className="tl-note warn f1099-gap">Missing for a 1099: {profileGaps(p).join(", ")}.</p>
+            ) : null}
+            <p className="tl-note f1099-gap">
+              Only the last four digits of an SSN or EIN are kept on the desk; the full number stays with the payroll company. Yearly totals are on <Link href="/payroll/1099">1099 totals</Link>.
+            </p>
+          </Card>
+        ) : (
+          changes
+        )}
       </div>
-
-      {seeTax ? (
-        <Card
-          title="Tax profile (1099)"
-          action={
-            <CanGate caps={["payout"]}>
-              <DriverTaxEdit driverId={p.id} driverName={p.name} initial={driverTaxValuesOf(p)} />
-            </CanGate>
-          }
-          className="tl-card f1099-gap">
-          <dl className="tl-kv">
-            <dt>Worker type</dt>
-            <dd>{p.payrollWorkerType === "contractor" ? "Contractor (1099)" : p.payrollWorkerType === "employee" ? "Employee (W-2, through payroll)" : "Not set"}</dd>
-            <dt>Legal name</dt>
-            <dd>{p.legalName ?? <span className="dim">Not set</span>}</dd>
-            <dt>TIN</dt>
-            <dd>{p.tinLast4 ? `${tinTypeLabel(p.tinType) ?? "TIN"} ending ${p.tinLast4}` : <span className="dim">Not set</span>}</dd>
-            <dt>TIN status</dt>
-            <dd>{tinStatusLabel(p.tinStatus)}</dd>
-            <dt>Mailing address</dt>
-            <dd>{addressText(p) ?? <span className="dim">Not set</span>}</dd>
-          </dl>
-          {p.payrollWorkerType === "contractor" && profileGaps(p).length > 0 ? (
-            <p className="tl-note warn f1099-gap">Missing for a 1099: {profileGaps(p).join(", ")}.</p>
-          ) : null}
-          <p className="tl-note f1099-gap">
-            Only the last four digits of an SSN or EIN are kept on the desk; the full number stays with the payroll company. Yearly totals are on <Link href="/payroll/1099">1099 totals</Link>.
-          </p>
-        </Card>
-      ) : null}
 
       <Card title={`Recent deliveries${s.loads > d.recent.length ? ` · latest ${d.recent.length} of ${s.loads}` : ""}`} className="tl-card">
         {d.recent.length === 0 ? (
@@ -279,20 +307,7 @@ export default async function DriverPage({ params }: { params: { id: string } })
       />
       ) : null}
 
-      <Card title="Changes" className="tl-card">
-        {history.rows.length === 0 ? (
-          <p className="tl-note">Nothing has been changed on this driver yet.</p>
-        ) : (
-          <ul className="feed">
-            {history.rows.map((e) => (
-              <li key={e.id}>
-                <div><b>{ACTION_LABEL[e.action] ?? e.action}</b> · {e.summary}</div>
-                <div className="t">{dateTime(e.createdAt)} · {e.actor}</div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+      {seeTax ? changes : null}
     </>
   );
 }

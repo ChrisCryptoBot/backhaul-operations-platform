@@ -3,6 +3,7 @@
 import Link from "next/link";
 import React from "react";
 import { feet } from "@/lib/desk-format";
+import { ageWords } from "@/lib/telematics";
 import { STATE_WORD, radarParamsText, type ListGroup, type ListRow, type RadarQueryParams, type SearchInfo } from "@/lib/radar-points";
 import { countsText, milesText } from "@/lib/radius";
 import type { RadarList as ListData } from "@/server/tl/radar-query";
@@ -26,13 +27,14 @@ function Row({ r, selected, onPick, showMiles }: { r: ListRow; selected: boolean
         </span>
       </th>
       <td>
-        <i className="rd-dot" data-tone={TONE[r.state] ?? "dim"} aria-hidden="true" /> {STATE_WORD[r.state]}
+        <i className="rd-dot" data-tone={r.oldFix != null ? "dim" : (TONE[r.state] ?? "dim")} aria-hidden="true" /> {STATE_WORD[r.state]}
+        {r.oldFix != null ? <span className="rd-sub">{`${ageWords(r.oldFix)} ago`}</span> : null}
       </td>
       <td>{r.near ?? <span className="dim">{"—"}</span>}</td>
       {showMiles ? <td className="num">{r.miles != null ? milesText(r.miles) : "—"}</td> : null}
       <td>
         {r.loadId ? <Link href={`/loads/${r.loadId}`}>{r.loadNumber ?? "Load"}</Link> : (r.who ?? <span className="dim">{"—"}</span>)}
-        {r.leak ? <span className="rd-leak rd-leak-row">{r.leak}</span> : null}
+        {r.leak ? <span className="rd-leak rd-leak-row" title={r.leakFull ?? undefined}>{r.leak}</span> : null}
       </td>
       <td>
         <Link href={r.href}>Open</Link>

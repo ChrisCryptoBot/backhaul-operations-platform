@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { INTERSTATES } from "@/lib/basemap/interstates";
 import { US_STATES } from "@/lib/basemap/us-states";
 import { bearingDeg, interpolate, projectOnLine } from "@/lib/geo-line";
-import { GEOFENCE_MILES, classifyTractor, durationText, dwell, engineStateOf, etaAt, fleetCounts, geofence, idleWaste, laneProgress, milesToGo, nearestCorridor, scheduleState, sittingText, speedLine } from "@/lib/telematics";
+import { GEOFENCE_MILES, ageWords, agoText, classifyTractor, durationText, dwell, engineStateOf, etaAt, fleetCounts, geofence, idleWaste, laneProgress, milesToGo, nearestCorridor, scheduleState, sittingText, speedLine } from "@/lib/telematics";
 
 const H = 3_600_000;
 const NOW = Date.parse("2026-11-05T18:00:00Z");
@@ -33,9 +33,21 @@ describe("idling burns about a gallon an hour, and the cash is that at the fleet
     expect(idleWaste(2, null)).toEqual({ gallons: 2, cashLost: null });
     expect(idleWaste(-1, 4)).toEqual({ gallons: 0, cashLost: 0 });
   });
-  it("words a duration under an hour in minutes", () => {
+  it("words a duration exactly at any length, and an age past two days in days", () => {
     expect(durationText(42)).toBe("42m");
     expect(durationText(60)).toBe("1h 00m");
+    expect(durationText(47 * 60 + 59)).toBe("47h 59m");
+    // It words a stay in the history and the idle sentence, so no hour is ever rounded away.
+    expect(durationText(241 * 60 + 54)).toBe("241h 54m");
+    expect(ageWords(47 * 60 + 59)).toBe("47h 59m");
+    expect(ageWords(48 * 60)).toBe("2 days");
+    expect(ageWords(241 * 60 + 54)).toBe("10 days");
+  });
+  it("says how long ago a fix was, and that there is none", () => {
+    const now = Date.parse("2026-11-23T12:00:00Z");
+    const ago = (m: number) => agoText(new Date(now - m * 60_000).toISOString(), now);
+    expect(agoText(null, now)).toBe("no fix yet");
+    expect([ago(0), ago(42), ago(194), ago(241 * 60)]).toEqual(["just now", "42 min ago", "3h 14m ago", "10 days ago"]);
   });
 });
 
@@ -208,6 +220,10 @@ describe("what the screens say about a unit", () => {
   it("the idle sentence is the stationary time, the gallons and the cash, with the real minus", async () => {
     const { idleLine, idleSentence } = await import("@/lib/radar");
     expect(idleSentence(idleLine(3 * 60 + 14, 3.96))).toBe("IDLING (Stationary 3h 14m) · Burned: 3.2 gal · Cash Lost: −$12.80");
+    expect(idleSentence(idleLine(241 * 60 + 5, 4))).toContain("Stationary 241h 05m"); // beside gallons and cash, to the minute
+    const { idleShort } = await import("@/lib/radar");
+    expect(idleShort(idleLine(241 * 60 + 5, 4))).toMatch(/^10 days · −\$\d/);
+    expect(idleShort(idleLine(45, null))).toBe("45m");
     expect(idleSentence(idleLine(45, null))).toBe("IDLING (Stationary 45m) · Burned: 0.8 gal"); // no price, no cash figure
   });
   it("the dwell sentence says sitting, the alert and the detention, and a waiver in its own words", async () => {
