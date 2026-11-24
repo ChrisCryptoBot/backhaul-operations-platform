@@ -370,8 +370,9 @@ export function PayrollSend({ readyIds, reason, canAct = true, who }: { readyIds
   }
 
   return (
-    <div className="tl-form-row" style={{ alignItems: "flex-start" }}>
+    <div className="t-bar">
       <ReasonButton
+        hideReason
         label={`Send ${ticked.length > 0 ? ticked.length : ""} to payroll`.replace("  ", " ")}
         busyLabel="Sending…"
         reason={reason ?? (ticked.length === 0 ? "Tick the statements to send." : null)}
@@ -385,8 +386,9 @@ export function PayrollSend({ readyIds, reason, canAct = true, who }: { readyIds
       <button type="button" className="tl-btn ghost sm" onClick={() => pick(false)} disabled={busy || ticked.length === 0}>
         Clear
       </button>
+      {reason || ticked.length === 0 ? <span className="tl-note">{reason ?? "Tick the statements to send."}</span> : null}
       {error ? (
-        <p className="tl-note warn" role="alert" style={{ flexBasis: "100%" }}>
+        <p className="tl-note warn" role="alert">
           {error}
         </p>
       ) : null}

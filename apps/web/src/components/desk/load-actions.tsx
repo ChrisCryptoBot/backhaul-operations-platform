@@ -767,7 +767,7 @@ export function InvoiceDialog({
     <>
       <button
         type="button"
-        className={`tl-btn ${size === "sm" ? "sm primary" : "primary"}`}
+        className={`tl-btn ${size === "sm" ? "sm" : "primary"}`}
         onClick={() => {
           setErrors({});
           setMessage(null);

@@ -71,13 +71,13 @@ export default async function FuelPage({ searchParams }: { searchParams?: { days
       product: r.product === "road_diesel" ? PRODUCT_LABEL.road_diesel : <span className="t-st" data-tone={r.product === "unknown" || r.product === "gasoline" || r.product === "other" ? "warn" : "info"}>{PRODUCT_LABEL[r.product]}</span>,
       gallons: gallons(r.gallons),
       ppg: perGallon(r.pricePerGallon),
-      disc: r.discountPerGallon == null ? <span className="dim">—</span> : <span className="t-pos">{perGallon(r.discountPerGallon, 3)}</span>,
+      disc: r.discountPerGallon == null ? <span className="dim">—</span> : <span className={r.discountPerGallon > 0 ? "t-pos" : "dim"}>{perGallon(r.discountPerGallon, 3)}</span>,
       charged:
         r.status === "settled" ? (
           usd(r.amount, 2)
         ) : (
           <>
-            <span className="dim">{usd(r.amount, 2)}</span> <span className="t-st" data-tone={r.status === "pending" ? "warn" : "bad"}>{STATUS_LABEL[r.status]}</span>
+            <span className="t-st" data-tone={r.status === "pending" ? "warn" : "bad"}>{STATUS_LABEL[r.status]}</span> <span className="dim">{usd(r.amount, 2)}</span>
           </>
         ),
       load: r.loadId ? <Link href={`/loads/${r.loadId}`}>{r.loadNumber ?? "Load"}</Link> : <span className="dim">not tied</span>,
@@ -128,8 +128,9 @@ export default async function FuelPage({ searchParams }: { searchParams?: { days
           Flagged ({f.purchases})
         </Link>
       </div>
+      {cardReason ? <p className="tl-note t-lede">{cardReason}</p> : null}
       <div className="tl-grid cols-4">
-        <Stat label="Purchases" value={String(t.purchases)} sub={`settled in the last ${days} days${t.notCounted > 0 ? `; ${t.notCounted} pending, declined or void not counted` : ""}`} />
+        <Stat label="Purchases" value={String(t.purchases)} sub={`settled, last ${days} days${t.notCounted > 0 ? `; ${t.notCounted} not settled, not counted` : ""}`} />
         <Stat label="Gallons" value={gallons(t.gallons)} sub={[split.length > 1 ? split.join(" · ") : null, def > 0 ? `DEF ${gallons(def)} gal kept apart` : null].filter(Boolean).join("; ") || undefined} />
         <Stat label="Charged" value={usd(t.charged, 2)} sub={t.netPerGallon != null ? `${perGallon(t.netPerGallon, 3)} a gallon after discount` : undefined} />
         <Stat label="Discount saved" value={usd(t.discount, 2)} tone={t.discount > 0 ? "ok" : undefined} />

@@ -17,7 +17,7 @@ const STATUS: Record<LaneStatus, { label: string; tone: "ok" | "bad" | "muted" }
 const SCORE: Record<LaneScore, { label: string; tone: "ok" | "bad" | "muted" }> = {
   below: { label: "BELOW", tone: "bad" },
   ok: { label: "OK", tone: "ok" },
-  no_target: { label: "NO TARGET", tone: "muted" }
+  no_target: { label: "No target", tone: "muted" }
 };
 
 /** The lane and the eight figures that decide it; the miles behind them are one press away under the table. */
@@ -59,7 +59,7 @@ export const LANE_SORTERS: Record<string, (l: LaneKpi) => number | string | null
 };
 
 /** `lanes` is the page being shown (the whole list is read for the caption); `sortHref` makes the headers sort on the server. */
-export function LaneScorecard({ k, canEdit = false, lanes, sortHref }: { k: DeskKpi; canEdit?: boolean; lanes?: LaneKpi[]; sortHref?: SortHref }) {
+export function LaneScorecard({ k, canEdit = false, lanes, sortHref, tools }: { k: DeskKpi; canEdit?: boolean; lanes?: LaneKpi[]; sortHref?: SortHref; /** The table's search, in the card it searches. */ tools?: React.ReactNode }) {
   const rows: Row[] = (lanes ?? k.lanes).map((l) => {
     const zone = emptyZone(l.emptyShare, k.thresholds);
     const s = STATUS[l.status];
@@ -86,11 +86,12 @@ export function LaneScorecard({ k, canEdit = false, lanes, sortHref }: { k: Desk
         market: l.marketVariancePct == null ? <span className="dim">—</span> : <span className={l.marketVariancePct < 0 ? "tone-neg" : "tone-pos"}>{signedPct(l.marketVariancePct)}</span>,
         target: <LaneTargetCell lane={l.key} target={l.targetRate} canEdit={canEdit} />,
         vs: l.vsTarget == null ? <span className="dim">{"—"}</span> : <span className={l.vsTarget < 0 ? "tone-neg" : "tone-pos"}>{usd(l.vsTarget, 0)}</span>,
-        score: <span className={`tl-chip ${SCORE[l.score].tone}`}>{SCORE[l.score].label}</span>,
+        score: l.score === "no_target" ? <span className="dim">{SCORE.no_target.label}</span> : <span className={`tl-chip ${SCORE[l.score].tone}`}>{SCORE[l.score].label}</span>,
         status: <span className={`tl-chip ${s.tone}`}>{s.label}</span>
       }
     };
   });
+  const targeted = k.lanes.filter((l) => l.score !== "no_target").length;
   const below = k.lanes.filter((l) => l.status === "below").length;
   const checked = k.lanes.filter((l) => l.status !== "unknown").length;
   return (
@@ -98,8 +99,9 @@ export function LaneScorecard({ k, canEdit = false, lanes, sortHref }: { k: Desk
       title="Lane scorecard"
       unit="finished loads in the period, by lane"
       empty={k.lanes.length === 0 ? "No finished loads in this period." : undefined}
-      caption={`${k.lanes.filter((l) => l.score === "below").length} of ${k.lanes.filter((l) => l.score !== "no_target").length} lanes with a target are BELOW it. `.concat(checked > 0 ? `${below} of ${checked} lanes with a market rate paid below it.` : "None of these lanes has a market rate on its loads yet.")}
-      formula="Target per load is typed by a person (dispatch or billing); Vs target is the lane's revenue per load minus it, and the scorecard is BELOW when the lane pays less than its target per load, OK at or above it, NO TARGET when none is set. Loaded, empty and trip miles are the lane's totals in the period. Against market is (Σ all-in pay − Σ market total) ÷ Σ market total over the loads on the lane that carry a market rate. Empty miles are deadhead over every mile driven on the lane.">
+      caption={(targeted === 0 ? "No lane has a target yet. " : `${k.lanes.filter((l) => l.score === "below").length} of ${targeted} lanes with a target are BELOW it. `).concat(checked > 0 ? `${below} of ${checked} lanes with a market rate paid below it.` : "None of these lanes has a market rate on its loads yet.")}
+      formula="Target per load is typed by a person (dispatch or billing); Vs target is the lane's revenue per load minus it, and the scorecard is BELOW when the lane pays less than its target per load, OK at or above it, No target when none is set. Loaded, empty and trip miles are the lane's totals in the period. Against market is (Σ all-in pay − Σ market total) ÷ Σ market total over the loads on the lane that carry a market rate. Empty miles are deadhead over every mile driven on the lane.">
+      {tools}
       <DataTable id="kpi-lanes" label="Lane scorecard" columns={COLUMNS} rows={rows} sortHref={sortHref} />
     </ChartFrame>
   );

@@ -2,6 +2,7 @@ import { termList, scopeWords } from "@/lib/scope";
 import Link from "next/link";
 import React from "react";
 import { PageHead, Tabs } from "@/components/desk/ui";
+import { CompareSwitch } from "@/components/desk/kpi/parts";
 import { EmptyState } from "@/components/desk/kit/states";
 import { LeakDrills, LeakHero, LeakLines, LeakOpenDwell, LeakTop, LeakUnpriced, LeakWeeks } from "@/components/desk/leaks/ledger";
 import { intakeIsEmpty } from "@/lib/leak-intake";
@@ -47,9 +48,7 @@ export default async function LeaksPage({ searchParams }: { searchParams?: Recor
       <div className="kbar">
         <Tabs active={params.period} hrefFor={(key) => href({ period: key as typeof params.period })} items={KPI_PERIODS} />
         {params.period !== "all" ? (
-          <Link href={href({ compare: !params.compare })} className="tl-tab" aria-current={params.compare ? "true" : undefined} title="Show how each number moved against the period before">
-            Compare with the period before
-          </Link>
+          <CompareSwitch on={params.compare} href={href({ compare: !params.compare })} />
         ) : null}
       </div>
       <p className="t-period">

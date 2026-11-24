@@ -1,3 +1,4 @@
+import Link from "next/link";
 import React from "react";
 import type { Delta } from "@/lib/kpi-view";
 import { ExpandChart, type ChartTable } from "./expand";
@@ -52,6 +53,15 @@ export function DeltaChip({ delta, title, tip }: { delta: Delta | null; title?: 
     <span className={`dl ${delta.tone}`} title={title} aria-label={label}>
       {chip}
     </span>
+  );
+}
+
+/** Compare with the period before, on or off. A switch, so it never looks like a second chosen period beside the real one. */
+export function CompareSwitch({ on, href }: { on: boolean; href: string }) {
+  return (
+    <Link href={href} className="t-switch" role="switch" aria-checked={on} title="Show how each number moved against the period before">
+      <i aria-hidden="true" /> Compare with the period before
+    </Link>
   );
 }
 

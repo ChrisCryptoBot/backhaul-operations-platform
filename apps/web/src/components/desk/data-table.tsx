@@ -126,7 +126,7 @@ export function DataTable({ id, columns, rows, empty, label, sortHref, foldNote 
             rows.map((r, i) => (
               <tr key={r.id} data-i={i} data-tall={prose ? "" : undefined} data-href={r.href} data-flag={r.flag} data-search={(r.search ?? "").toLowerCase()} aria-selected={r.selected ? "true" : undefined}>
                 {columns.map((c) => (
-                  <td key={c.key} className={cls(c)} data-col={c.key} data-pr={c.priority && c.priority > 1 ? c.priority : undefined} style={style(c)} data-v={c.sortable && r.sort?.[c.key] != null ? String(r.sort[c.key]) : undefined}>
+                  <td key={c.key} className={cls(c)} data-col={c.key} data-pr={c.priority && c.priority > 1 ? c.priority : undefined} style={style(c)} title={c.max && typeof r.cells[c.key] === "string" ? (r.cells[c.key] as string) : undefined} data-v={c.sortable && r.sort?.[c.key] != null ? String(r.sort[c.key]) : undefined}>
                     {r.cells[c.key]}
                   </td>
                 ))}

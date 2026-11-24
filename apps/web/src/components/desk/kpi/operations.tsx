@@ -140,8 +140,7 @@ export function MixCard({ k }: { k: DeskKpi }) {
   const m = k.mix;
   const block = (title: string, rows: typeof m.trailer) => (
     <div>
-      <h3 className="kc-sub">{title}</h3>
-      <table className="tl-table" aria-label={title}>
+      <table className="tl-table mix" aria-label={title}>
         <thead>
           <tr>
             <th>{title}</th>
@@ -153,7 +152,7 @@ export function MixCard({ k }: { k: DeskKpi }) {
         <tbody>
           {rows.map((r) => (
             <tr key={r.key}>
-              <td>{r.label}</td>
+              <td title={r.label}>{r.label}</td>
               <td className="num">{r.loads}</td>
               <td className="num">{pct(r.loadShare, 0)}</td>
               <td className="num">{pct(r.grossShare, 0)}</td>

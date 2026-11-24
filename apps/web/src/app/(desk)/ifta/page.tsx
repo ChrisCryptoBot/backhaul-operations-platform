@@ -3,8 +3,9 @@ import React from "react";
 import { DataTable, type Column, type Row } from "@/components/desk/data-table";
 import { IftaCalcButton, IftaEldMilesButton } from "@/components/desk/data-actions";
 import { CanGate } from "@/components/desk/kit/can-gate";
+import { Fold } from "@/components/desk/kit/fold";
 import { EmptyState } from "@/components/desk/kit/states";
-import { PageHead, Stat } from "@/components/desk/ui";
+import { Card, PageHead, Stat } from "@/components/desk/ui";
 import { dateTime, dayYear } from "@/lib/desk-format";
 import { IftaFileButton, IftaReopenForm } from "@/components/desk/ifta-filing-panel";
 import { daysUntil, RATE_STATE_LABEL, returnDrift, returnMoney, type Blocker, type DriftField } from "@/lib/ifta-return";
@@ -56,6 +57,10 @@ const n0 = (s: string | null) => (s == null ? "—" : Number(s).toLocaleString("
 const trucks = (n: number) => `${n} ${n === 1 ? "truck" : "trucks"}`;
 
 /** Where each blocker is fixed. */
+/** The return's money with the minus sign the rest of the desk uses; the files keep the plain one a spreadsheet reads. */
+const minus = (v: string) => v.replace(/^-/, "−");
+const shown = (v: string | null) => minus(returnMoney(v));
+
 function fixFor(b: Blocker, quarter: string): { href: string; label: string } {
   switch (b.code) {
     case "missing_rate":
@@ -88,7 +93,7 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
   const totalWords = (t: string | null) => (t == null ? "not worked out" : t.startsWith("-") ? `${returnMoney(t.slice(1))} credit` : `${returnMoney(t)} due`);
   const fileBlocked =
     r.blockers.length > 0
-      ? "Clear what blocks the return first (listed below)."
+      ? "Clear what blocks the return first."
       : r.flagsPartial
         ? "The fuel flags could only be read in part."
         : r.rateState === "none"
@@ -99,7 +104,8 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
               ? "The return is not fully worked out."
               : null;
   const signed = (d: string | null) => (d == null ? "—" : d.startsWith("-") ? d : `+${d}`);
-  const driftRow = (f: DriftField, where: string): Row => ({ id: `${where}-${f.field}`, cells: { where: <b>{where}</b>, what: f.label, filed: f.filed ?? "—", now: f.now ?? "—", change: signed(f.delta) } });
+  const driftRow = (f: DriftField, where: string): Row => ({ id: `${where}-${f.field}`, cells: { where: <b>{where}</b>, what: f.label, filed: minus(f.filed ?? "—"), now: minus(f.now ?? "—"), change: minus(signed(f.delta)) } });
+  const driftLines: Row[] = drift ? drift.lines.flatMap((l) => (l.kind === "changed" ? l.fields.map((f) => driftRow(f, l.jurisdiction)) : [driftRow({ field: "line", label: l.kind === "added" ? "New since filed" : "Gone since filed", filed: l.kind === "removed" ? (l.fields.find((f) => f.field === "total")?.filed ?? null) : null, now: l.kind === "added" ? (l.fields.find((f) => f.field === "total")?.now ?? null) : null, delta: null }, l.jurisdiction)])) : [];
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   const left = daysUntil(r.dueDate, today);
   const due = r.total == null ? null : Number(r.total);
@@ -115,12 +121,12 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
       miles: n1(l.miles),
       taxable: n0(l.taxableGallons),
       paid: n0(l.taxPaidGallons),
-      net: n0(l.netGallons),
+      net: n0(l.netGallons).replace(/^-/, "−"),
       rate: l.rate ? `$${l.rate}` : <span className="t-st" data-tone="bad">No rate</span>,
-      tax: returnMoney(l.tax),
+      tax: shown(l.tax),
       srate: l.surchargeRate && l.surchargeRate !== "0.0000" ? `$${l.surchargeRate}` : <span className="dim">—</span>,
-      surcharge: returnMoney(l.surcharge),
-      total: returnMoney(l.total)
+      surcharge: shown(l.surcharge),
+      total: shown(l.total)
     }
   }));
   const truckRows: Row[] = r.trucks.map((t) => ({
@@ -165,11 +171,11 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
         <Stat
           label={due != null && due < 0 ? "Credit" : "Due"}
           value={due == null ? "—" : returnMoney(due < 0 ? r.total!.slice(1) : r.total)}
-          sub={r.tax != null ? `Tax ${returnMoney(r.tax)} · surcharge ${returnMoney(r.surcharge)}` : r.lines.length > 0 ? "Not worked out: see below" : "No miles or fuel yet"}
+          sub={r.tax != null ? `Tax ${shown(r.tax)} · surcharge ${shown(r.surcharge)}` : r.lines.length > 0 ? "Not worked out: see below" : "No miles or fuel yet"}
           tone={r.blockers.length > 0 ? "warn" : undefined}
         />
         <Stat label="Fleet MPG" value={r.mpg ?? "—"} sub={`${n1(r.miles)} mi ÷ ${n1(r.gallons)} gal road diesel`} />
-        <Stat label="Filing due" value={dayYear(new Date(`${r.dueDate}T12:00:00Z`), "UTC")} sub={left < 0 ? `${-left} ${left === -1 ? "day" : "days"} past due` : left === 0 ? "Due today" : `In ${left} ${left === 1 ? "day" : "days"}`} tone={left < 0 ? "bad" : left <= 14 ? "warn" : undefined} />
+        <Stat label="Filing due" value={dayYear(new Date(`${r.dueDate}T12:00:00Z`), "UTC")} sub={filed ? `Filed ${dayYear(filed.filedAt)}` : left < 0 ? `${-left} ${left === -1 ? "day" : "days"} past due` : left === 0 ? "Due today" : `In ${left} ${left === 1 ? "day" : "days"}`} tone={filed ? undefined : left < 0 ? "bad" : left <= 14 ? "warn" : undefined} />
         <Stat
           label="Tax rates"
           value={RATE_STATE_LABEL[r.rateState]}
@@ -180,10 +186,10 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
 
       {filed ? (
         <section className="tl-card ifta-filed" aria-label="Filed return">
-          <h3>
+          <h2>
             Filed {dayYear(filed.filedAt)} by {filed.filedBy}
             {filed.amends ? " (amended)" : ""}: {totalWords(filed.total)}
-          </h3>
+          </h2>
           <p className="tl-note">
             {filed.lines.length} {filed.lines.length === 1 ? "jurisdiction" : "jurisdictions"}, {n1(filed.miles)} miles, fleet MPG {filed.mpg ?? "—"}; rates {filed.rateState === "final" ? "final" : `${filed.rateState === "mixed" ? "partly final" : "provisional"} (confirmed when filed)`}. Miles, rates and fuel files for this quarter are locked while it is filed.
           </p>
@@ -199,11 +205,13 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
                 id="ifta-drift"
                 label={`What changed since ${quarter} was filed`}
                 columns={DRIFT}
-                rows={[
-                  ...drift.header.map((f) => driftRow(f, "Return")),
-                  ...drift.lines.flatMap((l) => (l.kind === "changed" ? l.fields.map((f) => driftRow(f, l.jurisdiction)) : [driftRow({ field: "line", label: l.kind === "added" ? "New since filed" : "Gone since filed", filed: l.kind === "removed" ? (l.fields.find((f) => f.field === "total")?.filed ?? null) : null, now: l.kind === "added" ? (l.fields.find((f) => f.field === "total")?.now ?? null) : null, delta: null }, l.jurisdiction)]))
-                ]}
+                rows={drift.header.map((f) => driftRow(f, "Return"))}
               />
+              {driftLines.length > 0 ? (
+                <Fold title="By jurisdiction" meta={`${driftLines.length} ${driftLines.length === 1 ? "figure" : "figures"} changed in ${drift.lines.length} ${drift.lines.length === 1 ? "jurisdiction" : "jurisdictions"}`}>
+                  <DataTable id="ifta-drift-lines" label={`What changed by jurisdiction since ${quarter} was filed`} columns={DRIFT} rows={driftLines} />
+                </Fold>
+              ) : null}
             </>
           ) : (
             <p className="tl-note ok">Unchanged since filed: worked out now, every figure matches what was filed.</p>
@@ -215,18 +223,34 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
           </div>
         </section>
       ) : (
-        <section className="ifta-tofile" aria-label="File this return">
+        <Card title="File this return" className="tl-card ifta-tofile">
           {reopened.length > 0 ? <p className="tl-note">Reopened {dayYear(reopened[0]!.reopenedAt!)} by {reopened[0]!.reopenedBy}: {reopened[0]!.reopenReason}. Filing again records an amendment.</p> : null}
+          {r.blockers.length > 0 ? (
+            <>
+              <ul className="ifta-blocklist" aria-label="Before this return can be filed">
+                {r.blockers.map((b) => {
+                  const fix = fixFor(b, quarter);
+                  return (
+                    <li key={b.code}>
+                      <span className="t-st" data-tone="bad" />
+                      <span>{b.text}</span> <Link href={fix.href}>{fix.label}</Link>
+                    </li>
+                  );
+                })}
+              </ul>
+              {r.flagsPartial ? <p className="tl-note">Fuel flags were read from the newest purchases only; there are more than one reading takes.</p> : null}
+            </>
+          ) : r.lines.length > 0 ? (
+            <p className="tl-note ok ifta-eld-line">Nothing stands in the way of this return.{r.rateState !== "final" ? " The rates are not all final yet." : ""}</p>
+          ) : null}
           <CanGate caps={["bill"]}>
             <IftaFileButton quarter={quarter} blocked={fileBlocked} provisional={r.rateState === "provisional" || r.rateState === "mixed"} amount={totalWords(r.total)} />
           </CanGate>
-        </section>
+        </Card>
       )}
-
-      {r.blockers.length > 0 ? (
-        <section className="tl-card ifta-blockers" aria-label="Before this return can be filed">
-          <h3>Before this return can be filed</h3>
-          <ul>
+      {filed && r.blockers.length > 0 ? (
+        <Card title="What is open on this return" className="tl-card ifta-tofile">
+          <ul className="ifta-blocklist" aria-label="Before this return can be filed">
             {r.blockers.map((b) => {
               const fix = fixFor(b, quarter);
               return (
@@ -238,9 +262,7 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
             })}
           </ul>
           {r.flagsPartial ? <p className="tl-note">Fuel flags were read from the newest purchases only; there are more than one reading takes.</p> : null}
-        </section>
-      ) : !filed && r.lines.length > 0 ? (
-        <p className="tl-note ok ifta-eld-line">Nothing stands in the way of this return.{r.rateState !== "final" ? " The rates are not all final yet." : ""}</p>
+        </Card>
       ) : null}
 
       <DataTable
@@ -255,8 +277,8 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
         }
       />
 
-      <section id="ifta-miles" className="ifta-miles">
-        <h3>Miles</h3>
+      <section id="ifta-miles" className="tl-card ifta-miles">
+        <h2>Miles</h2>
         <p className="tl-note">
           {sourceLine ? `${sourceLine}.` : "No miles kept for this quarter."} {q?.syncedAt ? `Last read ${dateTime(q.syncedAt)}.` : null} A truck the ELD reported counts its ELD miles only; any other truck counts its loads routed stop by stop, with the empty runs between them.
         </p>
@@ -267,9 +289,8 @@ export default async function IftaPage({ searchParams }: { searchParams?: { quar
             <IftaCalcButton quarter={quarter} reason={router.reason} again={hasRouted} />
           </div>
         </CanGate>
+        <DataTable id="ifta-trucks" label={`Trucks, ${quarter}`} columns={TRUCKS} rows={truckRows} empty={<EmptyState icon="trucks" title="No truck has miles or fuel this quarter" />} />
       </section>
-
-      <DataTable id="ifta-trucks" label={`Trucks, ${quarter}`} columns={TRUCKS} rows={truckRows} empty={<EmptyState icon="trucks" title="No truck has miles or fuel this quarter" />} />
 
       <p className="tl-note ifta-eld-line">
         {notCounted.length > 0 ? `Not on the return: ${notCounted.join("; ")}. ` : null}Fleet MPG is all miles over all settled road diesel, bulk included; tax-paid fills are credited where they were bought. Rounded as one rule: MPG to two places, gallons whole, money to the cent per jurisdiction, then added. Confirm with an accountant before filing.

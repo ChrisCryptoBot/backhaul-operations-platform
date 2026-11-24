@@ -1,7 +1,7 @@
 import Link from "next/link";
 import React from "react";
 import { gradeOf, EXAMPLES, type CheckResult, type ModuleKey } from "@/lib/data-health";
-import { usd, pct } from "@/lib/desk-format";
+import { dayYear, usd, pct } from "@/lib/desk-format";
 import { MONEY_READ_CAP } from "@/lib/money-integrity";
 import type { HealthRead } from "@/server/tl/data-health";
 import { Card } from "../ui";
@@ -27,7 +27,7 @@ export function HealthHero({ h }: { h: HealthRead }) {
         <div className="km-label">Data health</div>
         <div className="km-herorow">
           <span className="km-big">{share(h.completeness.score)}</span>
-          <span className={`tl-chip ${g.tone === "muted" ? "muted" : g.tone === "ok" ? "ok" : "bad"}`}>{g.word}</span>
+          <span className={`tl-chip ${g.tone}`}>{g.word}</span>
         </div>
         <div className="km-sub">
           The share of checked fields that are filled in, across {h.counts.loads.toLocaleString("en-US")} finished {h.counts.loads === 1 ? "load" : "loads"}, {h.counts.trucks.toLocaleString("en-US")} {h.counts.trucks === 1 ? "truck" : "trucks"},{" "}
@@ -59,7 +59,7 @@ export function GapList({ checks, limit }: { checks: CheckResult[]; limit?: numb
       {gaps.length === 0 ? (
         <p className="tl-sub">Nothing is missing from what was checked.</p>
       ) : (
-        <table className="tl-table" aria-label="Missing fields">
+        <table className="tl-table dh-gaps" aria-label="Missing fields">
           <thead>
             <tr>
               <th scope="col">Check</th>
@@ -106,7 +106,7 @@ export function CrossChecks({ h }: { h: HealthRead }) {
   const p = h.pings;
   return (
     <Card title="Where two sources should agree">
-      <div className="tl-grid cols-3">
+      <div className="tl-grid cols-3 dh-checks">
         <section aria-label="Fuel card against the load's fuel">
           <h3>Fuel card and the load&apos;s own fuel</h3>
           {!f.hasCardData ? (
@@ -209,7 +209,7 @@ export function FuelTaxChecks({ h }: { h: HealthRead }) {
       ) : null}
       {q ? (
         <p className="tl-sub">
-          {q.quarter} IFTA return (due {q.dueDate}, the whole fleet&apos;s filing whatever the view): {q.filed ? (q.changedSinceFiled ? "filed, and changed since" : "filed, unchanged since") : q.blockers.length > 0 ? `not filed; ${q.blockers.map((b) => b.code.replace(/_/g, " ")).join(", ")}` : "not filed, nothing blocks it"}.{" "}
+          {q.quarter} IFTA return (due {dayYear(new Date(`${q.dueDate}T12:00:00Z`), "UTC")}, the whole fleet&apos;s filing whatever the view): {q.filed ? (q.changedSinceFiled ? "filed, and changed since" : "filed, unchanged since") : q.blockers.length > 0 ? `not filed; ${q.blockers.map((b) => b.code.replace(/_/g, " ")).join(", ")}` : "not filed, nothing blocks it"}.{" "}
           <Link href={`/ifta?quarter=${q.quarter}`}>IFTA</Link>
         </p>
       ) : null}
@@ -241,7 +241,7 @@ export function MoneyChecks({ h }: { h: HealthRead }) {
       <p>
         Invoices and credit memos issued in this window, and driver statements finalized in it (money is the whole fleet&apos;s, whatever the view).{" "}
         {m.failed === 0 ? "Nothing that was checked disagrees." : `${n(m.failed)} ${m.failed === 1 ? "record disagrees" : "records disagree"}:`}
-        {m.notChecked > 0 ? ` ${m.notChecked} ${m.notChecked === 1 ? "check was" : "checks were"} not done, and say why.` : ""}
+        {m.notChecked > 0 ? ` ${m.notChecked} ${m.notChecked === 1 ? "check was" : "checks were"} not done, and ${m.notChecked === 1 ? "says" : "say"} why.` : ""}
       </p>
       <ul className="tl-list dh-money">
         {m.checks.map((c) => (

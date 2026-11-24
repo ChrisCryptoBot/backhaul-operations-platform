@@ -1118,6 +1118,84 @@ h2.t-sec{margin:14px 10px 8px;color:var(--mid)}
 .t-stale{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:0;font:500 12px/16px var(--sans);color:var(--warn)}
 .t-stale::before{content:"";width:7px;height:7px;flex:none;background:var(--warn-fill)}
 .t-stale span{color:var(--mid)}
+/* Market and money (Wave 5). A switch is on or off; it is not a tab. */
+.t-switch{display:inline-flex;align-items:center;gap:6px;min-height:30px;color:var(--mid);font:500 13px/16px var(--sans);text-decoration:none}
+.t-switch i{position:relative;width:24px;height:14px;border:1px solid var(--line-hi);background:var(--sunk)}
+.t-switch i::after{content:"";position:absolute;top:2px;left:2px;width:8px;height:8px;background:var(--dim)}
+.t-switch[aria-checked=true]{color:var(--ink)}
+.t-switch[aria-checked=true] i{border-color:var(--label)}
+.t-switch[aria-checked=true] i::after{left:12px;background:var(--label-hi)}
+/* Blocks in a stack are one gap apart, whatever they are; charts side by side start on one line. */
+.kstack{gap:12px}
+.t-main .kstack>*{margin-top:0;margin-bottom:0}
+.tl-grid>.kc{margin-top:0}
+.k-cols{align-items:start}
+.kbar{gap:6px 16px}
+.kbar .kfilters{gap:6px}
+.kbar .kfilters :is(select,input){min-height:30px;height:30px}
+.kbar .kfilters input{width:142px;min-width:0}
+.kc>header{padding-right:0;align-items:center;flex-wrap:nowrap}
+.kc>header h2,.kc>header .kc-expand{flex:none}
+.kc>header .kc-unit{min-width:0}
+.kc-expand.tl-btn{position:static;min-height:20px;height:20px;margin-left:auto;padding:0 6px;gap:5px;border:1px solid var(--line);font:600 var(--fs-code)/16px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--mid)}
+/* A reason that must be read is two lines, not cut. */
+#payroll-table tr:has(.wrap)>td{height:40px}
+.dt .cap>.t-st.say.wrap{white-space:normal;line-height:15px;padding:4px 0 5px}
+/* A toolbar over a table: its buttons, then why one of them cannot be pressed, on one line. */
+.t-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-bottom:8px}
+.t-bar .tl-note{margin:0}
+.iv-aging{display:flex;flex-wrap:wrap;gap:4px 28px;margin:0 0 8px;padding:0 0 8px;border-bottom:1px solid var(--line)}
+.iv-aging dt{color:var(--dim);font:500 11px/16px var(--sans)}
+.iv-aging dd{margin:0;color:var(--mid);font:500 12px/18px var(--sans);font-variant-numeric:tabular-nums}
+.iv-aging b{color:var(--ink);font-weight:600}
+.iv-aging [data-none] b{color:var(--dim)}
+.ifta-tofile{margin-top:12px;margin-bottom:12px;display:grid;gap:8px;justify-items:start}
+.ifta-tofile>:is(h2,.t-head){justify-self:stretch}
+.ifta-tofile .ifta-file{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.ifta-blocklist{margin:0;padding:0;list-style:none;display:grid;gap:6px}
+.ifta-blocklist li{display:flex;gap:8px;align-items:baseline}
+.ifta-miles{margin-top:12px;margin-bottom:12px}
+.ifta-miles .dt-wrap,.ifta-miles .ifta-actions{margin-top:10px}
+.ifta-miles .ifta-eld-btn{max-width:44ch;gap:4px}
+/* A leak's basis is one line here; the whole of it is under the table and in its title. */
+.lk-lines{table-layout:fixed}
+.lk-lines :is(th,td):first-child{width:52%}
+.lk-lines thead th:nth-child(3){width:190px;white-space:nowrap}
+.lk-lines td:first-child>div{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lk-lines tbody tr:not(.lk-group)>td{height:40px}
+.lk-lines td:first-child{padding-top:2px;padding-bottom:2px;line-height:17px}
+.lk-top td:nth-child(7){max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lk-lines .lk-group th{height:30px;padding-top:10px;text-align:left;text-transform:none;letter-spacing:0;font:600 12px/16px var(--sans);color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lk-lines .lk-group span{margin-left:8px;font-weight:400;color:var(--dim)}
+.lk-basis{display:grid;grid-template-columns:minmax(160px,240px) minmax(0,1fr);gap:6px 16px;margin:8px 0 0;max-width:110ch;font:12px/18px var(--sans)}
+.lk-basis dt{color:var(--ink);font-weight:600}
+.lk-basis dd{margin:0;color:var(--mid)}
+.mix td:first-child{width:60%;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dh-gaps{table-layout:fixed}
+.dh-gaps th:nth-child(1){width:21%}
+.dh-gaps th:nth-child(2){width:72px}
+.dh-gaps th:nth-child(3){width:44px}
+.dh-gaps th:nth-child(5){width:34%}
+@media (max-width:1180px){
+.dh-gaps th:nth-child(1){width:27%}
+.dh-gaps th:nth-child(5){width:20%}
+.lk-top :is(th,td):nth-child(7){display:none}
+}
+.dh-gaps td:nth-child(5){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dh-checks h3{margin:0 0 4px;font:600 13px/18px var(--sans);color:var(--ink)}
+.dh-checks p{margin:0 0 6px}
+.dh-checks p.tl-sub{color:var(--dim)}
+.tl-card .tl-list{margin:6px 0;padding:0;list-style:none}
+.tl-card .dh-money>li{margin:0;padding:5px 0;border-top:1px solid var(--line)}
+.tl-card .dh-money .tl-sub{margin:0}
+.cash-by{margin-top:14px}
+.mv-row{padding-top:5px;padding-bottom:5px}
+.mv-list{border-top:0}
+.mv-head{padding-top:4px;padding-bottom:4px}
+.mv-detail:last-child{border-bottom:0}
+.tl-card>p+.tl-table{margin-top:8px}
+.tl-card>.tl-table+p{margin-top:8px}
+
 /* Radar panel: stale/sync row, folded layers disclosure, shape+word legend. */
 .rd-sync{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 10px;margin:0 0 8px}
 .rd-sync>.rd-sub,.rd-sync>.t-stale{margin:0;flex:1 1 160px}
@@ -1234,6 +1312,9 @@ html{zoom:var(--ui-zoom)}
 /* A unit's tabs are a bar under the page head, full width: a straight rule, and the first tab on the page's own left edge. */
 [data-ui="app"] .t-main>.t-pagehead~.eq-tabs { border-radius:0 !important; padding:4px 10px; }
 
+[data-ui="app"] .t-switch i { border-radius:var(--r-pill); }
+[data-ui="app"] .t-switch i::after { border-radius:50%; }
+
 /* ---- Chips and codes: fully round. ---- */
 [data-ui="app"] :is(.t-scope-chip,.rd-x-chip,.pl-code,.eq-key,.t-pager,.spl-grip,.t-pagehead h1 i,.t-ph i) { border-radius:var(--r-pill) !important; }
 
@@ -1296,9 +1377,88 @@ html{zoom:var(--ui-zoom)}
 /* ---- The active section: a rounded bar inside the rail, not a band across it. ---- */
 [data-ui="app"] .t-rail a[href] { border-radius:var(--r-press) !important; margin-left:6px; margin-right:6px; }
 
-/* ---- The one hero: the Quote verdict, drawn like the phone's hero cards (a card curve, a gold hairline along the top, a faint warm light from the top-left corner). ---- */
-[data-ui="app"] .qt-verdict { border-radius:var(--r-card) !important; padding:14px 16px; border:1px solid var(--line); border-top-color:rgba(232,160,32,.55);
-  background:radial-gradient(120% 90% at 0% 0%,rgba(232,160,32,.10),transparent 60%),var(--panel) !important; }
+/* ---- The one hero: the Quote verdict, crafted in top-lit obsidian glass (a translucent frosted slab over a soft verdict-toned ambient light field, specular top bevel,
+        inner rim, and recessed depth — never a flat opaque panel). Respects reduced transparency and non-blur fallbacks. ---- */
+[data-ui="app"] #qt-verdict {
+  position:relative; isolation:isolate;
+  --qt-orb-a:rgba(242,182,66,.34); --qt-orb-b:rgba(141,180,218,.18);
+  --qt-rim-top:rgba(242,182,66,.78); --qt-rim-side:rgba(232,237,242,.18);
+  --qt-sheen:rgba(242,182,66,.16); --qt-bloom:rgba(232,160,32,.22);
+}
+[data-ui="app"] #qt-verdict[data-tone="ok"] {
+  --qt-orb-a:rgba(34,197,94,.36); --qt-orb-b:rgba(242,182,66,.14);
+  --qt-rim-top:rgba(110,231,160,.78); --qt-rim-side:rgba(110,231,160,.24);
+  --qt-sheen:rgba(34,197,94,.17); --qt-bloom:rgba(34,197,94,.24);
+}
+[data-ui="app"] #qt-verdict[data-tone="warn"] {
+  --qt-orb-a:rgba(249,115,22,.38); --qt-orb-b:rgba(242,182,66,.16);
+  --qt-rim-top:rgba(251,176,92,.82); --qt-rim-side:rgba(249,115,22,.25);
+  --qt-sheen:rgba(249,115,22,.17); --qt-bloom:rgba(249,115,22,.24);
+}
+[data-ui="app"] #qt-verdict[data-tone="bad"] {
+  --qt-orb-a:rgba(239,68,68,.38); --qt-orb-b:rgba(141,180,218,.15);
+  --qt-rim-top:rgba(248,113,113,.78); --qt-rim-side:rgba(239,68,68,.25);
+  --qt-sheen:rgba(239,68,68,.16); --qt-bloom:rgba(239,68,68,.24);
+}
+[data-ui="app"] #qt-verdict > * { position:relative; z-index:1; }
+/* Ambient light field tucked cleanly behind the frosted slab so backdrop-filter has real luminance to refract without bleeding outside as a dark smudge. */
+[data-ui="app"] #qt-verdict::before {
+  content:""; position:absolute; inset:28px 16px 76px 16px; z-index:0; pointer-events:none;
+  border-radius:var(--r-card);
+  background:
+    radial-gradient(64% 52% at 14% 12%, var(--qt-orb-a), transparent 68%),
+    radial-gradient(58% 54% at 88% 84%, var(--qt-orb-b), transparent 72%);
+  filter:blur(24px); opacity:.92;
+}
+[data-ui="app"] .qt-verdict {
+  position:relative; z-index:1; overflow:hidden;
+  border-radius:var(--r-card) !important; padding:18px 20px;
+  border:1px solid var(--qt-rim-side); border-top-color:var(--qt-rim-top);
+  background:
+    linear-gradient(132deg, rgba(255,255,255,.12) 0%, rgba(255,255,255,.035) 26%, rgba(255,255,255,0) 48%, rgba(255,255,255,.025) 82%, rgba(255,255,255,.055) 100%),
+    radial-gradient(115% 85% at 8% 0%, var(--qt-sheen), transparent 60%),
+    rgba(15,21,32,.56) !important;
+  -webkit-backdrop-filter:blur(28px) saturate(1.85) brightness(1.08);
+  backdrop-filter:blur(28px) saturate(1.85) brightness(1.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.32),
+    inset 0 0 0 1px rgba(255,255,255,.06),
+    inset 0 -22px 32px -22px rgba(0,0,0,.55),
+    0 14px 32px -14px rgba(0,0,0,.68),
+    0 0 36px -14px var(--qt-bloom);
+}
+[data-ui="app"] .qt-verdict::before {
+  content:""; position:absolute; top:0; left:16px; right:16px; height:1px; z-index:2; pointer-events:none;
+  background:linear-gradient(90deg, transparent 0%, rgba(255,255,255,.62) 22%, var(--qt-rim-top) 50%, rgba(255,255,255,.48) 78%, transparent 100%);
+}
+[data-ui="app"] .qt-verdict::after {
+  content:""; position:absolute; top:0; left:0; right:0; height:124px; z-index:0; pointer-events:none;
+  background:radial-gradient(92% 68% at 50% -20%, rgba(255,255,255,.135), transparent 70%);
+}
+[data-ui="app"] .qt-verdict > * { position:relative; z-index:1; }
+[data-ui="app"] .qt-verdict :is(.t-kv,.vc-ladder,.qt-figures,.rc-facts) { border-color:rgba(232,237,242,.12); }
+[data-ui="app"] #qt-verdict .vc-explain { padding:8px 10px 0; border-top-color:rgba(232,237,242,.12); }
+/* Idle/unpriced tray keeps a quieter matching frosted glass shell before a load is priced, clipped cleanly to its curve. */
+[data-ui="app"] #qt-verdict:not(:has(.qt-verdict)) {
+  overflow:hidden;
+  border-radius:var(--r-card) !important; padding:16px 18px;
+  border:1px solid var(--qt-rim-side); border-top-color:var(--qt-rim-top);
+  background:
+    linear-gradient(132deg, rgba(255,255,255,.085) 0%, rgba(255,255,255,.02) 34%, rgba(8,12,18,.14) 100%),
+    radial-gradient(110% 80% at 8% 0%, rgba(242,182,66,.12), transparent 62%),
+    rgba(15,21,32,.56) !important;
+  -webkit-backdrop-filter:blur(24px) saturate(1.55);
+  backdrop-filter:blur(24px) saturate(1.55);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.28), inset 0 0 0 1px rgba(255,255,255,.05), 0 10px 26px -14px rgba(0,0,0,.62);
+}
+[data-ui="app"] #qt-verdict:not(:has(.qt-verdict))::before { inset:8px 18px 18px 18px; opacity:.65; }
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
+  [data-ui="app"] .qt-verdict, [data-ui="app"] #qt-verdict:not(:has(.qt-verdict)) { background:var(--panel) !important; -webkit-backdrop-filter:none; backdrop-filter:none; }
+}
+@media (prefers-reduced-transparency:reduce) {
+  [data-ui="app"] .qt-verdict, [data-ui="app"] #qt-verdict:not(:has(.qt-verdict)) { background:var(--panel) !important; -webkit-backdrop-filter:none; backdrop-filter:none; }
+  [data-ui="app"] #qt-verdict::before { display:none; }
+}
 
 /* ---- Calm everywhere (Chris 2026-11-23: "way too much neon … exhausting and over-stimulating"). The soft palette above does most of it: every figure, dot, bar and
         badge reads in muted tones. On top of it: a chosen tab, toggle, menu item or section is a gold TINT with gold text, never a solid gold slab (the slab is

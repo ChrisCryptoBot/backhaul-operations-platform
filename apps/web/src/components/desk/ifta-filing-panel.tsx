@@ -37,7 +37,7 @@ export function IftaFileButton({ quarter, blocked, provisional, amount }: { quar
       <button type="button" className="tl-btn primary" disabled={off} title={blocked ?? undefined} onClick={go}>
         {pending ? "Filing…" : `Mark ${quarter} filed (${amount})`}
       </button>
-      {blocked ? <span className="tl-sub">{blocked}</span> : null}
+      {blocked ? <span className="tl-note">{blocked}</span> : null}
       {error ? (
         <p className="tl-note warn" role="alert">
           {error}

@@ -13,8 +13,8 @@ export function ExpandChart({ title, unit, table, large, children }: { title: st
   const [open, setOpen] = React.useState(false);
   return (
     <>
-      <button type="button" className="kc-expand" onClick={() => setOpen(true)} aria-label={`Expand ${title}`} aria-haspopup="dialog">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <button type="button" className="tl-btn ghost sm kc-expand" onClick={() => setOpen(true)} aria-label={`Expand ${title}`} aria-haspopup="dialog">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
           <path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7" />
         </svg>
         <span>Expand</span>

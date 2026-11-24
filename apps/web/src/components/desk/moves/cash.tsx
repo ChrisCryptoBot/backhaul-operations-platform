@@ -1,4 +1,3 @@
-import Link from "next/link";
 import React from "react";
 import type { CashMoves, DayStats } from "@/lib/cash";
 import { usd } from "@/lib/desk-format";
@@ -12,7 +11,7 @@ const m = (cents: number) => usd(cents / 100, 2);
 const signed = (cents: number) => `${cents > 0 ? "+" : cents < 0 ? "−" : ""}${usd(Math.abs(cents) / 100, 2)}`;
 const daysText = (s: DayStats) => (s.reached === 0 ? "none paid in full" : `median ${s.median} ${s.median === 1 ? "day" : "days"} (${s.reached} paid in full)`);
 
-export function CashMovesCard({ c, before, after, by, hrefFor }: { c: CashMoves & { leftOut: number; truncated: boolean }; before: string; after: string; by: "lane" | "customer"; hrefFor: (by: "lane" | "customer") => string }) {
+export function CashMovesCard({ c, before, after, by }: { c: CashMoves & { leftOut: number; truncated: boolean }; before: string; after: string; by: "lane" | "customer" }) {
   const b = c.bridge;
   const rows = c.rows.slice(0, 25);
   const rest = c.rows.slice(25);
@@ -50,15 +49,7 @@ export function CashMovesCard({ c, before, after, by, hrefFor }: { c: CashMoves 
           </tr>
         </tbody>
       </table>
-      <div className="kbar cash-by">
-        <span className="tl-sub">By</span>
-        <Link href={hrefFor("lane")} className="tl-tab" aria-current={by === "lane" ? "true" : undefined}>
-          Lane
-        </Link>
-        <Link href={hrefFor("customer")} className="tl-tab" aria-current={by === "customer" ? "true" : undefined}>
-          Customer
-        </Link>
-      </div>
+      <h3 className="kc-sub cash-by">{by === "lane" ? "Cash in by lane" : "Cash in by customer"}</h3>
       {rows.length === 0 ? (
         <p className="tl-sub">No cash came in either week.</p>
       ) : (

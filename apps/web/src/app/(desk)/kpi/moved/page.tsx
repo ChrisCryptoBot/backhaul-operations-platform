@@ -1,7 +1,7 @@
 import { termList, scopeWords } from "@/lib/scope";
 import Link from "next/link";
 import React from "react";
-import { PageHead } from "@/components/desk/ui";
+import { PageHead, Tabs } from "@/components/desk/ui";
 import { EmptyState } from "@/components/desk/kit/states";
 import { DeskBridge, MoveList, MovesHero, MovesHow } from "@/components/desk/moves/moves";
 import { requirePage } from "@/server/tl/access";
@@ -39,7 +39,7 @@ export default async function MovedPage({ searchParams }: { searchParams?: Recor
 
   return (
     <>
-      <PageHead title="Why it moved" sub={`What the desk made in the week ending ${m.after.label} against the week ending ${m.before.label}, and what moved it. ${scopeWords(terminal) ?? "All terminals"}. Every figure is added up from the loads; the effects add back to the change to the cent.`}>
+      <PageHead title="Why it moved" sub={`The week ending ${m.after.label} against the week ending ${m.before.label}, and what moved it. The effects add back to the change to the cent.`}>
         {ago < MAX_AGO ? (
           <Link href={href({ ago: ago + 1 })} className="tl-btn">
             Earlier week
@@ -54,6 +54,10 @@ export default async function MovedPage({ searchParams }: { searchParams?: Recor
           KPI dashboard
         </Link>
       </PageHead>
+      <div className="kbar">
+        <Tabs label="Broken down by" active={by} hrefFor={(b) => href({ by: b })} items={[{ key: "lane", label: "By lane" }, { key: "customer", label: "By customer" }]} />
+      </div>
+      <div className="kstack">
       {empty ? (
         <EmptyState icon="inbox" title="No finished loads in either week">
           There is nothing to compare for the weeks ending {m.after.label} and {m.before.label}. Try an earlier week.
@@ -62,12 +66,11 @@ export default async function MovedPage({ searchParams }: { searchParams?: Recor
         <>
           <MovesHero m={m} />
           <DeskBridge m={m} />
-          <MoveList m={m} hrefFor={(b) => href({ by: b })} />
+          <MoveList m={m} />
           <MovesHow m={m} />
         </>
       )}
-      <div className="cash-moves">
-        <CashMovesCard c={cash} before={m.before.label} after={m.after.label} by={by} hrefFor={(b) => href({ by: b })} />
+      <CashMovesCard c={cash} before={m.before.label} after={m.after.label} by={by} />
       </div>
     </>
   );

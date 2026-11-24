@@ -32,10 +32,11 @@ const Note = ({ error }: { error: string }) =>
   ) : null;
 
 /** Reads the last days of card purchases for every truck that has a card. */
+/** Why it cannot be pressed is in its title; the page says it in a line under its head, so the head keeps its one height. */
 export function FuelSyncButton({ days, reason }: { days: number; reason: string | null }) {
   const { pending, error, ask } = useAsk();
   return (
-    <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-start" }}>
+    <span className="rb">
       <button
         type="button"
         className="tl-btn"
@@ -49,7 +50,6 @@ export function FuelSyncButton({ days, reason }: { days: number; reason: string 
         }>
         {pending ? "Reading…" : "Read card purchases"}
       </button>
-      {reason ? <span className="tl-sub">{reason}</span> : null}
       <Note error={error} />
     </span>
   );
@@ -89,10 +89,10 @@ export function IftaEldMilesButton({ quarter, reason, again }: { quarter: string
 export function IftaCalcButton({ quarter, reason, again }: { quarter: string; reason: string | null; again: boolean }) {
   const { pending, error, ask } = useAsk();
   return (
-    <span style={{ display: "inline-flex", flexDirection: "column", alignItems: "flex-start" }}>
+    <span className="ifta-eld-btn">
       <button
         type="button"
-        className="tl-btn primary"
+        className="tl-btn"
         disabled={pending || !!reason}
         title={reason ?? undefined}
         onClick={() =>

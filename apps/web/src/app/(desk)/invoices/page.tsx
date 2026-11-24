@@ -53,8 +53,8 @@ const READY: Column[] = [
   { key: "act", label: "", align: "num" }
 ];
 const OUT: Column[] = [
-  { key: "invoice", label: "Invoice", sticky: true, width: 150, max: 160, sortable: true },
-  { key: "broker", label: "Customer", sortable: true, max: 170 },
+  { key: "invoice", label: "Invoice", sticky: true, width: 150, max: 200, sortable: true },
+  { key: "broker", label: "Customer", sortable: true, max: 130 },
   { key: "sent", label: "Sent", sortable: true, priority: 2 },
   { key: "due", label: "Due", sortable: true },
   { key: "amount", label: "Owed", align: "num", sortable: true },
@@ -73,14 +73,17 @@ const OUT_PAGE = 50;
 const PAID_PAGE = 50;
 /** The detention card lists the largest amounts still owed; the total above it is for all of them. */
 const DETENTION_SHOWN = 25;
+/** And it opens with the first few: what is owed on invoices comes first on this page. */
+const DETENTION_FIRST = 5;
 
-type Params = { ready?: string; out?: string; paid?: string; q?: string; show?: string; readySort?: string; outSort?: string; paidSort?: string };
+type Params = { detention?: string; ready?: string; out?: string; paid?: string; q?: string; show?: string; readySort?: string; outSort?: string; paidSort?: string };
 
 export default async function InvoicesPage({ searchParams }: { searchParams?: Params }) {
   // Each list is read on its own and a page at a time, because a fleet can have thousands waiting to be invoiced, out, or paid: the oldest first for what still needs
   // work, the newest first for what is paid. One search looks through all three, and a filter narrows what is out.
   const q = (searchParams?.q ?? "").trim();
   const show = asInvoiceShow(searchParams?.show);
+  const detentionAll = searchParams?.detention === "all";
   // The header's terminal narrows the invoices too (loads placed in that terminal, and loads not placed anywhere yet).
   const terminal = await currentTerminal();
   const access = await checkAccess("read");
@@ -120,7 +123,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
   const batchOn = factoringTerms?.transport === "batch" && !!factoringTerms.batchMethod && !!factoringTerms.batchDestination;
   const [batchRows, batches] = batchOn ? await Promise.all([scheduleRows(undefined, terminal), listFactoringBatches()]) : [null, []];
   const batchSplit = batchRows ? splitReady(batchRows.rows) : null;
-  const href = (over: { ready?: number; out?: number; paid?: number; show?: string | null; q?: string } = {}) => {
+  const href = (over: { ready?: number; out?: number; paid?: number; show?: string | null; q?: string; detention?: boolean } = {}) => {
     const u = new URLSearchParams();
     const pages = { ready: readyPage, out: outPage, paid: paidPage, ...over };
     for (const [k, v] of Object.entries({ ready: pages.ready, out: pages.out, paid: pages.paid })) if (v > 1) u.set(k, String(v));
@@ -128,6 +131,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
     if (text) u.set("q", text);
     const sh = "show" in over ? over.show : show;
     if (sh) u.set("show", sh);
+    if (over.detention ?? detentionAll) u.set("detention", "all");
     for (const [k, v] of [["readySort", searchParams?.readySort], ["outSort", searchParams?.outSort], ["paidSort", searchParams?.paidSort]] as const) if (v) u.set(k, v);
     const out = u.toString();
     return out ? `/invoices?${out}` : "/invoices";
@@ -156,7 +160,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
   const detentionOwed = detention.rows.filter((r) => r.unbilled > 0 || r.noRate);
   const detentionRows: Row[] = [...detentionOwed]
     .sort((a, b) => b.unbilled - a.unbilled)
-    .slice(0, DETENTION_SHOWN)
+    .slice(0, detentionAll ? DETENTION_SHOWN : DETENTION_FIRST)
     .map((r) => ({
       id: r.loadId,
       href: `/loads/${r.loadId}`,
@@ -300,8 +304,8 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
     <>
       <PageHead title="Invoices" sub="Delivered loads that still need an invoice, what is out, and what has been paid.">
         <a className="tl-btn" href={exportHref("all")}>Export CSV</a>
-        <Link className="tl-btn ghost" href="/invoices/factoring">Factoring</Link>
-        {canBill ? <a className="tl-btn ghost" href="/invoices/schedule">Schedule of accounts (CSV)</a> : null}
+        <Link className="tl-btn" href="/invoices/factoring">Factoring</Link>
+        {canBill ? <a className="tl-btn" href="/invoices/schedule">Schedule of accounts (CSV)</a> : null}
       </PageHead>
       {!canBill ? <ReadOnlyBanner who={whoCan("bill")} what="invoices" /> : null}
       {terminal && hiddenByTerminal > 0 ? (
@@ -316,21 +320,6 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
         <Stat label="Paid" value={String(paidTotal)} />
       </div>
 
-      {aging.count > 0 ? (
-        <Card title="How late what is out is">
-          <dl className="tl-kv" style={{ display: "flex", gap: 24, flexWrap: "wrap" }} aria-label="Aging">
-            {([["Not yet due", aging.buckets.current], ["1 to 30 days", aging.buckets.d1_30], ["31 to 60 days", aging.buckets.d31_60], ["61 to 90 days", aging.buckets.d61_90], ["Over 90 days", aging.buckets.d90plus]] as const).map(([label, b]) => (
-              <div key={label}>
-                <dt>{label}</dt>
-                <dd>
-                  {usd(b.amount, 2)}
-                  <span className="sub">{b.count} {b.count === 1 ? "invoice" : "invoices"}</span>
-                </dd>
-              </div>
-            ))}
-          </dl>
-        </Card>
-      ) : null}
       {batchOn && batchSplit ? (
         <Card title="Sending to the factor">
           <FactoringBatches
@@ -343,6 +332,39 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
           />
         </Card>
       ) : null}
+      <DataTableTools tableId="inv-out" total={outTotal} placeholder="Search invoice, load, PO or customer, in all three lists…" server={{ path: "/invoices", q, keep: { ...(show ? { show } : {}), ...(searchParams?.readySort ? { readySort: searchParams.readySort } : {}), ...(searchParams?.outSort ? { outSort: searchParams.outSort } : {}), ...(searchParams?.paidSort ? { paidSort: searchParams.paidSort } : {}) } }} />
+      {history?.record ? (
+        <p className="tl-note t-lede">
+          <b>{history.record.broker}</b>: {history.record.loads} {history.record.loads === 1 ? "load" : "loads"} finished, {history.record.invoices} invoiced, {history.record.paid} paid
+          {history.record.averageDaysToPay != null ? ` in ${history.record.averageDaysToPay.toFixed(1)} days on average` : ""}
+          {history.record.shortPaid > 0 ? `, ${history.record.shortPaid} paid short` : ""}
+          {history.record.outstanding > 0 ? `, ${usd(history.record.outstanding, 2)} still out` : ""}.
+        </p>
+      ) : null}
+      <Card title={`Out and waiting · ${outTotal}${q || show ? " matching" : ""}`} action={<a className="tl-btn ghost sm" href={exportHref("out", searchParams?.outSort)}>Export Out CSV</a>}>
+        {aging.count > 0 ? (
+          <dl className="iv-aging" aria-label="How late what is out is">
+            {([["Not yet due", aging.buckets.current], ["1 to 30 days late", aging.buckets.d1_30], ["31 to 60 days", aging.buckets.d31_60], ["61 to 90 days", aging.buckets.d61_90], ["Over 90 days", aging.buckets.d90plus]] as const).map(([label, b]) => (
+              <div key={label} data-none={b.count === 0 ? "" : undefined}>
+                <dt>{label}</dt>
+                <dd>
+                  <b>{usd(b.amount, 2)}</b> {b.count} {b.count === 1 ? "invoice" : "invoices"}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+        <Tabs label="Show" active={show ?? "all"} hrefFor={(k) => href({ show: k === "all" ? null : k, out: 1 })} items={[{ key: "all", label: "All" }, ...INVOICE_SHOWS]} />
+        <DataTable id="inv-out" label="Out and waiting" columns={OUT} rows={outRows} sortHref={sortLink("outSort", outSort)} empty={<EmptyState icon="invoices" title={q || show ? "Nothing matches that" : "Nothing waiting on payment"} />} />
+        <Pager page={outPage} pageSize={OUT_PAGE} total={outTotal} hrefFor={(n) => href({ out: n })} newer="Previous" older="Next" />
+      </Card>
+      <Card title={`Ready to invoice · ${readyTotal}${q ? " matching" : ""}`} action={<a className="tl-btn ghost sm" href={exportHref("ready", searchParams?.readySort)}>Export Ready CSV</a>}>
+        <TogetherProvider loads={togetherLoads} canPick={canBill}>
+          <TogetherBar />
+          <DataTable id="inv-ready" label="Ready to invoice" columns={READY} rows={readyRows} sortHref={sortLink("readySort", readySort)} empty={<EmptyState icon="check" title={q ? "Nothing matches that" : "Every delivered load has an invoice"} />} />
+        </TogetherProvider>
+        <Pager page={readyPage} pageSize={READY_PAGE} total={readyTotal} hrefFor={(n) => href({ ready: n })} newer="Previous" older="Next" />
+      </Card>
       <Card title={`Detention not yet billed, last 90 days · ${detention.unbilledLoads} ${detention.unbilledLoads === 1 ? "load" : "loads"} · ${usd(detention.totalUnbilled, 2)}`}>
         <DataTable
           id="inv-detention"
@@ -351,8 +373,17 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
           rows={detentionRows}
           empty={<EmptyState icon="check" title="No detention is waiting to be billed">When a driver waits past the free time at a dock, it shows here until it is on an invoice or marked as waived.</EmptyState>}
         />
-        {detentionOwed.length > detentionRows.length ? <p className="tl-note" style={{ marginTop: 8 }}>The {detentionRows.length} largest of {detentionOwed.length} loads are shown.</p> : null}
-        {detention.totalBilled > 0 ? <p className="tl-note" style={{ marginTop: 8 }}>{usd(detention.totalBilled, 2)} of detention has already gone out on invoices.</p> : null}
+        {detentionOwed.length > DETENTION_FIRST ? (
+          <p className="tl-note t-after">
+            {detentionOwed.length > detentionRows.length ? `The ${detentionRows.length} largest of ${detentionOwed.length} loads are shown. ` : null}
+            {detentionAll ? (
+              <Link href={href({ detention: false })} scroll={false}>Show the {DETENTION_FIRST} largest</Link>
+            ) : (
+              <Link href={href({ detention: true })} scroll={false}>Show {detentionOwed.length > DETENTION_SHOWN ? `the ${DETENTION_SHOWN} largest` : `all ${detentionOwed.length}`}</Link>
+            )}
+          </p>
+        ) : null}
+        {detention.totalBilled > 0 ? <p className="tl-note t-after">{usd(detention.totalBilled, 2)} of detention has already gone out on invoices.</p> : null}
       </Card>
       {proposed.length > 0 ? (
         <Card title={`Detention the truck's track shows, not yet confirmed · ${proposed.length} ${proposed.length === 1 ? "stop" : "stops"} · ${usd(proposed.reduce((s, r) => s + Math.round(r.amount * 100), 0) / 100, 2)}`}>
@@ -392,30 +423,9 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
               ))}
             </tbody>
           </table>
-          <p className="tl-note" style={{ marginTop: 8 }}>Read from the trucks&apos; position fixes, frozen when each load was delivered. Nothing here is on any invoice, in the alerts or in the Leak Ledger until a person confirms it on the evidence sheet.</p>
+          <p className="tl-note t-after">Read from the trucks&apos; position fixes, frozen when each load was delivered. Nothing here is on any invoice, in the alerts or in the Leak Ledger until a person confirms it on the evidence sheet.</p>
         </Card>
       ) : null}
-      <DataTableTools tableId="inv-out" total={outTotal} placeholder="Search invoice, load, PO or customer, in all three lists…" server={{ path: "/invoices", q, keep: { ...(show ? { show } : {}), ...(searchParams?.readySort ? { readySort: searchParams.readySort } : {}), ...(searchParams?.outSort ? { outSort: searchParams.outSort } : {}), ...(searchParams?.paidSort ? { paidSort: searchParams.paidSort } : {}) } }} />
-      {history?.record ? (
-        <p className="tl-note" style={{ margin: "0 0 12px" }}>
-          <b>{history.record.broker}</b>: {history.record.loads} {history.record.loads === 1 ? "load" : "loads"} finished, {history.record.invoices} invoiced, {history.record.paid} paid
-          {history.record.averageDaysToPay != null ? ` in ${history.record.averageDaysToPay.toFixed(1)} days on average` : ""}
-          {history.record.shortPaid > 0 ? `, ${history.record.shortPaid} paid short` : ""}
-          {history.record.outstanding > 0 ? `, ${usd(history.record.outstanding, 2)} still out` : ""}.
-        </p>
-      ) : null}
-      <Card title={`Ready to invoice · ${readyTotal}${q ? " matching" : ""}`} action={<a className="tl-btn ghost sm" href={exportHref("ready", searchParams?.readySort)}>Export Ready CSV</a>}>
-        <TogetherProvider loads={togetherLoads} canPick={canBill}>
-          <TogetherBar />
-          <DataTable id="inv-ready" label="Ready to invoice" columns={READY} rows={readyRows} sortHref={sortLink("readySort", readySort)} empty={<EmptyState icon="check" title={q ? "Nothing matches that" : "Every delivered load has an invoice"} />} />
-        </TogetherProvider>
-        <Pager page={readyPage} pageSize={READY_PAGE} total={readyTotal} hrefFor={(n) => href({ ready: n })} newer="Previous" older="Next" />
-      </Card>
-      <Card title={`Out and waiting · ${outTotal}${q || show ? " matching" : ""}`} action={<a className="tl-btn ghost sm" href={exportHref("out", searchParams?.outSort)}>Export Out CSV</a>}>
-        <Tabs label="Show" active={show ?? "all"} hrefFor={(k) => href({ show: k === "all" ? null : k, out: 1 })} items={[{ key: "all", label: "All" }, ...INVOICE_SHOWS]} />
-        <DataTable id="inv-out" label="Out and waiting" columns={OUT} rows={outRows} sortHref={sortLink("outSort", outSort)} empty={<EmptyState icon="invoices" title={q || show ? "Nothing matches that" : "Nothing waiting on payment"} />} />
-        <Pager page={outPage} pageSize={OUT_PAGE} total={outTotal} hrefFor={(n) => href({ out: n })} newer="Previous" older="Next" />
-      </Card>
       <Card title={`Paid · ${paidTotal}${q ? " matching" : ""}`} action={<a className="tl-btn ghost sm" href={exportHref("paid", searchParams?.paidSort)}>Export Paid CSV</a>}>
         <DataTable id="inv-paid" label="Paid" columns={PAID} rows={paidRows} sortHref={sortLink("paidSort", paidSort)} empty={<EmptyState icon="invoices" title={q ? "Nothing matches that" : "No paid invoices yet"} />} />
         <Pager page={paidPage} pageSize={PAID_PAGE} total={paidTotal} hrefFor={(n) => href({ paid: n })} newer="Newer" older="Older" />

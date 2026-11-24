@@ -3,6 +3,7 @@ import Link from "next/link";
 import React from "react";
 import { getDeskKpi } from "@/server/tl/kpi";
 import { Card, PageHead, Tabs } from "@/components/desk/ui";
+import { CompareSwitch } from "@/components/desk/kpi/parts";
 import { LiveForm } from "@/components/desk/live-form";
 import { EmptyState } from "@/components/desk/kit/states";
 import { KpiMatrix } from "@/components/desk/kpi/matrix";
@@ -65,9 +66,7 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
       <div className="kbar">
         <Tabs active={params.period} hrefFor={(key) => href({ period: key as typeof params.period })} items={KPI_PERIODS} />
         {params.period !== "all" ? (
-          <Link href={href({ compare: !params.compare })} className="tl-tab" aria-current={params.compare ? "true" : undefined} title="Show how each number moved against the period before">
-            Compare with the period before
-          </Link>
+          <CompareSwitch on={params.compare} href={href({ compare: !params.compare })} />
         ) : null}
         <LiveForm path="/kpi" label="Filter the dashboard" className="kfilters">
           {params.period !== "4w" ? <input type="hidden" name="period" value={params.period} /> : null}
@@ -94,44 +93,36 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
         </p>
       ) : null}
 
-      {cash ? <CashCard cash={cash} gross={k.current.gross} /> : null}
-
       {k.current.loads === 0 ? (
+        <>
+        {cash ? <CashCard cash={cash} gross={k.current.gross} /> : null}
         <EmptyState icon="chart" title="No finished loads here">
           Nothing finished in this period{hasFilters(params.filters) ? " with those filters" : ""}. Try All time{hasFilters(params.filters) ? ", or clear the filters" : ""}.
         </EmptyState>
+        </>
       ) : (
         <div className="kstack">
           <KpiMatrix k={k} />
+          {cash ? <CashCard cash={cash} gross={k.current.gross} /> : null}
 
-          <div className="tl-grid cols-2">
-            <SmallMultiples k={k} />
-            <GrowthColumns k={k} />
-          </div>
-
-          <div className="tl-grid cols-2">
-            <DriverLeaderboard drivers={k.drivers} thresholds={k.thresholds} mode={params.dh} hrefFor={(dh) => href({ dh })} all={allDrivers} allHref={`${href({})}${href({}).includes("?") ? "&" : "?"}alldrivers=1`} />
-            <Bullets k={k} />
-          </div>
-
-          <div className="tl-grid cols-2">
-            <VarianceHistogram k={k} />
-            <DeadheadBars k={k} />
-          </div>
-
-          <div className="tl-grid cols-2">
-            <ReasonsCard k={k} />
-            <MonthlyBars k={k} />
-          </div>
-
-          <div className="tl-grid cols-2">
-            <ServiceCard k={k} />
-            <FuelSurchargeCard k={k} canRead={fuelAccess.ok} />
-          </div>
-
-          <div className="tl-grid cols-2">
-            <TenderCard k={k} />
-            <TruckEmptyCard k={k} />
+          {/* Two columns that each close up on their own, so a short chart beside a tall one leaves no hole. */}
+          <div className="tl-grid cols-2 k-cols">
+            <div className="kstack">
+              <SmallMultiples k={k} />
+              <DriverLeaderboard drivers={k.drivers} thresholds={k.thresholds} mode={params.dh} hrefFor={(dh) => href({ dh })} all={allDrivers} allHref={`${href({})}${href({}).includes("?") ? "&" : "?"}alldrivers=1`} />
+              <VarianceHistogram k={k} />
+              <ReasonsCard k={k} />
+              <ServiceCard k={k} />
+              <TenderCard k={k} />
+            </div>
+            <div className="kstack">
+              <GrowthColumns k={k} />
+              <Bullets k={k} />
+              <DeadheadBars k={k} />
+              <MonthlyBars k={k} />
+              <FuelSurchargeCard k={k} canRead={fuelAccess.ok} />
+              <TruckEmptyCard k={k} />
+            </div>
           </div>
 
           <MixCard k={k} />
@@ -164,7 +155,7 @@ export default async function KpiPage({ searchParams }: { searchParams?: Record<
             </span>
           </li>
         </ul>
-        <p className="tl-note" style={{ marginTop: 10 }}>
+        <p className="tl-note t-after">
           The scorecards for <Link href="/lanes">each lane</Link> and <Link href="/customers">each customer</Link> are on their own pages.
         </p>
       </Card>

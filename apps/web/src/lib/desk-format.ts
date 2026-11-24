@@ -41,7 +41,7 @@ export const pct = (fraction: number | null | undefined, digits = 0): string =>
   fraction == null || !Number.isFinite(fraction) ? "—" : `${(fraction * 100).toFixed(digits)}%`;
 
 export const signedPct = (fraction: number | null | undefined): string =>
-  fraction == null || !Number.isFinite(fraction) ? "—" : `${fraction > 0 ? "+" : ""}${(fraction * 100).toFixed(1)}%`;
+  fraction == null || !Number.isFinite(fraction) ? "—" : `${fraction > 0 ? "+" : fraction < 0 ? "−" : ""}${Math.abs(fraction * 100).toFixed(1)}%`;
 
 /**
  * Every time on the desk is shown on the carrier's own clock (src/lib/tz.ts: the workspace's zone, Eastern, Central, Mountain or Pacific) and says which, "9:30 AM ET". A stop's

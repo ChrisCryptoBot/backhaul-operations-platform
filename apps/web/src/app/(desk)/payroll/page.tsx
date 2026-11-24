@@ -79,11 +79,11 @@ export default async function PayrollPage({ searchParams }: { searchParams?: Par
           {r.reference ? ` · ${r.reference}` : ""}
         </span>
       ) : r.rejectedAt && !r.sentAt ? (
-        <span className="t-st say" data-tone="warn" title={`${r.rejectReason ?? "No reason given"}. Payroll refused it ${dayYear(r.rejectedAt)}. Fix it, then send it again.`}>
+        <span className="t-st say wrap" data-tone="warn" title={`${r.rejectReason ?? "No reason given"}. Payroll refused it ${dayYear(r.rejectedAt)}. Fix it, then send it again.`}>
           Rejected by payroll: {r.rejectReason ?? "no reason given"}
         </span>
       ) : r.notReady ? (
-        <span className="t-st say" data-tone="warn" title={r.notReady}>{r.notReady}</span>
+        <span className="t-st say wrap" data-tone="warn" title={r.notReady}>{r.notReady}</span>
       ) : (
         <span className="t-st say" data-tone="info">Ready</span>
       )

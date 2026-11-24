@@ -21,6 +21,8 @@ const GROUPS: Array<{ key: LeakGroup; title: string; note: string }> = [
 ];
 
 const money = (n: number) => usd(n, 2);
+/** A basis for a reader: the field names the files keep for an accountant (Invoice.paidAt) are left out on the screen, and a minus goes before the dollar sign. */
+const plain = (basis: string) => basis.replace(/\s*\((?:Invoice\.\w+|gap \d+, rule \d+)\)/g, "").replace(/\$-/g, "−$");
 const sub = (l: LedgerLine) => `${l.items} ${l.items === 1 ? "item" : "items"}${l.unpriced > 0 ? `, ${l.unpriced} not priced` : ""}`;
 
 export function LeakHero({ ledger }: { ledger: LeakLedger }) {
@@ -87,7 +89,7 @@ export function LeakLines({ ledger }: { ledger: LeakLedger }) {
   const prior = new Map(ledger.prior?.lines.map((l) => [l.key, l]) ?? []);
   return (
     <Card title="By leak">
-      <table className="tl-table" aria-label="Leaks by line">
+      <table className="tl-table lk-lines" aria-label="Leaks by line">
         <thead>
           <tr>
             <th>Leak</th>
@@ -102,16 +104,16 @@ export function LeakLines({ ledger }: { ledger: LeakLedger }) {
           const lines = ledger.current.lines.filter((l) => l.group === g.key && (!l.intake || l.items > 0));
           return (
             <tbody key={g.key}>
-              <tr>
-                <th colSpan={5} scope="colgroup" style={{ textAlign: "left", paddingTop: 14 }}>
-                  {g.title} <span className="tl-sub" style={{ fontWeight: 400 }}>· {g.note}</span>
+              <tr className="lk-group">
+                <th colSpan={5} scope="colgroup" title={g.note}>
+                  {g.title} <span>{g.note}</span>
                 </th>
               </tr>
               {lines.map((l) => (
                 <tr key={l.key}>
                   <td data-intake={l.intake ? "true" : undefined}>
                     <div>{l.label}</div>
-                    <div className="tl-sub" style={{ maxWidth: "70ch" }}>{l.basis}</div>
+                    <div className="tl-sub" title={plain(l.basis)}>{plain(l.basis)}</div>
                   </td>
                   <td className="num">{l.counted ? money(l.dollars) : <span title="Not added to the total">{money(l.dollars)}</span>}</td>
                   <td>{ledger.prior ? <DeltaChip delta={deltaOf(l.dollars, prior.get(l.key)?.dollars, { kind: "pct", lowerIsBetter: true })} title={`Before: ${money(prior.get(l.key)?.dollars ?? 0)}`} /> : <span className="dim">—</span>}</td>
@@ -152,6 +154,19 @@ export function LeakLines({ ledger }: { ledger: LeakLedger }) {
           ) : null}
         </tfoot>
       </table>
+      <details className="kc-how">
+        <summary>How each line is worked out</summary>
+        <dl className="lk-basis">
+          {ledger.current.lines
+            .filter((l) => !l.intake || l.items > 0)
+            .map((l) => (
+              <React.Fragment key={l.key}>
+                <dt>{l.label}</dt>
+                <dd>{plain(l.basis)}</dd>
+              </React.Fragment>
+            ))}
+        </dl>
+      </details>
       {ledger.fleetOnly.items > 0 ? (
         <p className="tl-sub" data-testid="fleet-only">
           {ledger.fleetOnly.items} partner {ledger.fleetOnly.items === 1 ? "record" : "records"} in this period belong to the whole fleet, not to the terminals in view (an invoice whose loads span terminals or that has none, fuel on no truck or on a truck with no terminal,
@@ -205,7 +220,7 @@ export function LeakWeeks({ ledger }: { ledger: LeakLedger }) {
           ))}
         </tbody>
       </table>
-      <p className="tl-note" style={{ marginTop: 10 }}>
+      <p className="tl-note t-after">
         Each week is seven days ending on its date. Detention and TONU are shown as of now: once one is billed it leaves the ledger, so older weeks shrink as the desk gets paid. Dwell waived or lowered counts from the day the audit log began recording it.
       </p>
     </Card>
@@ -266,7 +281,7 @@ export function LeakTop({ ledger }: { ledger: LeakLedger }) {
       {ledger.top.length === 0 ? (
         <p className="tl-note">Nothing priced in this period.</p>
       ) : (
-        <table className="tl-table" aria-label="Biggest leaks">
+        <table className="tl-table lk-top" aria-label="Biggest leaks">
           <thead>
             <tr>
               <th>When</th>
@@ -288,8 +303,8 @@ export function LeakTop({ ledger }: { ledger: LeakLedger }) {
                 <td>{t.lane ?? <span className="dim">—</span>}</td>
                 <td>{t.customer ?? <span className="dim">—</span>}</td>
                 <td>{t.truck ?? <span className="dim">—</span>}</td>
-                <td className="tl-sub" style={{ maxWidth: "34ch" }}>{t.basisNote ?? <span className="dim">{t.intake ? "intake" : t.partner ? "partner record" : "frozen on the load, or recorded"}</span>}</td>
-                <td className="num">{money(t.dollars)}</td>
+                <td className="tl-sub" title={t.basisNote ? plain(t.basisNote) : undefined}>{t.basisNote ? plain(t.basisNote) : <span className="dim">{t.intake ? "intake" : t.partner ? "partner record" : "frozen on the load, or recorded"}</span>}</td>
+                <td className="num" title={t.basisNote ? plain(t.basisNote) : undefined}>{money(t.dollars)}</td>
               </tr>
             ))}
           </tbody>
@@ -326,7 +341,7 @@ export function LeakOpenDwell({ ledger }: { ledger: LeakLedger }) {
               ))}
             </tbody>
           </table>
-          <p className="tl-note" style={{ marginTop: 10 }}>
+          <p className="tl-note t-after">
             {o.trailers > o.rows.length ? `The ${o.rows.length} largest of ${o.trailers} trailers, ` : `${o.trailers} ${o.trailers === 1 ? "trailer" : "trailers"}, `}
             {money(o.dollars)} owed at the company&apos;s terms or the figure a person set. This grows each day until it is billed or given up, so it is shown apart from the weeks.
           </p>

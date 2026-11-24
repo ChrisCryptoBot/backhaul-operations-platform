@@ -1,4 +1,3 @@
-import Link from "next/link";
 import React from "react";
 import { EFFECT_NOTE, EFFECT_ORDER, EFFECT_LABEL, type Bridge, type MoveRow, type WeekTotals } from "@/lib/moves";
 import { usd } from "@/lib/desk-format";
@@ -89,10 +88,10 @@ export function DeskBridge({ m }: { m: Moves }) {
 }
 
 /** Each lane or customer: what it made in each week, the change, and (opened) what moved it. Biggest change first. */
-export function MoveList({ m, hrefFor }: { m: Moves; hrefFor: (by: "lane" | "customer") => string }) {
+export function MoveList({ m }: { m: Moves }) {
   const what = m.by === "lane" ? "lane" : "customer";
   return (
-    <Card title={m.by === "lane" ? "By lane" : "By customer"} action={<Link href={hrefFor(m.by === "lane" ? "customer" : "lane")} className="tl-btn sm">By {m.by === "lane" ? "customer" : "lane"}</Link>}>
+    <Card title={m.by === "lane" ? "By lane" : "By customer"}>
       {m.rows.length === 0 ? (
         <p className="tl-note">No finished loads in either week.</p>
       ) : (
@@ -154,8 +153,8 @@ export function MovesHow({ m }: { m: Moves }) {
   return (
     <>
       {slim > 0 ? (
-        <p className="tl-note warn" role="note" style={{ maxWidth: 820 }}>
-          {slim} of the {loads} loads in these two weeks have no fuel, tolls or other cost recorded. The cost lines (empty miles, and fuel and other costs per mile) read lower than they are when costs are missing; the rate, the surcharge and the detention lines do not depend on them.
+        <p className="tl-note warn" role="note">
+          {slim} of {loads} {loads === 1 ? "load" : "loads"} in these two weeks {slim === 1 ? "has" : "have"} no fuel, tolls or other cost recorded. The cost lines (empty miles, and fuel and other costs per mile) read lower than they are when costs are missing; the rate, the surcharge and the detention lines do not depend on them.
         </p>
       ) : null}
       <details className="kc-how">
