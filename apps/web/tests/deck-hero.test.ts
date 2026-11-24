@@ -35,16 +35,17 @@ describe("what leads the load deck", () => {
   });
 });
 
-describe("the load view keeps gross pay on the deck and leaves Relay and Recall alone", () => {
+describe("the load drawer keeps gross pay in its summary and leaves Relay and Recall alone", () => {
   const SRC = join(__dirname, "..", "src");
   const view = readFileSync(join(SRC, "components", "desk", "load-view.tsx"), "utf8").split(String.fromCharCode(13)).join("");
 
-  test("the summary line carries the gross pay, the every-mile and loaded rates and the floor", () => {
-    expect(view).toContain('className="cp-deck-line"');
-    expect(view).toMatch(/\{deckGross\}<\/b> \{delivered \? "paid" : "gross"\}/);
-    expect(view).toMatch(/every mile/);
-    expect(view).toMatch(/loaded<\/span>/);
-    expect(view).toMatch(/floor <b>\{perMile\(floorThreshold\)\}/);
+  test("the summary carries the gross pay, the every-mile and loaded rates and the floor", () => {
+    const sum = view.slice(view.indexOf('<dl className="lv-stats">'), view.indexOf("</dl>", view.indexOf('<dl className="lv-stats">')));
+    expect(sum).toContain('<dt>{delivered ? "Paid" : "Gross"}</dt>');
+    expect(sum).toContain("{deckGross}");
+    expect(sum).toContain("{perMile(allIn)}");
+    expect(sum).toContain("{`${perMile(perLoaded)} loaded`}");
+    expect(sum).toContain("floor ${perMile(floorThreshold)}");
   });
 
   test("the unjudged hero is the gross pay", () => {

@@ -30,8 +30,8 @@ export function DrawerFrame({
   deck,
   nav,
   footer,
-  fullHref,
-  minimal = false,
+  href,
+  label,
   children
 }: {
   title: React.ReactNode;
@@ -40,9 +40,10 @@ export function DrawerFrame({
   deck?: React.ReactNode;
   nav?: React.ReactNode;
   footer?: React.ReactNode;
-  fullHref: string;
-  /** The load drawer's quiet header (Chris 2026-11-23 redesign): position, up/down and close only; expand (\\) and shortcuts (?) stay on their keys; no deck resizer. */
-  minimal?: boolean;
+  /** The load's address: how the rows of the table underneath know which one is open (J and K step through them). */
+  href: string;
+  /** What the drawer is called to a screen reader, when its title is more than words. */
+  label?: string;
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -50,59 +51,10 @@ export function DrawerFrame({
   const panel = React.useRef<HTMLElement>(null);
   const [expanded, setExpanded] = React.useState(false);
   const [scrub, setScrub] = React.useState<ScrubState | null>(null);
-  const deckRef = React.useRef<HTMLDivElement>(null);
-  const [deckHeight, setDeckHeight] = React.useState<number | null>(null);
-  const [isDragging, setIsDragging] = React.useState(false);
   const [showShortcuts, setShowShortcuts] = React.useState(false);
   // The key handler below is set up once, so it reads this ref: Esc closes the shortcuts sheet first, and only the next Esc closes the drawer.
   const shortcutsOpen = React.useRef(false);
   shortcutsOpen.current = showShortcuts;
-
-  // Measure bounds: min = Route Ribbon container height, max = natural full deck height
-  const getDeckBounds = React.useCallback(() => {
-    if (!deckRef.current) return { min: 68, max: 240 };
-    const firstChild = deckRef.current.firstElementChild as HTMLElement | null;
-    const topHeight = firstChild ? firstChild.offsetHeight + 24 : 68; // Top container + padding
-    const max = deckRef.current.scrollHeight;
-    return { min: topHeight, max: Math.max(topHeight, max) };
-  }, []);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    const bounds = getDeckBounds();
-    const startY = e.clientY;
-    const startHeight = deckHeight ?? (deckRef.current?.offsetHeight || bounds.max);
-
-    setIsDragging(true);
-    document.body.style.cursor = "ns-resize";
-    document.body.style.userSelect = "none";
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const deltaY = moveEvent.clientY - startY;
-      const nextHeight = Math.max(bounds.min, Math.min(bounds.max, startHeight + deltaY));
-      setDeckHeight(nextHeight);
-    };
-
-    const onMouseUp = () => {
-      setIsDragging(false);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
-    };
-
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-  };
-
-  const handleDoubleClick = () => {
-    const bounds = getDeckBounds();
-    if (deckHeight !== null && deckHeight <= bounds.min + 10) {
-      setDeckHeight(bounds.max);
-    } else {
-      setDeckHeight(bounds.min);
-    }
-  };
 
   const close = React.useCallback(() => router.replace(underlay.current, { scroll: false }), [router, underlay]);
 
@@ -122,7 +74,7 @@ export function DrawerFrame({
         setScrub(null);
         return;
       }
-      const idx = rows.findIndex((r) => r.getAttribute("data-href") === fullHref);
+      const idx = rows.findIndex((r) => r.getAttribute("data-href") === href);
       if (idx !== -1) {
         setScrub({
           index: idx + 1,
@@ -138,7 +90,7 @@ export function DrawerFrame({
     };
 
     updateScrub();
-  }, [fullHref]);
+  }, [href]);
 
   React.useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
@@ -172,7 +124,7 @@ export function DrawerFrame({
 
       if (e.key === "j" || e.key === "J" || e.key === "ArrowDown") {
         const rows = Array.from(document.querySelectorAll<HTMLTableRowElement>("table.dt tbody tr[data-href]"));
-        const idx = rows.findIndex((r) => r.getAttribute("data-href") === fullHref);
+        const idx = rows.findIndex((r) => r.getAttribute("data-href") === href);
         if (idx !== -1 && idx < rows.length - 1) {
           e.preventDefault();
           const nextHref = rows[idx + 1].getAttribute("data-href");
@@ -186,7 +138,7 @@ export function DrawerFrame({
 
       if (e.key === "k" || e.key === "K" || e.key === "ArrowUp") {
         const rows = Array.from(document.querySelectorAll<HTMLTableRowElement>("table.dt tbody tr[data-href]"));
-        const idx = rows.findIndex((r) => r.getAttribute("data-href") === fullHref);
+        const idx = rows.findIndex((r) => r.getAttribute("data-href") === href);
         if (idx > 0) {
           e.preventDefault();
           const prevHref = rows[idx - 1].getAttribute("data-href");
@@ -217,11 +169,11 @@ export function DrawerFrame({
       document.removeEventListener("keydown", onKey);
       opener?.focus?.();
     };
-  }, [close, fullHref, router]);
+  }, [close, href, router]);
 
   return (
     <div className="dr-scrim" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <aside className="dr" ref={panel} role="dialog" aria-modal="true" aria-label={typeof title === "string" ? title : "Load details"} data-expanded={expanded ? "true" : undefined}>
+      <aside className="dr" ref={panel} role="dialog" aria-modal="true" aria-label={label ?? (typeof title === "string" ? title : "Load details")} data-expanded={expanded ? "true" : undefined}>
         {/* Pinned console dock: Header, Metrics Deck, and Workbench Navigation stay 100% fixed at top */}
         <div className="dr-pinned-top">
           <header className="dr-head">
@@ -252,73 +204,22 @@ export function DrawerFrame({
                     title="Next load (J)">
                     <Icon name="chevronDown" size={14} />
                   </button>
-                  {minimal ? null : <span className="cp-kbd">J/K</span>}
                 </div>
               ) : null}
-              {minimal ? null : (
-              <>
-              <button
-                type="button"
-                className="dr-btn-icon"
-                onClick={() => setExpanded((prev) => !prev)}
-                aria-label={expanded ? "Collapse drawer width (\\)" : "Expand dock width (\\)"}
-                title={expanded ? "Collapse drawer (\\)" : "Expand dock (\\)"}>
-                <Icon name={expanded ? "collapse" : "expand"} size={16} />
-              </button>
-              <span className="cp-kbd">\</span>
-              <button
-                type="button"
-                className="dr-btn-icon"
-                onClick={() => setShowShortcuts((prev) => !prev)}
-                aria-label="Keyboard shortcuts (?)"
-                title="Keyboard shortcuts (?)">
-                <Icon name="help" size={15} />
-              </button>
-              <span className="cp-kbd">?</span>
-              </>
-              )}
               <button type="button" className="dr-close" onClick={close} aria-label="Close drawer (Esc)" title="Close (Esc)">
                 <Icon name="close" size={16} />
               </button>
             </div>
           </header>
 
-          {deck && minimal ? <div className="dr-deck-strip lv-deck">{deck}</div> : deck ? (
-            <div
-              ref={deckRef}
-              className="dr-deck-strip"
-              style={{
-                height: deckHeight != null ? `${deckHeight}px` : undefined,
-                overflow: "hidden",
-                transition: isDragging ? "none" : "height 160ms cubic-bezier(0.2, 0, 0, 1)"
-              }}>
-              {deck}
-            </div>
-          ) : null}
+          {deck ? <div className="dr-deck-strip lv-deck">{deck}</div> : null}
           {nav ? <div className="dr-nav-strip">{nav}</div> : null}
-          {minimal ? null : (
-          <div
-            className="dr-resizer"
-            onMouseDown={handleMouseDown}
-            onDoubleClick={handleDoubleClick}
-            data-dragging={isDragging ? "true" : undefined}
-            title="Drag north/south to expand or retract console deck (Double-click to toggle)"
-            role="separator"
-            aria-orientation="horizontal"
-          />
-          )}
         </div>
 
         {/* Scrollable body: starts right below the workbench tab bar, zero gap, zero underlap */}
         <div className="dr-body">{children}</div>
 
-        <footer className="dr-foot">
-          {footer}
-          {/* A plain link on purpose: a normal page load skips the drawer and shows the load as a full page. */}
-          <a href={fullHref} className="tl-btn ghost sm grow">
-            Open full page
-          </a>
-        </footer>
+        <footer className="dr-foot">{footer}</footer>
       </aside>
 
       {/* Keyboard Shortcuts Modal */}
@@ -337,8 +238,8 @@ export function DrawerFrame({
                 <span className="cp-kbd">J / K (or ↓ / ↑)</span>
               </div>
               <div className="cp-kbd-row">
-                <span>Switch tabs (1–5)</span>
-                <span className="cp-kbd">1, 2, 3, 4, 5</span>
+                <span>Switch tabs</span>
+                <span className="cp-kbd">1, 2, 3, 4</span>
               </div>
               <div className="cp-kbd-row">
                 <span>Toggle Drawer Dock Width</span>
@@ -347,10 +248,6 @@ export function DrawerFrame({
               <div className="cp-kbd-row">
                 <span>Cycle Attached Documents</span>
                 <span className="cp-kbd">← / →</span>
-              </div>
-              <div className="cp-kbd-row">
-                <span>Expand / Retract Console Deck</span>
-                <span className="cp-kbd">Drag line / Double-click</span>
               </div>
               <div className="cp-kbd-row">
                 <span>Close Drawer or Active Modal</span>

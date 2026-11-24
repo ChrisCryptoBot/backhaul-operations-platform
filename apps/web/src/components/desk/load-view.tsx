@@ -2,7 +2,6 @@ import { deckHero } from "@/lib/deck-hero";
 import Link from "next/link";
 import { grossOf } from "@/lib/load-gross";
 import { dueAt as dueAtOf } from "@/lib/overdue";
-import { notFound } from "next/navigation";
 import React from "react";
 import { getLoadDetail } from "@/server/tl/queries";
 import { getAlerts } from "@/server/tl/alerts";
@@ -58,9 +57,10 @@ import { BillingDetailsDialog } from "./billing-details-dialog";
 import { listLoadDocuments, podStopsMissing } from "@/server/tl/documents";
 import { ConfirmForm } from "./kit/confirm-form";
 import { DisruptionButtons } from "./disruption-dialogs";
+import { Fold } from "./kit/fold";
 import { Icon } from "./kit/icons";
 import { Tip, type TipData } from "./kit/tooltip";
-import { dateTime, miles, PAY_KIND_LABEL, payLabel, perMile, signedPct, stopTime, usd } from "@/lib/desk-format";
+import { ASSIGNMENT_STATUS, LOAD_STATUS, dateTime, miles, PAY_KIND_LABEL, payLabel, perMile, stopTime, usd } from "@/lib/desk-format";
 import { rateConTotal } from "@/lib/pay";
 import { telHref } from "@/lib/contact";
 import { LoadCockpit, SplitDocViewer, DriverCabSheet } from "./load-cockpit";
@@ -74,16 +74,13 @@ import "./cockpit.css";
 const TONE: Record<string, "ok" | "warn" | "bad"> = { accept: "ok", caution: "warn", reject: "bad" };
 
 /**
- * TrueLane Dispatch Cockpit
- * Function-first, high-density operations cockpit reflecting the mobile app engineering.
- * 3-tier layout:
- * - Tier 1: Pinned Status & Compliance Deck
- * - Tier 2: 4 Specialized Workbenches (Route, Margin, Docs, Partners)
- * - Tier 3: Pinned Action Foot
+ * A load, in the drawer. The drawer is the only view of a load (Chris 2026-11-23: the full page is gone): it opens over whatever page you were on, and an address like /loads/abc opens it over the Loads board.
+ * A short summary and the next step on top; then Trip, Money, Paperwork and More. What this stage asks for is in view; what is rarer is one line that opens (kit/fold.tsx). Nothing about a load lives anywhere else.
  */
-export async function LoadView({ id, variant }: { id: string; variant: "drawer" | "page" }) {
+export async function LoadView({ id }: { id: string }) {
   const detail = await getLoadDetail(id);
-  if (!detail) notFound();
+  // The page under it says "not found" (app/(desk)/loads/[id]); the drawer just does not open.
+  if (!detail) return null;
 
   const access = await checkAccess("read");
   const me = access.ok ? access.identity : null;
@@ -276,7 +273,6 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   const driverOk = !!a && (a.status === "accepted" || a.status === "dispatched" || a.status === "in_progress");
   const refsOk = gaps.length === 0;
   const floorThreshold = delivered && frozenFloor != null ? frozenFloor : (evaluation?.verdictFloorRpm ?? 0);
-  const floorOk = allIn != null && floorThreshold > 0 && allIn >= floorThreshold;
 
   // Margin Ledger Math
   const revLinehaul = num(load.quotedRevenue);
@@ -300,96 +296,10 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
   // Deck figures. One hero: the margin against the floor when the load has a floor, else what it pays (a load not judged yet must never leave the header blank).
   const deckTonu = load.status === "tonu";
   const deckLead = deckHero({ tonu: deckTonu, allIn, floor: floorThreshold, verdictTone: tone });
-  const deckHasFloor = deckLead.hasFloor;
   const deckMargin = deckLead.margin;
   const deckGross = usd(heroGross, Number.isInteger(heroGross) ? 0 : 2);
-  const deckHeroTone = deckLead.tone;
   const deckHeroText = deckTonu ? usd(earned, 2) : deckMargin != null ? `${deckMargin >= 0 ? "+" : "−"}${usd(Math.abs(deckMargin), 2)}/mi` : deckGross;
   const deckHeroLabel = deckTonu ? "TONU fee" : deckMargin != null ? (deckMargin >= 0 ? "over your floor" : "under your floor") : allIn != null ? `gross pay, ${perMile(allIn)} every mile` : "gross pay";
-  // Only what is not clear shows: a healthy gate says nothing.
-  const deckGates: { cls: string; title: string; text: string }[] = [];
-  if (!weightOk) deckGates.push({ cls: "warn", title: "Weight validation", text: `WEIGHT: ${weightVal ? `${(weightVal / 1000).toFixed(1)}k lbs` : "NOT SET"}` });
-  if (!trailerOk) deckGates.push({ cls: "bad", title: "Trailer clearance", text: `TRAILER: ${load.trailer ? load.trailer.number : load.trailerType ? load.trailerType.replace(/_/g, " ") : "NO TRAILER"}` });
-  if (!driverOk) deckGates.push({ cls: a ? "warn" : "bad", title: "Driver assignment & HOS clearance", text: `DRIVER: ${a ? `${a.driver.name} (${a.status})` : "UNASSIGNED"}` });
-  if (!refsOk) deckGates.push({ cls: "warn", title: "Documentation & reference numbers", text: `PAPERS: MISSING ${gapsPhrase(gaps).toUpperCase()}` });
-
-  // ── Tier 1: Pinned Console Deck Strip ────────────────────────────────────────────────────────
-  const deck = (
-    <>
-      {/* Route Ribbon */}
-      <div className="cp-ribbon">
-        <div className="cp-ribbon-stop">
-          <span className="cp-sub">Pickup</span>
-          <span className="cp-city" title={load.originAddress ?? undefined}>{originCity}</span>
-          <span style={{ fontSize: 11, color: "var(--db-fg-dim)" }}>
-            {firstStop?.timeWindowEarliest ? stopTime(firstStop.timeWindowEarliest, zoneOfStop(firstStop)) : "Window open"}
-          </span>
-        </div>
-
-        <div className="cp-ribbon-mid">
-          <div className="cp-ribbon-line">
-            <span>{loadedMiles} mi</span>
-            <span style={{ color: "var(--db-fg-dim)" }}>→</span>
-          </div>
-          <div className="cp-ribbon-dh">
-            {totalMiles} total mi · {wayHome.toLowerCase()}
-          </div>
-          {a ? (
-            <div className="cp-ribbon-telemetry" style={{ marginTop: 4 }}>
-              <span className="cp-telemetry-ping" />
-              <span>{a.driver.name} · {a.status === "in_progress" ? "On Road" : a.status === "dispatched" ? "Dispatched" : a.status === "accepted" ? "En Route" : "Assigned"}</span>
-            </div>
-          ) : null}
-        </div>
-
-        <div className="cp-ribbon-stop" style={{ textAlign: "right" }}>
-          <span className="cp-sub">Delivery</span>
-          <span className="cp-city" title={load.destinationAddress ?? undefined}>{destCity}</span>
-          <span style={{ fontSize: 11, color: "var(--db-fg-dim)" }}>
-            {lastStop?.timeWindowEarliest ? stopTime(lastStop.timeWindowEarliest, zoneOfStop(lastStop)) : "Window open"}
-          </span>
-        </div>
-      </div>
-
-      {/* Deck: one hero and one summary line (gross pay stays on it), then only the gates that are not clear. */}
-      <div className="cp-deck-hero">
-        <div className={`cp-hero-fig ${deckHeroTone}`}>{deckHeroText}</div>
-        <div className="cp-hero-lbl">{deckHeroLabel}</div>
-      </div>
-      <div className="cp-deck-line" title={load.vehicle ? `${load.vehicle.name}, ${load.vehicle.type?.replace("_", " ")}` : "Fleet base floor"}>
-        {deckLead.grossInLine ? <span><b>{deckGross}</b> {delivered ? "paid" : "gross"}</span> : null}
-        {deckTonu ? <span><b>{miles(totalMiles)}</b> {wayHome.toLowerCase()}</span> : null}
-        {deckLead.grossInLine && allIn != null ? <span><b>{perMile(allIn)}</b> every mile</span> : null}
-        {!deckTonu && perLoaded != null ? <span><b>{perMile(perLoaded)}</b> loaded</span> : null}
-        {!deckTonu ? (deckHasFloor || floorThreshold > 0 ? <span>floor <b>{perMile(floorThreshold)}</b></span> : <span>no floor yet</span>) : null}
-        {paidDiffers ? <span>paid <b>{usd(paidLine!, 2)}</b> vs {usd(num(load.quotedRevenue), 2)} agreed</span> : null}
-      </div>
-      {deckGates.length > 0 ? (
-        <div className="cp-gates">
-          {deckGates.map((g) => (
-            <span key={g.title} className={`cp-gate ${g.cls}`} title={g.title}>{g.text}</span>
-          ))}
-        </div>
-      ) : null}
-
-      {readOnlyNote}
-
-      {alerts.length > 0 ? (
-        <div style={{ marginTop: "var(--db-1)" }}>
-          <AlertList alerts={alerts} />
-        </div>
-      ) : null}
-
-      {fellThrough ? (
-        <div className="sec-box" style={{ marginTop: "var(--db-1)", borderLeft: "3px solid var(--db-neg)" }}>
-          <b>{load.status === "tonu" ? "TONU (Truck Ordered Not Used)" : "Load Cancelled"}</b> · {reasonLabel(load.cancelReason)}
-          {load.cancelNote ? <div className="tl-note" style={{ marginTop: 4 }}>{load.cancelNote}</div> : null}
-          {load.status === "tonu" && load.tonuMiles != null ? <div className="tl-sub">Truck drove {num(load.tonuMiles)} mi for it.</div> : null}
-        </div>
-      ) : null}
-    </>
-  );
-
   // ── Tab 1: Route & Stops Workbench ─────────────────────────────────────────────────────────
   const trailerOpen = load.status === "draft" || load.status === "accepted" || load.status === "in_progress";
   const relayWho = !!me && may("dispatch");
@@ -574,94 +484,6 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     </section>
   ) : null;
 
-  const stopsSec = (
-    <section className="sec">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--db-2)" }}>
-        <h3 style={{ margin: 0 }}>Stops Sequence</h3>
-        {fellThrough ? null : (
-          <LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load, stopZones)} scheduleLocked={scheduleLocked} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} truckName={load.vehicle?.name ?? null} dealLocked={load.paymentStatus ? "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." : settled ? "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." : null} />
-        )}
-      </div>
-
-      <div className="sec-box">
-        <table className="tl-table" aria-label="Stops">
-          <tbody>
-            {load.stops.map((s) => {
-              const closes = s.timeWindowLatest && s.timeWindowEarliest && s.timeWindowLatest.getTime() !== s.timeWindowEarliest.getTime() ? s.timeWindowLatest : null;
-              const contact = [s.contactName, s.contactPhone].filter(Boolean).join(" · ");
-              return (
-                <tr key={s.id}>
-                  <td style={{ width: 24 }}>{s.stopSequence}</td>
-                  <td>
-                    <b style={{ textTransform: "capitalize" }}>{s.stopRole ?? s.stopType}</b> · {s.facilityName ?? s.addressString}
-                    <div className="tl-sub">{s.addressString}</div>
-                    {contact ? <div className="tl-sub">{contact}</div> : null}
-                    {s.stopNotes ? <div className="tl-sub" style={{ color: "var(--db-warn)" }}>{s.stopNotes}</div> : null}
-                  </td>
-                  <td className="num">
-                    <div>{stopTime(s.timeWindowEarliest, zoneOfStop(s))}</div>
-                    {closes ? <div className="tl-sub">closes {stopTime(closes, zoneOfStop(s))}</div> : null}
-                    <div className="tl-sub">{Array.isArray(s.referenceNumbers) && (s.referenceNumbers as string[]).length > 0 ? (s.referenceNumbers as string[]).join(", ") : "no reference number"}</div>
-                    {s.sealNumber ? <div className="tl-sub">seal {s.sealNumber}</div> : null}
-                    {s.arrivedAt ? (
-                      <div className="tl-sub">
-                        arrived {stopTime(s.arrivedAt, zoneOfStop(s))}
-                        {s.waitMinutes != null ? ` · waited ${s.waitMinutes} min` : ""}
-                        {s.arrivedSource === "phone" ? " · from the driver's phone" : ""}
-                      </div>
-                    ) : null}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-
-        <dl className="tl-kv" style={{ marginTop: 10 }}>
-          <dt>Miles (empty pickup · loaded · empty home)</dt>
-          <dd>
-            {num(load.pickupDeadheadMiles)} · {loadedMiles} · {load.isBackhaul ? 0 : num(load.returnDeadheadMiles)}
-            {milesVariance ? (
-              <div className={`tl-sub${milesVariance.over ? " warn" : ""}`}>
-                Quoted {milesVariance.quoted} mi, drove {milesVariance.actual} mi ({milesVariance.pct > 0 ? "+" : ""}
-                {(milesVariance.pct * 100).toFixed(1)}%){milesVariance.over ? ": more than 8% off, quote per-mile was inaccurate" : ""}
-              </div>
-            ) : null}
-          </dd>
-          <dt>Customer PO</dt>
-          <dd>{load.poNumber ?? "—"}</dd>
-          <dt>Credit & Terms</dt>
-          <dd>{load.channel ?? "dispatch"} · {load.payTermsDays != null ? termsLabel(load.payTermsDays) : load.paymentTerms ?? "terms not set"}</dd>
-          <dt>Freight Specs</dt>
-          <dd>
-            {load.trailerType ? load.trailerType.replace(/_/g, " ") : "Trailer not stated"}
-            {load.weightLbs != null ? ` · ${load.weightLbs.toLocaleString("en-US")} lb` : ""}
-            {load.hazmatClass ? ` · hazmat ${load.hazmatClass}` : ""}
-            {size ? <div className="tl-sub">{size}</div> : null}
-            {needs.length > 0 ? <div className="tl-sub">Needs {needs.join(", ")}</div> : null}
-          </dd>
-          {load.notes ? (
-            <>
-              <dt>Dispatcher Notes</dt>
-              <dd>{load.notes}</dd>
-            </>
-          ) : null}
-        </dl>
-
-        {may("billing_details") ? (
-          <div style={{ marginTop: 10 }}>
-            <BillingDetailsDialog
-              loadId={load.id}
-              loadNumber={load.loadNumber ?? "This load"}
-              invoiced={!!load.paymentStatus}
-              initial={{ brokerName: load.brokerName ?? "", brokerMcNumber: load.brokerMcNumber ?? "", brokerPhone: load.brokerPhone ?? "", brokerEmail: load.brokerEmail ?? "", poNumber: load.poNumber ?? "", payTermsDays: load.payTermsDays != null ? String(load.payTermsDays) : "", revenueNote: load.revenueNote ?? "" }}
-            />
-          </div>
-        ) : null}
-      </div>
-    </section>
-  );
-
   const docksSec = (
     <section className="sec">
       <h3>Dock Waiting & Detention</h3>
@@ -724,22 +546,6 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     </section>
   );
 
-  const routeWorkbench = (
-    <>
-      {gate(stopsSec, "dispatch", "billing_details")}
-      {docksSec}
-      {gate(driverSec, "dispatch")}
-      {gate(relaySec, "dispatch")}
-      {gate(trailerSec, "dispatch")}
-      {gate(tripSec, "dispatch", "figures")}
-      <DriverCabSheet
-        driverView={driverView}
-        driverName={a?.driver.name ?? null}
-        equipmentType={load.trailer?.number ? `Trailer ${load.trailer.number}` : (load.trailerType ?? null)}
-      />
-    </>
-  );
-
   // ── Tab 2: Economics & Margin Workbench ───────────────────────────────────────────────────
   const countSec =
     evaluation && flipped ? (
@@ -790,135 +596,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
       </section>
     ) : null;
 
-  const marginWorkbench = (
-    <>
-      <section className="sec">
-        <h3>TrueLane Margin Ledger</h3>
-        <div className="cp-ledger">
-          <div className="cp-ledger-card rev">
-            <h4>Gross Revenue Breakdown</h4>
-            <div style={{ display: "grid", gap: 6, fontSize: 13 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Quoted Linehaul</span>
-                <span className="num">{usd(revLinehaul, 2)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Fuel Surcharge (FSC)</span>
-                <span className="num">{usd(revFsc, 2)}</span>
-              </div>
-              {revDetention > 0 ? (
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>Detention Billed</span>
-                  <span className="num">{usd(revDetention, 2)}</span>
-                </div>
-              ) : null}
-              {revLayover > 0 ? (
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>Layover Pay</span>
-                  <span className="num">{usd(revLayover, 2)}</span>
-                </div>
-              ) : null}
-              {revTonu > 0 ? (
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>TONU Fee</span>
-                  <span className="num">{usd(revTonu, 2)}</span>
-                </div>
-              ) : null}
-            </div>
-            <div className="cp-ledger-total">
-              <span>Total Revenue</span>
-              <span className="num" style={{ fontSize: 16, color: "var(--db-pos)" }}>{usd(totalRev, 2)}</span>
-            </div>
-          </div>
-
-          <div className="cp-ledger-card exp">
-            <h4>Operating Expenses</h4>
-            <div style={{ display: "grid", gap: 6, fontSize: 13 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Driver Pay Estimate</span>
-                <span className="num">{usd(expDriver, 2)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Fuel ({num(load.expenseFuelActual) > 0 ? "Actual" : "Forecast"})</span>
-                <span className="num">{usd(expFuel, 2)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Tolls</span>
-                <span className="num">{usd(expTolls, 2)}</span>
-              </div>
-              {expRider > 0 ? (
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>Insurance Rider</span>
-                  <span className="num">{usd(expRider, 2)}</span>
-                </div>
-              ) : null}
-              {expMisc > 0 ? (
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>Miscellaneous / Lumpers</span>
-                  <span className="num">{usd(expMisc, 2)}</span>
-                </div>
-              ) : null}
-            </div>
-            <div className="cp-ledger-total">
-              <span>Total Direct Cost</span>
-              <span className="num" style={{ fontSize: 16, color: "var(--db-neg)" }}>{usd(totalExp, 2)}</span>
-            </div>
-          </div>
-
-          <div className="cp-net-summary">
-            <div>
-              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--db-fg-dim)" }}>
-                Net Operating Margin
-              </div>
-              <div style={{ fontFamily: "var(--db-font-head)", fontSize: 24, fontWeight: 700, color: netProfit >= 0 ? "var(--db-pos)" : "var(--db-neg)" }}>
-                {usd(netProfit, 2)} ({netMarginPct.toFixed(1)}%)
-              </div>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--db-fg-dim)" }}>
-                Net Per Mile (All Miles)
-              </div>
-              <div style={{ fontFamily: "var(--db-font-head)", fontSize: 18, fontWeight: 700, color: "var(--db-fg)" }}>
-                {perMile(netProfitPerMile)}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {variant === "page" ? countSec : null}
-    </>
-  );
-
   // ── Tab 3: Documents & Proof Workbench ─────────────────────────────────────────────────────
-  const docsWorkbench = (
-    <section className="sec">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "var(--db-2)" }}>
-        <h3 style={{ margin: 0 }}>Document Inspection & Verification</h3>
-        <span className="tl-sub">Rate Confirmations, Bills of Lading & Proof of Delivery</span>
-      </div>
-      {gate(
-        <SplitDocViewer
-          loadId={load.id}
-          items={docs.map((d) => ({
-            id: d.id,
-            kind: d.kind,
-            name: d.name,
-            bytes: d.bytes,
-            when: dateTime(d.createdAt),
-            by: d.addedBy,
-            stop: stopLabelOf(d.stopId),
-            toDriver: d.toDriver
-          }))}
-          deliveryStops={deliveryStopOptions}
-          locked={docsLocked}
-          defaultKind={load.status === "completed" ? "pod" : "rate_con"}
-        />,
-        "documents"
-      )}
-    </section>
-  );
-
   // ── Tab 4: Partners & History Workbench ────────────────────────────────────────────────────
   const invoiceSec =
     load.paymentStatus && load.invoicedAt ? (
@@ -1088,9 +766,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     </section>
   );
 
-  const partnersWorkbench = (
-    <>
-      {gate(trackingSec, "dispatch")}
+  const shelfSec = (
       <section className="sec">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
           <h3 style={{ margin: 0 }}>Partner integrations</h3>
@@ -1116,14 +792,6 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           ))}
         </div>
       </section>
-
-      {gate(invoiceSec, "bill")}
-      {decisionSec}
-      {whereSec}
-      {holderSec}
-      {activitySec}
-      {gate(moreSec, "dispatch")}
-    </>
   );
 
   // ── Tier 3: Pinned Action Foot ──────────────────────────────────────────────────────────────
@@ -1193,9 +861,23 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         </>,
         "bill"
       )}
-      {/* Corrections (take a pickup, delivery or cancellation back) are rare: on the full page only, so the drawer's foot holds this stage's next action. */}
-      {variant === "page" ? gate(
+      {gate(
         <>
+          {load.paymentStatus === "invoiced" ? <PaidDialog loadId={load.id} invoiceNumber={load.invoiceNumber} billed={billed} owing={owing} canWriteOff={may("writeoff")} /> : null}
+        </>,
+        "bill"
+      )}
+    </>
+  );
+
+  // Taking something back is rare and needs a reason: it is under More, so the foot holds only this stage's next action.
+  const canUndoTrip = (load.status === "in_progress" && !!a) || ((load.status === "cancelled" || load.status === "tonu") && !load.paymentStatus) || (load.status === "completed" && !load.paymentStatus && !settled && !!a);
+  const canUndoMoney = load.paymentStatus === "invoiced" || load.paymentStatus === "paid";
+  const correctionsSec =
+    canUndoTrip || canUndoMoney ? (
+      <div className="lv-more">
+        {gate(
+          <>
           {load.status === "in_progress" && a ? (
             <ConfirmForm action={undoStartAction} fields={{ loadId: load.id }} label="Take the pickup back" title={`Take back the pickup on ${load.loadNumber ?? "this load"}?`} eyebrow="Trip" confirmLabel="Take it back" destructive askReason>
               <p className="tl-note">For a pickup entered against the wrong load, or before it happened.</p>
@@ -1212,32 +894,31 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
             </ConfirmForm>
           ) : null}
         </>,
-        "dispatch"
-      ) : null}
-      {gate(
-        <>
-          {load.paymentStatus === "invoiced" ? <PaidDialog loadId={load.id} invoiceNumber={load.invoiceNumber} billed={billed} owing={owing} canWriteOff={may("writeoff")} /> : null}
-          {variant === "page" && load.paymentStatus === "invoiced" && (load.factoringStatus === "none" || load.factoringStatus === "rejected") && !(paidAmount != null && paidAmount > 0) ? (
+          "dispatch"
+        )}
+        {gate(
+          <>
+          {load.paymentStatus === "invoiced" && (load.factoringStatus === "none" || load.factoringStatus === "rejected") && !(paidAmount != null && paidAmount > 0) ? (
             <ConfirmForm action={voidInvoiceAction} fields={{ loadId: load.id }} label="Take the invoice back" title={`Take back ${load.invoiceNumber ?? "this invoice"}?`} eyebrow="Invoice" confirmLabel="Take it back" destructive askReason>
               <p className="tl-note">For an invoice made for the wrong amount or the wrong customer.</p>
             </ConfirmForm>
           ) : null}
-          {variant === "page" && (load.paymentStatus === "paid" || (load.paymentStatus === "invoiced" && paidAmount != null && paidAmount > 0)) ? (
+          {(load.paymentStatus === "paid" || (load.paymentStatus === "invoiced" && paidAmount != null && paidAmount > 0)) ? (
             <ConfirmForm action={undoPaidAction} fields={{ loadId: load.id }} label="Undo payment" title={`Take back the latest payment on ${load.invoiceNumber ?? "this invoice"}?`} eyebrow="Payment" confirmLabel="Take it back" destructive askReason>
               <p className="tl-note">For a payment entered against the wrong invoice.</p>
             </ConfirmForm>
           ) : null}
-        </>,
-        "bill"
-      )}
-    </>
-  );
+          </>,
+          "bill"
+        )}
+      </div>
+    ) : null;
 
   const chips = (
     <>
       <StatusChip status={load.status} />
       {fellThrough ? null : <VerdictChip verdict={evaluation?.finalDecision ?? null} />}
-      {a && variant === "page" ? <AssignmentChip status={a.status} /> : null}
+      {a && ASSIGNMENT_STATUS[a.status]?.label !== LOAD_STATUS[load.status]?.label ? <AssignmentChip status={a.status} /> : null}
     </>
   );
 
@@ -1253,7 +934,7 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     </span>
   );
 
-  // ── The drawer's focused view (Chris 2026-11-23): what this load is waiting on, then Trip / Money / Paperwork. The full page keeps every workbench. ──────────
+  // ── The drawer's focused view (Chris 2026-11-23): what this load is waiting on, then Trip / Money / Paperwork / More.
   const pickupCity = originCity;
   const pickupWhen = firstStop?.timeWindowEarliest ? stopTime(firstStop.timeWindowEarliest, zoneOfStop(firstStop)) : null;
   const driverName = a?.driver.name ?? null;
@@ -1302,28 +983,28 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     <section className="lv-sec">
       <header className="lv-sec-h">
         <h3>Stops</h3>
-        <a href={`/loads/${load.id}`} className="lv-link">Edit on the full page</a>
+        {fellThrough ? null : gate(<LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load, stopZones)} scheduleLocked={scheduleLocked} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} truckName={load.vehicle?.name ?? null} dealLocked={load.paymentStatus ? "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." : settled ? "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." : null} />, "dispatch")}
       </header>
       <ol className="lv-stops">
         {load.stops.map((s) => {
-          const ref = refList(s.referenceNumbers)[0] ?? null;
+          const ref = refList(s.referenceNumbers).join(", ") || null;
+          const closes = s.timeWindowLatest && s.timeWindowEarliest && s.timeWindowLatest.getTime() !== s.timeWindowEarliest.getTime() ? s.timeWindowLatest : null;
+          const contact = [s.contactName, s.contactPhone].filter(Boolean).join(" · ");
           const done = s.arrivedAt != null;
           return (
             <li key={s.id} data-done={done ? "true" : undefined}>
               <span className="lv-dot" aria-hidden="true" />
               <div className="lv-stop-main">
                 <b>{`${roleWord(s)} · ${s.facilityName ?? s.addressString.split(",")[0]}`}</b>
-                <span>{s.addressString}</span>
+                <span title={s.addressString}>{s.addressString}</span>
+                {contact ? <span>{contact}</span> : null}
+                {s.stopNotes ? <span className="t-warn" title={s.stopNotes}>{s.stopNotes}</span> : null}
               </div>
               <div className="lv-stop-when">
                 <b>{s.timeWindowEarliest ? stopTime(s.timeWindowEarliest, zoneOfStop(s)) : "Window open"}</b>
-                <span>
-                  {done
-                    ? `Arrived ${stopTime(s.arrivedAt!, zoneOfStop(s))}${s.waitMinutes ? ` · waited ${s.waitMinutes} min` : ""}`
-                    : ref
-                      ? `Ref ${ref}`
-                      : "Not reached yet"}
-                </span>
+                {closes ? <span>closes {stopTime(closes, zoneOfStop(s))}</span> : null}
+                {done ? <span>{`Arrived ${stopTime(s.arrivedAt!, zoneOfStop(s))}${s.waitMinutes ? ` · waited ${s.waitMinutes} min` : ""}${s.arrivedSource === "phone" ? " · from the driver's phone" : ""}`}</span> : null}
+                <span>{[ref ? `Ref ${ref}` : "No reference number", s.sealNumber ? `seal ${s.sealNumber}` : null].filter(Boolean).join(" · ")}</span>
               </div>
             </li>
           );
@@ -1331,56 +1012,59 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
       </ol>
     </section>
   );
+  const detailRow = (k: string, v: React.ReactNode) => (
+    <div key={k}>
+      <dt>{k}</dt>
+      <dd>{v}</dd>
+    </div>
+  );
   const drawerDetails = (
     <section className="lv-sec">
       <h3>Details</h3>
       <dl className="lv-kv">
-        {load.poNumber ? (
-          <div>
-            <dt>Customer PO</dt>
-            <dd>{load.poNumber}</dd>
-          </div>
-        ) : null}
-        <div>
-          <dt>Equipment</dt>
-          <dd>{load.trailer ? `Trailer ${load.trailer.number}` : load.trailerType ? load.trailerType.replace(/_/g, " ") : "Not stated"}</dd>
-        </div>
-        <div>
-          <dt>Weight</dt>
-          <dd>{weightVal != null ? `${weightVal.toLocaleString("en-US")} lb` : "Not set"}</dd>
-        </div>
-        {dt.totalWaitMinutes > 0 ? (
-          <div>
-            <dt>Dock wait</dt>
-            <dd>
-              {`${dt.totalWaitMinutes} min · ${dt.billable > 0 ? `${usd(dt.billable, 2)} billable` : "nothing billable"}`}
-              {evidence.total > 0 ? (
-                <>
-                  {" · "}
-                  <Link href={`/detention/${load.id}`}>Evidence</Link>
-                </>
-              ) : null}
-            </dd>
-          </div>
-        ) : null}
+        {load.poNumber ? detailRow("Customer PO", load.poNumber) : null}
+        {detailRow("Equipment", [load.trailer ? `Trailer ${load.trailer.number}` : load.trailerType ? load.trailerType.replace(/_/g, " ") : "Not stated", size, needs.length > 0 ? `needs ${needs.join(", ")}` : null].filter(Boolean).join(" · "))}
+        {detailRow("Weight", `${weightVal != null ? `${weightVal.toLocaleString("en-US")} lb` : "Not set"}${load.hazmatClass ? ` · hazmat ${load.hazmatClass}` : ""}`)}
+        {detailRow(
+          "Miles",
+          <>
+            {`${num(load.pickupDeadheadMiles)} empty to pickup · ${loadedMiles} loaded · ${load.isBackhaul ? 0 : num(load.returnDeadheadMiles)} empty home`}
+            {milesVariance ? (
+              <span className={`tl-sub${milesVariance.over ? " warn" : ""}`}>
+                {" "}
+                Quoted {milesVariance.quoted} mi, drove {milesVariance.actual} mi ({milesVariance.pct > 0 ? "+" : ""}
+                {(milesVariance.pct * 100).toFixed(1)}%){milesVariance.over ? ": more than 8% off, quote per-mile was inaccurate" : ""}
+              </span>
+            ) : null}
+          </>
+        )}
+        {detailRow("Terms", `${load.payTermsDays != null ? termsLabel(load.payTermsDays) : load.paymentTerms ?? "Not set"} · ${load.channel ?? "dispatch"}`)}
+        {load.notes ? detailRow("Notes", load.notes) : null}
+        {settled ? detailRow("Driver paid", <>On statement <Link href={`/settlements/${settled.id}`}>{settled.number}</Link></>) : null}
       </dl>
     </section>
   );
+  const waitWordsLine = dt.totalWaitMinutes > 0 ? `${dt.totalWaitMinutes} min · ${dt.billable > 0 ? `${usd(dt.billable, 2)} billable` : "nothing billable"}` : "none yet";
   const drawerTrip = (
     <>
       {moving ? <LoadTracker t={tracking} quietHead /> : null}
       {drawerStops}
       {preTrip && open ? gate(driverSec, "dispatch") : null}
       {open && !trailerOk ? gate(trailerSec, "dispatch") : null}
+      {/* Pickup, arrivals, waits, delivery and what the trip cost: in view while it is the work, one line once it is done. */}
+      {tripSec ? open ? gate(tripSec, "dispatch", "figures") : <Fold title="Trip record" meta={load.completedAt ? `delivered ${dateTime(load.completedAt)}` : undefined}>{gate(tripSec, "dispatch", "figures")}</Fold> : null}
       {gate(relaySec, "dispatch")}
       {drawerDetails}
-      {/* Booked and heading to the pickup: where the truck is now. After delivery the tracker is history, not news, so it stays on the full page. */}
+      {/* Booked and heading to the pickup: where the truck is now. */}
       {load.status === "accepted" && tracking.status === "tracking" ? <LoadTracker t={tracking} /> : null}
+      {dt.stops.length > 0 || evidence.total > 0 ? <Fold title="Dock waiting and detention" meta={waitWordsLine}>{docksSec}</Fold> : null}
+      {!(preTrip && open) ? <Fold title="Driver" meta={a ? a.driver.name : "no driver"}>{gate(driverSec, "dispatch")}</Fold> : null}
+      {trailerOk || !open ? <Fold title="Trailer" meta={load.trailer ? load.trailer.number : load.trailerType ? load.trailerType.replace(/_/g, " ") : "none"}>{gate(trailerSec, "dispatch")}</Fold> : null}
       {open ? gate(moreSec, "dispatch") : null}
     </>
   );
 
-  // Money: one ruled list, what came in, what went out, and what is left. The breakdown cards and Count Every Mile stay on the full page.
+  // Money: one ruled list, what came in, what went out, and what is left; the mile analysis under it.
   const moneyRow = (label: string, amount: number, opts: { cost?: boolean; strong?: boolean; note?: string } = {}) => (
     <div key={label} className={opts.strong ? "lv-total" : undefined}>
       <dt>
@@ -1391,10 +1075,16 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     </div>
   );
   const drawerMoney = (
+    <>
     <section className="lv-sec">
       <header className="lv-sec-h">
         <h3>Money</h3>
-        <a href={`/loads/${load.id}`} className="lv-link">Full breakdown</a>
+        {may("billing_details") ? <BillingDetailsDialog
+              loadId={load.id}
+              loadNumber={load.loadNumber ?? "This load"}
+              invoiced={!!load.paymentStatus}
+              initial={{ brokerName: load.brokerName ?? "", brokerMcNumber: load.brokerMcNumber ?? "", brokerPhone: load.brokerPhone ?? "", brokerEmail: load.brokerEmail ?? "", poNumber: load.poNumber ?? "", payTermsDays: load.payTermsDays != null ? String(load.payTermsDays) : "", revenueNote: load.revenueNote ?? "" }}
+            /> : null}
       </header>
       <dl className="lv-ledger">
         {moneyRow("Linehaul", revLinehaul)}
@@ -1416,9 +1106,13 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
         </div>
       </dl>
     </section>
+    {countSec ? <Fold title="Count every mile" meta={`${wayHome.toLowerCase()} ${perMile(allIn)}`}>{countSec}</Fold> : null}
+    {decisionSec ? <Fold title="Booking decision" meta={decision!.decisionType === "overridden" ? "booked over a warning" : "booked on its numbers"}>{decisionSec}</Fold> : null}
+    {correctionsSec ? <Fold title="Take something back">{correctionsSec}</Fold> : null}
+    </>
   );
 
-  // Paperwork: the documents as a list with the upload, then the invoice. The large inspector stays on the full page.
+  // Paperwork: the documents as a list with the upload, the inspector when a paper has to be read closely, then the invoice.
   const drawerPaper = (
     <>
       <section className="lv-sec">
@@ -1434,7 +1128,34 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
           "documents"
         )}
       </section>
+      {docs.length > 0 ? (
+        <Fold title="Read a document here" meta={`${docs.length} on file`}>
+          {gate(
+            <SplitDocViewer
+              loadId={load.id}
+              items={docs.map((d) => ({ id: d.id, kind: d.kind, name: d.name, bytes: d.bytes, when: dateTime(d.createdAt), by: d.addedBy, stop: stopLabelOf(d.stopId), toDriver: d.toDriver }))}
+              deliveryStops={deliveryStopOptions}
+              locked={docsLocked}
+              defaultKind={load.status === "completed" ? "pod" : "rate_con"}
+            />,
+            "documents"
+          )}
+        </Fold>
+      ) : null}
       {gate(invoiceSec, "bill")}
+    </>
+  );
+  // More: the record of the load and what is reached for now and then.
+  const cabSheet = <DriverCabSheet driverView={driverView} driverName={a?.driver.name ?? null} equipmentType={load.trailer?.number ? `Trailer ${load.trailer.number}` : (load.trailerType ?? null)} />;
+  const drawerMore = (
+    <>
+      {whereSec}
+      {activitySec}
+      {holderSec ? <Fold title="Who held it" meta={`${holders.length}`}>{holderSec}</Fold> : null}
+      {driverView ? <Fold title="What the driver sees" meta={a ? a.driver.name : undefined}>{cabSheet}</Fold> : null}
+      <Fold title="Customer tracking link" meta={load.trackingShareUrl ? "shared" : "not shared"}>{gate(trackingSec, "dispatch")}</Fold>
+      <Fold title="Partners" meta={shelfHeader(shelfConnected)}>{shelfSec}</Fold>
+      {open ? null : gate(moreSec, "dispatch")}
     </>
   );
   // The drawer's summary: the next step, the trip in two lines, three figures, and what still blocks this stage. No boxes; one figure row.
@@ -1508,33 +1229,19 @@ export async function LoadView({ id, variant }: { id: string; variant: "drawer" 
     </div>
   );
 
-  const drawer =
-    variant === "drawer"
-      ? {
-          next: null,
-          trip: drawerTrip,
-          money: drawerMoney,
-          paper: drawerPaper
-        }
-      : undefined;
-
   return (
     <LoadCockpit
-      variant={variant}
-      drawer={drawer}
       title={`Load ${load.loadNumber ?? ""}`}
       sub={sub}
       chips={chips}
-      fullHref={`/loads/${load.id}`}
+      href={`/loads/${load.id}`}
       footer={footer}
-      deck={variant === "drawer" ? drawerDeck : deck}
-      routeWorkbench={routeWorkbench}
-      marginWorkbench={marginWorkbench}
-      docsWorkbench={docsWorkbench}
-      partnersWorkbench={partnersWorkbench}
-      trackingWorkbench={<LoadTracker t={tracking} />}
+      deck={drawerDeck}
+      trip={drawerTrip}
+      money={drawerMoney}
+      paper={drawerPaper}
+      more={drawerMore}
       docsCount={docs.length}
-      alertsCount={alerts.length}
     />
   );
 }

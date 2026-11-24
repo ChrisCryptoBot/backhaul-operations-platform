@@ -160,11 +160,11 @@ describe("a dwell figure is a person's call", () => {
 
 describe("the load drawer gains Where it is and keeps what it had", () => {
   const cockpit = read("src/components/desk/load-cockpit.tsx");
-  it("keeps tabs 1 to 4, their ids, and the storage name; the fifth is Where it is on key 5", () => {
-    expect(cockpit).toContain("tl_cockpit_tab");
-    for (const id of ["tab-route", "tab-margin", "tab-docs", "tab-partners", "tab-tracking"]) expect(cockpit, id).toContain(`id="${id}"`);
-    for (const k of ["1", "2", "3", "4", "5"]) expect(cockpit, k).toContain(`e.key === "${k}"`);
-    expect(cockpit).toContain("Where it is");
+  it("has four tabs on keys 1 to 4, remembers the last, and shows where the truck is under Trip", () => {
+    expect(cockpit).toContain("tl_drawer_tab");
+    for (const [key, label, kbd] of [["trip", "Trip", "1"], ["money", "Money", "2"], ["paper", "Paperwork", "3"], ["more", "More", "4"]]) expect(cockpit).toContain(`{ key: "${key}", label: "${label}", kbd: "${kbd}" }`);
+    const view = read("src/components/desk/load-view.tsx");
+    expect(view.slice(view.indexOf("const drawerTrip"), view.indexOf("const drawerMoney"))).toContain("<LoadTracker t={tracking}");
   });
   it("the tracking panel only shows: it writes no arrival", () => {
     const tracker = read("src/components/desk/load-tracker.tsx") + read("src/server/tl/load-tracking.ts");

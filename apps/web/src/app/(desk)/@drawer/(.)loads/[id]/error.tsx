@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import React from "react";
 import { ErrorState } from "@/components/desk/kit/states";
 
-/** The load could not be read while it was opening in the drawer. The page underneath stays; this offers another try, or the load as a full page. */
+/** The load could not be read while it was opening in the drawer. The page underneath stays; this offers another try. */
 export default function LoadDrawerError({ reset }: { error: Error & { digest?: string }; reset: () => void }) {
   const router = useRouter();
   return (

@@ -5,59 +5,31 @@ import { createPortal } from "react-dom";
 import { DOC_LABEL } from "@/lib/documents";
 import { sizeLabel } from "@/lib/attachments";
 import { driverPayText } from "@/lib/desk-format";
-import Link from "next/link";
 import { DrawerFrame } from "./drawer-frame";
-import { PageHead } from "./ui";
 import { Icon } from "./kit/icons";
 import type { DocItem, DeliveryStopOption } from "./load-documents";
 import { LoadDocuments } from "./load-documents";
 
-export type WorkbenchTab = "route" | "margin" | "docs" | "partners" | "tracking";
-
-interface LoadCockpitProps {
-  variant: "drawer" | "page";
-  title: string;
-  sub: React.ReactNode;
-  chips: React.ReactNode;
-  fullHref: string;
-  footer: React.ReactNode;
-  deck: React.ReactNode;
-
-  routeWorkbench: React.ReactNode;
-  marginWorkbench: React.ReactNode;
-  docsWorkbench: React.ReactNode;
-  partnersWorkbench: React.ReactNode;
-  /** Where it is (key 5): the truck on the lane, its speed, ETA and geofence. */
-  trackingWorkbench?: React.ReactNode;
-
-  docsCount: number;
-  alertsCount?: number;
-  /**
-   * The drawer's focused view (Chris 2026-11-23: "cut off the fat, refocus on what is immediately important"): one "next" line for the load's stage and three tabs,
-   * Trip, Money and Paperwork. Everything else stays on the full page ("Open full page"), which keeps its five workbenches.
-   */
-  drawer?: { next: React.ReactNode | null; trip: React.ReactNode; money: React.ReactNode; paper: React.ReactNode };
-}
-
-type DrawerTab = "trip" | "money" | "paper";
-const DRAWER_TABS: { key: DrawerTab; label: string; kbd: string }[] = [
+type Tab = "trip" | "money" | "paper" | "more";
+const TABS: { key: Tab; label: string; kbd: string }[] = [
   { key: "trip", label: "Trip", kbd: "1" },
   { key: "money", label: "Money", kbd: "2" },
-  { key: "paper", label: "Paperwork", kbd: "3" }
+  { key: "paper", label: "Paperwork", kbd: "3" },
+  { key: "more", label: "More", kbd: "4" }
 ];
 
-/** The drawer's three tabs: keys 1 to 3, and the last one chosen is remembered for this browser tab (after the first render, so server and browser agree). */
-function DrawerView({ title, sub, chips, deck, footer, fullHref, drawer, docsCount }: { title: React.ReactNode; sub: React.ReactNode; chips: React.ReactNode; deck: React.ReactNode; footer: React.ReactNode; fullHref: string; drawer: NonNullable<LoadCockpitProps["drawer"]>; docsCount: number }) {
-  const [tab, setTabState] = React.useState<DrawerTab>("trip");
+/** The load's drawer: its summary, and four tabs (keys 1 to 4). The last tab chosen is remembered for this browser tab, after the first render, so server and browser agree. */
+export function LoadCockpit({ title, sub, chips, href, footer, deck, trip, money, paper, more, docsCount }: { title: string; sub: React.ReactNode; chips: React.ReactNode; href: string; footer: React.ReactNode; deck: React.ReactNode; trip: React.ReactNode; money: React.ReactNode; paper: React.ReactNode; more: React.ReactNode; docsCount: number }) {
+  const [tab, setTabState] = React.useState<Tab>("trip");
   React.useEffect(() => {
     try {
       const saved = window.sessionStorage?.getItem("tl_drawer_tab");
-      if (saved === "money" || saved === "paper") setTabState(saved);
+      if (saved === "money" || saved === "paper" || saved === "more") setTabState(saved);
     } catch {
       /* storage blocked: stay on Trip */
     }
   }, []);
-  const setTab = React.useCallback((t: DrawerTab) => {
+  const setTab = React.useCallback((t: Tab) => {
     setTabState(t);
     try {
       window.sessionStorage?.setItem("tl_drawer_tab", t);
@@ -70,7 +42,7 @@ function DrawerView({ title, sub, chips, deck, footer, fullHref, drawer, docsCou
       if (document.querySelector(".k-scrim")) return;
       const target = e.target as HTMLElement | null;
       if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable)) return;
-      const hit = DRAWER_TABS.find((d) => d.kbd === e.key);
+      const hit = TABS.find((d) => d.kbd === e.key);
       if (hit) {
         e.preventDefault();
         setTab(hit.key);
@@ -79,82 +51,10 @@ function DrawerView({ title, sub, chips, deck, footer, fullHref, drawer, docsCou
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [setTab]);
-  const nav = (
-    <nav className="lv-tabs" role="tablist" aria-label="Load">
-      {DRAWER_TABS.map((d) => (
-        <button key={d.key} type="button" role="tab" id={`dtab-${d.key}`} aria-controls={`dpanel-${d.key}`} aria-selected={tab === d.key} title={`${d.label} (${d.kbd})`} onClick={() => setTab(d.key)}>
-          {d.label}
-          {d.key === "paper" && docsCount > 0 ? <span className="lv-count">{docsCount}</span> : null}
-        </button>
-      ))}
-    </nav>
-  );
-  const body = tab === "trip" ? drawer.trip : tab === "money" ? drawer.money : drawer.paper;
-  return (
-    <DrawerFrame
-      title={title}
-      sub={sub}
-      chips={chips}
-      deck={
-        <>
-          {drawer.next}
-          {deck}
-        </>
-      }
-      nav={nav}
-      footer={footer}
-      fullHref={fullHref}
-      minimal>
-      <div className="cp-workbench-area">
-        <div role="tabpanel" id={`dpanel-${tab}`} aria-labelledby={`dtab-${tab}`} className="cp-panel">
-          {body}
-        </div>
-      </div>
-    </DrawerFrame>
-  );
-}
-
-export function LoadCockpit({
-  variant,
-  title,
-  sub,
-  chips,
-  fullHref,
-  footer,
-  deck,
-  routeWorkbench,
-  marginWorkbench,
-  docsWorkbench,
-  partnersWorkbench,
-  trackingWorkbench,
-  docsCount,
-  alertsCount,
-  drawer
-}: LoadCockpitProps) {
-  // The server has no sessionStorage, so the first render is always "route" on both sides; the remembered tab is put back right after (reading it during render made the
-  // server's and the browser's first render differ: a hydration error on every load page).
-  const [activeTab, setActiveTabState] = React.useState<WorkbenchTab>("route");
-  React.useEffect(() => {
-    try {
-      const saved = window.sessionStorage?.getItem("tl_cockpit_tab");
-      if (saved === "margin" || saved === "docs" || saved === "partners" || saved === "tracking") setActiveTabState(saved);
-    } catch {
-      /* storage blocked: stay on the first tab */
-    }
-  }, []);
-
-  const setActiveTab = React.useCallback((tab: WorkbenchTab) => {
-    setActiveTabState(tab);
-    try {
-      window.sessionStorage?.setItem("tl_cockpit_tab", tab);
-    } catch {
-      /* storage blocked: the tab is not remembered */
-    }
-  }, []);
 
   const [copied, setCopied] = React.useState(false);
   const copyLoadNumber = React.useCallback(() => {
-    const raw = typeof title === "string" ? title.replace(/^Load\s+/i, "").trim() : "";
+    const raw = title.replace(/^Load\s+/i, "").trim();
     if (raw && typeof navigator !== "undefined" && navigator.clipboard) {
       navigator.clipboard.writeText(raw);
       setCopied(true);
@@ -162,180 +62,39 @@ export function LoadCockpit({
     }
   }, [title]);
 
-  const headerTitle = (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-      <span>{title}</span>
-      <button
-        type="button"
-        className="cp-copy-btn"
-        onClick={copyLoadNumber}
-        data-copied={copied ? "true" : undefined}
-        title={copied ? "Copied load number to clipboard!" : "Copy load number"}
-        aria-label="Copy load number">
-        <Icon name={copied ? "check" : "copy"} size={13} />
-      </button>
-    </span>
-  );
-
-  React.useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (document.querySelector(".k-scrim")) return; // dialog open
-      const target = e.target as HTMLElement | null;
-      const isInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT" || target.isContentEditable);
-      if (isInput) return;
-
-      if (e.key === "1") {
-        e.preventDefault();
-        setActiveTab("route");
-      } else if (e.key === "2") {
-        e.preventDefault();
-        setActiveTab("margin");
-      } else if (e.key === "3") {
-        e.preventDefault();
-        setActiveTab("docs");
-      } else if (e.key === "4") {
-        e.preventDefault();
-        setActiveTab("partners");
-      } else if (e.key === "5") {
-        e.preventDefault();
-        setActiveTab("tracking");
-      }
-    };
-
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [setActiveTab]);
-
-  const nav = (
-    <nav className="cp-nav" role="tablist" aria-label="Load Workbenches">
-      <button
-        type="button"
-        role="tab"
-        id="tab-route"
-        aria-controls="panel-route"
-        aria-selected={activeTab === "route"}
-        className="cp-tab-btn"
-        onClick={() => setActiveTab("route")}>
-        <span>Route & Stops</span>
-        <span className="cp-kbd">1</span>
-      </button>
-
-      <button
-        type="button"
-        role="tab"
-        id="tab-margin"
-        aria-controls="panel-margin"
-        aria-selected={activeTab === "margin"}
-        className="cp-tab-btn"
-        onClick={() => setActiveTab("margin")}>
-        <span>Economics & Margin</span>
-        <span className="cp-kbd">2</span>
-      </button>
-
-      <button
-        type="button"
-        role="tab"
-        id="tab-docs"
-        aria-controls="panel-docs"
-        aria-selected={activeTab === "docs"}
-        className="cp-tab-btn"
-        onClick={() => setActiveTab("docs")}>
-        <span>Documents & Proof {docsCount > 0 ? `(${docsCount})` : ""}</span>
-        <span className="cp-kbd">3</span>
-      </button>
-
-      <button
-        type="button"
-        role="tab"
-        id="tab-partners"
-        aria-controls="panel-partners"
-        aria-selected={activeTab === "partners"}
-        className="cp-tab-btn"
-        onClick={() => setActiveTab("partners")}>
-        <span>Partners & History {alertsCount && alertsCount > 0 ? `(${alertsCount})` : ""}</span>
-        <span className="cp-kbd">4</span>
-      </button>
-
-      <button
-        type="button"
-        role="tab"
-        id="tab-tracking"
-        aria-controls="panel-tracking"
-        aria-selected={activeTab === "tracking"}
-        className="cp-tab-btn"
-        onClick={() => setActiveTab("tracking")}>
-        <span>Where it is</span>
-        <span className="cp-kbd">5</span>
-      </button>
-    </nav>
-  );
-
-  const activeContent = (
-    <div className="cp-workbench-area">
-      {activeTab === "route" && (
-        <div role="tabpanel" id="panel-route" aria-labelledby="tab-route" className="cp-panel">
-          {routeWorkbench}
-        </div>
-      )}
-      {activeTab === "margin" && (
-        <div role="tabpanel" id="panel-margin" aria-labelledby="tab-margin" className="cp-panel">
-          {marginWorkbench}
-        </div>
-      )}
-      {activeTab === "docs" && (
-        <div role="tabpanel" id="panel-docs" aria-labelledby="tab-docs" className="cp-panel">
-          {docsWorkbench}
-        </div>
-      )}
-      {activeTab === "partners" && (
-        <div role="tabpanel" id="panel-partners" aria-labelledby="tab-partners" className="cp-panel">
-          {partnersWorkbench}
-        </div>
-      )}
-      {activeTab === "tracking" && (
-        <div role="tabpanel" id="panel-tracking" aria-labelledby="tab-tracking" className="cp-panel">
-          {trackingWorkbench}
-        </div>
-      )}
-    </div>
-  );
-
-  if (variant === "drawer" && drawer) {
-    return <DrawerView title={headerTitle} sub={sub} chips={chips} deck={deck} footer={footer} fullHref={fullHref} drawer={drawer} docsCount={docsCount} />;
-  }
-
-  if (variant === "drawer") {
-    return (
-      <DrawerFrame
-        title={headerTitle}
-        sub={sub}
-        chips={chips}
-        deck={deck}
-        nav={nav}
-        footer={footer}
-        fullHref={fullHref}>
-        {activeContent}
-      </DrawerFrame>
-    );
-  }
-
+  const body = { trip, money, paper, more }[tab];
   return (
-    <>
-      <PageHead title={title} sub={sub}>
-        <Link href="/loads" className="tl-btn">All loads</Link>
-      </PageHead>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>{chips}</div>
-      {deck ? <div className="cp-deck">{deck}</div> : null}
-      <div className="lv-page" style={{ padding: 0, overflow: "visible" }}>
-        <div style={{ position: "sticky", top: "var(--db-header-h, 56px)", zIndex: 10, background: "var(--db-bg-rail)", borderBottom: "1px solid var(--db-border-strong)", marginBottom: 16, padding: "0 8px" }}>
-          {nav}
-        </div>
-        {activeContent}
-        <div className="dr-foot" style={{ marginTop: "var(--db-5)", border: "1px solid var(--db-border)", borderRadius: "var(--db-r-lg)" }}>
-          {footer}
+    <DrawerFrame
+      label={title}
+      title={
+        <span className="lv-title">
+          <span>{title}</span>
+          <button type="button" className="cp-copy-btn" onClick={copyLoadNumber} data-copied={copied ? "true" : undefined} title={copied ? "Copied" : "Copy load number"} aria-label="Copy load number">
+            <Icon name={copied ? "check" : "copy"} size={13} />
+          </button>
+        </span>
+      }
+      sub={sub}
+      chips={chips}
+      deck={deck}
+      nav={
+        <nav className="lv-tabs" role="tablist" aria-label="Load">
+          {TABS.map((d) => (
+            <button key={d.key} type="button" role="tab" id={`dtab-${d.key}`} aria-controls={`dpanel-${d.key}`} aria-selected={tab === d.key} title={`${d.label} (${d.kbd})`} onClick={() => setTab(d.key)}>
+              {d.label}
+              {d.key === "paper" && docsCount > 0 ? <span className="lv-count">{docsCount}</span> : null}
+            </button>
+          ))}
+        </nav>
+      }
+      footer={footer}
+      href={href}>
+      <div className="cp-workbench-area">
+        <div role="tabpanel" id={`dpanel-${tab}`} aria-labelledby={`dtab-${tab}`} className="cp-panel">
+          {body}
         </div>
       </div>
-    </>
+    </DrawerFrame>
   );
 }
 
@@ -537,7 +296,7 @@ export function SplitDocViewer({
                   onClick={() => setIsExpanded(true)}
                   className="tl-btn sm"
                   style={{ fontSize: 11, padding: "3px 8px" }}
-                  title="Expand to full page view">
+                  title="See it full screen">
                   Expand ⛶
                 </button>
                 <a

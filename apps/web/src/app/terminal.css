@@ -450,36 +450,7 @@ input::placeholder,textarea::placeholder{color:var(--dim);opacity:1}
 .dr .dr-btn-icon,.dr .dr-close{border:1px solid var(--line-hi);background:transparent;color:var(--ink);width:24px;height:24px}
 .dr .dr-btn-icon:hover,.dr .dr-close:hover{background:var(--ink);color:var(--bg)}
 .dr .cp-kbd{border:1px solid var(--line-hi);background:var(--sunk);color:var(--mid);font:11px var(--mono);padding:0 4px}
-.dr .cp-ribbon,.dr .cp-metrics-bar{background:var(--panel);border:1px solid var(--line);border-top-color:var(--line-hi)}
-.dr .cp-metric{border-left:1px solid var(--line);padding:6px var(--pad)}
-.dr .cp-metric-val,.dr .cp-metric-val.ok,.dr .cp-metric-val.warn,.dr .cp-metric-val.bad{color:var(--ink);font:500 20px/24px var(--mono)}
-.dr .cp-metric-val::before{content:"";display:inline-block;width:7px;height:7px;margin-right:8px;vertical-align:middle;background:var(--dim)}
-.dr .cp-metric-val.ok::before{background:var(--pos-fill)}.dr .cp-metric-val.warn::before{background:var(--warn-fill)}.dr .cp-metric-val.bad::before{background:var(--neg-fill)}
-.dr .cp-metric-lbl{color:var(--label);font:500 11px/16px var(--mono);letter-spacing:.06em;text-transform:uppercase}
-.dr .cp-metric-sub{color:var(--dim);font:11px/14px var(--mono)}
-/* The slim deck (Wave 2): one hero, one summary line, only the gates that are not clear. Same markup in the drawer and on the full load page. */
-:is(.dr,.lv-page,.cp-deck) .cp-deck-hero{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:6px var(--pad) 0}
-:is(.dr,.lv-page,.cp-deck) .cp-hero-fig{font:500 var(--fs-hero)/36px var(--mono);letter-spacing:-.02em;color:var(--ink)}
-:is(.dr,.lv-page,.cp-deck) .cp-hero-fig::before{content:"";display:inline-block;width:10px;height:10px;margin-right:10px;vertical-align:middle;background:var(--dim)}
-:is(.dr,.lv-page,.cp-deck) .cp-hero-fig.ok::before{background:var(--pos-fill)}
-:is(.dr,.lv-page,.cp-deck) .cp-hero-fig.warn::before{background:var(--warn-fill)}
-:is(.dr,.lv-page,.cp-deck) .cp-hero-fig.bad::before{background:var(--neg-fill)}
-:is(.dr,.lv-page,.cp-deck) .cp-hero-lbl{color:var(--label);font:500 var(--fs-code)/16px var(--mono);letter-spacing:.06em;text-transform:uppercase}
-:is(.dr,.lv-page,.cp-deck) .cp-deck-line{display:flex;flex-wrap:wrap;gap:0 8px;padding:2px var(--pad) 6px;color:var(--mid);font:var(--fs-row)/16px var(--mono)}
-:is(.dr,.lv-page,.cp-deck) .cp-deck-line>span+span::before{content:"\00b7";margin-right:8px;color:var(--dim)}
-:is(.dr,.lv-page,.cp-deck) .cp-deck-line b{font-weight:500;color:var(--ink)}
-.dr .cp-gate{border:1px solid var(--line-hi);background:transparent;color:var(--ink);height:22px;padding:0 6px;font:500 11px/16px var(--mono);letter-spacing:.05em;white-space:nowrap}
-.dr .cp-gate::before{content:"";width:7px;height:7px;background:var(--dim)}
-.dr .cp-gate.ok::before{background:var(--pos-fill)}.dr .cp-gate.warn::before{background:var(--warn-fill)}.dr .cp-gate.bad::before{background:var(--neg-fill)}
-.dr .cp-gate.ok,.dr .cp-gate.warn,.dr .cp-gate.bad{background:transparent;border-color:var(--line-hi);color:var(--ink)}
-.dr .cp-nav{gap:0;border-bottom:1px solid var(--line-hi);background:var(--panel)}
-.dr .cp-tab-btn{min-height:24px;height:24px;margin:0;padding:0 12px;border:0;border-right:1px solid var(--line);color:var(--mid);font:500 11px/16px var(--mono);letter-spacing:.06em;white-space:nowrap}
-.dr .cp-tab-btn:hover{background:var(--hover);color:var(--ink)}
-.dr .cp-tab-btn[aria-selected=true]{background:var(--bar);color:var(--on-bar);font-weight:600}
-.dr .cp-tab-btn[aria-selected=true] .cp-kbd{background:transparent;color:var(--on-bar);border-color:var(--on-bar)}
-.dr .sec>h3,.lv-page .sec>h3{color:var(--label);font:500 11px/16px var(--mono);letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--line-hi)}
-.dr .cp-ledger-card{background:var(--panel);border:1px solid var(--line)}
-.dr .cp-ledger-card h4,.dr .cp-ledger-card.rev h4,.dr .cp-ledger-card.exp h4{color:var(--label);font:500 11px/16px var(--mono);letter-spacing:.08em;text-transform:uppercase}
+.dr .sec>h3{color:var(--label);font:500 11px/16px var(--mono);letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--line-hi)}
 .dr .cp-detention-box,.dr .cp-detention-box.active-wait,.dr .cp-detention-box.billable-wait{background:var(--sunk);border:1px solid var(--line-hi)}
 .dr .cp-detention-box.billable-wait{border-color:var(--warn)}
 .dr .cp-panel{animation:none}
@@ -547,7 +518,6 @@ dd>.sub{display:block;color:var(--dim)}
 .t-cmd{border-width:0 0 1px;border-color:var(--glass-edge)}
 .dr{border-width:0 0 0 1px}
 .dr .dr-head,.dr .dr-foot{background:transparent}
-.dr .cp-nav{background:transparent}
 .k-scrim{background:var(--scrim)}
 
 /* Chamfer, never round: a small 45-degree cut echoing the octagon stop sign. Dialog on all four corners, drawer on its left two, the primary button on two. */
@@ -925,6 +895,28 @@ h2.t-sec{margin:14px 10px 8px;color:var(--mid)}
 .al .who{margin-top:1px;font:12px/16px var(--sans)}
 .al .who a{color:var(--mid)}
 
+/* The load drawer's folds: the name and its one fact on a line, ruled, the rest under it. */
+.lv-fold{border-top:1px solid var(--line)}
+.lv-fold>summary{display:flex;align-items:center;gap:10px;min-height:34px;cursor:pointer;list-style:none;color:var(--mid);font:13px/18px var(--sans)}
+.lv-fold>summary::-webkit-details-marker{display:none}
+.lv-fold>summary b{color:var(--ink);font-weight:500}
+.lv-fold>summary span{margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dim);font-size:12px}
+.lv-fold>summary::after{content:"\203A";color:var(--dim);font:500 16px/16px var(--mono)}
+.lv-fold>summary b:last-child{margin-right:auto}
+.lv-fold[open]>summary::after{transform:rotate(90deg)}
+.lv-fold>summary:hover b{color:var(--label-hi)}
+.lv-fold>summary:focus-visible{outline:2px solid var(--label-hi);outline-offset:-2px}
+.dr .cp-panel>.lv-fold+.lv-fold{margin-top:-18px}
+.dr .cp-panel>.lv-fold:last-child{border-bottom:1px solid var(--line)}
+.lv-fold-body{padding:4px 0 14px}
+/* A trail of what happened is ruled rows, never a strip down the edge (the hard rule). */
+.feed{gap:0}
+.feed li{padding:6px 0;border-width:0;border-top:1px solid var(--line)}
+.feed li:first-child{border-top-width:0}
+.lv-fold-body .sec>h3:first-child{display:none}
+.lv-title{display:inline-flex;align-items:center;gap:8px}
+.lv-more{display:flex;flex-wrap:wrap;gap:8px}
+
 /* Dispatch queue: the alerts are one line, the column that asks for something is the widest, and a load is three short lines. */
 .dq-strip{display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center;margin-top:0;margin-bottom:10px;padding:7px 14px;border:1px solid var(--line);background:var(--panel);color:var(--mid);font:13px/18px var(--sans)}
 .dq-strip b{display:inline-flex;gap:8px;align-items:center;color:var(--ink);font-weight:600}
@@ -1089,7 +1081,7 @@ html{zoom:var(--ui-zoom)}
 /* Barlow sets smaller than Plex Mono at the same size: a step up, and figures stay tabular so columns still line up. */
 [data-ui="app"] body{font-size:13px;line-height:17px;font-variant-numeric:tabular-nums}
 /* Headings, column heads and labels in the phone's display face (Barlow Condensed, tracked, uppercase where the cockpit already is). */
-[data-ui="app"] :is(.t-rail h2,.t-pagehead h1,.t-tbl th,.dr .dr-head h2,.dr .sec>h3,.lv-page .sec>h3,.dr .cp-metric-lbl,.dr .cp-ledger-card h4,.t-banner b,.vc-word,.st-tab,.dr .cp-tab-btn,.th-label,.t-scope-chip,.t-hero){font-family:var(--display)}
+[data-ui="app"] :is(.t-rail h2,.t-pagehead h1,.t-tbl th,.dr .dr-head h2,.dr .sec>h3,.t-banner b,.vc-word,.st-tab,.th-label,.t-scope-chip,.t-hero){font-family:var(--display)}
 /* ============================================================================================================================
    TrueLane app: the phone's curvature, committed (Chris 2026-11-23: "every dot, every table, every field"). The phone's radius by role (components/ui/curve.ts in the
    phone repo; docs/DESIGN_BRIEF.md): press 6, field 8, tile 10, note 14, card 20, pills and dots fully round, and a parent's curve always larger than its child's.
@@ -1105,21 +1097,19 @@ html{zoom:var(--ui-zoom)}
 }
 
 /* ---- Press: buttons, icon buttons, menu items, keycaps. ---- */
-[data-ui="app"] :is(.t-btn,.tl-btn,.t-go,.t-collapse,.t-linkbtn,.dr .dr-btn-icon,.dr .dr-close,.dp-nav,.dp-open,.dp-link,.t-scope-all,.fm-pick,.t-pop-hit,.gs-hit,
-  .t-scope-menu>.t-scope,.rd-region,kbd,.st-kbd,:is(.dr,.lv-page) .cp-kbd) { border-radius:var(--r-press) !important; }
+[data-ui="app"] :is(.t-btn,.tl-btn,.t-go,.t-collapse,.t-linkbtn,.dr .dr-btn-icon,.dr .dr-close,.dp-nav,.dp-open,.dp-link,.t-scope-all,.fm-pick,.t-pop-hit,.gs-hit,.t-scope-menu>.t-scope,.rd-region,kbd,.st-kbd,.dr .cp-kbd) { border-radius:var(--r-press) !important; }
 
 /* ---- Field: every typed or chosen value. ---- */
-[data-ui="app"] :is(.t-in,textarea.t-ta,.kn-form textarea,.tl-field input,.tl-field select,.tl-field textarea,.dt-search input,.gs-input,.kfilters select,.tl-scope select,
-  .audit-filters select,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden]),select,textarea) { border-radius:var(--r-field) !important; }
+[data-ui="app"] :is(.t-in,textarea.t-ta,.kn-form textarea,.tl-field input,.tl-field select,.tl-field textarea,.dt-search input,.gs-input,.kfilters select,.tl-scope select,.audit-filters select,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden]),select,textarea) { border-radius:var(--r-field) !important; }
 [data-ui="app"] :is(input[type=checkbox],.tl-check) { border-radius:4px !important; }
 
 /* ---- A row of controls (segmented buttons, tab strips), drawn as the phone draws them: the track holds its options 2px in from its edge, and every option is a
         press-curve pill, so the track's curve (8) is the pill's (6) plus that 2px and the chosen pill's corners sit exactly inside the track's, with no wedge of
         track showing at a corner. The ruled dividers between options go: they cut through the pills. Underline tabs (.tl-tabs: a gold bar
         under the chosen one, no track) are not toggles and stay as they are. ---- */
-[data-ui="app"] :is(.t-seg,.st-tablist,.eq-tabs,.rd-tabs,.rd-regions,.t-tabs,:is(.dr,.lv-page) .cp-nav) {
+[data-ui="app"] :is(.t-seg,.st-tablist,.eq-tabs,.rd-tabs,.rd-regions,.t-tabs) {
   border-radius:calc(var(--r-press) + 3px) !important; overflow:hidden; padding:2px; gap:2px; } /* 6 + the 1px border + the 2px inset: concentric with the pills */
-[data-ui="app"] :is(.t-seg>*,.st-tablist>*,.st-tab,.eq-tab,.rd-tab,.rd-regions>*,.t-tabs a,.t-tabs button,:is(.dr,.lv-page) .cp-tab-btn) {
+[data-ui="app"] :is(.t-seg>*,.st-tablist>*,.st-tab,.eq-tab,.rd-tab,.rd-regions>*,.t-tabs a,.t-tabs button) {
   border-radius:var(--r-press) !important; border-right:0 !important; border-left:0 !important; }
 
 /* ---- Chips and codes: fully round. ---- */
@@ -1136,21 +1126,18 @@ html{zoom:var(--ui-zoom)}
 /* The flag square (Loads: "Pickup passed") is a warning, not a status: it keeps a square shape (softened) so it never reads as a second status dot. */
 [data-ui="app"] .t-sq { border-radius:2px !important; }
 /* Pseudo-elements cannot sit inside :is(), so the dots drawn by ::before are listed one by one. */
-[data-ui="app"] .t-st::before,[data-ui="app"] .pl-shift.on::before,[data-ui="app"] :is(.dr,.lv-page) .cp-gate::before,[data-ui="app"] :is(.dr,.lv-page) .cp-metric-val::before,
-[data-ui="app"] .cp-hero-fig::before { border-radius:50% !important; }
+[data-ui="app"] .t-st::before,
+[data-ui="app"] .pl-shift.on::before { border-radius:50% !important; }
 
 /* ---- Tile: pop-ups, menus, the date picker, tooltips, planner blocks, map controls. ---- */
-[data-ui="app"] :is(.t-pop,.t-pop-group,.t-scope-pop,.t-scope-menu,.menu-pop,.gs-pop,.dp.dp,.vc-tip,.pl-load,.rd .maplibregl-ctrl-group,.fm .maplibregl-ctrl-group,
-  .rd-key,.rd-attrib,.rd-pinned,.lt-svg) { border-radius:var(--r-tile) !important; }
-[data-ui="app"] :is(.dp-day) { border-radius:var(--r-press) !important; }
+[data-ui="app"] :is(.t-pop,.t-pop-group,.t-scope-pop,.t-scope-menu,.menu-pop,.gs-pop,.dp.dp,.vc-tip,.pl-load,.rd .maplibregl-ctrl-group,.fm .maplibregl-ctrl-group,.rd-key,.rd-attrib,.rd-pinned,.lt-svg) { border-radius:var(--r-tile) !important; }
+[data-ui="app"] .dp-day { border-radius:var(--r-press) !important; }
 
 /* ---- Note: panels, notes, banners, detail boxes, the drawer's cards, toasts, every table panel. ---- */
-[data-ui="app"] :is(.dt-wrap,.tl-card,.cp-card,.t-banner,.t-det,.t-doc,.t-scope-region,.vc-explain,.ai-list,.rs-filters,
-  .rd,.rd-rail,.rd-sched,.rd-strip,.rd-empty,.eq-map,.fm,.fm>.rs,.k-toast,.t-toast,
-  :is(.dr,.lv-page) .cp-detention-box,:is(.dr,.lv-page) .cp-gate,:is(.dr,.lv-page) .cp-ledger-card,:is(.dr,.lv-page) .cp-metric,:is(.dr,.lv-page) .cp-metrics-bar,:is(.dr,.lv-page) .cp-ribbon) { border-radius:var(--r-note) !important; }
+[data-ui="app"] :is(.dt-wrap,.tl-card,.t-banner,.t-det,.t-doc,.t-scope-region,.vc-explain,.ai-list,.rs-filters,.rd,.rd-rail,.rd-sched,.rd-strip,.rd-empty,.eq-map,.fm,.fm>.rs,.k-toast,.t-toast,.dr .cp-detention-box) { border-radius:var(--r-note) !important; }
 /* A table's panel clips to its curve and still scrolls: hidden here once made the columns past the edge unreachable. */
 [data-ui="app"] .dt-wrap { overflow:auto; }
-[data-ui="app"] :is(.t-det,.t-doc,.rd,.fm,.eq-map,:is(.dr,.lv-page) .cp-metrics-bar,:is(.dr,.lv-page) .cp-ribbon) { overflow:hidden; }
+[data-ui="app"] :is(.t-det,.t-doc,.rd,.fm,.eq-map) { overflow:hidden; }
 /* A card is a phone group: the panel colour, a hairline, the note curve and room inside, so its ruled rows sit in a container the way the phone's do. A card inside
    a card stays bare (no panel on a panel). */
 [data-ui="app"] .tl-card { background:var(--panel); border:1px solid var(--line); padding:12px 14px; }
@@ -1180,7 +1167,7 @@ html{zoom:var(--ui-zoom)}
 [data-ui="app"] :is(.dt-wrap,.t-det,.t-doc) :is(.t-tbl,table.dt) :is(th,td) { border-radius:0 !important; }
 
 /* ---- Card: dialogs, the drawer (its free edge; it sits against the right of the window), the load page. ---- */
-[data-ui="app"] :is(.k-modal,.t-dlg,.lv-page) { border-radius:var(--r-card) !important; }
+[data-ui="app"] :is(.k-modal,.t-dlg) { border-radius:var(--r-card) !important; }
 [data-ui="app"] :is(.dr,.t-drawer) { border-radius:var(--r-card) 0 0 var(--r-card) !important; overflow:hidden; }
 
 /* ---- The active section: a rounded bar inside the rail, not a band across it. ---- */
@@ -1193,10 +1180,7 @@ html{zoom:var(--ui-zoom)}
 /* ---- Calm everywhere (Chris 2026-11-23: "way too much neon … exhausting and over-stimulating"). The soft palette above does most of it: every figure, dot, bar and
         badge reads in muted tones. On top of it: a chosen tab, toggle, menu item or section is a gold TINT with gold text, never a solid gold slab (the slab is
         kept for the main button); card heads are grey. ---- */
-[data-ui="app"] :is(.t-rail a[aria-current=page],.t-tabs [aria-current=true],.t-tabs [aria-selected=true],.t-pop-hit[aria-selected=true],.t-seg>[aria-current=true],
-  .t-seg>[aria-selected=true],.t-seg>[aria-pressed=true],.cp-tab-btn[aria-selected=true],.st-tab[aria-selected=true],.rd-tab[aria-selected=true],.rd-region[aria-pressed=true],
-  .eq-tab[aria-selected=true]) { --bar:rgba(232,160,32,.16); --on-bar:var(--label-hi); }
-[data-ui="app"] :is(.cp-ledger-card h4,.cp-hero-lbl) { color:var(--mid) !important; }
+[data-ui="app"] :is(.t-rail a[aria-current=page],.t-tabs [aria-current=true],.t-tabs [aria-selected=true],.t-pop-hit[aria-selected=true],.t-seg>[aria-current=true],.t-seg>[aria-selected=true],.t-seg>[aria-pressed=true],.st-tab[aria-selected=true],.rd-tab[aria-selected=true],.rd-region[aria-pressed=true],.eq-tab[aria-selected=true]) { --bar:rgba(232,160,32,.16); --on-bar:var(--label-hi); }
 /* A scrollbar thumb under the mouse was gold (globals.css: --db-scrollbar-thumb-hover is --label); it reads as a stray gold line under a tab row. Grey instead. */
 [data-ui="app"] { --db-scrollbar-thumb-hover:var(--mid); }
 

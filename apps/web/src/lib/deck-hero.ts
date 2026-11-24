@@ -1,5 +1,5 @@
 /**
- * What leads the load deck (the strip above the tabs, in the drawer and on the full page).
+ * What leads the load deck (the strip above the tabs in the load drawer).
  *
  * One hero. A load with a floor leads with its margin against that floor: what it pays a mile (every mile counted) minus the floor. A load with no floor yet (not judged: no truck chosen, no cost profile)
  * has nothing to measure against, so it leads with what it pays instead of going blank. A TONU leads with the fee earned. Gross pay always stays visible: as the hero when nothing is judged, otherwise as the
