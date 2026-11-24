@@ -3,8 +3,10 @@ import { cityState } from "@/lib/city-state";
 import { centralParts } from "@/lib/zoned";
 import { zoneAbbr } from "@/lib/tz";
 import { hhmm } from "@/lib/shifts";
-import { classifyTractor, engineStateOf, etaAt, geofence, routeMilesLeft, scheduleState, speedLine, type TractorState } from "@/lib/telematics";
-import { ensureRoadRoute } from "@/server/geo/road-route";
+import { trailOnRoad } from "@/lib/geo-line";
+import { classifyTractor, engineStateOf, etaAt, geofence, roadMilesLeft, roadSchedule, speedLine, stopsAhead, type TractorState } from "@/lib/telematics";
+import { fixAge } from "@/lib/whereabouts";
+import { ensureRoadRoute, ensureWayThere } from "@/server/geo/road-route";
 import { numOrNull } from "./convert";
 import { workspaceTimezone } from "@/server/tl/zone";
 import { currentWorkspaceId } from "./workspace";
@@ -25,16 +27,17 @@ export type LoadTracking =
       stops: TrackingStop[];
       position: { lat: number; lng: number; headingDeg: number | null; at: string; state: TractorState | null };
       trail: Array<{ lat: number; lng: number }>;
+      /** The stretches of road the truck drove, between fixes that were on the load's road: never a straight line between two fixes. */
+      driven: Array<Array<[number, number]>>;
       /** "68 MPH · I-40 E · 142 miles to destination · ETA 14:15 CT · ON SCHEDULE". */
       headline: string;
       late: boolean;
       /** One per stop the truck has been inside, in words: "GEOFENCE: AT RECEIVER FACILITY (14:12 CT)". */
       geofences: Array<{ stop: number; text: string; inside: boolean }>;
-      /** The road route through the stops (standard car directions, kept in server memory only), or null when none could be had: the lane is then drawn straight. */
+      /** The road the truck is to drive (standard car directions, kept in server memory only): the planned route through the stops, or the way there when it is off it. Null when none could be had. */
       road: { coords: Array<[number, number]>; miles: number } | null;
-      /** What miles left rest on: the road route (the truck within 2 miles of it), or the straight lane; `offRoute` when a road route exists but the truck is off it. */
-      milesBasis: "road" | "lane";
-      offRoute: boolean;
+      /** Why miles left and the arrival are there or not: along the road; no road route to measure on; the truck on none of the roads there are. */
+      roadState: "on" | "none" | "off";
       asOf: string;
     };
 
@@ -46,9 +49,9 @@ export async function getLoadTracking(loadId: string, workspaceId = currentWorks
     where: { id: loadId, workspaceId, deletedAt: null, status: { in: OPEN } },
     select: {
       vehicleId: true,
-      loadedMiles: true,
+      status: true,
       vehicle: { select: { name: true, lastLat: true, lastLng: true, lastLocatedAt: true, lastSpeedMph: true, lastHeadingDeg: true, engineState: true } },
-      stops: { orderBy: { stopSequence: "asc" }, select: { stopSequence: true, stopRole: true, stopType: true, addressString: true, facilityName: true, lat: true, lng: true, timeWindowLatest: true, timeWindowEarliest: true } }
+      stops: { orderBy: { stopSequence: "asc" }, select: { stopSequence: true, stopRole: true, stopType: true, addressString: true, facilityName: true, lat: true, lng: true, arrivedAt: true, timeWindowLatest: true, timeWindowEarliest: true } }
     }
   });
   if (!load || !load.vehicleId || !load.vehicle) return { status: "no_truck" };
@@ -84,15 +87,19 @@ export async function getLoadTracking(loadId: string, workspaceId = currentWorks
     geofences.push(now_.inside ? { stop: s.sequence, inside: true, text: `GEOFENCE: AT ${who} FACILITY (${when})` } : { stop: s.sequence, inside: false, text: `GEOFENCE: ARRIVED AT ${who} FACILITY (${when}), LEFT` });
   }
 
-  // How much is left: along the load's road route when one can be had (this is a single load's own view, so it may be fetched, once, and kept in server memory) and the truck is on it, else
-  // along the straight lane with the load's own loaded miles.
-  const road = await ensureRoadRoute(loadId, stops);
+  // How much is left, on a road or not at all: the load's planned route when the truck is on it, else the road from where it is to the stops still ahead (this is a single load's own view, so
+  // either may be fetched, and is kept in server memory). An old fix says where the truck was, so no arrival is worked out from it and no way there is asked for.
+  const planned = await ensureRoadRoute(loadId, stops);
+  const { ahead, approaching } = stopsAhead(load.status, placed.map((s) => ({ ...s, lat: numOrNull(s.lat)!, lng: numOrNull(s.lng)! })), here);
+  const old = fixAge(at, now.getTime())?.old === true;
   const atDestination = geofence(here, destination).inside;
-  const left = routeMilesLeft({ origin, destination, here, loadedMiles: numOrNull(load.loadedMiles), road });
-  const toGo = atDestination ? 0 : left.miles;
-  const eta = atDestination ? null : etaAt(now.getTime(), toGo, speed);
+  let left = roadMilesLeft({ here, approaching, planned, way: null });
+  if (!left && !old && !atDestination && load.status !== "completed") left = roadMilesLeft({ here, approaching, planned, way: await ensureWayThere(loadId, here, ahead) });
+  const milesLeft = atDestination ? 0 : (left?.miles ?? null);
+  const eta = atDestination || milesLeft == null || old ? null : etaAt(now.getTime(), milesLeft, speed);
   const lastWindow = load.stops[load.stops.length - 1]?.timeWindowLatest ?? null;
-  const sched = eta == null ? null : scheduleState(eta, lastWindow);
+  const sched = roadSchedule({ here, destination, milesLeft: old ? null : milesLeft, speedMph: speed, windowLatest: lastWindow, now: now.getTime() });
+  const road = left?.road ?? planned;
   const when = (ms: number) => {
     const today = centralParts(now.getTime(), tz);
     const that = centralParts(ms, tz);
@@ -100,13 +107,13 @@ export async function getLoadTracking(loadId: string, workspaceId = currentWorks
     return sameDay ? clock(ms) : `${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date(Date.UTC(that.y, that.m0, that.d)).getUTCDay()]} ${clock(ms)}`;
   };
   const headline = [
-    speedLine(speed, here, load.vehicle.lastHeadingDeg) || null,
-    atDestination ? "AT THE DESTINATION" : `${toGo.toFixed(0)} miles to destination`,
+    speedLine(speed, left?.roadName ?? null, load.vehicle.lastHeadingDeg) || null,
+    atDestination ? "AT THE DESTINATION" : milesLeft != null ? `${milesLeft.toFixed(0)} miles to destination` : null,
     eta != null ? `ETA ${when(eta)}` : null,
-    sched === "late" ? "RUNNING LATE" : sched === "on_schedule" ? "ON SCHEDULE" : null
+    old ? null : sched === "late" ? "RUNNING LATE" : sched === "on_schedule" ? "ON SCHEDULE" : null
   ]
     .filter(Boolean)
-    .join(" · ");
+    .join(" · ") || "Position read";
 
   return {
     status: "tracking",
@@ -114,12 +121,12 @@ export async function getLoadTracking(loadId: string, workspaceId = currentWorks
     stops,
     position: { lat, lng, headingDeg: load.vehicle.lastHeadingDeg, at: at.toISOString(), state },
     trail,
+    driven: trailOnRoad(trail, planned?.coords),
     headline,
     late: sched === "late",
     geofences,
     road: road ? { coords: road.coords.map((c) => [c[0], c[1]] as [number, number]), miles: road.miles } : null,
-    milesBasis: atDestination ? (road ? "road" : "lane") : left.basis,
-    offRoute: left.offRoute,
+    roadState: left || atDestination ? "on" : planned ? "off" : "none",
     asOf: at.toISOString()
   };
 }

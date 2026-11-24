@@ -20,10 +20,11 @@ export type RadarRoute =
       truckId: string | null;
       stops: TrackingStop[];
       trail: Array<{ lat: number; lng: number }>;
-      /** The road route (standard car directions, server memory only), when one could be had; else the lane is drawn straight. */
+      /** The stretches of road it drove (LoadTracking `driven`). */
+      driven: Array<Array<[number, number]>>;
+      /** The road route (standard car directions, server memory only), when one could be had; else no line is drawn. */
       road: Array<[number, number]> | null;
-      milesBasis: "road" | "lane";
-      offRoute: boolean;
+      roadState: "on" | "none" | "off";
       headline: string | null;
       late: boolean;
       driver: string | null;
@@ -60,6 +61,6 @@ export async function unitRoute(kind: string, id: string, workspaceId: string, t
   const where = load.vehicleId ? await getTruckWhere([load.vehicleId], workspaceId, terminal, now) : new Map();
   const w = load.vehicleId ? where.get(load.vehicleId) : undefined;
   const base = { mode: "route" as const, loadId: load.id, loadNumber: load.loadNumber, truckId: load.vehicleId, driver: w?.driver ?? null, hos: w?.hos ?? null, eta: w?.eta ?? null, nextStop: w?.nextStop ?? null, trailer: w?.hitched?.kind === "trailer" ? w.hitched.name : null };
-  if (tracking.status === "tracking") return { ...base, status: "tracking", stops: tracking.stops, trail: tracking.trail, road: tracking.road?.coords ?? null, milesBasis: tracking.milesBasis, offRoute: tracking.offRoute, headline: tracking.headline, late: tracking.late };
-  return { ...base, status: tracking.status, stops: [], trail: [], road: null, milesBasis: "lane", offRoute: false, headline: null, late: false };
+  if (tracking.status === "tracking") return { ...base, status: "tracking", stops: tracking.stops, trail: tracking.trail, driven: tracking.driven, road: tracking.road?.coords ?? null, roadState: tracking.roadState, headline: tracking.headline, late: tracking.late };
+  return { ...base, status: tracking.status, stops: [], trail: [], driven: [], road: null, roadState: "none", headline: null, late: false };
 }

@@ -53,11 +53,14 @@ describe("where a unit is", () => {
     expect(w.town).toBe("Little Rock, AR");
   });
 
-  test("a moving unit says its highway; a standing one never does", () => {
+  test("a moving unit says the road its route is on there, else its heading; a standing one says neither", () => {
     const moving: Fix = { lat: 35.05, lng: -89.5, speedMph: 65, engine: "moving", headingDeg: 90, locatedAt: new Date(NOW) };
     const m = whereIs(moving, [], town("Memphis, TN", 20), NOW);
-    expect(m.road).toBeTruthy();
-    expect(m.label.startsWith("On ")).toBe(true);
+    expect(m.road).toBe("heading E");
+    expect(m.label).toBe("Moving, heading E, within 25 mi of Memphis, TN"); // no highway is guessed from the point
+    const on = whereIs({ ...moving, roadName: "I-40" }, [], town("Memphis, TN", 20), NOW);
+    expect(on.road).toBe("I-40 E");
+    expect(on.label).toBe("On I-40 E, within 25 mi of Memphis, TN");
     expect(whereIs({ ...moving, speedMph: 0, engine: "off" }, [], town("Memphis, TN", 20), NOW).road).toBeNull();
   });
 

@@ -1,10 +1,11 @@
 import { terminalFilter, type Terminals } from "@/lib/scope";
 import { prisma } from "@/lib/db";
 import { equipmentCode, dwellSentence, idleLine, idleSentence } from "@/lib/radar";
-import { classifyTractor, dwell, engineStateOf, fleetCounts, laneSchedule, speedLine, type EngineState, type FleetCounts, type TractorState } from "@/lib/telematics";
+import { classifyTractor, dwell, engineStateOf, fleetCounts, roadMilesLeft, roadSchedule, speedLine, stopsAhead, type EngineState, type FleetCounts, type TractorState } from "@/lib/telematics";
 import { partnerState } from "@/server/partners/call";
 import { numOrNull } from "./convert";
-import { readRoadRoute } from "./road-route-cache";
+import { fixAge } from "@/lib/whereabouts";
+import { readRoadRoute, readWayThere } from "./road-route-cache";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
 
@@ -24,14 +25,16 @@ export function truckInTerminal(terminal: Terminals): object {
 }
 const OPEN_FOR_TRAILER = ["draft", "accepted", "in_progress"];
 
-type LaneLoad = { id: string; loadedMiles: unknown; stops: Array<{ lat: unknown; lng: unknown; timeWindowLatest: Date | null }> };
-/** Running late, on the load's road route when one is already kept in memory (the map never fetches one: no fan-out of directions calls), else along the straight lane. */
-function runningLate(load: LaneLoad, here: { lat: number; lng: number }, speedMph: number | null, now: Date): boolean {
-  const placed = load.stops.map((s) => ({ lat: numOrNull(s.lat as never), lng: numOrNull(s.lng as never), w: s.timeWindowLatest })).filter((s): s is { lat: number; lng: number; w: Date | null } => s.lat != null && s.lng != null);
-  if (placed.length < 2) return false;
-  const dest = placed[placed.length - 1]!;
-  const road = readRoadRoute(load.id, placed, now.getTime()) ?? null;
-  return laneSchedule({ origin: placed[0]!, destination: dest, here, loadedMiles: numOrNull(load.loadedMiles as never), speedMph, windowLatest: dest.w, now: now.getTime(), road }) === "late";
+type RoutedLoad = { id: string; status: string; stops: Array<{ lat: unknown; lng: unknown; arrivedAt: Date | null; timeWindowLatest: Date | null }> };
+/** Where a load stands on the road routes already kept in memory (the map never fetches one: no fan-out of directions calls): the road the truck is on, and whether it is running late. */
+function onTheRoad(load: RoutedLoad, here: { lat: number; lng: number }, speedMph: number | null, locatedAt: Date, now: Date): { roadName: string | null; late: boolean } {
+  const placed = load.stops.map((s) => ({ ...s, lat: numOrNull(s.lat as never), lng: numOrNull(s.lng as never) })).filter((s): s is typeof s & { lat: number; lng: number } => s.lat != null && s.lng != null);
+  if (placed.length < 2) return { roadName: null, late: false };
+  const { ahead, approaching } = stopsAhead(load.status, placed, here);
+  const left = roadMilesLeft({ here, approaching, planned: readRoadRoute(load.id, placed, now.getTime()), way: readWayThere(load.id, ahead, now.getTime())?.route });
+  const destination = placed[placed.length - 1]!;
+  const milesLeft = fixAge(locatedAt, now.getTime())?.old ? null : (left?.miles ?? null);
+  return { roadName: left?.roadName ?? null, late: load.status === "in_progress" && roadSchedule({ here, destination, milesLeft, speedMph, windowLatest: destination.timeWindowLatest, now: now.getTime() }) === "late" };
 }
 
 export type RadarTractor = {
@@ -48,7 +51,7 @@ export type RadarTractor = {
   driver: string | null;
   loadId: string | null;
   loadNumber: string | null;
-  /** Under way on a load and its ETA is past the last stop's window (the drawer's own rule, `laneSchedule`). */
+  /** Under way on a load and late for the last stop's window (the drawer's own rule, `roadSchedule`). */
   late: boolean;
   /** The trailer it pulls. A hooked trailer is where its tractor is, so it travels with the tractor and not as a unit of its own. */
   trailer: { number: string; code: string; loaded: boolean } | null;
@@ -113,7 +116,7 @@ export async function getRadarData(workspaceId = currentWorkspaceId(), terminal:
   const trailerIds = trailers.map((t) => t.id);
   const loads = await prisma.load.findMany({
     where: { workspaceId, deletedAt: null, OR: [...(truckIds.length ? [{ vehicleId: { in: truckIds }, status: { in: OPEN_LOAD } }] : []), ...(trailerIds.length ? [{ trailerId: { in: trailerIds }, status: { in: OPEN_FOR_TRAILER } }] : [])] },
-    select: { id: true, loadNumber: true, status: true, vehicleId: true, trailerId: true, loadedMiles: true, stops: { orderBy: { stopSequence: "asc" }, select: { lat: true, lng: true, timeWindowLatest: true } } }
+    select: { id: true, loadNumber: true, status: true, vehicleId: true, trailerId: true, stops: { orderBy: { stopSequence: "asc" }, select: { lat: true, lng: true, arrivedAt: true, timeWindowLatest: true } } }
   });
 
   const loadOfTruck = new Map<string, (typeof loads)[number]>();
@@ -142,6 +145,7 @@ export async function getRadarData(workspaceId = currentWorkspaceId(), terminal:
     const minutes = st === "idling" && t.idleSince ? Math.max(0, (now.getTime() - t.idleSince.getTime()) / 60_000) : null;
     const line = minutes != null ? idleLine(minutes, price && price > 0 ? price : null) : null;
     const trailer = trailerOfTruck.get(t.id);
+    const way = load ? onTheRoad(load, { lat, lng }, speed, t.lastLocatedAt, now) : { roadName: null, late: false };
     radarTractors.push({
       id: t.id,
       name: t.name ?? "Truck",
@@ -151,11 +155,11 @@ export async function getRadarData(workspaceId = currentWorkspaceId(), terminal:
       speedMph: speed,
       engine,
       state: st,
-      road: speedLine(speed, { lat, lng }, t.lastHeadingDeg),
+      road: speedLine(speed, way.roadName, t.lastHeadingDeg),
       driver: t.drivers[0]?.name ?? null,
       loadId: load?.id ?? null,
       loadNumber: load?.loadNumber ?? null,
-      late: load?.status === "in_progress" ? runningLate(load, { lat, lng }, speed, now) : false,
+      late: way.late,
       trailer: trailer ? { number: trailer.number, code: equipmentCode(trailer.type, numOrNull(trailer.lengthFt)), loaded: loadedTrailers.has(trailer.id) } : null,
       locatedAt: t.lastLocatedAt.toISOString(),
       idle: line ? { minutes: line.minutes, gallons: line.gallons, cashLost: line.cashLost, sentence: idleSentence(line), todayHours: numOrNull(t.idleHoursToday) } : null

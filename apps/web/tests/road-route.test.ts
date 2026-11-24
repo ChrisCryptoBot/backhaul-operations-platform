@@ -4,17 +4,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * A load's road route (src/server/geo/road-route.ts + src/server/tl/road-route-cache.ts): fetched at most once, from a single load's own view, kept in server memory only (bounded, never in the
- * database), keyed by the stops so changed stops mean no route until one is fetched; miles left snap onto it only within 2 miles, else the straight lane. Mapbox is mocked: nothing leaves.
+ * database), keyed by the stops so changed stops mean no route until one is fetched; miles left and an arrival come from a road within 2 miles of the truck, or there are none: a straight line is never put in their place. Mapbox is mocked: nothing leaves.
  */
 const drive = vi.fn();
 let configured = true;
 vi.mock("@/server/geo/mapbox", () => ({ drive: (...a: unknown[]) => drive(...a), mapboxConfigured: () => configured }));
 
-import { MAX_TRAIL_GAP_MILES, alongPolyline, trailRuns } from "@/lib/geo-line";
-import { parseRoute } from "@/lib/geo";
-import { OFF_ROUTE_MILES, ROAD_ROUTE_NOTE, laneSchedule, routeMilesLeft } from "@/lib/telematics";
-import { ensureRoadRoute } from "@/server/geo/road-route";
-import { FAIL_TTL_MS, MAX_ROUTES, ROUTE_TTL_MS, forgetRoadRoutes, keepRoadRoute, readRoadRoute, roadRoutesKept, routeKey } from "@/server/tl/road-route-cache";
+import { MAX_TRAIL_GAP_MILES, alongPolyline, thinLine, trailOnRoad } from "@/lib/geo-line";
+import { parseRoute, roadName } from "@/lib/geo";
+import { OFF_ROUTE_MILES, ROAD_ROUTE_NOTE, milesAlong, roadMilesLeft, roadSchedule, stopsAhead } from "@/lib/telematics";
+import { ensureRoadRoute, ensureWayThere } from "@/server/geo/road-route";
+import { FAIL_TTL_MS, MAX_POINTS, MAX_ROUTES, ROUTE_TTL_MS, forgetRoadRoutes, keepRoadRoute, keepWayThere, readRoadRoute, readWayThere, roadRoutesKept, routeKey } from "@/server/tl/road-route-cache";
 
 const A = { lat: 32.0, lng: -97.0 };
 const B = { lat: 33.0, lng: -97.0 };
@@ -38,9 +38,16 @@ describe("the directions answer keeps its road line", () => {
     expect(parseRoute({ routes: [{ ...base, geometry: "encoded-polyline" }] })?.coords).toBeUndefined();
   });
 
-  it("drive() asks for a simplified GeoJSON line only when asked, through the same ledger claim", () => {
+  it("names the roads it runs on, joining steps on the same one", () => {
+    expect([roadName("I 65 South", ""), roadName("I 90; I 94 East", "Dan Ryan Expressway"), roadName("US 52", ""), roadName(undefined, "West 11th Street"), roadName(undefined, "")]).toEqual(["I-65", "I-90", "US-52", "West 11th Street", ""]);
+    const steps = [{ distance: 100, name: "Main Street" }, { distance: 300, ref: "I 65" }, { distance: 600, ref: "I 65 South" }];
+    expect(parseRoute({ routes: [{ distance: 1000, duration: 60, legs: [{ distance: 1000, steps }], geometry: { type: "LineString", coordinates: [[-97, 32], [-96.9, 32.1]] } }] })?.roads).toEqual([{ name: "Main Street", meters: 100 }, { name: "I-65", meters: 900 }]);
+  });
+
+  it("drive() asks for the whole GeoJSON line (never the simplified one) only when asked, through the same ledger claim", () => {
     const src = fs.readFileSync(path.join(__dirname, "../src/server/geo/mapbox.ts"), "utf8");
-    expect(src).toContain('{ access_token: token(), overview: "simplified", geometries: "geojson" }');
+    expect(src).toContain('{ access_token: token(), overview: "full", geometries: "geojson", steps: "true" }');
+    expect(src).not.toContain('overview: "simplified"');
     expect(src).toContain('{ access_token: token(), overview: "false" }');
     expect(src).toMatch(/directions\/v5\/mapbox\/driving\/\$\{coords\}\?\$\{q\.toString\(\)\}`, "mapbox_directions"\)/);
   });
@@ -72,6 +79,51 @@ describe("the road-route memory", () => {
     expect(roadRoutesKept()).toBe(MAX_ROUTES);
     expect(readRoadRoute("L0", [A, B])).toBeUndefined();
     expect(readRoadRoute(`L${MAX_ROUTES + 4}`, [A, B])).toEqual(ROAD);
+  });
+});
+
+describe("the memory is bounded by the size of the roads too", () => {
+  it("drops the oldest when the points together pass the limit", () => {
+    const big = (n: number) => ({ coords: Array.from({ length: n }, (_, i) => [-97 + i / n, 32] as [number, number]), miles: 50 });
+    keepRoadRoute("OLD", [A, B], big(MAX_POINTS * 0.6));
+    keepRoadRoute("NEW", [A, B], big(MAX_POINTS * 0.6));
+    expect(readRoadRoute("OLD", [A, B])).toBeUndefined();
+    expect(readRoadRoute("NEW", [A, B])).not.toBeUndefined();
+  });
+});
+
+describe("the way there: a truck off its route is put on a road from where it is, never on a straight line", () => {
+  const OFF = { lat: 32.5, lng: -97.4 };
+  const WAY = { meters: 80_000, seconds: 3_600, legsMeters: [80_000], coords: [[-97.4, 32.5], [-97.2, 32.8], [-97.0, 33.0]] as Array<[number, number]> };
+  it("asks for the road from the truck through the stops still ahead", async () => {
+    drive.mockResolvedValue(WAY);
+    const r = await ensureWayThere("L1", OFF, [B]);
+    expect(drive.mock.calls[0]![0].map((p: { lat: number; lng: number }) => [p.lat, p.lng])).toEqual([[32.5, -97.4], [33, -97]]);
+    expect(milesAlong(OFF, r!)!.miles).toBeCloseTo(80_000 / 1609.344, 1);
+  });
+  it("is asked for once while the truck follows it, and at most every ten minutes when it does not", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    drive.mockResolvedValue(WAY);
+    await ensureWayThere("L1", OFF, [B]);
+    await ensureWayThere("L1", { lat: 31, lng: -99 }, [B]); // gone elsewhere, seconds later
+    expect(drive).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(1_000_000 + FAIL_TTL_MS + 1);
+    await ensureWayThere("L1", { lat: 32.8, lng: -97.2 }, [B]); // still on it
+    expect(drive).toHaveBeenCalledTimes(1);
+    await ensureWayThere("L1", { lat: 31, lng: -99 }, [B]); // off it
+    expect(drive).toHaveBeenCalledTimes(2);
+  });
+  it("a failure is remembered, no key asks nothing, and a load keeps at most one", async () => {
+    drive.mockResolvedValue(null);
+    expect(await ensureWayThere("L1", OFF, [B])).toBeNull();
+    expect(await ensureWayThere("L1", OFF, [B])).toBeNull();
+    expect(drive).toHaveBeenCalledTimes(1);
+    configured = false;
+    expect(await ensureWayThere("L2", OFF, [B])).toBeNull();
+    expect(readWayThere("L2", [B])).toBeUndefined();
+    keepWayThere("L1", [B], ROAD);
+    keepWayThere("L1", [B], ROAD);
+    expect(roadRoutesKept()).toBe(1);
   });
 });
 
@@ -116,29 +168,51 @@ describe("miles left on the road, with the off-route guard", () => {
   });
 
   it("on the road: the share of the road still ahead times the route's driven miles", () => {
-    const halfway = routeMilesLeft({ origin: A, destination: B, here: { lat: 32.5, lng: -96.5 }, loadedMiles: 200, road: ROAD });
-    expect(halfway.basis).toBe("road");
-    expect(halfway.offRoute).toBe(false);
-    expect(halfway.miles).toBeCloseTo(45, 0); // half of the route's 90, not half of the load's 200
+    const halfway = roadMilesLeft({ here: { lat: 32.5, lng: -96.5 }, approaching: false, planned: ROAD, way: null });
+    expect(halfway!.miles).toBeCloseTo(45, 0);
   });
 
-  it(`more than ${OFF_ROUTE_MILES} miles off the road: not snapped; the straight lane with the load's own miles`, () => {
+  it(`more than ${OFF_ROUTE_MILES} miles off the road, or with no road: nothing, not a straight line`, () => {
     // At the lane's midpoint (32.5, -97) the bent road is about 29 miles east.
-    const off = routeMilesLeft({ origin: A, destination: B, here: { lat: 32.5, lng: -97.0 }, loadedMiles: 200, road: ROAD });
-    expect(off).toMatchObject({ basis: "lane", offRoute: true });
-    expect(off.miles).toBeCloseTo(100, 0);
-    const none = routeMilesLeft({ origin: A, destination: B, here: { lat: 32.5, lng: -97.0 }, loadedMiles: 200, road: null });
-    expect(none).toMatchObject({ basis: "lane", offRoute: false });
+    expect(roadMilesLeft({ here: { lat: 32.5, lng: -97.0 }, approaching: false, planned: ROAD, way: null })).toBeNull();
+    expect(roadMilesLeft({ here: { lat: 32.5, lng: -97.0 }, approaching: false, planned: null, way: undefined })).toBeNull();
+    const way = { coords: [[-97.0, 32.5], [-97.0, 33.0]] as Array<[number, number]>, miles: 40 };
+    expect(roadMilesLeft({ here: { lat: 32.5, lng: -97.0 }, approaching: false, planned: ROAD, way })!.miles).toBeCloseTo(40, 1);
     expect(OFF_ROUTE_MILES).toBe(2);
   });
 
-  it("the schedule check uses the road when it has one", () => {
+  it("a truck on its way to the first stop is measured on the way there, not from wherever it happens to be along the lane", () => {
+    const here = { lat: 32.5, lng: -96.5 }; // on the planned road, halfway, with the pickup still to do
+    expect(roadMilesLeft({ here, approaching: true, planned: ROAD, way: null })).toBeNull();
+    const way = { coords: [[-96.5, 32.5], [-97.0, 32.0], [-96.5, 32.5], [-97.0, 33.0]] as Array<[number, number]>, miles: 135 };
+    expect(roadMilesLeft({ here, approaching: true, planned: ROAD, way })!.miles).toBeGreaterThan(130);
+  });
+
+  it("the stops ahead are the ones after the last arrival; a load under way has left its first; the last is always ahead", () => {
+    const s = (p: { lat: number; lng: number }, arrived: boolean) => ({ ...p, arrivedAt: arrived ? new Date() : null });
+    const far = { lat: 40, lng: -90 };
+    expect(stopsAhead("accepted", [s(A, false), s(B, false)], far)).toMatchObject({ approaching: true, ahead: [A, B] });
+    expect(stopsAhead("accepted", [s(A, false), s(B, false)], A).approaching).toBe(false); // at the pickup: the planned route starts here
+    expect(stopsAhead("in_progress", [s(A, false), s(B, false)], far)).toMatchObject({ approaching: false, ahead: [B] });
+    expect(stopsAhead("in_progress", [s(A, true), s(B, true)], far).ahead).toHaveLength(1);
+  });
+
+  it("names the road only for a fix that is on it", () => {
+    const road = { ...ROAD, roads: [{ name: "I-35", until: 0.5 }, { name: "US-67", until: 1 }] };
+    expect(milesAlong({ lat: 32.25, lng: -96.75 }, road)!.roadName).toBe("I-35");
+    expect(milesAlong({ lat: 32.75, lng: -96.75 }, road)!.roadName).toBe("US-67");
+    expect(milesAlong({ lat: 32.25, lng: -96.73 }, road)!.roadName).toBeNull(); // near the route, not on the road
+    expect(milesAlong({ lat: 32.25, lng: -96.75 }, ROAD)!.roadName).toBeNull();
+  });
+
+  it("the schedule: the road's arrival, else only what the clock says", () => {
     const now = Date.UTC(2026, 10, 13, 12);
-    const here = { lat: 32.5, lng: -96.5 };
-    // 45 road miles at 60 mph is 45 minutes; the window closes in 50 (plus 15 grace): on schedule. On the lane with 200 loaded miles it would be 100 miles: late.
-    const windowLatest = now + 50 * 60_000;
-    expect(laneSchedule({ origin: A, destination: B, here, loadedMiles: 200, speedMph: 60, windowLatest, now, road: ROAD })).toBe("on_schedule");
-    expect(laneSchedule({ origin: A, destination: B, here, loadedMiles: 200, speedMph: 60, windowLatest, now })).toBe("late");
+    const at = (milesLeft: number | null, mins: number) => roadSchedule({ here: { lat: 32.5, lng: -96.5 }, destination: B, milesLeft, speedMph: 60, windowLatest: now + mins * 60_000, now });
+    expect(at(45, 50)).toBe("on_schedule");
+    expect(at(100, 50)).toBe("late");
+    expect(at(null, 50)).toBeNull(); // no road miles and the window is open: nothing is said
+    expect(at(null, -60)).toBe("late"); // the window closed and it is not there
+    expect(roadSchedule({ here: B, destination: B, milesLeft: 0, speedMph: 0, windowLatest: now - 3_600_000, now })).toBeNull();
   });
 
   it("says plainly what the road line is", () => {
@@ -146,24 +220,35 @@ describe("miles left on the road, with the off-route guard", () => {
     expect(ROAD_ROUTE_NOTE).toMatch(/not truck routing/);
   });
 
-  it(`trailRuns breaks GPS breadcrumbs across gaps over ${MAX_TRAIL_GAP_MILES} miles`, () => {
-    expect(trailRuns([])).toEqual([]);
-    expect(trailRuns([{ lat: 41.5, lng: -87.3 }])).toEqual([]);
-    // Three dense fixes ~0.7 miles apart stay connected; a ~20 mile gap starts a new run; a trailing lone ping makes no fake segment.
-    const dense = [
-      { lat: 41.5, lng: -87.3 },
-      { lat: 41.49, lng: -87.3 },
-      { lat: 41.48, lng: -87.3 }
-    ];
-    const acrossGap = [
-      { lat: 41.18, lng: -87.2 },
-      { lat: 41.17, lng: -87.2 }
-    ];
-    const lone = { lat: 40.5, lng: -86.9 };
-    const runs = trailRuns([...dense, ...acrossGap, lone]);
-    expect(runs).toHaveLength(2);
-    expect(runs[0]).toHaveLength(3);
-    expect(runs[1]).toHaveLength(2);
+  it("a thinned line never leaves the road by more than its few meters, and keeps every bend", () => {
+    const bend = Array.from({ length: 2000 }, (_, i) => [-97 + i / 2000, 32 + Math.sin(i / 60) * 0.05] as [number, number]);
+    const thin = thinLine(bend);
+    expect(thin.length).toBeLessThan(bend.length);
+    for (const [lng, lat] of bend) expect(alongPolyline({ lat, lng }, thin)!.offMiles * 1609.344).toBeLessThan(5);
+    expect(thin[0]).toEqual(bend[0]);
+    expect(thin[thin.length - 1]).toEqual(bend[bend.length - 1]);
+  });
+
+  it(`where a truck has been is drawn along the road, between fixes on it and no more than ${MAX_TRAIL_GAP_MILES} miles apart; two fixes are never joined straight`, () => {
+    // A road that goes out and around: (32,-97) -> (32.04,-96.96) -> (32.08,-97).
+    const road = [[-97.0, 32.0], [-96.96, 32.04], [-97.0, 32.08]] as Array<[number, number]>;
+    const a = { lat: 32.01, lng: -96.99 };
+    const b = { lat: 32.07, lng: -96.99 };
+    const runs = trailOnRoad([a, b], road);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toContainEqual([-96.96, 32.04]); // it goes by the bend, not straight up
+    expect(trailOnRoad([a, b], null)).toEqual([]); // no road: the dots only
+    expect(trailOnRoad([a, { lat: 32.04, lng: -97.0 }, b], road)).toEqual([]); // a fix off the road joins nothing
+    expect(trailOnRoad([b, a], road)).toEqual([]); // backwards joins nothing
+    expect(trailOnRoad([{ lat: 32, lng: -97 }, { lat: 33, lng: -97 }], [[-97, 32], [-97, 33]])).toEqual([]); // a long gap
+  });
+});
+
+describe("no straight lines", () => {
+  const src = (p: string) => fs.readFileSync(path.join(__dirname, "../src", p), "utf8");
+  it("no screen draws a line from stop to stop or from fix to fix, and no reader measures one", () => {
+    for (const p of ["components/desk/radar-map.tsx", "components/desk/load-tracker.tsx", "server/tl/load-tracking.ts", "server/tl/radar.ts", "server/tl/whereabouts.ts", "server/tl/radar-route.ts", "lib/telematics.ts"]) expect(src(p), p).not.toMatch(/route-lane|laneProgress|milesToGo|laneSchedule|laneNote|trailRuns|nearestCorridor|INTERSTATES|straightMiles|stops\.map\(at\)/);
+    expect(fs.existsSync(path.join(__dirname, "../src/lib/basemap/interstates.ts"))).toBe(false);
   });
 });
 

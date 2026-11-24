@@ -46,62 +46,131 @@ export function projectOnLine(a: LatLng, b: LatLng, p: LatLng): { fraction: numb
   return { fraction: f, offMiles: Math.hypot(P.x - cx, P.y - cy) };
 }
 
-/** Miles from a point to the nearest part of a polyline of [lng, lat] pairs, and the compass bearing of the stretch it is nearest. */
+export type Along = { offMiles: number; alongMiles: number };
+/** A road line ([lng, lat] pairs) ready to be measured against many points: its whole length, and for a point how far off it is and how far along its nearest part is. Null under two points. */
+export type LineIndex = { totalMiles: number; at: (p: LatLng) => Along; slice: (fromMiles: number, toMiles: number) => Array<[number, number]> };
+export function indexLine(coords: ReadonlyArray<readonly [number, number]>): LineIndex | null {
+  const n = coords.length - 1;
+  if (n < 1) return null;
+  // Flat miles per segment, around its own latitude (the same as projectOnLine), worked out once: a road line has thousands of them.
+  const kx = new Float64Array(n);
+  const starts = new Float64Array(n + 1);
+  for (let i = 0; i < n; i++) {
+    const a = coords[i]!;
+    const b = coords[i + 1]!;
+    kx[i] = Math.cos(rad((a[1] + b[1]) / 2)) * MILES_PER_DEG_LAT;
+    starts[i + 1] = starts[i]! + Math.hypot((b[0] - a[0]) * kx[i]!, (b[1] - a[1]) * MILES_PER_DEG_LAT);
+  }
+  const at = (p: LatLng): Along => {
+    let best = Infinity;
+    let along = 0;
+    for (let i = 0; i < n; i++) {
+      const a = coords[i]!;
+      const b = coords[i + 1]!;
+      const dx = (b[0] - a[0]) * kx[i]!;
+      const dy = (b[1] - a[1]) * MILES_PER_DEG_LAT;
+      const px = (p.lng - a[0]) * kx[i]!;
+      const py = (p.lat - a[1]) * MILES_PER_DEG_LAT;
+      const len2 = dx * dx + dy * dy;
+      const f = len2 === 0 ? 0 : Math.min(1, Math.max(0, (px * dx + py * dy) / len2));
+      const d2 = (px - dx * f) ** 2 + (py - dy * f) ** 2;
+      if (d2 < best) {
+        best = d2;
+        along = starts[i]! + (starts[i + 1]! - starts[i]!) * f;
+      }
+    }
+    return { offMiles: Math.sqrt(best), alongMiles: along };
+  };
+  const pointAt = (miles: number, from: number): { p: [number, number]; i: number } => {
+    let i = from;
+    while (i < n - 1 && starts[i + 1]! < miles) i++;
+    const seg = starts[i + 1]! - starts[i]!;
+    const f = seg === 0 ? 0 : Math.min(1, Math.max(0, (miles - starts[i]!) / seg));
+    const a = coords[i]!;
+    const b = coords[i + 1]!;
+    return { p: [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f], i };
+  };
+  const slice = (fromMiles: number, toMiles: number): Array<[number, number]> => {
+    const a = pointAt(fromMiles, 0);
+    const b = pointAt(toMiles, a.i);
+    const out: Array<[number, number]> = [a.p];
+    for (let i = a.i + 1; i <= b.i; i++) out.push([coords[i]![0], coords[i]![1]]);
+    out.push(b.p);
+    return out;
+  };
+  return { totalMiles: starts[n]!, at, slice };
+}
+
+/** One point against a line: how far off, how far along, and the line's whole length, in miles. */
+export function alongPolyline(p: LatLng, coords: ReadonlyArray<readonly [number, number]>): (Along & { totalMiles: number }) | null {
+  const line = indexLine(coords);
+  return line ? { ...line.at(p), totalMiles: line.totalMiles } : null;
+}
+
 /**
- * Where a point sits along a road line (lng, lat pairs): how far off the line it is, how far along it its nearest point is, and the line's whole length, all in miles. Measured in local flat miles
- * around each segment, the same as `projectOnLine`. Null for a line of fewer than two points.
+ * The same road with the points that change nothing left out: every point dropped is within `meters` of the line that is kept (Douglas and Peucker), so a bend is never cut. At the default, four
+ * meters, the line stays inside its own lanes at the closest zoom the map has.
  */
-export function alongPolyline(p: LatLng, coords: ReadonlyArray<readonly [number, number]>): { offMiles: number; alongMiles: number; totalMiles: number } | null {
-  if (coords.length < 2) return null;
-  let total = 0;
-  let best: { offMiles: number; alongMiles: number } | null = null;
-  for (let i = 0; i < coords.length - 1; i++) {
-    const a = { lat: coords[i]![1], lng: coords[i]![0] };
-    const b = { lat: coords[i + 1]![1], lng: coords[i + 1]![0] };
-    const ref = (a.lat + b.lat) / 2;
-    const A = flat(a, ref);
-    const B = flat(b, ref);
-    const seg = Math.hypot(B.x - A.x, B.y - A.y);
-    const { fraction, offMiles } = projectOnLine(a, b, p);
-    if (!best || offMiles < best.offMiles) best = { offMiles, alongMiles: total + seg * fraction };
-    total += seg;
-  }
-  return best ? { ...best, totalMiles: total } : null;
-}
-
-export function nearestOnPolyline(p: LatLng, coords: ReadonlyArray<readonly [number, number]>): { miles: number; bearing: number } | null {
-  if (coords.length < 2) return null;
-  let best: { miles: number; bearing: number } | null = null;
-  for (let i = 0; i < coords.length - 1; i++) {
-    const a = { lat: coords[i]![1], lng: coords[i]![0] };
-    const b = { lat: coords[i + 1]![1], lng: coords[i + 1]![0] };
-    const { offMiles } = projectOnLine(a, b, p);
-    if (!best || offMiles < best.miles) best = { miles: offMiles, bearing: bearingDeg(a, b) };
-  }
-  return best;
-}
-
-/** Max distance between two consecutive GPS pings that still connects with a trail line; wider gaps break so sparse fixes never cut diagonally across roads or water. */
-export const MAX_TRAIL_GAP_MILES = 2;
-
-/** Splits chronological GPS fixes into continuous drawn runs wherever consecutive points are within `maxGapMiles`. Single-point runs are omitted because lines need at least two points. */
-export function trailRuns(points: ReadonlyArray<LatLng>, maxGapMiles = MAX_TRAIL_GAP_MILES): LatLng[][] {
-  if (points.length < 2) return [];
-  const runs: LatLng[][] = [];
-  let cur: LatLng[] = [points[0]!];
-  for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1]!;
-    const next = points[i]!;
-    const ref = (prev.lat + next.lat) / 2;
-    const a = flat(prev, ref);
-    const b = flat(next, ref);
-    if (Math.hypot(b.x - a.x, b.y - a.y) <= maxGapMiles) {
-      cur.push(next);
-    } else {
-      if (cur.length >= 2) runs.push(cur);
-      cur = [next];
+export function thinLine(coords: ReadonlyArray<readonly [number, number]>, meters = 4): Array<[number, number]> {
+  const n = coords.length;
+  if (n <= 2) return coords.map((c) => [c[0], c[1]]);
+  const keep = new Uint8Array(n);
+  keep[0] = keep[n - 1] = 1;
+  const limit = meters / 1609.344;
+  const stack: Array<[number, number]> = [[0, n - 1]];
+  while (stack.length > 0) {
+    const [i0, i1] = stack.pop()!;
+    const a = coords[i0]!;
+    const b = coords[i1]!;
+    const k = Math.cos(rad((a[1] + b[1]) / 2)) * MILES_PER_DEG_LAT;
+    const dx = (b[0] - a[0]) * k;
+    const dy = (b[1] - a[1]) * MILES_PER_DEG_LAT;
+    const len2 = dx * dx + dy * dy;
+    let worst = limit * limit;
+    let at = -1;
+    for (let i = i0 + 1; i < i1; i++) {
+      const px = (coords[i]![0] - a[0]) * k;
+      const py = (coords[i]![1] - a[1]) * MILES_PER_DEG_LAT;
+      const f = len2 === 0 ? 0 : Math.min(1, Math.max(0, (px * dx + py * dy) / len2));
+      const d2 = (px - dx * f) ** 2 + (py - dy * f) ** 2;
+      if (d2 > worst) {
+        worst = d2;
+        at = i;
+      }
+    }
+    if (at >= 0) {
+      keep[at] = 1;
+      stack.push([i0, at], [at, i1]);
     }
   }
-  if (cur.length >= 2) runs.push(cur);
+  return coords.filter((_, i) => keep[i] === 1).map((c) => [c[0], c[1]]);
+}
+
+/** A fix this near the road line was on that road. */
+export const ON_ROAD_MILES = 0.25;
+/** Two fixes farther apart than this along the road are not joined: nothing was read between them. */
+export const MAX_TRAIL_GAP_MILES = 10;
+
+/**
+ * Where a truck has been, along the road: the stretch of the load's road line between each two consecutive fixes that were both on it, driven forward, and no farther apart than the gap. Everything
+ * else is left as the fixes themselves (the caller draws a dot for each): two fixes are never joined with a straight line, because that is not where the truck drove.
+ */
+export function trailOnRoad(points: ReadonlyArray<LatLng>, road: ReadonlyArray<readonly [number, number]> | null | undefined): Array<Array<[number, number]>> {
+  const line = road ? indexLine(road) : null;
+  if (!line || points.length < 2) return [];
+  const runs: Array<Array<[number, number]>> = [];
+  let cur: Array<[number, number]> | null = null;
+  let prev: Along | null = null;
+  for (const p of points) {
+    const here = line.at(p);
+    const on = here.offMiles <= ON_ROAD_MILES ? here : null;
+    const gap = on && prev ? on.alongMiles - prev.alongMiles : 0;
+    if (on && prev && gap > 0 && gap <= MAX_TRAIL_GAP_MILES) {
+      const part = line.slice(prev.alongMiles, on.alongMiles);
+      if (cur) cur.push(...part.slice(1));
+      else runs.push((cur = part));
+    } else cur = null;
+    prev = on;
+  }
   return runs;
 }

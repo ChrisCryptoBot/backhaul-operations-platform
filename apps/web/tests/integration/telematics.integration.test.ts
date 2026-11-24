@@ -8,6 +8,7 @@ import { purgeOldPings } from "@/server/partners/retention";
 import { saveKeysAndConnect } from "@/server/partners/setup";
 import { listEntityAudit } from "@/server/tl/audit";
 import { adjustTrailerDwell, clearTrailerDwell, waiveTrailerDwell } from "@/server/tl/dwell";
+import { keepRoadRoute } from "@/server/tl/road-route-cache";
 import { getLoadTracking } from "@/server/tl/load-tracking";
 import { getRadarData } from "@/server/tl/radar";
 import { hookTrailer, listTrailersPage } from "@/server/tl/trailers";
@@ -172,13 +173,21 @@ describe.skipIf(!run)("telematics: radar, idle, dwell, onboarding", () => {
       ]
     });
     const load = await prisma.load.create({ data: { workspaceId: W, loadNumber: "TEL-L1", status: "in_progress", quotedRevenue: 2000, loadedMiles: 781, vehicleId: truck.id, stops: stops(new Date(NOW.getTime() - 5 * 3_600_000), new Date(NOW.getTime() + 40 * 3_600_000)) } });
-    // Read the ELD: the simulator puts the truck on this load's lane.
+    // Read the ELD: the simulator puts the truck somewhere between the two.
     expect(await syncEld(NOW, W)).toMatchObject({ ok: true });
     let t = await getLoadTracking(load.id, W, NOW);
     expect(t.status).toBe("tracking");
     if (t.status !== "tracking") return;
+    // With no road route there is no line, no miles and no arrival: a straight line is never put in their place.
+    expect(t).toMatchObject({ road: null, roadState: "none", driven: [], late: false });
+    expect(t.headline).not.toMatch(/miles to destination|ETA|SCHEDULE|LATE/);
+    const here = t.position;
+    keepRoadRoute(load.id, t.stops, { coords: [[DALLAS.lng, DALLAS.lat], [here.lng, here.lat], [ATLANTA.lng, ATLANTA.lat]], miles: 781, roads: [{ name: "I-20", until: 1 }] });
+    t = await getLoadTracking(load.id, W, NOW);
+    if (t.status !== "tracking") return;
+    expect(t.roadState).toBe("on");
     expect(t.stops.map((s) => s.role)).toEqual(["pickup", "delivery"]);
-    expect(t.headline).toMatch(/miles to destination · ETA .* CT · ON SCHEDULE$/);
+    expect(t.headline).toMatch(/I-20.* · \d+ miles to destination · ETA .* CT · ON SCHEDULE$/);
     expect(t.late).toBe(false);
     expect(t.trail.length).toBeGreaterThanOrEqual(1);
     expect(t.geofences).toEqual([]);
@@ -186,6 +195,7 @@ describe.skipIf(!run)("telematics: radar, idle, dwell, onboarding", () => {
     // The same truck a long way from done with a window that closes in an hour: running late.
     await prisma.stop.updateMany({ where: { loadId: load.id, stopType: "delivery" }, data: { timeWindowLatest: new Date(NOW.getTime() + 3_600_000), timeWindowEarliest: new Date(NOW.getTime() + 3_600_000) } });
     await prisma.vehicle.update({ where: { id: truck.id }, data: { lastLat: DALLAS.lat + 0.4, lastLng: DALLAS.lng + 0.4, lastSpeedMph: 62, lastHeadingDeg: 90, engineState: "moving", lastLocatedAt: NOW } });
+    keepRoadRoute(load.id, [DALLAS, ATLANTA], { coords: [[DALLAS.lng, DALLAS.lat], [DALLAS.lng + 0.4, DALLAS.lat + 0.4], [ATLANTA.lng, ATLANTA.lat]], miles: 781 });
     t = await getLoadTracking(load.id, W, NOW);
     expect(t.status === "tracking" && t.late).toBe(true);
     if (t.status === "tracking") expect(t.headline).toMatch(/RUNNING LATE$/);

@@ -1,6 +1,6 @@
 import { haversineMiles, METERS_TO_MILES } from "./geo";
 import { compass } from "./geo-line";
-import { MOVING_MPH, ageWords, nearestCorridor, type EngineState } from "./telematics";
+import { MOVING_MPH, ageWords, roadHeading, type EngineState } from "./telematics";
 
 /**
  * Where a truck or trailer is, in words a dispatcher can act on: at a facility the desk already knows from a load's stops, near a town, on a highway, or just a point. Pure: plain data in, plain
@@ -22,6 +22,8 @@ export type Fix = {
   speedMph: number | null;
   engine: EngineState | null;
   headingDeg: number | null;
+  /** The road it is on, when it is on its load's road route ("I-40"). Never guessed from the point. */
+  roadName?: string | null;
   locatedAt: Date | string | number | null;
   /** A dropped trailer is standing by definition; pass true. Left out, the speed and engine decide. */
   standing?: boolean;
@@ -105,7 +107,7 @@ export function closestStop(at: { lat: number; lng: number }, stops: readonly Kn
 /** "I-40 E · 62 MPH" style road text for a moving unit, else null. */
 function roadOf(f: Fix, standing: boolean): string | null {
   if (standing) return null;
-  return nearestCorridor({ lat: f.lat, lng: f.lng }, f.headingDeg) ?? (f.headingDeg != null ? `heading ${compass(f.headingDeg)}` : null);
+  return roadHeading(f.roadName, f.headingDeg) ?? (f.headingDeg != null ? `heading ${compass(f.headingDeg)}` : null);
 }
 
 /**
@@ -133,7 +135,7 @@ export function whereIs(f: Fix, stops: readonly KnownStop[], town: Town | null, 
   }
 
   const nearestStop = stop ? { name: stop.stop.name.trim(), miles: roundMi(stop.miles) } : null;
-  const onRoad = road && !standing ? `On ${road}` : null;
+  const onRoad = !road || standing ? null : f.roadName ? `On ${road}` : `Moving, ${road}`;
   if (t && t.miles <= NEAR_MILES) return { ...base, tier: "near", label: onRoad ? `${onRoad}, near ${t.label}` : `Near ${t.label}`, facility: null, nearestStop };
   if (t && t.miles <= AROUND_MILES) return { ...base, tier: "around", label: onRoad ? `${onRoad}, within 25 mi of ${t.label}` : `Within 25 mi of ${t.label}`, facility: null, nearestStop };
   if (t) return { ...base, tier: "town", label: onRoad ? `${onRoad}, ${roundMi(t.miles)} mi from ${t.label}` : `${roundMi(t.miles)} mi from ${t.label}`, facility: null, nearestStop };

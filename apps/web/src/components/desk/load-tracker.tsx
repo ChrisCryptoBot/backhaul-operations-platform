@@ -1,14 +1,13 @@
 import Link from "next/link";
 import React from "react";
-import { trailRuns } from "@/lib/geo-line";
 import type { LoadTracking } from "@/server/tl/load-tracking";
-import { ROAD_ROUTE_NOTE, agoText, laneNote } from "@/lib/telematics";
+import { NO_ROAD_NOTE, OFF_ROAD_NOTE, ROAD_ROUTE_NOTE, agoText } from "@/lib/telematics";
 import { LoadMap } from "./radar-map";
 import { StaleFix } from "./kit/stale-fix";
 import { fixAge } from "@/lib/whereabouts";
 
 /**
- * Where it is: the load's lane drawn as a corridor from the pickup to the delivery, the truck's breadcrumb along it and its marker where the ELD last put it, with the speed, road, miles to go, ETA
+ * Where it is: the load's road from the pickup to the delivery, the road the truck drove along it and its marker where the ELD last put it, with the speed, road, miles to go, ETA
  * and whether that is on schedule. A truck inside a mile of a stop gets the green geofence line. Drawn on the real map (radar-map.tsx LoadMap: the radar's tiles and layers, Chris 2026-11-23);
  * the plain SVG below is kept as its fallback where a browser cannot draw a map. It only shows: it writes no arrival, because detention and money depend on what a person or the driver's phone says.
  */
@@ -33,7 +32,7 @@ function projector(points: Pt[]) {
 
 export function LoadTracker({ t, quietHead = false }: { t: LoadTracking; /** The caller already says the headline (the drawer's Now line): do not say it twice. */ quietHead?: boolean }) {
   if (t.status === "no_truck") return <p className="tl-note">No truck is on this load yet. Put one on it to see where it is.</p>;
-  if (t.status === "no_lane") return <p className="tl-note">{t.truckName} is on this load, but its stops have no places yet, so there is no lane to draw. Open Route &amp; Stops and check the addresses.</p>;
+  if (t.status === "no_lane") return <p className="tl-note">{t.truckName} is on this load, but its stops have no places yet, so there is no road to draw. Open Route &amp; Stops and check the addresses.</p>;
   if (t.status === "no_position")
     return (
       <p className="tl-note">
@@ -47,7 +46,7 @@ export function LoadTracker({ t, quietHead = false }: { t: LoadTracking; /** The
   const corridor = t.stops.map((s) => at(s));
   const roadLine = roadPts.map((p) => at(p));
   const crumbs = t.trail.map((p) => at(p));
-  const crumbRuns = trailRuns(t.trail).map((run) => run.map((p) => at(p)));
+  const crumbRuns = t.driven.map((run) => run.map((c) => at({ lat: c[1], lng: c[0] })));
   const truck = at(t.position);
   const insideStops = new Set(t.geofences.filter((g) => g.inside).map((g) => g.stop));
   const tone = t.position.state === "moving_load" || t.position.state === "moving" ? "var(--label)" : t.position.state === "idling" ? "var(--warn-fill)" : "var(--dim)";
@@ -65,9 +64,7 @@ export function LoadTracker({ t, quietHead = false }: { t: LoadTracking; /** The
       <svg viewBox={`0 0 ${W} ${H}`} className="lt-svg" role="img" aria-label={`${t.truckName}: ${t.headline}`}>
         {roadLine.length > 1 ? (
           <polyline points={roadLine.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")} fill="none" style={{ stroke: "var(--line-hi)", strokeWidth: 2 }} />
-        ) : (
-          <polyline points={corridor.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")} fill="none" strokeDasharray="5 4" style={{ stroke: "var(--line-hi)", strokeWidth: 1 }} />
-        )}
+        ) : null}
         {crumbRuns.map((run, i) => (
           <polyline key={i} points={run.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")} fill="none" style={{ stroke: "var(--label)", strokeWidth: 2 }} />
         ))}
@@ -100,7 +97,7 @@ export function LoadTracker({ t, quietHead = false }: { t: LoadTracking; /** The
       {t.geofences.map((g) => (
         <p key={g.stop} className="lt-geo">{`✔ ${g.text}`}</p>
       ))}
-      <p className="lt-sub">{t.milesBasis === "road" ? ROAD_ROUTE_NOTE : `${laneNote({ offRoute: t.offRoute, hadRoad: t.road != null })}${t.road ? ` ${ROAD_ROUTE_NOTE}` : ""}`}</p>
+      <p className="lt-sub">{t.roadState === "on" ? ROAD_ROUTE_NOTE : t.roadState === "none" ? NO_ROAD_NOTE : `${OFF_ROAD_NOTE} ${ROAD_ROUTE_NOTE}`}</p>
       <p className="lt-sub">Last fix {agoText(t.asOf, Date.now())}. Shown from the ELD; it does not record an arrival on the stop.</p>
     </div>
   );

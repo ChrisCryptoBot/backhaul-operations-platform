@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 const read = (p: string) => fs.readFileSync(path.join(__dirname, "..", p), "utf8").replace(/\r\n/g, "\n");
 
 /**
- * The radar's standing rules, read from the source: the map layers OpenFreeMap streets and highways (`dark` / `positron`) over the desk's offline fallback (`US_STATES` + `INTERSTATES`) with
+ * The radar's standing rules, read from the source: the map layers OpenFreeMap streets and highways (`dark` / `positron`) over the desk's offline fallback (`US_STATES`) with
  * overlay colours read from tokens and no hex in a component; clusters show a hover breakdown and click to split or list; a typed dwell figure shows in the typed colour; the load drawer keeps
  * its first four tabs and the storage name while gaining a fifth; the radar rail has no coloured edge strip and no radius (docs/TERMINAL_MIGRATION.md).
  */
@@ -69,9 +69,10 @@ describe("the radar's dispatch tools: tolls, fuel stops, the unit's route, open 
     expect(map).toMatch(/const at = \(p: \{ lat: number; lng: number \}\): \[number, number\] => \[mapLng\(p\.lat, p\.lng\), p\.lat\]/);
     expect(map).toMatch(/coordinates: \[mapLng\(l\.lat, l\.lng\), l\.lat\]/);
   });
-  it("Escape lets go of the selected unit, and its lane is said to be stop to stop, not the road", () => {
+  it("Escape lets go of the selected unit, and its line is the road or there is none", () => {
     expect(map).toMatch(/e\.key === "Escape"\) setSel\(null\)/);
-    expect(map).toContain("the dashed line is the lane stop to stop (not the road route)");
+    expect(map).toContain("the gold line is the road route; the white line is the road the truck drove");
+    expect(map).not.toMatch(/route-lane|stop to stop/);
   });
   it("the quick exception chips are the one place for idling and dwell (Search's Status has neither)", () => {
     expect(map).toContain("EXCEPTION_FILTERS.map");
@@ -168,7 +169,7 @@ describe("the load drawer gains Where it is and keeps what it had", () => {
   });
   it("the tracking panel only shows: it writes no arrival", () => {
     const tracker = read("src/components/desk/load-tracker.tsx") + read("src/server/tl/load-tracking.ts");
-    expect(tracker).not.toMatch(/arrivedAt\s*:/);
+    expect(tracker).not.toMatch(/arrivedAt\s*:(?!\s*true)/); // read (a select), never written
     expect(tracker).not.toMatch(/\.(update|updateMany|create|upsert)\(/);
   });
 });

@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { INTERSTATES } from "@/lib/basemap/interstates";
 import { US_STATES } from "@/lib/basemap/us-states";
-import { bearingDeg, interpolate, projectOnLine } from "@/lib/geo-line";
-import { GEOFENCE_MILES, ageWords, agoText, classifyTractor, durationText, dwell, engineStateOf, etaAt, fleetCounts, geofence, idleWaste, laneProgress, milesToGo, nearestCorridor, scheduleState, sittingText, speedLine } from "@/lib/telematics";
+import { bearingDeg } from "@/lib/geo-line";
+import { GEOFENCE_MILES, ageWords, agoText, classifyTractor, durationText, dwell, engineStateOf, etaAt, fleetCounts, geofence, idleWaste, roadHeading, scheduleState, sittingText, speedLine } from "@/lib/telematics";
 
 const H = 3_600_000;
 const NOW = Date.parse("2026-11-05T18:00:00Z");
@@ -108,24 +107,12 @@ describe("a dropped trailer's dwell", () => {
   });
 });
 
-describe("geofence, lane progress, ETA", () => {
+describe("geofence, ETA", () => {
   const dallas = { lat: 32.7767, lng: -96.797 };
-  const atlanta = { lat: 33.749, lng: -84.388 };
   it("a truck within a mile of the stop is inside; just past it is not", () => {
     expect(GEOFENCE_MILES).toBe(1);
     expect(geofence({ lat: 32.7767, lng: -96.797 + 0.005 }, dallas).inside).toBe(true); // about 0.3 mile
     expect(geofence({ lat: 32.7767, lng: -96.797 + 0.03 }, dallas).inside).toBe(false); // about 1.7 miles
-  });
-  it("halfway along a lane is about 0.5, and a point past the end is clamped to 1", () => {
-    const mid = interpolate(dallas, atlanta, 0.5);
-    expect(laneProgress(dallas, atlanta, mid).fraction).toBeCloseTo(0.5, 2);
-    expect(laneProgress(dallas, atlanta, interpolate(dallas, atlanta, 1.4)).fraction).toBe(1);
-    expect(projectOnLine(dallas, atlanta, mid).offMiles).toBeLessThan(0.1);
-  });
-  it("miles to go use the load's own miles when known, else the straight line plus a road allowance", () => {
-    expect(milesToGo(0.75, 800, 700)).toBe(200);
-    expect(milesToGo(0.5, null, 700)).toBeCloseTo(402.5, 5);
-    expect(milesToGo(1, 800, 700)).toBe(0);
   });
   it("the ETA is the miles left at the speed it is doing, a standing truck at a typical 55", () => {
     expect(etaAt(NOW, 140, 70) - NOW).toBe(2 * H);
@@ -145,22 +132,14 @@ describe("geofence, lane progress, ETA", () => {
 });
 
 describe("the nearest interstate corridor and which way along it", () => {
-  it("a truck just off I-40 west of Memphis heading east is on I-40 E, heading west it is I-40 W", () => {
-    const nearMemphis = { lat: 35.15, lng: -91.3 };
-    expect(nearestCorridor(nearMemphis, 90)).toMatch(/^I-(40|55) /);
-    const onI40 = { lat: 35.0, lng: -94.0 }; // between Oklahoma City and Little Rock
-    expect(nearestCorridor(onI40, 85)).toBe("I-40 E");
-    expect(nearestCorridor(onI40, 265)).toBe("I-40 W");
+  it("a numbered road reads with the way the truck is heading along it; any other road, or none, never invents one", () => {
+    expect([roadHeading("I-40", 85), roadHeading("I-40", 265), roadHeading("I-35", 5), roadHeading("US-67", 185), roadHeading("I-80", null)]).toEqual(["I-40 E", "I-40 W", "I-35 N", "US-67 S", "I-80"]);
+    expect([roadHeading("Chicago Skyway", 90), roadHeading("TX-114", 90), roadHeading(null, 90)]).toEqual(["Chicago Skyway", "TX-114", null]);
   });
-  it("a north-south corridor reads N or S", () => {
-    expect(nearestCorridor({ lat: 38.0, lng: -97.3 }, 5)).toBe("I-35 N");
-    expect(nearestCorridor({ lat: 38.0, lng: -97.3 }, 185)).toBe("I-35 S");
-  });
-  it("far from every corridor it says nothing, and the speed line falls back to a compass heading", () => {
-    expect(nearestCorridor({ lat: 47.9, lng: -103.5 }, 90, 5)).toBeNull();
-    expect(speedLine(64.4, { lat: 47.9, lng: -103.5 }, 45)).toMatch(/^64 MPH · /);
-    expect(speedLine(70, { lat: 41.14, lng: -104.82 }, 270)).toBe("70 MPH · I-80 W");
-    expect(speedLine(null, { lat: 41.14, lng: -104.82 }, null)).toBe("I-80");
+  it("the speed line uses the route's road, and falls back to a compass heading, never to a nearby highway", () => {
+    expect(speedLine(70, "I-80", 270)).toBe("70 MPH · I-80 W");
+    expect(speedLine(64.4, null, 45)).toBe("64 MPH · heading NE");
+    expect(speedLine(null, "I-80", null)).toBe("I-80");
   });
 });
 
@@ -192,18 +171,6 @@ describe("the bundled basemap needs no network and is sane", () => {
       }
     }
     expect(US_STATES.map((s) => s.name)).toEqual(expect.arrayContaining(["Alaska", "Hawaii"]));
-  });
-  it("draws the twelve freight corridors inside the country, each with at least two points", () => {
-    expect(INTERSTATES.map((c) => c.name)).toEqual(["I-5", "I-10", "I-20", "I-35", "I-40", "I-55", "I-65", "I-70", "I-75", "I-80", "I-90", "I-95"]);
-    for (const c of INTERSTATES) {
-      expect(c.coords.length).toBeGreaterThanOrEqual(2);
-      for (const [lng, lat] of c.coords) {
-        expect(lng).toBeGreaterThan(-125);
-        expect(lng).toBeLessThan(-70);
-        expect(lat).toBeGreaterThan(25);
-        expect(lat).toBeLessThan(49);
-      }
-    }
   });
 });
 

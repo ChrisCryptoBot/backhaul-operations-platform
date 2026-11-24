@@ -63,16 +63,33 @@ export function parseSuggestions(json: unknown, max = 5): Place[] {
 }
 
 /** A driving route. `coords` (lng, lat pairs along the road) only when the line was asked for (`drive(points, { geometry: true })`). */
-export type Drive = { meters: number; seconds: number; legsMeters: number[]; coords?: Array<[number, number]> };
+export type Drive = { meters: number; seconds: number; legsMeters: number[]; coords?: Array<[number, number]>; /** The roads it runs on, in order, each with how many meters of it. */ roads?: Array<{ name: string; meters: number }> };
+
+/** "I-65" from the directions' "I 65 South" or "I 90; I 94 East" (the first one); a road with no number by its name; "" when it has neither (a ramp). */
+export function roadName(ref: unknown, name: unknown): string {
+  const first = typeof ref === "string" ? (ref.split(/[;/]/)[0] ?? "").trim() : "";
+  const m = /^([A-Za-z]{1,3})[\s-]*(\d+[A-Za-z]?)\b/.exec(first);
+  if (m) return `${m[1]!.toUpperCase()}-${m[2]!.toUpperCase()}`;
+  return first || (typeof name === "string" ? name.trim() : "");
+}
 
 /** The first route in a directions answer, or null when there is none. The road line is kept only when it is a well-formed GeoJSON LineString. */
 export function parseRoute(json: unknown): Drive | null {
-  const route = (json as { routes?: Array<{ distance?: number; duration?: number; legs?: Array<{ distance?: number }>; geometry?: { type?: unknown; coordinates?: unknown } }> } | null)?.routes?.[0];
+  const route = (json as { routes?: Array<{ distance?: number; duration?: number; legs?: Array<{ distance?: number; steps?: Array<{ distance?: number; ref?: unknown; name?: unknown }> }>; geometry?: { type?: unknown; coordinates?: unknown } }> } | null)?.routes?.[0];
   if (!route || typeof route.distance !== "number" || typeof route.duration !== "number" || !(route.distance >= 0) || !(route.duration >= 0)) return null;
   const out: Drive = { meters: route.distance, seconds: route.duration, legsMeters: (route.legs ?? []).map((l) => (typeof l.distance === "number" ? l.distance : Number.NaN)) };
   const c = route.geometry?.type === "LineString" ? route.geometry.coordinates : null;
   if (Array.isArray(c) && c.length >= 2 && c.every((p) => Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1]) && Math.abs(p[1] as number) <= 90 && Math.abs(p[0] as number) <= 180)) {
     out.coords = c.map((p) => [(p as number[])[0]!, (p as number[])[1]!] as [number, number]);
+    const roads: Array<{ name: string; meters: number }> = [];
+    for (const step of (route.legs ?? []).flatMap((l) => l.steps ?? [])) {
+      if (typeof step.distance !== "number" || !(step.distance > 0)) continue;
+      const name = roadName(step.ref, step.name);
+      const last = roads[roads.length - 1];
+      if (last && last.name === name) last.meters += step.distance;
+      else roads.push({ name, meters: step.distance });
+    }
+    if (roads.length > 0) out.roads = roads;
   }
   return out;
 }

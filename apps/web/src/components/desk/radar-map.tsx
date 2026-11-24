@@ -5,12 +5,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import React from "react";
 import type { Map as MapLibreMap, GeoJSONSource, StyleSpecification } from "maplibre-gl";
-import { INTERSTATES } from "@/lib/basemap/interstates";
 import { basemapPaint, radarBasemapLayers } from "@/lib/basemap/paint";
 import { US_STATES } from "@/lib/basemap/us-states";
 import { EXCEPTION_FILTERS, radarParamsText, readLiveSeconds, type ExceptionKey, type RadarPoint, type RadarQueryParams, type SearchInfo } from "@/lib/radar-points";
-import { trailRuns } from "@/lib/geo-line";
-import { ROAD_ROUTE_NOTE, agoText, laneNote } from "@/lib/telematics";
+import { NO_ROAD_NOTE, OFF_ROAD_NOTE, ROAD_ROUTE_NOTE, agoText } from "@/lib/telematics";
 import { fixAge } from "@/lib/whereabouts";
 import { boundsAround, radiusRing } from "@/lib/radius";
 import { REGIONS, REGION_KEYS, boxAround, firstRegion, mapLng, regionCounts, regionOf, within as withinRegion, type Box, type RegionKey } from "@/lib/radar-regions";
@@ -232,7 +230,7 @@ function overlaySources(): StyleSpecification["sources"] {
     },
     selected: { type: "geojson", data: collection([]) as never },
     radius: { type: "geojson", data: { type: "FeatureCollection", features: [] } as never },
-    // The clicked unit's load (its lane stop to stop, the breadcrumb, its stops), freight that needs a driver, and severe weather: empty until asked for.
+    // The clicked unit's load (its road, the breadcrumb, its stops), freight that needs a driver, and severe weather: empty until asked for.
     route: { type: "geojson", data: { type: "FeatureCollection", features: [] } as never },
     "open-loads": { type: "geojson", data: collection([]) as never },
     weather: { type: "geojson", data: { type: "FeatureCollection", features: [] } as never }
@@ -247,7 +245,6 @@ function overlayLayers(t: Tokens): StyleSpecification["layers"] {
     { id: "wx-line", type: "line", source: "weather", layout: { visibility: "none" }, paint: { "line-color": severity, "line-width": 1.5, "line-opacity": 0.9 } },
     { id: "radius", type: "line", source: "radius", paint: { "line-color": t.label, "line-width": 1, "line-dasharray": [4, 3] } },
     { id: "route-road", type: "line", source: "route", filter: ["==", ["get", "part"], "road"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": t.label, "line-width": 3, "line-opacity": 0.9 } },
-    { id: "route-lane", type: "line", source: "route", filter: ["==", ["get", "part"], "lane"], paint: { "line-color": t.label, "line-width": 2, "line-dasharray": [3, 2] } },
     { id: "route-trail", type: "line", source: "route", filter: ["==", ["get", "part"], "trail"], layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": t.ink, "line-width": 2 } },
     { id: "route-trail-pts", type: "symbol", source: "route", filter: ["==", ["get", "part"], "trail-pt"], layout: { "icon-image": "trail-pt", "icon-allow-overlap": true, "icon-ignore-placement": true } },
     { id: "route-stops", type: "symbol", source: "route", filter: ["==", ["get", "part"], "stop"], layout: { "icon-image": ["get", "icon"], "icon-allow-overlap": true, "icon-ignore-placement": true } },
@@ -263,14 +260,12 @@ function offlineStyleOf(t: Tokens): StyleSpecification {
     version: 8,
     sources: {
       states: { type: "geojson", data: { type: "FeatureCollection", features: US_STATES.map((s) => ({ type: "Feature", properties: { name: s.name }, geometry: { type: "MultiPolygon", coordinates: s.rings.map((r) => [r.map((p) => [p[0], p[1]])]) } })) } as never },
-      roads: { type: "geojson", data: { type: "FeatureCollection", features: INTERSTATES.map((c) => ({ type: "Feature", properties: { name: c.name }, geometry: { type: "LineString", coordinates: c.coords.map((p) => [p[0], p[1]]) } })) } as never },
       ...overlaySources()
     },
     layers: [
       { id: "bg", type: "background", paint: { "background-color": t.bg } },
       { id: "land", type: "fill", source: "states", paint: { "fill-color": t.land } },
       { id: "borders", type: "line", source: "states", paint: { "line-color": t.border, "line-width": 1 } },
-      { id: "roads", type: "line", source: "roads", paint: { "line-color": t.roadHi, "line-width": 1.2 } },
       ...overlayLayers(t)
     ]
   };
@@ -315,15 +310,14 @@ function setVisible(map: MapLibreMap, id: string, on: boolean) {
   if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
 }
 
-/** The selected unit's load as map features: the lane through its stops in order, the breadcrumb, and a square at each stop. Every point goes through mapLng, as the units do. */
+/** The selected unit's load as map features: the road to drive, the road driven, a dot for each fix and a square at each stop. Every point goes through mapLng, as the units do. */
 function routeFeatures(r: RadarRoute | null): unknown[] {
   if (!r || r.status === "none") return [];
   const at = (p: { lat: number; lng: number }): [number, number] => [mapLng(p.lat, p.lng), p.lat];
   const out: unknown[] = [];
-  // The road route when one is known (standard car directions, kept in server memory); else the lane, straight from stop to stop.
+  // Roads only: the road route when one is known (standard car directions, kept in server memory), the stretches of it that were driven, and a dot for every fix. Nothing is joined straight.
   if (r.road && r.road.length >= 2) out.push({ type: "Feature", properties: { part: "road" }, geometry: { type: "LineString", coordinates: r.road.map((c) => at({ lat: c[1], lng: c[0] })) } });
-  else if (r.stops.length >= 2) out.push({ type: "Feature", properties: { part: "lane" }, geometry: { type: "LineString", coordinates: r.stops.map(at) } });
-  for (const run of trailRuns(r.trail)) out.push({ type: "Feature", properties: { part: "trail" }, geometry: { type: "LineString", coordinates: run.map(at) } });
+  for (const run of r.driven) out.push({ type: "Feature", properties: { part: "trail" }, geometry: { type: "LineString", coordinates: run.map((c) => at({ lat: c[1], lng: c[0] })) } });
   for (const pt of r.trail) out.push({ type: "Feature", properties: { part: "trail-pt" }, geometry: { type: "Point", coordinates: at(pt) } });
   for (const st of r.stops) out.push({ type: "Feature", properties: { part: "stop", icon: st.role === "pickup" ? "stop-p" : "stop-d", label: st.label, role: st.role }, geometry: { type: "Point", coordinates: at(st) } });
   return out;
@@ -684,9 +678,8 @@ export function UnitMap({ unit }: { unit: { id: string; kind: "truck" | "trailer
 }
 
 /**
- * A load on the real map, for the drawer's Where it is tab: the truck's mark where the ELD last put it, the load's road (or its straight lane when no road route
- * could be had), the breadcrumb and the stops, drawn by the radar's own layers on the same tiles (OpenFreeMap; its built-in states and interstates when those cannot
- * load). `fallback` is the plain drawing, shown only where the browser cannot draw a map at all (no WebGL). It shows; it records nothing.
+ * A load on the real map, for the drawer's Where it is tab: the truck's mark where the ELD last put it, the load's road when one could be
+ * had, the breadcrumb and the stops, drawn by the radar's own layers on the same tiles (OpenFreeMap; its built-in state outlines when those cannot load). `fallback` is the plain drawing, shown only where the browser cannot draw a map at all (no WebGL). It shows; it records nothing.
  */
 export function LoadMap({ t, fallback }: { t: LoadTracking; fallback: React.ReactNode }) {
   const theme = useTheme();
@@ -705,8 +698,8 @@ export function LoadMap({ t, fallback }: { t: LoadTracking; fallback: React.Reac
   const icon = p.state === "moving_load" ? "t-load" : p.state === "moving" ? "t-moving" : p.state === "idling" ? "t-idle" : p.state === "parked" ? "t-parked" : "t-none";
   const truck: RadarPoint = { id: "load-truck", k: "t", lat: p.lat, lng: p.lng, icon, h: p.headingDeg ?? 0, sev: p.state === "idling" ? 1 : 0, t: 1, r: 0, name: t.truckName };
   const route: RadarRoute = {
-    mode: "route", status: "tracking", loadId: "drawer", loadNumber: null, truckId: null, stops: t.stops, trail: t.trail, road: t.road?.coords ?? null,
-    milesBasis: t.milesBasis, offRoute: t.offRoute, headline: t.headline, late: t.late, driver: null, hos: null, eta: null, nextStop: null, trailer: null
+    mode: "route", status: "tracking", loadId: "drawer", loadNumber: null, truckId: null, stops: t.stops, trail: t.trail, driven: t.driven, road: t.road?.coords ?? null,
+    roadState: t.roadState, headline: t.headline, late: t.late, driver: null, hos: null, eta: null, nextStop: null, trailer: null
   };
   const extent = [...t.stops, ...(t.road?.coords ?? []).map((c) => ({ lat: c[1], lng: c[0] }))];
   const key = `${t.stops.map((s) => `${s.lat},${s.lng}`).join("|")}`;
@@ -813,7 +806,7 @@ function etaParts(r: RadarRoute | null): { text: string | null; chip: "late" | "
   if (!r || r.status === "none" || !r.eta) return { text: null, chip: r && r.status !== "none" && r.late ? "late" : null };
   const late = r.late || r.eta.includes("RUNNING LATE");
   const on = !late && r.eta.includes("ON SCHEDULE");
-  return { text: r.eta.replace(/\s*·\s*(RUNNING LATE|ON SCHEDULE)\s*$/, ""), chip: late ? "late" : on ? "on" : null };
+  return { text: r.eta.replace(/(^|\s*·\s*)(RUNNING LATE|ON SCHEDULE)\s*$/, "") || null, chip: late ? "late" : on ? "on" : null };
 }
 
 /** The live lines of a unit on a load: driver, hours left, ETA with its schedule chip, the next stop and its window, the trailer. */
@@ -830,7 +823,7 @@ function RouteLines({ r, old, fallbackDriver, fallbackTrailer }: { r: RadarRoute
           <dd>{on.hos ?? "—"}</dd>
           <dt>ETA</dt>
           <dd>
-            {old ? <span className="dim">Needs a newer position</span> : (eta.text ?? "—")}
+            {old ? <span className="dim">Needs a newer position</span> : (eta.text ?? (eta.chip ? null : <span className="dim">No road route yet</span>))}
             {eta.chip && !old ? (
               <>
                 {" "}
@@ -853,16 +846,15 @@ function RouteLines({ r, old, fallbackDriver, fallbackTrailer }: { r: RadarRoute
 function RouteNote({ r }: { r: RadarRoute | null }) {
   if (!r || r.status === "none") return null;
   if (r.status === "tracking") {
-    if (r.milesBasis === "road") return <p className="rd-sub">On the map: the gold line is the road route; the white line is where the truck has been on this load. {ROAD_ROUTE_NOTE}</p>;
     return (
       <p className="rd-sub">
-        {r.road ? "On the map: the gold line is the road route; the white line is where the truck has been on this load. " : "On the map: the dashed line is the lane stop to stop (not the road route); the solid line is where the truck has been on this load. "}
-        {laneNote({ offRoute: r.offRoute, hadRoad: r.road != null })}
-        {r.road ? ` ${ROAD_ROUTE_NOTE}` : null}
+        {r.road ? "On the map: the gold line is the road route; the white line is the road the truck drove on this load, and each dot is a position it sent. " : r.trail.length > 0 ? "On the map: each dot is a position the truck sent. " : null}
+        {r.roadState === "none" ? NO_ROAD_NOTE : r.roadState === "off" ? `${OFF_ROAD_NOTE} ` : null}
+        {r.road ? ROAD_ROUTE_NOTE : null}
       </p>
     );
   }
-  if (r.status === "no_lane") return <p className="rd-sub">The load&apos;s stops have no map points yet, so there is no lane to draw.</p>;
+  if (r.status === "no_lane") return <p className="rd-sub">The load&apos;s stops have no map points yet, so there is no road to draw.</p>;
   if (r.status === "no_position") return <p className="rd-sub">The truck has no fix yet, so there is no trail to draw.</p>;
   return null;
 }

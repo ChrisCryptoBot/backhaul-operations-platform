@@ -5,12 +5,12 @@ import { haversineMiles } from "@/lib/geo";
 import { nearestPlace } from "@/lib/gazetteer/place-index";
 import { equipmentCode, dwellSentence, idleLine, idleSentence } from "@/lib/radar";
 import { hhmm } from "@/lib/shifts";
-import { classifyTractor, durationText, dwell, engineStateOf, etaAt, geofence, routeMilesLeft, scheduleState, type TractorState } from "@/lib/telematics";
-import { readRoadRoute } from "./road-route-cache";
+import { classifyTractor, durationText, dwell, engineStateOf, etaAt, geofence, roadMilesLeft, roadSchedule, stopsAhead, type TractorState } from "@/lib/telematics";
+import { readRoadRoute, readWayThere } from "./road-route-cache";
 import { zoneAbbr } from "@/lib/tz";
 import { centralParts } from "@/lib/zoned";
 import { boundsAround } from "@/lib/radius";
-import { mphText, whereIs, type Fix, type KnownStop, type UnitWhere } from "@/lib/whereabouts";
+import { fixAge, mphText, whereIs, type Fix, type KnownStop, type UnitWhere } from "@/lib/whereabouts";
 import { numOrNull } from "./convert";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
@@ -82,7 +82,20 @@ function formatClock(ms: number, nowMs: number, tz: string): string {
   return sameDay ? clock : `${WEEKDAY[new Date(Date.UTC(that.y, that.m0, that.d)).getUTCDay()]} ${clock}`;
 }
 
-/** ETA, schedule health, and next open stop summary from the load's lane + coordinates (returns nulls without enough stops or fix). */
+const placedStops = (load: DispatchLoad) =>
+  load.stops
+    .map((s) => ({ ...s, lat: numOrNull(s.lat as never), lng: numOrNull(s.lng as never) }))
+    .filter((s): s is typeof s & { lat: number; lng: number } => s.lat != null && s.lng != null);
+
+/** Road miles left for a load, from the routes already kept in memory (a hover never fetches one). Null with none, or when the truck is on none of them. */
+function keptMilesLeft(load: DispatchLoad, here: { lat: number; lng: number }, nowMs: number) {
+  const placed = placedStops(load);
+  if (placed.length < 2) return null;
+  const { ahead, approaching } = stopsAhead(load.status, placed, here);
+  return roadMilesLeft({ here, approaching, planned: readRoadRoute(load.id, placed, nowMs), way: readWayThere(load.id, ahead, nowMs)?.route });
+}
+
+/** ETA, schedule health, and next open stop summary: the arrival only on a road route and a fresh fix (nulls without enough stops or a fix). */
 function loadDispatchEta(load: DispatchLoad | null, fix: Fix | null, speedMph: number | null, tz: string, nowMs: number): { eta: string | null; nextStop: string | null } {
   if (!load || load.stops.length === 0) return { eta: null, nextStop: null };
   const pending = load.stops.find((s) => s.arrivedAt == null) ?? load.stops[load.stops.length - 1]!;
@@ -92,24 +105,15 @@ function loadDispatchEta(load: DispatchLoad | null, fix: Fix | null, speedMph: n
   const nextStop = [role, place || null, dueAt ? `due ${formatClock(dueAt.getTime(), nowMs, tz)}` : null].filter(Boolean).join(" · ") || null;
 
   if (!fix) return { eta: null, nextStop };
-  const placed = load.stops
-    .map((s) => ({ ...s, latN: numOrNull(s.lat as never), lngN: numOrNull(s.lng as never) }))
-    .filter((s): s is typeof s & { latN: number; lngN: number } => s.latN != null && s.lngN != null);
+  const placed = placedStops(load);
   if (placed.length < 2) return { eta: null, nextStop };
-
-  const origin = { lat: placed[0]!.latN, lng: placed[0]!.lngN };
-  const destStop = placed[placed.length - 1]!;
-  const destination = { lat: destStop.latN, lng: destStop.lngN };
+  const destination = placed[placed.length - 1]!;
   const here = { lat: fix.lat, lng: fix.lng };
-  const atDestination = geofence(here, destination).inside;
-  if (atDestination) return { eta: "AT DESTINATION", nextStop };
+  if (geofence(here, destination).inside) return { eta: "AT DESTINATION", nextStop };
 
-  // On the load's road route when one is already kept in memory (a hover never fetches one), else along the straight lane.
-  const road = readRoadRoute(load.id, placed.map((s) => ({ lat: s.latN, lng: s.lngN })), nowMs) ?? null;
-  const toGo = routeMilesLeft({ origin, destination, here, loadedMiles: numOrNull(load.loadedMiles as never), road }).miles;
-  const etaMs = etaAt(nowMs, toGo, speedMph);
-  const sched = scheduleState(etaMs, destStop.timeWindowLatest ?? null);
-  const eta = [`${toGo.toFixed(0)} mi left`, formatClock(etaMs, nowMs, tz), sched === "late" ? "RUNNING LATE" : sched === "on_schedule" ? "ON SCHEDULE" : null].filter(Boolean).join(" · ");
+  const milesLeft = fixAge(fix.locatedAt, nowMs)?.old ? null : (keptMilesLeft(load, here, nowMs)?.miles ?? null);
+  const sched = roadSchedule({ here, destination, milesLeft, speedMph, windowLatest: destination.timeWindowLatest, now: nowMs });
+  const eta = [milesLeft != null ? `${milesLeft.toFixed(0)} mi left` : null, milesLeft != null ? formatClock(etaAt(nowMs, milesLeft, speedMph), nowMs, tz) : null, sched === "late" ? "RUNNING LATE" : sched === "on_schedule" ? "ON SCHEDULE" : null].filter(Boolean).join(" · ") || null;
   return { eta, nextStop };
 }
 
@@ -187,8 +191,9 @@ export async function getTruckWhere(ids: string[], workspaceId = currentWorkspac
   const loadOf = new Map<string, (typeof loads)[number]>();
   for (const l of [...loads].sort((a, b) => (a.status === "in_progress" ? 0 : 1) - (b.status === "in_progress" ? 0 : 1))) if (l.vehicleId && !loadOf.has(l.vehicleId)) loadOf.set(l.vehicleId, l);
   for (const t of trucks) {
-    const fix = fixOf(t);
     const load = loadOf.get(t.id) ?? null;
+    const at = fixOf(t);
+    const fix = at && load ? { ...at, roadName: keptMilesLeft(load, at, now.getTime())?.roadName ?? null } : at;
     const st = classifyTractor({ engine: engineStateOf(t.engineState), speedMph: numOrNull(t.lastSpeedMph), onLoad: load != null });
     const price = numOrNull(t.costProfile?.lastFuelPricePerGallon) ?? fleetPrice;
     const minutes = st === "idling" && t.idleSince ? Math.max(0, (now.getTime() - t.idleSince.getTime()) / 60_000) : null;
@@ -256,9 +261,10 @@ export async function getTrailerWhere(ids: string[], workspaceId = currentWorksp
   };
   const [stops, tz] = await Promise.all([knownStopsNear(trailers.map(fixFor).filter((f): f is Fix => f != null), workspaceId, now), workspaceTimezone(workspaceId)]);
   for (const t of trailers) {
-    const fix = fixFor(t);
+    const at = fixFor(t);
     const tractor = t.currentVehicleId ? truckOf.get(t.currentVehicleId) : undefined;
     const load = loadOf.get(t.id) ?? null;
+    const fix = at && load ? { ...at, roadName: keptMilesLeft(load, at, now.getTime())?.roadName ?? null } : at;
     const d = t.currentVehicleId ? null : dwell(t.unhookedAt, now.getTime(), { freeHours: terms.dwellFreeHours, perDay: terms.dwellPerDayRate }, reloaded.has(t.id), { ratePerDay: numOrNull(t.dwellRateOverride), billableDays: numOrNull(t.dwellDaysOverride), waived: t.dwellWaived });
     const speed = tractor ? numOrNull(tractor.lastSpeedMph) : null;
     const loaded = load?.status === "in_progress";

@@ -11,8 +11,11 @@ import type { RoadLine } from "@/lib/telematics";
 export const ROUTE_TTL_MS = 12 * 60 * 60_000;
 export const FAIL_TTL_MS = 10 * 60_000;
 export const MAX_ROUTES = 300;
+/** All the points kept together: a coast-to-coast road is tens of thousands, so the routes are bounded by their size as well as their count. */
+export const MAX_POINTS = 1_000_000;
 
 type Entry = { at: number; route: RoadLine | null };
+const size = (e: Entry | undefined): number => e?.route?.coords.length ?? 0;
 const store: Map<string, Entry> = ((globalThis as { __tlRoadRoutes?: Map<string, Entry> }).__tlRoadRoutes ??= new Map());
 
 /** The key for a load and its stop points in order (six places, the stored precision). */
@@ -35,9 +38,32 @@ export function readRoadRoute(loadId: string, stops: ReadonlyArray<{ lat: number
 /** Keep a route (or a failure, as `null`) for these stops, dropping the oldest entry when full. */
 export function keepRoadRoute(loadId: string, stops: ReadonlyArray<{ lat: number; lng: number }>, route: RoadLine | null, now = Date.now()): void {
   const key = routeKey(loadId, stops);
+  put(key, { at: now, route });
+}
+
+function put(key: string, e: Entry): void {
   store.delete(key);
-  while (store.size >= MAX_ROUTES) store.delete(store.keys().next().value as string);
-  store.set(key, { at: now, route });
+  let points = size(e);
+  for (const v of store.values()) points += size(v);
+  while (store.size > 0 && (store.size >= MAX_ROUTES || points > MAX_POINTS)) {
+    const oldest = store.keys().next().value as string;
+    points -= size(store.get(oldest));
+    store.delete(oldest);
+  }
+  store.set(key, e);
+}
+
+/** The way there: the road from where the truck was to the stops still ahead of it, for a truck that is off its planned route or has not reached its first stop. Kept like a planned route, and at most one a load. */
+const wayKey = (loadId: string, ahead: ReadonlyArray<{ lat: number; lng: number }>): string => `way>${routeKey(loadId, ahead)}`;
+
+/** What is kept for these stops ahead and when it was asked for; undefined when nothing is. Never fetches. */
+export function readWayThere(loadId: string, ahead: ReadonlyArray<{ lat: number; lng: number }>, now = Date.now()): Entry | undefined {
+  const e = store.get(wayKey(loadId, ahead));
+  return e && now - e.at < ROUTE_TTL_MS ? e : undefined;
+}
+
+export function keepWayThere(loadId: string, ahead: ReadonlyArray<{ lat: number; lng: number }>, route: RoadLine | null, now = Date.now()): void {
+  put(wayKey(loadId, ahead), { at: now, route });
 }
 
 /** For tests: forget every route. */
