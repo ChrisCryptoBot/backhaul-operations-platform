@@ -11,7 +11,6 @@ const tablesOf = (tableId: string) => Array.from(document.querySelectorAll<HTMLE
 
 /**
  * The toolbar above a <DataTable>: search, the filter chips passed in as children, and a row count.
- * It also makes whole rows clickable (any row with a data-href) without making them focusable: the link in the first cell stays the one tab stop.
  */
 export function DataTableTools({ tableId, placeholder = "Search…", views, children, total, server }: { tableId: string; placeholder?: string; /** Which list this is (Open, History): a switch, drawn before the search. The filters inside the list are the children. */ views?: React.ReactNode; children?: React.ReactNode; total: number; server?: { path: string; q: string; keep?: Record<string, string> } }) {
   const router = useRouter();
@@ -50,22 +49,6 @@ export function DataTableTools({ tableId, placeholder = "Search…", views, chil
     }
     setShown(needle === "" ? total : visible);
   }, [q, tableId, total, serverMode]);
-
-  // Row clicks: a click on a row (not on a link, button or field inside it) opens the row's href.
-  React.useEffect(() => {
-    const tables = tablesOf(tableId);
-    if (tables.length === 0) return;
-    const onClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.closest("a, button, input, select, textarea, label")) return;
-      const tr = target.closest<HTMLTableRowElement>("tr[data-href]");
-      if (tr?.dataset.href) router.push(tr.dataset.href);
-    };
-    for (const table of tables) table.addEventListener("click", onClick);
-    return () => {
-      for (const table of tables) table.removeEventListener("click", onClick);
-    };
-  }, [tableId, router]);
 
   // Sorting: a header button reorders that table's rows in the page and says so in aria-sort on its header cell. Only one column is sorted at a time.
   React.useEffect(() => {

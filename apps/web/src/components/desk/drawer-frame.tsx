@@ -29,6 +29,7 @@ export function DrawerFrame({
   chips,
   deck,
   nav,
+  actions,
   footer,
   href,
   label,
@@ -39,6 +40,7 @@ export function DrawerFrame({
   chips?: React.ReactNode;
   deck?: React.ReactNode;
   nav?: React.ReactNode;
+  actions?: React.ReactNode;
   footer?: React.ReactNode;
   /** The load's address: how the rows of the table underneath know which one is open (J and K step through them). */
   href: string;
@@ -183,6 +185,7 @@ export function DrawerFrame({
               {chips ? <div className="chips">{chips}</div> : null}
             </div>
             <div className="dr-ctrls">
+              {actions}
               {scrub ? (
                 <div className="dr-nav-scrub" title="Scrub through loads (J = next, K = prev)">
                   <span>{scrub.index} / {scrub.total}</span>

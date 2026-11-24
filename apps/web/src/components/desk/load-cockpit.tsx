@@ -19,7 +19,7 @@ const TABS: { key: Tab; label: string; kbd: string }[] = [
 ];
 
 /** The load's drawer: its summary, and four tabs (keys 1 to 4). The last tab chosen is remembered for this browser tab, after the first render, so server and browser agree. */
-export function LoadCockpit({ title, sub, chips, href, footer, deck, trip, money, paper, more, docsCount }: { title: string; sub: React.ReactNode; chips: React.ReactNode; href: string; footer: React.ReactNode; deck: React.ReactNode; trip: React.ReactNode; money: React.ReactNode; paper: React.ReactNode; more: React.ReactNode; docsCount: number }) {
+export function LoadCockpit({ title, sub, chips, href, actions, footer, deck, trip, money, paper, more, docsCount }: { title: string; sub: React.ReactNode; chips: React.ReactNode; href: string; /** In the head, beside the steps through the board: there on every tab. */ actions?: React.ReactNode; footer: React.ReactNode; deck: React.ReactNode; trip: React.ReactNode; money: React.ReactNode; paper: React.ReactNode; more: React.ReactNode; docsCount: number }) {
   const [tab, setTabState] = React.useState<Tab>("trip");
   React.useEffect(() => {
     try {
@@ -87,6 +87,7 @@ export function LoadCockpit({ title, sub, chips, href, footer, deck, trip, money
           ))}
         </nav>
       }
+      actions={actions}
       footer={footer}
       href={href}>
       <div className="cp-workbench-area">

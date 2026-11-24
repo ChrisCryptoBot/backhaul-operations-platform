@@ -351,7 +351,9 @@ textarea.t-ta{width:100%;min-height:56px;border:1px solid var(--line-hi);backgro
 .lv-sum .lv-next,.lv-sum .lv-needs,.lv-sum .lv-fell{display:flex;align-items:baseline;gap:10px;margin:0;font:500 13px/18px var(--sans);color:var(--ink)}
 .lv-sum :is(.lv-next,.lv-needs,.lv-fell) b{flex:none;min-width:44px;font:600 10px/16px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--label)}
 .lv-sum .lv-next.late span{color:var(--neg)}
-.lv-sum .lv-needs span{color:var(--warn)}
+/* What the load still lacks is paperwork, not an alert: under the alerts, in ink, with no tone of its own. */
+.lv-sum .lv-needs span{color:var(--ink)}
+.lv-sum .lv-needs b{color:var(--dim)}
 .lv-sum .lv-fell span{color:var(--mid)}
 .lv-route{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:end;gap:14px}
 .lv-stop{display:grid;gap:2px;min-width:0}
@@ -886,6 +888,7 @@ h2.t-sec{margin:14px 10px 8px;color:var(--mid)}
 .row-open:focus-within:has(.row-link:focus-visible){outline:2px solid var(--label-hi);outline-offset:-2px}
 .row-link:focus-visible{outline:none}
 .row-open :is(button,a:not(.row-link),input,label,select){position:relative;z-index:1}
+.t-rail a[aria-current=page] em[data-tone=bad]{color:var(--on-fill)}
 .row-go{align-self:center;color:var(--dim);font:500 16px/16px var(--mono)}
 .row-open:hover .row-go{color:var(--label-hi)}
 .al{grid-template-columns:64px minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:7px 8px}
@@ -990,6 +993,89 @@ h2.t-sec{margin:14px 10px 8px;color:var(--mid)}
 .qt-eval-card>.rc-eyebrow{margin:0;padding:0;border-width:0}
 .qt-pane-eval{padding-right:2px}
 .qt-list-tools{margin-bottom:8px}
+
+.al.many{align-items:start}
+.al-n{align-self:center;color:var(--dim);font:12px/16px var(--sans);white-space:nowrap}
+.al-loads{display:flex;flex-wrap:wrap;gap:2px 12px}
+.al-loads a{color:var(--ink);font-weight:500}
+.al-own{display:grid;gap:1px;margin:3px 0 0}
+.al-own li{display:flex;gap:10px;min-width:0;font:12px/18px var(--sans);color:var(--mid)}
+.al-own a{flex:none;min-width:72px;color:var(--ink);font-weight:500}
+.al-own span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.al-sec{margin-bottom:14px}
+.al-sec>.t-sec{margin:12px 0 4px}
+
+/* Planner. Due now is three lines and a press; a block has room inside it; the week fits at 1024. */
+.wl{gap:0}
+.wl-row{display:grid;grid-template-columns:84px minmax(0,1.1fr) 130px minmax(0,1.6fr) 100px 72px;gap:12px;align-items:center;min-height:34px;padding:3px 8px;overflow:visible}
+.wl-row .row-link{font-weight:600;color:var(--ink)}
+.wl-row>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wl-row>:last-child{justify-self:end}
+.pl-wrap>.tl-note{margin:0;padding:6px 8px;max-width:none}
+.wl-role{text-transform:capitalize;color:var(--mid)}
+.wl-who.none{color:var(--dim)}
+.wl-when{color:var(--mid);font:12px/16px var(--sans)}
+.wl-more>summary{min-height:30px;display:flex;align-items:center;padding:0 8px;list-style:none;cursor:pointer;color:var(--mid);font:500 12px/16px var(--sans)}
+.wl-more>summary::-webkit-details-marker{display:none}
+.wl-more>summary:hover{color:var(--label-hi)}
+.wl-more[open]>summary{display:none}
+.pl-head{margin:14px 10px 8px;align-items:center}
+.pl{min-width:0}
+.pl th,.pl td{padding:6px}
+.pl .pl-who{width:132px}
+.pl-load{padding:6px 8px;margin-bottom:6px;gap:2px;overflow:hidden}
+.pl-load span,.pl-load small{overflow:hidden;text-overflow:ellipsis}
+.pl-load small{font:11px/14px var(--sans)}
+.pl-shift{margin-bottom:6px}
+.pl-tray.none td,.pl-tray.none th{padding-top:5px;padding-bottom:5px;color:var(--dim);font:12px/18px var(--sans)}
+.pl-tray.none .pl-who{color:var(--mid)}
+
+/* Messages: the conversation takes the height there is, so the box you type in is always on screen. */
+.t-main:has(>.ms){display:flex;flex-direction:column}
+.ms{flex:1 1 0;min-height:420px;gap:10px;align-items:stretch;grid-template-columns:minmax(240px,300px) minmax(0,1fr)}
+.ms-list{display:flex;flex-direction:column;min-height:0;overflow:auto}
+.ms-pane{min-height:0}
+.ms-log{max-height:none;min-height:80px;padding:12px 14px;gap:12px}
+.ms-find{position:sticky;top:0;z-index:1;padding:8px;border-bottom:1px solid var(--line);background:var(--panel)}
+.ms-find .dt-search{display:block;width:100%}
+.ms-row{padding:8px 12px}
+.ms-new{margin-top:auto;border-top:1px solid var(--line)}
+.ms-new>summary{min-height:34px;display:flex;gap:6px;align-items:center;padding:0 12px;cursor:pointer;list-style:none;color:var(--mid);font:500 12px/16px var(--sans)}
+.ms-new>summary::-webkit-details-marker{display:none}
+.ms-new em{margin-left:auto;font-style:normal;color:var(--dim)}
+.ms-new>summary:hover{color:var(--label-hi)}
+.ms-head{padding:8px 14px}
+.ms-note{padding:6px 14px}
+.ms-composer{padding:8px 14px 10px;gap:6px}
+.ms-composer textarea{min-height:54px}
+.ms-meta{display:inline-flex;gap:6px;align-items:baseline;padding:0 4px;font:11px/14px var(--sans);font-variant-numeric:tabular-nums}
+
+/* Rate confirmations. */
+.t-main .rc{margin:0 10px}
+.rc>.rc-steps{margin-left:0;margin-bottom:10px}
+.rc-intake{gap:14px}
+.rc-drop{min-height:150px;padding:14px}
+.rc-samples{gap:0}
+.rc-samples>.t-sec,.rc-list-head>.t-sec{margin:0 0 4px}
+.rc-sample{grid-template-columns:72px minmax(0,1fr) minmax(0,1fr);gap:10px;align-items:baseline;padding:7px 8px;border-width:0 0 1px;border-radius:0;background:transparent}
+.rc-sample:hover:not(:disabled){background:var(--hover)}
+.rc-sample b{font-weight:600}
+.rc-sample span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rc-samples .tl-note{margin-top:8px}
+.t-main:has(.rc-review) .rc-history{display:none}
+.rc-review{gap:12px}
+.rc-main{gap:10px}
+.rc-main>.tl-card{margin:0}
+.rc-side{top:calc(var(--ph-h,40px) + 8px);padding:14px;gap:10px}
+.rc-stop{padding:10px 0;border-width:0 0 1px;border-radius:0;background:transparent}
+.rc-stop:last-child{border-bottom-width:0}
+.rc-review .tl-field,.rc-review .tl-field>span:first-child{color:var(--dim)}
+.rc-decide{display:grid;gap:6px}
+.rc-decide[data-tone=warn]{padding:10px 12px;border:1px solid var(--warn-fill)}
+.rc-decide-h{display:flex;gap:8px;align-items:center;margin:0;font:600 13px/18px var(--sans);color:var(--warn)}
+.rc-decide-h::before{content:"";width:8px;height:8px;background:var(--warn-fill)}
+.rc-decide ul{display:grid;gap:4px;margin:0 0 4px;font:13px/18px var(--sans);color:var(--ink)}
+.rc-decide[data-tone=warn] .rc-confirm{font-weight:600}
 
 /* Tabs. A view switch (which list this is) is segmented; filters inside the list are underlined words, and the chosen one is gold as well as ruled. */
 .tl-tabs{gap:16px}
@@ -1118,7 +1204,8 @@ html{zoom:var(--ui-zoom)}
 /* ---- The count beside a module, the clear cross in a search box. ---- */
 [data-ui="app"] :is(.t-rail a em[data-tone=bad],.dt-clear) { border-radius:var(--r-press) !important; }
 [data-ui="app"] .t-stale::before { border-radius:50%; }
-[data-ui="app"] .dq-strip b::before { border-radius:50%; }
+[data-ui="app"] :is(.dq-strip b,.rc-decide-h)::before { border-radius:50%; }
+[data-ui="app"] .rc-decide[data-tone=warn] { border-radius:var(--r-note) !important; }
 [data-ui="app"] .dq-strip { border-radius:var(--r-note) !important; }
 
 /* ---- Every dot: status dots, the status square, map dots, the verdict mark, the shift marker. ---- */

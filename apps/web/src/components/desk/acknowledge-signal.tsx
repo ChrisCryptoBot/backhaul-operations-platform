@@ -20,7 +20,7 @@ export function AcknowledgeSignalButton({ id }: { id: string }) {
     router.refresh();
   }
   return (
-    <button type="button" className="tl-btn sm" disabled={busy} onClick={() => void go()}>
+    <button type="button" className="tl-btn ghost sm" disabled={busy} onClick={() => void go()}>
       {busy ? "Saving…" : "Acknowledge"}
     </button>
   );

@@ -57,7 +57,8 @@ function measure() {
   }
   // The pinned bars and edge-to-edge panes start at the main area's own edge on purpose; everything else starts 10px in.
   const lefts = {};
-  for (const c of main.children) {
+  const blocks = [...main.children].flatMap((c) => (getComputedStyle(c).display === "contents" || c.matches("fieldset") ? [...c.children] : [c]));
+  for (const c of blocks) {
     if (!seen(c) || c.matches(".t-pagehead,.t-banner,.kbar,.tl-tabs,.eq-tabs,.skip")) continue;
     const l = px(c.getBoundingClientRect().left - edge) ;
     (lefts[l] ??= []).push(name(c));

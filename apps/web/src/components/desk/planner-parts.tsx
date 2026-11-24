@@ -2,9 +2,10 @@ import Link from "next/link";
 import React from "react";
 import type { DayCol, DueItem, PlannerItem, PlannerRow } from "@/lib/planner";
 import { blockHours, hhmm, weekdayOf, type DayBalance, type DayShift } from "@/lib/shifts";
-import { spanText, timeText } from "@/lib/planner";
+import { lateText, spanText, timeText } from "@/lib/planner";
 import { stopClock, stopTime } from "@/lib/desk-format";
 import { AssignButton } from "./assign-modal";
+import { RowLink } from "./ui";
 import { Icon } from "./kit/icons";
 import { activeTz, zoneAbbr } from "@/lib/tz";
 
@@ -13,38 +14,57 @@ const STATE_LABEL: Record<DueItem["state"], string> = { past_due: "Past due", to
 const clock = (d: Date, zone?: string | null) => stopClock(d, zone);
 
 function dueWords(i: DueItem, now: number): string {
-  if (i.state === "past_due") return `The window closed at ${clock(i.due, i.zone)}; ${spanText(i.minutesOver ?? 0)} over and nobody has arrived`;
-  if (i.state === "today") return `Due by ${clock(i.due, i.zone)}, in ${spanText((i.due.getTime() - now) / 60_000)}`;
-  if (i.state === "upcoming") return `Due ${stopTime(i.due, i.zone)}`;
-  return i.late ? `Arrived ${clock(i.arrivedAt!, i.zone)}, ${spanText(i.minutesLate ?? 0)} after the window closed` : `Arrived ${clock(i.arrivedAt!, i.zone)}, on time`;
+  if (i.state === "past_due") return `window closed ${stopTime(i.due, i.zone)}, nobody has arrived`;
+  if (i.state === "today") return `due by ${clock(i.due, i.zone)}, in ${spanText((i.due.getTime() - now) / 60_000)}`;
+  if (i.state === "upcoming") return `due ${stopTime(i.due, i.zone)}`;
+  return i.late ? `arrived ${clock(i.arrivedAt!, i.zone)}, ${spanText(i.minutesLate ?? 0)} after the window closed` : `arrived ${clock(i.arrivedAt!, i.zone)}, on time`;
 }
 
-/** The stops that need eyes now, each with its state as a chip: past due, due today, coming up, reached today. */
-export function DueNow({ items, now }: { items: DueItem[]; now: number }) {
+/** Stops shown before the rest are one press away: the list is a nudge, the week under it is the page. */
+const SHOWN = 3;
+
+function DueRow({ i, now }: { i: DueItem; now: number }) {
   return (
-    <div>
-      <ul className="wl">
-        {items.map((i) => (
-          <li key={`${i.loadId}-${i.stopRole}-${i.due.getTime()}`} className={`wl-row ${i.state}`}>
-            <div className="wl-main">
-              <div>
-                <Link href={`/loads/${i.loadId}`}>{i.loadNumber}</Link> · <span style={{ textTransform: "capitalize" }}>{i.stopRole}</span> · {i.city}
-                {i.driverName ? <span className="tl-sub"> · {i.driverName}</span> : <span className="tl-sub"> · no driver</span>}
-              </div>
-              <div className="wl-sub">{dueWords(i, now)}</div>
-            </div>
-            <span className={`tl-chip ${i.state === "past_due" ? "bad" : i.state === "today" ? "warn" : i.state === "upcoming" ? "info" : i.late ? "warn" : "ok"}`}>{i.state === "done" ? (i.late ? "Late" : "On time") : STATE_LABEL[i.state]}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <li className={`wl-row row-open ${i.state}`}>
+      <RowLink href={`/loads/${i.loadId}`}>{i.loadNumber ?? "Load"}</RowLink>
+      <span className="wl-what">
+        <span className="wl-role">{i.stopRole}</span> {i.city}
+      </span>
+      <span className={i.driverName ? "wl-who" : "wl-who none"}>{i.driverName ?? "No driver"}</span>
+      <span className="wl-when" title={dueWords(i, now)}>
+        {dueWords(i, now)}
+      </span>
+      <span className="t-st say" data-tone={i.state === "past_due" ? "bad" : i.state === "today" ? "warn" : i.state === "upcoming" ? "info" : i.late ? "warn" : "ok"}>
+        {i.state === "past_due" ? `${lateText(i.minutesOver ?? 0)} late` : i.state === "done" ? (i.late ? "Late" : "On time") : STATE_LABEL[i.state]}
+      </span>
+      {i.driverName == null && i.state !== "done" ? <AssignButton compact loadId={i.loadId} loadNumber={i.loadNumber ?? "This load"} /> : <i className="row-go" aria-hidden="true">›</i>}
+    </li>
   );
 }
+
+/** The stops that need eyes now, one line each: which load, what is due where, who has it, how late. The worst first; the rest of a long list is folded so the week stays on screen. */
+export function DueNow({ items, now }: { items: DueItem[]; now: number }) {
+  const row = (i: DueItem) => <DueRow key={`${i.loadId}-${i.stopRole}-${i.due.getTime()}`} i={i} now={now} />;
+  return (
+    <>
+      <ul className="wl">{items.slice(0, SHOWN).map(row)}</ul>
+      {items.length > SHOWN ? (
+        <details className="wl-more">
+          <summary>Show all {items.length}</summary>
+          <ul className="wl">{items.slice(SHOWN).map(row)}</ul>
+        </details>
+      ) : null}
+    </>
+  );
+}
+
+/** "until 9:53 PM ET (8:53 PM CT)" as "until 9:53 PM ET": the dock's clock; the carrier's is in the block's title. */
+const oneClock = (text: string) => text.replace(/ \([^)]*\)/g, "");
 
 function Chip({ i }: { i: PlannerItem }) {
   const cls = ["pl-load", i.status, i.conflict || i.shiftFlag ? "conflict" : "", i.shiftFlag ? "shiftflag" : "", i.notSent ? "notsent" : "", i.done ? "done" : ""].filter(Boolean).join(" ");
   return (
-    <Link href={`/loads/${i.loadId}`} className={cls} title={`${i.loadNumber}: ${i.lane}${i.conflict ? ". The driver is on another load at the same time." : ""}${i.shiftFlag ? ` ${i.shiftFlag.words}` : ""}${i.notSent ? " Assigned, not sent yet." : ""}`}>
+    <Link href={`/loads/${i.loadId}`} className={cls} title={`${i.loadNumber}: ${i.lane}, ${timeText(i)}${i.conflict ? ". The driver is on another load at the same time." : ""}${i.shiftFlag ? ` ${i.shiftFlag.words}` : ""}${i.notSent ? " Assigned, not sent yet." : ""}`}>
       <b>
         <span className="db-sr-only">{i.done ? "Done. " : i.status === "in_progress" ? "In progress. " : i.status === "accepted" ? "Accepted. " : "Draft. "}</span>
         {i.loadNumber}
@@ -55,7 +75,7 @@ function Chip({ i }: { i: PlannerItem }) {
         ) : null}
       </b>
       <span>{i.lane}</span>
-      <small>{timeText(i)}</small>
+      <small>{oneClock(timeText(i))}</small>
       {i.shiftFlag ? (
         <em className="pl-flag">
           <Icon name="alert" size={12} /> {i.shiftFlag.tag}
@@ -67,15 +87,16 @@ function Chip({ i }: { i: PlannerItem }) {
 
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-/** What a cell says about the driver's shift. A cell with work in it keeps just the hours; an empty one says ON SHIFT in full; a day off says OFF DUTY. Nothing for a driver with no schedule. */
+/** What a cell says about the driver's shift. The hours of the shift (how many, in the title), and a day off says OFF DUTY. Nothing for a driver with no schedule. */
 function ShiftNote({ shift, tz, empty }: { shift: DayShift | undefined; tz: string; empty: boolean }) {
   if (!shift || shift.kind === "unset") return null;
   if (shift.kind === "off") return <span className="pl-shift off">OFF DUTY{shift.note ? ` \u00b7 ${shift.note}` : ""}</span>;
   return (
     <>
       {shift.blocks.map((b) => (
-        <span key={`${b.anchor}-${b.startMs}`} className="pl-shift on">
-          {b.tail ? `${empty ? "ON SHIFT " : ""}until ${hhmm(b.endMs, tz)} (${WD[weekdayOf(b.anchor)]} night)` : `${empty ? "ON SHIFT " : ""}${hhmm(b.startMs, tz)}\u2013${hhmm(b.endMs, tz)} (${blockHours(b)}h)`}
+        <span key={`${b.anchor}-${b.startMs}`} className="pl-shift on" title={b.tail ? `On shift until ${hhmm(b.endMs, tz)}, from ${WD[weekdayOf(b.anchor)]} night` : `On shift, ${blockHours(b)} hours`}>
+          {empty ? <span className="db-sr-only">On shift </span> : null}
+          {b.tail ? `until ${hhmm(b.endMs, tz)}` : `${hhmm(b.startMs, tz)}\u2013${hhmm(b.endMs, tz)}`}
         </span>
       ))}
     </>
@@ -92,7 +113,7 @@ export function PlannerGrid({ days, rows, tray, balance = null, tz = activeTz() 
     <div className="pl-wrap">
       {twoClocks ? (
         <p className="tl-note" style={{ margin: "0 0 8px" }}>
-          Days run on {zoneAbbr(carrier)} time. A time at a dock in another zone shows the dock&apos;s clock first, with yours in brackets.
+          Days run on {zoneAbbr(carrier)} time. A time at a dock in another zone is on the dock&apos;s clock; yours is in the block&apos;s title.
         </p>
       ) : null}
       <table className="pl" aria-label="Loads by driver and day">
@@ -114,6 +135,12 @@ export function PlannerGrid({ days, rows, tray, balance = null, tz = activeTz() 
           </tr>
         </thead>
         <tbody>
+          {tray.every((c) => c.length === 0) ? (
+            <tr className="pl-tray none">
+              <th scope="row" className="pl-who">Needs a driver</th>
+              <td colSpan={days.length}>No load this week is waiting for a driver.</td>
+            </tr>
+          ) : (
           <tr className="pl-tray">
             <th scope="row" className="pl-who">
               Needs a driver
@@ -135,6 +162,7 @@ export function PlannerGrid({ days, rows, tray, balance = null, tz = activeTz() 
               </td>
             ))}
           </tr>
+          )}
           {rows.map((r) => (
             <tr key={r.driverId}>
               <th scope="row" className="pl-who">

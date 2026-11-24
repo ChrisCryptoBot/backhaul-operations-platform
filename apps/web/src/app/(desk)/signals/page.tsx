@@ -3,6 +3,7 @@ import React from "react";
 import { LEVEL_LABEL, type AlertLevel } from "@/lib/alerts";
 import { ageText, type SignalState } from "@/lib/signals";
 import { PageHead, Tabs } from "@/components/desk/ui";
+import { DataTable, type Column } from "@/components/desk/data-table";
 import { EmptyState } from "@/components/desk/kit/states";
 import { CanGate } from "@/components/desk/kit/can-gate";
 import { AcknowledgeSignalButton } from "@/components/desk/acknowledge-signal";
@@ -23,14 +24,34 @@ const STATUS_LABEL: Record<SignalState, string> = { open: "Open", acknowledged: 
 const SENT_STATE: Record<string, string> = { sent: "Sent", failed: "Failed", queued: "Sending", skipped: "Skipped" };
 const CHANNEL_NAME: Record<string, string> = { sandbox: "Simulator", webhook: "Webhook", resend: "Email", slack: "Slack" };
 
-/** How long, in the words the list uses: "New", "Open 3 days", "Cleared after 5 h". */
-function lifeOf(s: SignalRow, now: number): string {
+const TONE: Record<AlertLevel, string> = { block: "bad", warn: "warn", info: "info" };
+
+/** How long it has stayed (or stayed, for one that cleared): "New", "12 days", "a moment". */
+function stayed(s: SignalRow, now: number): string {
   const age = ageText(s.firstSeenAt.getTime(), (s.resolvedAt ?? new Date(now)).getTime());
-  const base = s.status === "resolved" ? `Cleared after ${age === "just now" ? "a moment" : age}` : age === "just now" ? "New" : `Open ${age}`;
-  const again = s.reopenCount > 0 ? ` · came back ${s.reopenCount === 1 ? "once" : `${s.reopenCount} times`}` : "";
-  const by = s.status === "acknowledged" ? ` · acknowledged${s.ackedBy ? ` by ${s.ackedBy}` : ""}` : "";
-  return base + again + by;
+  return age === "just now" ? (s.status === "resolved" ? "a moment" : "New") : age;
 }
+
+/** The record: one line a signal. Level, which load, what, since when, for how long, who is on it. */
+const columnsFor = (status: SignalState): Column[] => [
+  { key: "level", label: "Level", sticky: true, width: 88 },
+  { key: "load", label: "Load", width: 110 },
+  { key: "what", label: "What", max: 380 },
+  { key: "first", label: "First seen", priority: 2 },
+  { key: "age", label: status === "resolved" ? "Stayed" : "Open for", align: "num" },
+  { key: "back", label: "Came back", align: "num", priority: 3 },
+  { key: "owner", label: "Who is on it", max: 150, priority: 2 },
+  ...(status === "resolved" ? [{ key: "cleared", label: "Cleared", priority: 2 as const }] : []),
+  ...(status === "open" ? [{ key: "act", label: "" }] : [])
+];
+const SENT_COLUMNS: Column[] = [
+  { key: "state", label: "State", sticky: true, width: 100 },
+  { key: "subject", label: "What was said", max: 400 },
+  { key: "channel", label: "Channel" },
+  { key: "when", label: "When" },
+  { key: "tries", label: "Tries", align: "num", priority: 2 },
+  { key: "error", label: "Problem", max: 240, priority: 2 }
+];
 
 export default async function SignalsPage({ searchParams }: { searchParams?: { status?: string; level?: string; page?: string } }) {
   // The list is kept: syncing here (at most once a minute) means it is never older than that, with or without the scheduled run.
@@ -57,76 +78,79 @@ export default async function SignalsPage({ searchParams }: { searchParams?: { s
 
   return (
     <>
-      <PageHead title="Signals" sub="The alerts, kept: when each was first seen, how long it has stayed, who is on it and when it cleared. Worked out from the loads at most once a minute; nothing is changed on a load from here.">
+      <PageHead title="Signals" sub="The record of the alerts: when each was first seen, how long it has stayed, who is on it and when it cleared. What to do now is on Alerts.">
+        <Link href="/alerts" className="tl-btn ghost">
+          Alerts now
+        </Link>
+        {isAdmin ? (
+          <Link href="/settings?tab=rules" className="tl-btn ghost">
+            What is told, and when
+          </Link>
+        ) : null}
         {seesAll ? (
           <Link href="/signals/report" className="tl-btn">
             Weekly report
           </Link>
         ) : null}
-        <Link href="/alerts" className="tl-btn">
-          Alerts now
-        </Link>
-        {isAdmin ? (
-          <Link href="/settings?tab=rules" className="tl-btn">
-            What is told, and when
-          </Link>
-        ) : null}
       </PageHead>
-      <Tabs active={sentView ? "sent" : status} label="Status" hrefFor={(k) => query({ status: k, page: 1, level: null })} items={[...STATUSES.map((s) => ({ key: s, label: STATUS_LABEL[s], count: counts[s] })), ...(seesAll ? [{ key: "sent", label: "Sent" }] : [])]} />
-      {sentView ? null : (
-      <Tabs active={level ?? "all"} label="Level" hrefFor={(k) => query({ level: k === "all" ? null : k, page: 1 })} items={[{ key: "all", label: "Every level" }, ...LEVELS.map((l) => ({ key: l, label: LEVEL_LABEL[l], ...(status === "open" ? { count: counts.byLevel[l] } : {}) }))]} />
-      )}
+      <div className="dt-toolbar">
+        <Tabs view active={sentView ? "sent" : status} label="Status" hrefFor={(k) => query({ status: k, page: 1, level: null })} items={[...STATUSES.map((s) => ({ key: s, label: STATUS_LABEL[s], count: counts[s] })), ...(seesAll ? [{ key: "sent", label: "Sent" }] : [])]} />
+        {sentView ? null : <Tabs active={level ?? "all"} label="Level" hrefFor={(k) => query({ level: k === "all" ? null : k, page: 1 })} items={[{ key: "all", label: "Every level" }, ...LEVELS.map((l) => ({ key: l, label: LEVEL_LABEL[l], ...(status === "open" ? { count: counts.byLevel[l] } : {}) }))]} />}
+        <span className="dt-spacer" />
+        <span className="dt-count">{sentView ? `${sent.length} sent` : `${list.total} ${list.total === 1 ? "signal" : "signals"}`}</span>
+      </div>
       {sentView ? (
-        sent.length === 0 ? (
-          <EmptyState icon="inbox" title="Nothing has been sent">When a channel is set up (or the simulator is on), each notification is listed here with what happened to it.</EmptyState>
-        ) : (
-          <div className="al-list" style={{ maxWidth: 920 }}>
-            {sent.map((n) => (
-              <div key={n.id} className="al" data-level={n.state === "failed" ? "warn" : "info"}>
-                <span className="lvl">{SENT_STATE[n.state] ?? n.state}</span>
-                <div>
-                  {n.subject ?? "(no subject)"}
-                  <div className="who">
-                    {CHANNEL_NAME[n.channel] ?? n.channel} · {dateTime(n.at)}{n.attempts > 1 ? ` · ${n.attempts} tries` : ""}{n.error ? ` · ${n.error}` : ""}
-                  </div>
-                </div>
-                <span />
-              </div>
-            ))}
-          </div>
-        )
-      ) : null}
-      {sentView ? null : list.rows.length === 0 ? (
-        <EmptyState icon="check" title={status === "open" ? "Nothing is open" : status === "acknowledged" ? "Nothing is acknowledged" : "Nothing has cleared yet"}>
-          {status === "open" ? "Every alert the rules raise is either on someone, or has cleared." : status === "acknowledged" ? "A signal someone is on waits here until it clears or gets worse." : "A signal that stops being raised is kept here with how long it stayed."}
-        </EmptyState>
+        <DataTable
+          id="signals-sent"
+          label="What was sent"
+          columns={SENT_COLUMNS}
+          empty={<EmptyState icon="inbox" title="Nothing has been sent">When a channel is set up (or the simulator is on), each notification is listed here with what happened to it.</EmptyState>}
+          rows={sent.map((n) => ({
+            id: n.id,
+            cells: {
+              state: <span className="t-st say" data-tone={n.state === "failed" ? "bad" : n.state === "sent" ? "ok" : undefined}>{SENT_STATE[n.state] ?? n.state}</span>,
+              subject: <span className="cut" title={n.subject ?? undefined}>{n.subject ?? "(no subject)"}</span>,
+              channel: CHANNEL_NAME[n.channel] ?? n.channel,
+              when: dateTime(n.at),
+              tries: n.attempts,
+              error: n.error ? <span className="cut" title={n.error}>{n.error}</span> : <span className="dim">—</span>
+            }
+          }))}
+        />
       ) : (
-        <div className="al-list" style={{ maxWidth: 920 }}>
-          {list.rows.map((s) => (
-            <div key={s.id} className="al" data-level={s.level}>
-              <span className="lvl">{LEVEL_LABEL[s.level]}</span>
-              <div>
-                {s.detail}
-                <div className="who">
-                  {s.loadNumber ?? "Desk"} · {s.title}
-                </div>
-                <div className="who">{lifeOf(s, now)}</div>
-              </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {s.loadId ? (
-                  <Link href={`/loads/${s.loadId}`} className="t-btn sm al-act" aria-label={`Open ${s.loadNumber ?? "load"}`}>
-                    Open
-                  </Link>
-                ) : null}
-                {s.status === "open" ? (
-                  <CanGate caps={["dispatch"]}>
-                    <AcknowledgeSignalButton id={s.id} />
-                  </CanGate>
-                ) : null}
-              </div>
-            </div>
-          ))}
-        </div>
+        <DataTable
+          id="signals-table"
+          label={`${STATUS_LABEL[status]} signals`}
+          columns={columnsFor(status)}
+          empty={
+            <EmptyState icon={status === "open" ? "check" : "inbox"} title={status === "open" ? "Nothing is open" : status === "acknowledged" ? "Nothing is acknowledged" : "Nothing has cleared yet"}>
+              {status === "open" ? "Every alert the rules raise is either on someone, or has cleared." : status === "acknowledged" ? "A signal someone is on waits here until it clears or gets worse." : "A signal that stops being raised is kept here with how long it stayed."}
+            </EmptyState>
+          }
+          rows={list.rows.map((s) => ({
+            id: s.id,
+            href: s.loadId ? `/loads/${s.loadId}` : undefined,
+            cells: {
+              level: <span className="t-st" data-tone={TONE[s.level]}>{LEVEL_LABEL[s.level]}</span>,
+              load: s.loadId ? <Link href={`/loads/${s.loadId}`}>{s.loadNumber ?? "Load"}</Link> : "Desk",
+              what: (
+                <span className="cut" title={`${s.title}. ${s.detail}`}>
+                  {s.detail}
+                </span>
+              ),
+              first: dateTime(s.firstSeenAt),
+              age: stayed(s, now),
+              back: s.reopenCount > 0 ? s.reopenCount : <span className="dim">—</span>,
+              owner: s.ackedBy ?? <span className="dim">no one yet</span>,
+              cleared: s.resolvedAt ? dateTime(s.resolvedAt) : "—",
+              act: (
+                <CanGate caps={["dispatch"]}>
+                  <AcknowledgeSignalButton id={s.id} />
+                </CanGate>
+              )
+            }
+          }))}
+        />
       )}
       {sentView ? null : <Pager page={list.page} pageSize={SIGNAL_PAGE_SIZE} total={list.total} hrefFor={(n) => query({ page: n })} newer="Earlier" older="Later" />}
     </>

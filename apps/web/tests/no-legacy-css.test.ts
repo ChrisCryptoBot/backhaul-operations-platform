@@ -76,7 +76,7 @@ describe("ratchets (only ever lowered)", () => {
   const legacyCss = LEGACY.filter((f) => !f.endsWith("globals.css")).map((f) => join(SRC, f));
 
   test("inline style={{ }} in desk screens", () => {
-    expect(count(desk, /style=\{\{/g)).toBeLessThanOrEqual(494);
+    expect(count(desk, /style=\{\{/g)).toBeLessThanOrEqual(487);
   });
 
   test("non-zero border-radius written in the legacy sheets (legacy-flat.css still flattens them; remove it only when this is 0)", () => {

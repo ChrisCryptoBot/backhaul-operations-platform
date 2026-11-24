@@ -400,7 +400,7 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
           </label>
 
           <div className="rc-samples">
-            <h2 className="rc-eyebrow">Or try a sample</h2>
+            <h2 className="t-sec">Or try a sample</h2>
             {SAMPLES.map((s) => (
               <button key={s.file} type="button" className="rc-sample" disabled={stage === "reading"} onClick={() => void readSample(s.file)}>
                 <b>{s.title}</b>
@@ -660,17 +660,6 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
                 </div>
               ) : null}
 
-              {checks.length > 0 ? (
-                <div className="rc-warns">
-                  <p className="rc-eyebrow">Worth a second look</p>
-                  <ul>
-                    {checks.map((c) => (
-                      <li key={c.id}>{c.text}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
               {problems.length > 0 ? (
                 <ul className="rc-todo" role="status">
                   {problems.map((p) => (
@@ -679,6 +668,18 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
                 </ul>
               ) : null}
 
+              {/* The decision: what is worth a second look and the ticks that answer it, in one box. What saving needs is unchanged. */}
+              <div className="rc-decide" data-tone={checks.length > 0 ? "warn" : undefined}>
+                {checks.length > 0 ? (
+                  <>
+                    <p className="rc-decide-h">Worth a second look</p>
+                    <ul>
+                      {checks.map((c) => (
+                        <li key={c.id}>{c.text}</li>
+                      ))}
+                    </ul>
+                  </>
+                ) : null}
               {needsStopCheck(checks) ? (
                 <label className="dlg-check rc-confirm">
                   <input type="checkbox" checked={stopsTicked === stopsSignature} onChange={(e) => setStopsTicked(e.target.checked ? stopsSignature : null)} />
@@ -689,6 +690,7 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
                 <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />
                 I checked these details against the document.
               </label>
+              </div>
               <button type="button" className="tl-btn primary" disabled={saving || !confirmed || problems.length > 0 || !stopsOk} aria-busy={saving || undefined} onClick={() => void save()}>
                 {saving ? "Saving…" : "Save as a draft load"}
               </button>

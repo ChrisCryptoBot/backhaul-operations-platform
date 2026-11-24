@@ -44,14 +44,14 @@ const OPEN_SORT_VALUE: Record<(typeof OPEN_SORTS)[number], (r: BoardRow) => stri
 };
 
 /**
- * What a dispatcher reads left to right: which load, how it stands, whose it is, where, when, who has it, then the money with its judgement first. One line a row. Truck and Answer fold (priority 3) onto the
+ * What a dispatcher reads left to right: which load, how it stands, where (third, so it is still in view beside an open drawer), whose it is, when, who has it, then the money with its judgement first. One line a row. Truck and Answer fold (priority 3) onto the
  * driver's cell; at 1024 the customer, the driver and the miles fold too, onto the load's second line, and the pickup onto the lane's.
  */
 const COLUMNS: Column[] = [
   { key: "load", sortable: true, label: "Load", sticky: true, width: 112, max: 180 },
   { key: "status", label: "Status", sticky: true, width: 138 },
-  { key: "customer", label: "Customer", max: 140, priority: 2 },
   { key: "lane", sortable: true, label: "Lane" },
+  { key: "customer", label: "Customer", max: 140, priority: 2 },
   { key: "pickup", sortable: true, label: "Pickup", priority: 2 },
   { key: "driver", sortable: true, label: "Driver", max: 160, priority: 2 },
   { key: "truck", label: "Truck", priority: 3 },

@@ -56,14 +56,17 @@ export default async function RateConsPage() {
         <RateConIntake liveReading={Boolean(process.env.ANTHROPIC_API_KEY)} />
       </CanGate>
 
+      {/* What was read before: only while there is no document on the table (terminal.css hides it beside the check, so one load's figures are never read as another's). */}
+      <section className="rc-history">
       <div className="rc-list-head">
-        <h2 className="rc-eyebrow">Read so far</h2>
+        <h2 className="t-sec">Read so far</h2>
         <span className="tl-sub">{total === 0 ? "" : total > recent.length ? `The latest ${recent.length} of ${total}` : `${total} ${total === 1 ? "load" : "loads"}`}</span>
         <Link href="/loads" className="tl-btn sm ghost">
           All loads
         </Link>
       </div>
       <DataTable id="rate-cons-table" label="Loads made from rate confirmations" columns={COLUMNS} rows={rows} empty={<EmptyState icon="document" title="Nothing read yet">Every document you read and save shows up here, with where its load stands.</EmptyState>} />
+      </section>
     </>
   );
 }

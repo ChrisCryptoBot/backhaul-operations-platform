@@ -41,3 +41,11 @@ describe("the board folds secondary columns instead of scrolling sideways", () =
     expect(board).not.toMatch(/tl-chip bad[^>]*>Pickup passed/);
   });
 });
+
+describe("a row that looks like it opens, opens", () => {
+  test("the table itself carries the row click, so a list without a search toolbar has it too", () => {
+    const table = read("components/desk/data-table.tsx");
+    expect(table).toContain("rows.some((r) => r.href) ? <RowClicks tableId={id} /> : null");
+    expect(read("components/desk/data-table-tools.tsx")).not.toContain("tr[data-href]");
+  });
+});

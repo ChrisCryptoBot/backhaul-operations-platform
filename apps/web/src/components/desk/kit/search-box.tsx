@@ -32,7 +32,7 @@ export function SearchBox({ value, onChange, placeholder, label, id }: { value: 
  * A search that goes into the address as you type (a moment after you stop), keeping the filters given and starting again at the first page: there is no Find button to press. The page reads `q` and
  * narrows on the server.
  */
-export function LiveSearch({ path, q, keep, placeholder, label, id }: { path: string; q: string; keep?: Record<string, string>; placeholder: string; label: string; id?: string }) {
+export function LiveSearch({ path, q, keep, placeholder, label, id, name = "q" }: { /** What the address calls it. */ name?: string; path: string; q: string; keep?: Record<string, string>; placeholder: string; label: string; id?: string }) {
   const router = useRouter();
   const [text, setText] = React.useState(q);
   const typed = React.useRef(false);
@@ -40,7 +40,7 @@ export function LiveSearch({ path, q, keep, placeholder, label, id }: { path: st
     if (!typed.current) return;
     const t = setTimeout(() => {
       const p = new URLSearchParams(keep ?? {});
-      if (text.trim()) p.set("q", text.trim());
+      if (text.trim()) p.set(name, text.trim());
       const s = p.toString();
       router.replace(s ? `${path}?${s}` : path, { scroll: false });
     }, 300);

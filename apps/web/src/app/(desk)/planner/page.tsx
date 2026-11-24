@@ -5,6 +5,7 @@ import { currentTerminal } from "@/server/tl/terminal";
 import { currentAllowed } from "@/server/tl/scope";
 import { Card, PageHead } from "@/components/desk/ui";
 import { DueNow, PlannerGrid } from "@/components/desk/planner-parts";
+import { LiveSearch } from "@/components/desk/kit/search-box";
 import { EmptyState } from "@/components/desk/kit/states";
 import { planDays } from "@/lib/planner";
 import { Pager } from "@/components/desk/pager";
@@ -58,12 +59,12 @@ export default async function PlannerPage({ searchParams }: { searchParams?: { s
   return (
     <>
       <PageHead title="Planner" sub="Who is on what, day by day, and what is due now. A load runs from its first pickup window to its last delivery window.">
-        <Link href={`/planner?start=${key(-1)}`} className="tl-btn">Earlier week</Link>
+        <Link href={`/planner?start=${key(-1)}`} className="tl-btn ghost">Earlier week</Link>
         <Link href="/planner" className="tl-btn" aria-current={onToday ? "true" : undefined}>Today</Link>
-        <Link href={`/planner?start=${key(1)}`} className="tl-btn">Later week</Link>
+        <Link href={`/planner?start=${key(1)}`} className="tl-btn ghost">Later week</Link>
       </PageHead>
 
-      <Card title={`Due now · ${watchlist.length}`} className="tl-card">
+      <Card title={`Due now · ${watchlist.length}`}>
         {watchlist.length === 0 ? (
           <EmptyState icon="check" title="Nothing is due or overdue">No stop is past its window, due today or coming up tomorrow.</EmptyState>
         ) : (
@@ -83,20 +84,15 @@ export default async function PlannerPage({ searchParams }: { searchParams?: { s
           <i className="draft" /> assigned, not sent <i className="accepted" /> sent or accepted <i className="in_progress" /> on the road <i className="done" /> delivered
         </span>
       </div>
-      <form className="pl-find" action="/planner" method="get" role="search" style={{ display: "flex", gap: 8, alignItems: "center", margin: "0 0 10px", flexWrap: "wrap" }}>
-        {searchParams?.start ? <input type="hidden" name="start" value={searchParams.start} /> : null}
-        {showIdle ? <input type="hidden" name="idle" value="1" /> : null}
-        {everyone ? <input type="hidden" name="else" value="1" /> : null}
-        <label className="db-sr-only" htmlFor="pl-q">Find a driver</label>
-        <input id="pl-q" type="search" name="q" defaultValue={q} placeholder="Find a driver or code" autoComplete="off" />
-        <button type="submit" className="tl-btn sm">Find</button>
+      <div className="pl-find">
+        <LiveSearch path="/planner" q={q} keep={{ ...(searchParams?.start ? { start: searchParams.start } : {}), ...(showIdle ? { idle: "1" } : {}), ...(everyone ? { else: "1" } : {}) }} placeholder="Search a driver or code" label="Find a driver" id="pl-q" />
         <span className="tl-sub">
           {pool.length} {pool.length === 1 ? "driver" : "drivers"}{showIdle ? "" : " with work or on shift this week"}
           {idleCount > 0 ? <> · <Link href={href({ idle: !showIdle, page: 1 })}>{showIdle ? "Only drivers with work or on shift" : `Show the ${idleCount} off or with no schedule`}</Link></> : null}
           {scope ? <> · {everyone ? <Link href={href({ elsewhere: false, page: 1 })}>Only {scope} drivers</Link> : <Link href={href({ elsewhere: true, page: 1 })}>Include drivers based elsewhere{hiddenElsewhere > 0 ? ` (${hiddenElsewhere} ${hiddenElsewhere === 1 ? "load" : "loads"} held by them)` : ""}</Link>}</> : null}
           {unscheduled > 0 ? <> · <Link href="/schedules">{unscheduled} {unscheduled === 1 ? "driver has" : "drivers have"} no schedule</Link></> : null}
         </span>
-      </form>
+      </div>
       <PlannerGrid days={days} rows={shownRows} tray={tray} balance={balance} tz={tz} />
       <Pager page={page} pageSize={ROWS_PER_PAGE} total={pool.length} hrefFor={(n) => href({ page: n })} newer="Previous drivers" older="More drivers" />
       {untimed.length > 0 ? (

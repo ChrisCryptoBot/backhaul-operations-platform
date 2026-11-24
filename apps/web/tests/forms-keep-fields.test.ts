@@ -61,8 +61,6 @@ const EXEMPT: Record<string, string> = {
   "components/desk/kpi/choice.tsx": "a filter box that goes into the address (the filter form around it applies the chosen name)",
   "app/(desk)/trailers/page.tsx": "filters that go into the address",
   "app/(desk)/audit/page.tsx": "filters that go into the address",
-  "app/(desk)/planner/page.tsx": "filters that go into the address",
-  "app/(desk)/messages/page.tsx": "picks a conversation, which goes into the address",
   "app/(desk)/settings/page.tsx": "appearance buttons that save at once"
 };
 

@@ -1,11 +1,12 @@
 import Link from "next/link";
 import React from "react";
 import { FoldToggle } from "./fold-toggle";
+import { RowClicks } from "./row-clicks";
 
 /**
  * The desk's table. Server-rendered: banded column groups over a sticky header, sticky leading columns with a shadow seam,
  * tabular right-aligned figures, one row-state variable (zebra, hover, selected, flagged) and a link in the first cell as the single tab stop per row.
- * Search and row clicks are added by <DataTableTools> (a small client component) pointing at the same id.
+ * A row with an `href` opens it (row-clicks.tsx); search and sorting are added by <DataTableTools> pointing at the same id.
  */
 export type Column = {
   key: string;
@@ -134,6 +135,7 @@ export function DataTable({ id, columns, rows, empty, label, sortHref, foldNote 
           )}
         </tbody>
       </table>
+      {rows.some((r) => r.href) ? <RowClicks tableId={id} /> : null}
       {foldNote && rows.length > 0 && folds.length > 0 ? <FoldToggle tableId={id} columns={folds} /> : null}
     </div>
   );

@@ -219,12 +219,15 @@ export function TruckEmptyCard({ k }: { k: DeskKpi }) {
 /** The busiest lanes across the last six weeks: loads, revenue per mile and empty share for each week, and how the latest week moved against the one before. */
 export function LaneWeeksCard({ k }: { k: DeskKpi }) {
   const heads = k.trend.slice(-6).map((w) => w.label);
+  // The change needs loads in both of the last two weeks: with no lane that has them, the column would be a row of dashes, so it is not drawn.
+  const changed = (l: (typeof k.laneWeeks)[number]) => l.weeks[l.weeks.length - 1]!.loads > 0 && l.weeks[l.weeks.length - 2]!.loads > 0;
+  const anyChange = k.laneWeeks.some(changed);
   return (
     <ChartFrame
       title="Lanes, week by week"
       unit="the ten busiest lanes over the last six weeks"
       empty={k.laneWeeks.length === 0 ? "No lane finished a load in the last six weeks." : undefined}
-      caption="Each cell is loads, then revenue per mile. The last column is the latest week against the week before."
+      caption={`Each cell is loads, then revenue per mile. ${anyChange ? "The last column is the latest week against the week before." : "No lane has loads in both of the last two weeks, so there is no change to show."}`}
       formula="Weeks end on the dates shown, counted on the workspace's clock. Revenue per mile is gross over the miles the pay covers. Change compares the latest week with the one before when both have loads."
       className="kc-wide">
       <table className="tl-table" aria-label="Lanes by week">
@@ -234,7 +237,7 @@ export function LaneWeeksCard({ k }: { k: DeskKpi }) {
             {heads.map((h) => (
               <th key={h} className="num">{h}</th>
             ))}
-            <th className="num">Change</th>
+            {anyChange ? <th className="num">Change</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -247,7 +250,7 @@ export function LaneWeeksCard({ k }: { k: DeskKpi }) {
                 {l.weeks.map((w, i) => (
                   <td key={i} className="num">{w.loads === 0 ? dash : `${w.loads} · ${perMile(w.rpm)}`}</td>
                 ))}
-                <td className="num">{a.loads > 0 && b.loads > 0 ? <DeltaChip delta={deltaOf(a.rpm, b.rpm, { kind: "pct" })} /> : dash}</td>
+                {anyChange ? <td className="num">{changed(l) ? <DeltaChip delta={deltaOf(a.rpm, b.rpm, { kind: "pct" })} /> : dash}</td> : null}
               </tr>
             );
           })}

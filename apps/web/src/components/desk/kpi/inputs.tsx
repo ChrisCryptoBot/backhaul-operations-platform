@@ -32,7 +32,7 @@ export function LaneTargetCell({ lane, target, canEdit }: { lane: string; target
         });
       }}>
       <label className="db-sr-only" htmlFor={`lt-${lane}`}>{`Target rate per load for ${lane}`}</label>
-      <input id={`lt-${lane}`} className="rd-typed" value={form.rate} inputMode="decimal" size={7} placeholder="none" maxLength={10} onChange={(e) => setForm({ rate: e.target.value })} aria-invalid={error ? true : undefined} title={error || "Dollars per load"} />
+      <input id={`lt-${lane}`} className="rd-typed" value={form.rate} inputMode="decimal" size={7} placeholder="$" maxLength={10} onChange={(e) => setForm({ rate: e.target.value })} aria-invalid={error ? true : undefined} title={error || "Dollars per load"} />
       <button type="submit" className="tl-btn ghost sm" disabled={pending} aria-busy={pending || undefined}>
         Set
       </button>

@@ -4,6 +4,8 @@ import type { Metadata } from "next";
 import { Composer, MarkRead } from "@/components/desk/messages/composer";
 import { LiveMessages } from "@/components/desk/messages/live";
 import { Attachments, MessageText } from "@/components/desk/messages/parts";
+import { LiveSearch } from "@/components/desk/kit/search-box";
+import { telHref } from "@/lib/contact";
 import { EmptyState } from "@/components/desk/kit/states";
 import { PageHead } from "@/components/desk/ui";
 import { deliveryNote, groupByDay, snippet, stamp, timeLabel } from "@/lib/messages";
@@ -23,6 +25,8 @@ export default async function MessagesPage({ searchParams }: { searchParams?: { 
   const convo = wanted ? await getConversation(wanted) : null;
   const unread = threads.find((t) => t.driverId === wanted)?.unread ?? 0;
   const now = new Date();
+  const needle = find.toLowerCase();
+  const listed = needle ? threads.filter((t) => t.driverName.toLowerCase().includes(needle)) : threads;
 
   return (
     <>
@@ -30,40 +34,15 @@ export default async function MessagesPage({ searchParams }: { searchParams?: { 
       <LiveMessages />
       <div className="ms">
         <aside className="ms-list" aria-label="Conversations">
-          <form action="/messages" className="ms-start" role="search" aria-label="Find a driver to message">
-            <label>
-              <span>Find a driver</span>
-              <input type="search" name="find" defaultValue={find} placeholder="Name or code" maxLength={60} />
-            </label>
-            <button type="submit" className="tl-btn sm">
-              Find
-            </button>
-          </form>
-          {starters.length > 0 ? (
-            <form action="/messages" className="ms-start">
-              <label>
-                <span>Start a conversation</span>
-                <select name="driver" defaultValue="" required>
-                  <option value="" disabled>
-                    Choose a driver
-                  </option>
-                  {starters.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button type="submit" className="tl-btn sm">
-                Open
-              </button>
-            </form>
-          ) : null}
-          {threads.length === 0 ? (
-            <p className="ms-none">No conversations yet.</p>
+          {/* One box: it narrows the conversations, and offers the drivers who have none yet. */}
+          <div className="ms-find">
+            <LiveSearch path="/messages" name="find" q={find} keep={searchParams?.driver ? { driver: searchParams.driver } : {}} placeholder="Find or message a driver" label="Find a driver to message" />
+          </div>
+          {listed.length === 0 ? (
+            <p className="ms-none">{find ? "No conversation with that driver." : "No conversations yet."}</p>
           ) : (
             <ul>
-              {threads.map((t) => (
+              {listed.map((t) => (
                 <li key={t.driverId}>
                   <Link href={`/messages?driver=${t.driverId}`} aria-current={t.driverId === wanted ? "true" : undefined} className="ms-row">
                     <span className="ms-row-top">
@@ -86,6 +65,22 @@ export default async function MessagesPage({ searchParams }: { searchParams?: { 
               ))}
             </ul>
           )}
+          {starters.length > 0 ? (
+            <details className="ms-new" open={find !== "" || listed.length === 0 || undefined}>
+              <summary>
+                {find ? "Start one with" : "Start a conversation"} <em>{starters.length}</em>
+              </summary>
+              <ul>
+                {starters.map((d) => (
+                  <li key={d.id}>
+                    <Link href={`/messages?driver=${d.id}`} className="ms-row">
+                      {d.name}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
         </aside>
 
         <section className="ms-pane" aria-label={convo ? `Conversation with ${convo.driver.name}` : "Conversation"}>
@@ -142,7 +137,13 @@ export default async function MessagesPage({ searchParams }: { searchParams?: { 
                   ))
                 )}
               </div>
-              <p className="ms-note">{deliveryNote(convo.bridged)}</p>
+              {convo.bridged ? (
+                <p className="ms-note">{deliveryNote(convo.bridged)}</p>
+              ) : (
+                <p className="ms-note t-stale" role="note">
+                  Desk log only{convo.driver.phone ? <>: call or text <a href={telHref(convo.driver.phone)}>{convo.driver.phone}</a></> : null} <span>{deliveryNote(convo.bridged)}</span>
+                </p>
+              )}
               <CanGate caps={["dispatch", "bill"]} banner who="A dispatcher or the accounting office" what="these messages">
                 <Composer driverId={convo.driver.id} driverName={convo.driver.name} loads={convo.loads} />
               </CanGate>

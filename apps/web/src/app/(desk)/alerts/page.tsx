@@ -2,9 +2,11 @@ import Link from "next/link";
 import React from "react";
 import { getAlertsInTerminal } from "@/server/tl/alerts";
 import { currentTerminal } from "@/server/tl/terminal";
-import { LEVEL_LABEL, type AlertLevel } from "@/lib/alerts";
+import { LEVEL_LABEL, RULES, type AlertLevel } from "@/lib/alerts";
 import { PageHead, Tabs } from "@/components/desk/ui";
 import { AlertList } from "@/components/desk/alert-bits";
+import { AlertGroups } from "@/components/desk/alert-groups";
+import { groupAlerts } from "@/lib/alert-groups";
 import { EmptyState } from "@/components/desk/kit/states";
 import { Pager } from "@/components/desk/pager";
 
@@ -14,21 +16,25 @@ const LEVELS: AlertLevel[] = ["block", "warn", "info"];
 const PAGE = 100;
 const HEADING: Record<AlertLevel, string> = { block: "Fix before it goes out", warn: "Look at these soon", info: "For your information" };
 
-export default async function AlertsPage({ searchParams }: { searchParams?: { level?: string; page?: string } }) {
+export default async function AlertsPage({ searchParams }: { searchParams?: { level?: string; page?: string; code?: string } }) {
   // The header's terminal narrows the alerts too.
   const { alerts, counts, capped, cap } = await getAlertsInTerminal(await currentTerminal());
   const level = LEVELS.find((l) => l === searchParams?.level) ?? null;
-  const filtered = level ? alerts.filter((a) => a.level === level) : alerts;
-  // Most-urgent first, then a page of them at a time: a large fleet can have thousands of notes.
-  const ordered = [...LEVELS.flatMap((l) => filtered.filter((a) => a.level === l))];
-  const page = Math.min(Math.max(1, Number(searchParams?.page) || 1), Math.max(1, Math.ceil(ordered.length / PAGE)));
+  // One rule's alerts in full (from a line with more loads than it shows), or everything as a to-do list.
+  const code = RULES.find((r) => r.code === searchParams?.code)?.code ?? null;
+  const filtered = alerts.filter((a) => (!level || a.level === level) && (!code || a.code === code));
+  const ordered = LEVELS.flatMap((l) => filtered.filter((a) => a.level === l));
+  const groups = code ? [] : groupAlerts(ordered);
+  const total = code ? ordered.length : groups.length;
+  const page = Math.min(Math.max(1, Number(searchParams?.page) || 1), Math.max(1, Math.ceil(total / PAGE)));
   const shown = ordered.slice((page - 1) * PAGE, page * PAGE);
-  const pageHref = (n: number) => `/alerts?${new URLSearchParams({ ...(level ? { level } : {}), ...(n > 1 ? { page: String(n) } : {}) }).toString()}`;
+  const shownGroups = groups.slice((page - 1) * PAGE, page * PAGE);
+  const pageHref = (n: number) => `/alerts?${new URLSearchParams({ ...(level ? { level } : {}), ...(code ? { code } : {}), ...(n > 1 ? { page: String(n) } : {}) }).toString()}`;
 
   return (
     <>
-      <PageHead title="Alerts" sub="What needs attention across the loads. Worked out from the loads each time you open this page; nothing is stored. Each one opens its load.">
-        <Link href="/settings/rules" className="tl-btn">How these are decided</Link>
+      <PageHead title="Alerts" sub="What needs attention across the loads, each problem once with the loads it is on. Worked out each time you open this page; how long each has stayed is on Signals.">
+        <Link href="/settings/rules" className="tl-btn ghost">How these are decided</Link>
       </PageHead>
       <Tabs
         active={level ?? "all"}
@@ -36,23 +42,28 @@ export default async function AlertsPage({ searchParams }: { searchParams?: { le
         items={[{ key: "all", label: "All", count: alerts.length }, ...LEVELS.map((l) => ({ key: l, label: LEVEL_LABEL[l], count: counts[l] }))]}
       />
       {capped ? (
-        <p className="tl-note warn" role="status" style={{ maxWidth: 820 }}>
+        <p className="tl-note warn" role="status">
           This list reads the {cap} newest delivered loads. There are at least that many, so an older delivery that was never invoiced may not be shown here. Invoice the oldest first, or find the rest under Loads, History.
         </p>
       ) : null}
       {ordered.length === 0 ? (
         <EmptyState icon="check" title="Nothing needs attention">Every open load has a driver where it needs one, and nothing is late.</EmptyState>
       ) : (
-        LEVELS.filter((l) => shown.some((a) => a.level === l)).map((l) => (
-          <section key={l} style={{ marginBottom: 24, maxWidth: 820 }}>
+        LEVELS.filter((l) => (code ? shown.some((a) => a.level === l) : shownGroups.some((g) => g.level === l))).map((l) => (
+          <section key={l} className="al-sec">
             <h2 className="t-sec">
-              {HEADING[l]} · {counts[l]}
+              {HEADING[l]} · {code ? ordered.filter((a) => a.level === l).length : counts[l]}
             </h2>
-            <AlertList alerts={shown.filter((a) => a.level === l)} withLoad />
+            {code ? <AlertList alerts={shown.filter((a) => a.level === l)} withLoad /> : <AlertGroups groups={shownGroups.filter((g) => g.level === l)} allHref={(g) => `/alerts?level=${g.level}&code=${g.code}`} />}
           </section>
         ))
       )}
-      <Pager page={page} pageSize={PAGE} total={ordered.length} hrefFor={pageHref} newer="Earlier" older="Later" />
+      {code ? (
+        <p className="tl-note t-after">
+          Only “{RULES.find((r) => r.code === code)!.title}”. <Link href={level ? `/alerts?level=${level}` : "/alerts"}>Every alert</Link>
+        </p>
+      ) : null}
+      <Pager page={page} pageSize={PAGE} total={total} hrefFor={pageHref} newer="Earlier" older="Later" />
     </>
   );
 }

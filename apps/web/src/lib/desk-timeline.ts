@@ -13,7 +13,7 @@ export type TimelineLoad = {
   invoicedAt: Date | null;
   paidAt: Date | null;
   paymentStatus: string | null;
-  /** The earliest `arrivedAt` among the load's stops, if the phone has reported one. */
+  /** The earliest `arrivedAt` among the load's stops, if the phone has reported one: the nearest thing to a start when the stops are not listed; when they are, each has its own. */
   firstArrivedAt: Date | null;
   assignment: null | { status: string; createdAt: Date; dispatchedAt: Date | null; respondedAt: Date | null };
   /** The stops in order, for one step each (sync plan Step 2: the driver's phone reports each arrival). Absent: no stop steps. */
@@ -43,7 +43,7 @@ export function deriveTimeline(l: TimelineLoad): TimelineStep[] {
     { key: "assigned", label: "Assigned", done: !!a, at: a?.createdAt ?? null },
     { key: "sent", label: "Sent to driver", done: !!a && a.status !== "draft", at: a?.dispatchedAt ?? null },
     { key: "answered", label: declined ? "Driver declined" : "Driver answered", done: answered, at: a?.respondedAt ?? null },
-    { key: "road", label: "On the road", done: started, at: l.firstArrivedAt },
+    { key: "road", label: "On the road", done: started, at: l.stops && l.stops.length > 0 ? null : l.firstArrivedAt },
     // A delivered load has reached every stop, even one whose arrival nobody entered: the step is done, with no time.
     ...stopSteps(l.stops ?? []).map((s) => (delivered && !s.done ? { ...s, done: true } : s)),
     { key: "delivered", label: "Delivered", done: delivered, at: l.completedAt },

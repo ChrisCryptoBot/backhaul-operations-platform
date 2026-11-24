@@ -462,8 +462,10 @@ async function main() {
       const est = kind === "flat" ? rate : round(rate * loaded, 2);
       const dispatchedAt = p.sentHoursAgo != null ? new Date(now - p.sentHoursAgo * 3_600_000) : new Date(when.getTime() - DAY);
       const respondedAt = p.status === "accepted" ? null : new Date(when.getTime() - DAY / 2);
+      await prisma.load.update({ where: { id: load.id }, data: { createdAt: new Date(dispatchedAt.getTime() - 2 * 3_600_000) } });
       await prisma.assignment.create({
         data: {
+          createdAt: new Date(dispatchedAt.getTime() - 3_600_000),
           loadId: load.id,
           driverId: driver.id,
           payKind: kind,

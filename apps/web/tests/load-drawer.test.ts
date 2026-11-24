@@ -34,7 +34,8 @@ describe("a load has one view", () => {
 
 describe("what only the page could do is in the drawer", () => {
   test("Trip: edit the load, enter the pickup, the delivery and the costs, the driver, the trailer, the relay, detention, and TONU, cancel and delete", () => {
-    expect(view.slice(view.indexOf("const drawerStops"), view.indexOf("const drawerDetails"))).toContain("<LoadEditDialog");
+    // Edit is in the drawer's head, so it is one press away on every tab.
+    expect(view.slice(view.indexOf("<LoadCockpit"))).toMatch(/actions=\{fellThrough \|\| !may\("dispatch"\) \? null : <LoadEditDialog/);
     for (const part of ["tripSec", "driverSec", "trailerSec", "relaySec", "docksSec", "moreSec"]) expect(trip, part).toContain(part);
     expect(view).toContain("<TripEntry");
     expect(view).toContain("<WaiveDetentionButton");

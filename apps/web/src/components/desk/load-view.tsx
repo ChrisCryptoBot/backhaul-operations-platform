@@ -983,7 +983,6 @@ export async function LoadView({ id }: { id: string }) {
     <section className="lv-sec">
       <header className="lv-sec-h">
         <h3>Stops</h3>
-        {fellThrough ? null : gate(<LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load, stopZones)} scheduleLocked={scheduleLocked} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} truckName={load.vehicle?.name ?? null} dealLocked={load.paymentStatus ? "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." : settled ? "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." : null} />, "dispatch")}
       </header>
       <ol className="lv-stops">
         {load.stops.map((s) => {
@@ -1165,9 +1164,9 @@ export async function LoadView({ id }: { id: string }) {
     if (!a) stillNeeds.push("a driver");
     else if (!driverOk && a.status !== "completed") stillNeeds.push("driver clearance");
     if (!trailerOk) stillNeeds.push("a trailer");
-    if (!weightOk) stillNeeds.push("weight over 45,000 lb");
+    if (!weightOk) stillNeeds.push("a weight check (over 45,000 lb)");
   }
-  if ((open || (delivered && !load.paymentStatus)) && !refsOk) stillNeeds.push(`${gapsPhrase(gaps)} entered`);
+  if ((open || (delivered && !load.paymentStatus)) && !refsOk) stillNeeds.push(gapsPhrase(gaps));
   const drawerDeck = (
     <div className="lv-sum">
       {nextLine}
@@ -1209,14 +1208,14 @@ export async function LoadView({ id }: { id: string }) {
           </div>
         ) : null}
       </dl>
+      {readOnlyNote}
+      {alerts.length > 0 ? <AlertList alerts={alerts} /> : null}
       {stillNeeds.length > 0 ? (
         <p className="lv-needs">
-          <b>Needs</b>
+          <b>Missing</b>
           <span>{stillNeeds.join(" · ")}</span>
         </p>
       ) : null}
-      {readOnlyNote}
-      {alerts.length > 0 ? <AlertList alerts={alerts} /> : null}
       {fellThrough ? (
         <p className="lv-fell">
           <b>{load.status === "tonu" ? "TONU" : "Cancelled"}</b>
@@ -1235,6 +1234,7 @@ export async function LoadView({ id }: { id: string }) {
       sub={sub}
       chips={chips}
       href={`/loads/${load.id}`}
+      actions={fellThrough || !may("dispatch") ? null : <LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load, stopZones)} scheduleLocked={scheduleLocked} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} truckName={load.vehicle?.name ?? null} dealLocked={load.paymentStatus ? "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." : settled ? "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." : null} />}
       footer={footer}
       deck={drawerDeck}
       trip={drawerTrip}
