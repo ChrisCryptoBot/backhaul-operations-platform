@@ -9,6 +9,7 @@ import { radarWeather } from "@/server/tl/radar-weather";
 import { currentTerminal } from "@/server/tl/terminal";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { getTrailerWhere, getTruckWhere } from "@/server/tl/whereabouts";
+import { warmRoadRoutes } from "@/server/tl/warm-routes";
 import { unitTip } from "@/lib/whereabouts";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ export const dynamic = "force-dynamic";
  *   ?mode=where&kind=&id=       the hover tooltip for one unit: where it is, in words, and what it is doing (one small read, not the whole fleet);
  *   ?mode=route&kind=&id=       the clicked unit's active load: its lane, the breadcrumb since it began, and the card's live lines (src/server/tl/radar-route.ts);
  *   ?mode=open_loads            the loads that need a driver, pinned at their first stop (the header's own rule and scope);
+ *   ?mode=roads                 asks for the road routes of the loads under way that have none yet, a few a minute (server/tl/warm-routes.ts), and says how many it got;
  *   ?mode=weather               severe and extreme NWS alerts with a drawn area (cached five minutes, empty when the NWS is slow or down).
  * Scoped to the workspace and the chosen terminal; anyone who can read may look.
  */
@@ -34,6 +36,7 @@ export async function GET(req: Request) {
   if (mode === "route") return NextResponse.json(await unitRoute(get("kind") ?? "tractor", get("id") ?? "", currentWorkspaceId(), await currentTerminal()), noStore);
   if (mode === "open_loads") return NextResponse.json(await radarOpenLoads(currentWorkspaceId(), await currentTerminal()), noStore);
   if (mode === "weather") return NextResponse.json(await radarWeather(), noStore);
+  if (mode === "roads") return NextResponse.json(await warmRoadRoutes(currentWorkspaceId()), noStore);
   if (mode === "where") {
     const id = get("id") ?? "";
     const found = get("kind") === "trailer" ? await getTrailerWhere([id], currentWorkspaceId()) : await getTruckWhere([id], currentWorkspaceId(), await currentTerminal());

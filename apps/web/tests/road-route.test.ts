@@ -13,7 +13,8 @@ vi.mock("@/server/geo/mapbox", () => ({ drive: (...a: unknown[]) => drive(...a),
 import { MAX_TRAIL_GAP_MILES, alongPolyline, thinLine, trailOnRoad } from "@/lib/geo-line";
 import { parseRoute, roadName } from "@/lib/geo";
 import { OFF_ROUTE_MILES, ROAD_ROUTE_NOTE, milesAlong, roadMilesLeft, roadSchedule, stopsAhead } from "@/lib/telematics";
-import { ensureRoadRoute, ensureWayThere } from "@/server/geo/road-route";
+import { BACKGROUND_DIRECTIONS, SPEND } from "@/lib/spend";
+import { BACKGROUND_WAY_MS, ensureRoadRoute, ensureWayThere } from "@/server/geo/road-route";
 import { FAIL_TTL_MS, MAX_POINTS, MAX_ROUTES, ROUTE_TTL_MS, forgetRoadRoutes, keepRoadRoute, keepWayThere, readRoadRoute, readWayThere, roadRoutesKept, routeKey } from "@/server/tl/road-route-cache";
 
 const A = { lat: 32.0, lng: -97.0 };
@@ -49,7 +50,7 @@ describe("the directions answer keeps its road line", () => {
     expect(src).toContain('{ access_token: token(), overview: "full", geometries: "geojson", steps: "true" }');
     expect(src).not.toContain('overview: "simplified"');
     expect(src).toContain('{ access_token: token(), overview: "false" }');
-    expect(src).toMatch(/directions\/v5\/mapbox\/driving\/\$\{coords\}\?\$\{q\.toString\(\)\}`, "mapbox_directions"\)/);
+    expect(src).toMatch(/directions\/v5\/mapbox\/driving\/\$\{coords\}\?\$\{q\.toString\(\)\}`, "mapbox_directions", opts\.background\)/);
   });
 });
 
@@ -124,6 +125,40 @@ describe("the way there: a truck off its route is put on a road from where it is
     keepWayThere("L1", [B], ROAD);
     keepWayThere("L1", [B], ROAD);
     expect(roadRoutesKept()).toBe(1);
+  });
+});
+
+describe("a background fetch is held to its own share and never spoils a person's", () => {
+  it("asks as background; a null is not remembered, so a person who opens the load still gets an answer", async () => {
+    drive.mockResolvedValue(null);
+    expect(await ensureRoadRoute("L1", [A, B], { background: true })).toBeNull();
+    expect(drive.mock.calls[0]![1]).toEqual({ geometry: true, background: true });
+    expect(readRoadRoute("L1", [A, B])).toBeUndefined();
+    expect(await ensureWayThere("L1", A, [B], { background: true })).toBeNull();
+    expect(readWayThere("L1", [B])).toBeUndefined();
+    drive.mockResolvedValue({ meters: 144_841, seconds: 5_400, legsMeters: [144_841], coords: ROAD.coords });
+    expect((await ensureRoadRoute("L1", [A, B]))!.miles).toBeCloseTo(90, 0);
+    expect(drive.mock.calls[2]![1]).toEqual({ geometry: true });
+  });
+  it("its allowance is about half of the desk's, and a refusal is never shown as a person's", () => {
+    const full = SPEND.mapbox_directions.limits;
+    expect(BACKGROUND_DIRECTIONS.workspaceDay!).toBeLessThanOrEqual(full.workspaceDay! / 2);
+    expect(BACKGROUND_DIRECTIONS.globalDay!).toBeLessThanOrEqual(full.globalDay! / 2);
+    expect(BACKGROUND_DIRECTIONS.globalMonth!).toBeLessThan(full.globalMonth!);
+    const src = fs.readFileSync(path.join(__dirname, "../src/server/geo/mapbox.ts"), "utf8");
+    expect(src).toContain("if (!background) lastRefusal =");
+    expect(src).toContain("background ? { limits: BACKGROUND_DIRECTIONS } : {}");
+  });
+  it("a truck that keeps leaving its road is put on a new one at most every half hour in the background", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    drive.mockResolvedValue({ meters: 80_000, seconds: 3_600, legsMeters: [80_000], coords: [[-97.4, 32.5], [-97.0, 33.0]] });
+    await ensureWayThere("L1", { lat: 32.5, lng: -97.4 }, [B], { background: true });
+    vi.setSystemTime(1_000_000 + BACKGROUND_WAY_MS - 1);
+    await ensureWayThere("L1", { lat: 31, lng: -99 }, [B], { background: true });
+    expect(drive).toHaveBeenCalledTimes(1);
+    vi.setSystemTime(1_000_000 + BACKGROUND_WAY_MS + 1);
+    await ensureWayThere("L1", { lat: 31, lng: -99 }, [B], { background: true });
+    expect(drive).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -264,9 +299,11 @@ describe("no screen that reads many loads can fetch a route, and no route is sto
   };
   const rel = (f: string) => path.relative(SRC, f).split(path.sep).join("/");
   const files = walk(SRC);
-  it("only the single-load tracking imports the fetcher, and only a load page and a clicked unit call that tracking", () => {
+  it("only the single-load tracking and the radar's background fetch import the fetcher, and only a load page and a clicked unit call that tracking", () => {
     const importers = files.filter((f) => /from "@\/server\/geo\/road-route"/.test(fs.readFileSync(f, "utf8"))).map(rel);
-    expect(importers).toEqual(["server/tl/load-tracking.ts"]);
+    expect(importers.sort()).toEqual(["server/tl/load-tracking.ts", "server/tl/warm-routes.ts"]);
+    // The background fetch is asked for by the radar's own data route, and by nothing else.
+    expect(files.filter((f) => /warmRoadRoutes\(/.test(fs.readFileSync(f, "utf8"))).map(rel).sort()).toEqual(["app/(desk)/fleet/map/data/route.ts", "server/tl/warm-routes.ts"]);
     const callers = files.filter((f) => /getLoadTracking\(/.test(fs.readFileSync(f, "utf8")) && !f.endsWith(`load-tracking.ts`)).map(rel).sort();
     expect(callers).toEqual(["components/desk/load-view.tsx", "server/tl/radar-route.ts"]);
   });

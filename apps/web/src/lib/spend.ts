@@ -35,6 +35,12 @@ export const SPEND: Record<UsageService, { estCents: number; limits: UsageLimits
   mapbox_permanent: { estCents: 1, limits: { workspaceDay: 150, globalMonth: 3_000 } }
 };
 
+/**
+ * What a background fetch may use of the directions allowance (the radar's routes for moving loads): about half. Every use counts, a person's too, so background work is the first to stop and the
+ * other half is always left for a quote being measured or a load being opened.
+ */
+export const BACKGROUND_DIRECTIONS: UsageLimits = { workspaceDay: 350, globalDay: 1_500, globalMonth: 40_000 };
+
 /** The services a person can switch off from the environment (DESK_SERVICES_OFF=mapbox_geocode,anthropic_desk), the desk's kill switch. Names are exact; "all" turns every one off. */
 export function switchedOff(service: UsageService, env: string | undefined): boolean {
   const list = (env ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);

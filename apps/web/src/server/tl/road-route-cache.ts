@@ -66,6 +66,13 @@ export function keepWayThere(loadId: string, ahead: ReadonlyArray<{ lat: number;
   put(wayKey(loadId, ahead), { at: now, route });
 }
 
+/** Whether there is room for routes nobody asked to see yet: under four fifths full, so fetching them never pushes out the ones already kept (which would then be fetched again, and again). */
+export function roomToWarm(): boolean {
+  let points = 0;
+  for (const v of store.values()) points += size(v);
+  return store.size < MAX_ROUTES * 0.8 && points < MAX_POINTS * 0.8;
+}
+
 /** For tests: forget every route. */
 export function forgetRoadRoutes(): void {
   store.clear();

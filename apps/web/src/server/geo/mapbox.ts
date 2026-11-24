@@ -1,4 +1,4 @@
-import { refusalText } from "@/lib/spend";
+import { BACKGROUND_DIRECTIONS, refusalText } from "@/lib/spend";
 import { parseRoute, parseSuggestions, type Drive, type Place } from "@/lib/geo";
 import type { UsageService } from "@/lib/spend";
 import { claimUsage } from "@/server/tl/usage";
@@ -31,10 +31,11 @@ export function takeRefusal(): string | null {
   return r;
 }
 
-async function getJson(url: string, service: UsageService): Promise<unknown | null> {
-  const claim = await claimUsage(service);
+async function getJson(url: string, service: UsageService, background = false): Promise<unknown | null> {
+  const claim = await claimUsage(service, background ? { limits: BACKGROUND_DIRECTIONS } : {});
   if (!claim.ok) {
-    lastRefusal = claim.reason === "switched_off" ? "Live lookups are switched off on this desk. Type the miles." : refusalText(claim.reason);
+    // A background fetch that is refused is nobody's lookup: it never becomes the reason a person is shown.
+    if (!background) lastRefusal = claim.reason === "switched_off" ? "Live lookups are switched off on this desk. Type the miles." : refusalText(claim.reason);
     return null;
   }
   try {
@@ -89,9 +90,9 @@ export async function geocodePermanent(address: string): Promise<Place | null> {
  * handful of points, 19 for Chicago to Indianapolis, which draws straight across the streets) and the steps that name its roads: standard `mapbox/driving` directions,
  * car routing, not truck routing (no bridge heights or weight limits). Nothing it returns is written to the database; the road line is kept in server memory only (server/tl/road-route-cache.ts).
  */
-export async function drive(points: readonly Place[], opts: { geometry?: boolean } = {}): Promise<Drive | null> {
+export async function drive(points: readonly Place[], opts: { geometry?: boolean; /** Nobody is waiting for it: held to the background allowance. */ background?: boolean } = {}): Promise<Drive | null> {
   if (points.length < 2 || points.length > 25 || !mapboxConfigured()) return null;
   const coords = points.map((p) => `${p.lng},${p.lat}`).join(";");
   const q = new URLSearchParams(opts.geometry ? { access_token: token(), overview: "full", geometries: "geojson", steps: "true" } : { access_token: token(), overview: "false" });
-  return parseRoute(await getJson(`${BASE}/directions/v5/mapbox/driving/${coords}?${q.toString()}`, "mapbox_directions"));
+  return parseRoute(await getJson(`${BASE}/directions/v5/mapbox/driving/${coords}?${q.toString()}`, "mapbox_directions", opts.background));
 }

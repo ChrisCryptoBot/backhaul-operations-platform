@@ -1067,6 +1067,21 @@ function useOverlay<T>(mode: "open_loads" | "weather", on: boolean, every: numbe
   return data;
 }
 
+/**
+ * While the radar is open and on screen it asks the server, once a minute, for the road routes of moving loads that have none yet (a few at a time, held to its own allowance: server/tl/warm-routes.ts).
+ * Nothing waits on it; the next refresh of the points reads what came.
+ */
+function useWarmRoads() {
+  React.useEffect(() => {
+    const ask = () => {
+      if (!document.hidden) void fetch("/fleet/map/data?mode=roads", { cache: "no-store" }).catch(() => undefined);
+    };
+    ask();
+    const tick = setInterval(ask, 60_000);
+    return () => clearInterval(tick);
+  }, []);
+}
+
 type Tab = "telemetry" | "search" | "list";
 const TAB_LABEL: Record<Tab, string> = { telemetry: "Telemetry", search: "Search", list: "List" };
 
@@ -1090,6 +1105,7 @@ export function RadarView({ initial, params, actions, eldReason }: { initial: Ra
   // ?live=5 (a demo or a recording): the page asks every 5 seconds, so a moving unit is seen to move. Without it the rhythm is the usual 30 s and 60 s.
   const liveSecs = readLiveSeconds(useSearchParams()?.get("live"));
   const { data, now } = usePoints(initial, p, liveSecs ? liveSecs * 1000 : 30_000);
+  useWarmRoads();
   const [sel, setSel] = React.useState<Sel>(null);
   const [tab, setTab] = React.useState<Tab>(params.ids.length > 0 ? "list" : params.near ? "search" : "telemetry");
   const [clustered, setClustered] = React.useState(true);
