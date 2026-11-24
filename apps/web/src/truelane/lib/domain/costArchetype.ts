@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/costArchetype.ts @ fa7e4650. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/costArchetype.ts @ 06678c59. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Cost-profile archetype — the owner-operator's business structure, which drives the LABOR cost model
  * (see `computeTripLaborCPM`). Distinct from the fleet identity roles in `fleetRoles.ts` (those come

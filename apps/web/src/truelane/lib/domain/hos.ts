@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/hos.ts @ fa7e4650. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/hos.ts @ 06678c59. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * FMCSA Hours-of-Service (HOS) layover costing (property-carrying, solo). On long runs the forced
  * rests inflate the true elapsed time of a load, which quietly crushes the real $/hr even when the

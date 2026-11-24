@@ -1,4 +1,4 @@
-// VENDORED from TrueLane utils/calculateHelpers.ts @ fa7e4650. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane utils/calculateHelpers.ts @ 06678c59. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Pure helpers and constants for the Rate Calculator (§8.1).
  * Shared by CalculateScreen and MetricsDisplay.

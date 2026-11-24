@@ -1,4 +1,4 @@
-// VENDORED from TrueLane constants/trailerData.ts @ fa7e4650. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane constants/trailerData.ts @ 06678c59. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * Trailer types for the trailer-pulling freight modes (heavy_tl + hotshot).
  * Used by the calculator's trailer picker, the load-height gate (open-deck only), and the

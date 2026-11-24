@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/onTime.ts @ fa7e4650. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/onTime.ts @ 06678c59. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * On-time scoring for a single stop arrival vs appointment window.
  * Grace constants are shipped (not user settings) — early arrival within graceEarly is on-time.

@@ -34,6 +34,8 @@ export const FILES = [
   "lib/domain/hos.ts",
   "lib/domain/loadEconomics.ts",
   "lib/domain/bridgedLoads.ts",
+  // bridgedLoads.personalLoads reads a contractor's loads through their money view (finalization plan F2).
+  "lib/domain/contractorLoads.ts",
   "lib/domain/marketVariance.ts",
   "lib/domain/marketVerdict.ts",
   "lib/domain/onTime.ts",

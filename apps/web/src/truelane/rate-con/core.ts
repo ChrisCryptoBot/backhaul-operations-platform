@@ -1,4 +1,4 @@
-// VENDORED from TrueLane supabase/functions/rate-con-extract/core.ts @ fa7e4650. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane supabase/functions/rate-con-extract/core.ts @ 06678c59. Do not edit; run scripts/vendor-truelane.mjs.
 // ============================================================================================
 //  rate-con-extract — pure core (no Deno APIs, no imports) so jest + tsc can check it from the app
 //  side (lib/rateCon/extractCore.test.ts). index.ts wires HTTP, Clerk, Storage and the SDK around it.
@@ -519,7 +519,13 @@ export function meteringWindows(now: Date): { monthStart: string; dayStart: stri
  * What the server knows about the caller from Clerk, and can trust: the tier and the beta flag are public metadata (the app cannot write it), and
  * `created_at` is Clerk's own. The phone's trial clock (unsafeMetadata.trialStartedAt) is writable by the user, so it is never used here.
  */
-export type ImportAccount = { tier: string; betaAccess: boolean; createdAtMs: number | null };
+export type ImportAccount = {
+  tier: string;
+  betaAccess: boolean;
+  createdAtMs: number | null;
+  /** A company pays for this driver's app: a live, claimed link with `sponsored` set (bridge.driver_links, finalization plan F3). Read by the caller, not from Clerk. */
+  sponsored?: boolean;
+};
 
 /** The ImportAccount in a Clerk user object (the backend API's JSON). Anything unreadable is a free account with no known start. */
 export function importAccountOf(user: unknown, now: number = Date.now()): ImportAccount {
@@ -554,7 +560,8 @@ export function meter(account: ImportAccount, attemptsToday: number, failedToday
     if (month >= monthlyLimitFor('paid')) return { ok: false, status: 429, error: 'monthly_limit' };
     return { ok: true, via: 'paid' };
   }
-  if (account.betaAccess) {
+  // A sponsored driver (their company pays for the app, while the link lasts) reads like a beta account: always, on the paid limits.
+  if (account.betaAccess || account.sponsored === true) {
     if (failedToday >= FAILED_DAILY_LIMIT_PAID) return { ok: false, status: 429, error: 'daily_limit' };
     if (month >= monthlyLimitFor('beta')) return { ok: false, status: 429, error: 'monthly_limit' };
     return { ok: true, via: 'beta' };

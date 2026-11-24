@@ -18,11 +18,11 @@ const root = process.env.TRUELANE_ROOT ?? "C:/Users/14698/OneDrive/Desktop/TRUEL
 const dest = path.join(__dirname, "..", "src", "truelane");
 
 describe("Phase 0.7: TrueLane parity drift guard", () => {
-  it("vendors exactly 40 files with zero drift from the mobile app gold standard", () => {
+  it("vendors exactly 41 files with zero drift from the mobile app gold standard", () => {
     const filesList = FILES as string[];
     const movedList = MOVED as Array<[string, string]>;
     const totalFiles = filesList.length + movedList.length;
-    expect(totalFiles).toBe(40);
+    expect(totalFiles).toBe(41);
 
     const drifted: string[] = [];
     const missingInPhone: string[] = [];

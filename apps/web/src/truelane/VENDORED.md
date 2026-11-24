@@ -1,6 +1,6 @@
 # Vendored TrueLane domain code
 
-Source: TrueLane checkout at commit `fa7e46504f6b83a865777d764c286ab774594357`.
+Source: TrueLane checkout at commit `06678c5912a432cde755adfc922e4c2637b27e28`.
 Refresh with `node scripts/vendor-truelane.mjs` (set `TRUELANE_ROOT` if the checkout is elsewhere), then run `npm test`.
 These are the same modules the phone uses for the break-even floor, the verdict, market variance, load economics, invoices and analytics.
 The golden tests in `tests/truelane-domain.test.ts` pin the figures on the TrueLane site ($650 over 545 mi = $1.19/mi, over 308 mi = $2.11/mi).
@@ -24,6 +24,7 @@ The golden tests in `tests/truelane-domain.test.ts` pin the figures on the TrueL
 - `lib/domain/hos.ts`
 - `lib/domain/loadEconomics.ts`
 - `lib/domain/bridgedLoads.ts`
+- `lib/domain/contractorLoads.ts`
 - `lib/domain/marketVariance.ts`
 - `lib/domain/marketVerdict.ts`
 - `lib/domain/onTime.ts`

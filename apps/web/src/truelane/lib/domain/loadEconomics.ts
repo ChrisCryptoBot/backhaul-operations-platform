@@ -1,4 +1,4 @@
-// VENDORED from TrueLane lib/domain/loadEconomics.ts @ fa7e4650. Do not edit; run scripts/vendor-truelane.mjs.
+// VENDORED from TrueLane lib/domain/loadEconomics.ts @ 06678c59. Do not edit; run scripts/vendor-truelane.mjs.
 /**
  * One load's money, miles and completion date — the single rule every aggregate uses (Analytics,
  * Loads/History, Profile, Tax, Maintenance, Last time on this lane). Node-safe, no I/O.
