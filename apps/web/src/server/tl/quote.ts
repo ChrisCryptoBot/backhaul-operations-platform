@@ -22,6 +22,7 @@ import { cityState } from "@/lib/city-state";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { assignDriver, DispatchError, driverClashesIn, findTruckClash, truckClashesIn, windowText } from "./dispatch";
+import { resolveOrCreateCustomer } from "./customers";
 import { duplicateMessage, findTwinLoad } from "./twins";
 import type { PayKind } from "@/lib/pay";
 import { saveStopCoordinates } from "@/server/geo/persist";
@@ -471,6 +472,10 @@ function stopRows(input: QuoteInput) {
     stopType: s.role,
     stopRole: s.role,
     addressString: s.address,
+    facilityName: s.facility,
+    contactName: s.contactName,
+    contactPhone: s.contactPhone,
+    stopNotes: s.notes,
     timeWindowEarliest: s.appointment != null ? new Date(s.appointment) : null,
     timeWindowLatest: s.appointment != null ? new Date(s.appointment) : null,
     referenceNumbers: [] as string[]
@@ -498,9 +503,12 @@ function loadFields(input: QuoteInput, truckId: string | null, firstOffer: numbe
     brokerEmail: input.brokerEmail,
     // The broker's own load number replaces the desk's QT- number when one was typed; otherwise the QT- number stays.
     ...(input.loadNumber ? { loadNumber: input.loadNumber } : {}),
+    rateConNumber: input.rateConNumber,
+    proNumber: input.proNumber,
     originAddress: cityState(input.stops[0]!.address) ?? input.stops[0]!.address,
     destinationAddress: cityState(input.stops[input.stops.length - 1]!.address) ?? input.stops[input.stops.length - 1]!.address,
     trailerType: input.trailer,
+    commodity: input.commodity,
     weightLbs: input.specs.weightLbs,
     lengthFt: input.specs.lengthFt,
     widthFt: input.specs.widthFt,
@@ -751,15 +759,26 @@ export function quoteValuesFromLoad(l: LoadWithStops): QuoteValues {
   const asText = (m: Record<string, number> | undefined) => Object.fromEntries(Object.entries(m ?? {}).map(([k, v]) => [k, dec(v)]));
   const stops = [...l.stops].sort((a, b) => a.stopSequence - b.stopSequence);
   return {
-    stops: stops.map((s) => ({ role: (s.stopRole ?? s.stopType) === "delivery" ? "delivery" : "pickup", address: s.addressString, appointment: s.timeWindowEarliest ? toCentralLocal(s.timeWindowEarliest.getTime()) : "" })),
+    stops: stops.map((s) => ({
+      role: (s.stopRole ?? s.stopType) === "delivery" ? "delivery" : "pickup",
+      address: s.addressString,
+      appointment: s.timeWindowEarliest ? toCentralLocal(s.timeWindowEarliest.getTime()) : "",
+      facility: s.facilityName ?? "",
+      contactName: s.contactName ?? "",
+      contactPhone: s.contactPhone ?? "",
+      notes: s.stopNotes ?? ""
+    })),
     broker: l.brokerName ?? "",
     brokerMc: l.brokerMcNumber ?? "",
     // A QT- number is the desk's own, not the broker's: it is not offered back as one to type over.
     loadNumber: l.loadNumber && !/^QT-/.test(l.loadNumber) ? l.loadNumber : "",
+    rateConNumber: l.rateConNumber ?? "",
+    proNumber: l.proNumber ?? "",
     poNumber: l.poNumber ?? "",
     brokerPhone: l.brokerPhone ?? "",
     brokerEmail: l.brokerEmail ?? "",
     trailer: l.trailerType ?? "",
+    commodity: l.commodity ?? "",
     weightLbs: l.weightLbs == null ? "" : String(l.weightLbs),
     lengthFt: dec(numOrNull(l.lengthFt), 2),
     widthFt: dec(numOrNull(l.widthFt), 2),
@@ -812,7 +831,7 @@ export async function getQuoteLike(id: string, workspaceId = currentWorkspaceId(
   const l = await prisma.load.findFirst({ where: { id, workspaceId, deletedAt: null, AND: [inTerminal(await currentAllowed(workspaceId))] }, include: { stops: { orderBy: { stopSequence: "asc" } } } });
   if (!l || l.stops.length < 2) return null;
   const v = quoteValuesFromLoad(l);
-  return { ...v, loadNumber: "", poNumber: "", stops: v.stops.map((st) => ({ ...st, appointment: "" })) };
+  return { ...v, loadNumber: "", poNumber: "", rateConNumber: "", proNumber: "", stops: v.stops.map((st) => ({ ...st, appointment: "" })) };
 }
 
 // -- Passing on a quote ---------------------------------------------------------------------------
@@ -993,8 +1012,19 @@ export async function bookQuote(
     saved = await prisma.$transaction(async (tx) => {
       // One booking at a time per desk: the checks below and the write are not interleaved with another dispatcher's.
       await lockWorkspace(tx, workspaceId);
+      const cust = await resolveOrCreateCustomer(tx, workspaceId, {
+        name: input.broker,
+        mcNumber: input.brokerMc,
+        phone: input.brokerPhone,
+        email: input.brokerEmail,
+        payTermsDays: input.payTermsDays
+      });
+      const resolvedData = {
+        ...data,
+        ...(cust ? { customerId: cust.id, brokerName: cust.name } : {})
+      };
       // The broker's load number is the same load as another on the desk with that number from that customer: refuse, rather than book it twice.
-      const twin = await findTwinLoad(workspaceId, input.loadNumber, input.broker, quoteId ?? undefined);
+      const twin = await findTwinLoad(workspaceId, input.loadNumber, input.broker, quoteId ?? undefined, tx, cust?.id ?? record?.id ?? null, input.rateConNumber);
       if (twin) throw new DispatchError("load_not_assignable", `${duplicateMessage(twin)} Open it, or type another number.`);
       // Booked twice in a moment (a double click, a retry) with nothing to tell the two apart: the load that was just made is the answer, not a second one.
       if (!quoteId && !input.loadNumber) {
@@ -1009,7 +1039,7 @@ export async function bookQuote(
       let loadNumber: string | null;
       if (quoteId) {
         // Booked once: the claim only succeeds while it is still a quote, so a second booking of the same quote (another tab, a retry) finds nothing to claim.
-        const claimed = await tx.load.updateMany({ where: { id: quoteId, workspaceId, status: QUOTE_STATUS, deletedAt: null }, data });
+        const claimed = await tx.load.updateMany({ where: { id: quoteId, workspaceId, status: QUOTE_STATUS, deletedAt: null }, data: resolvedData });
         if (claimed.count !== 1) throw new DispatchError("load_not_found", "That quote was already booked or thrown away. Look for it on the board.");
         await tx.stop.deleteMany({ where: { loadId: quoteId } });
         await tx.stop.createMany({ data: stopRows(input).map((st) => ({ ...st, loadId: quoteId })) });
@@ -1017,7 +1047,7 @@ export async function bookQuote(
         loadId = l.id;
         loadNumber = l.loadNumber;
       } else {
-        const l = await tx.load.create({ data: { workspaceId, loadNumber: quoteNumber(now), ...data, stops: { create: stopRows(input) } } });
+        const l = await tx.load.create({ data: { workspaceId, loadNumber: quoteNumber(now), ...resolvedData, stops: { create: stopRows(input) } } });
         loadId = l.id;
         loadNumber = l.loadNumber;
       }

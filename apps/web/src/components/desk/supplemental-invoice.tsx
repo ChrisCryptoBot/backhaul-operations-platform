@@ -35,6 +35,7 @@ export function SupplementalDialog({
   invoiceNumber,
   loadId,
   unbilledDetention,
+  unbilledExtras,
   factored,
   size = "default"
 }: {
@@ -42,16 +43,20 @@ export function SupplementalDialog({
   invoiceNumber: string | null;
   loadId: string;
   unbilledDetention: number;
+  unbilledExtras?: Array<{ kind: "stop_off" | "other"; label: string; amount: number }>;
   factored: boolean;
   size?: "sm" | "default";
 }) {
   const router = useRouter();
   const toast = useToast();
   const [open, setOpen] = React.useState(false);
-  const initialRows: LineDraft[] =
-    unbilledDetention > 0
-      ? [{ kind: "detention", label: "", amount: unbilledDetention.toFixed(2) }]
-      : [{ kind: "detention", label: "", amount: "" }];
+  const initialRows: LineDraft[] = [
+    ...(unbilledDetention > 0 ? [{ kind: "detention" as const, label: "", amount: unbilledDetention.toFixed(2) }] : []),
+    ...(unbilledExtras ?? [])
+      .filter((e) => e.amount > 0)
+      .map((e) => ({ kind: e.kind, label: e.label, amount: e.amount.toFixed(2) }))
+  ];
+  if (initialRows.length === 0) initialRows.push({ kind: "detention", label: "", amount: "" });
   const [f, setF, kept] = useDraft<SupplementalDraft>(`supplemental:${invoiceId}`, { rows: initialRows, reason: "" });
   const [message, setMessage] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);

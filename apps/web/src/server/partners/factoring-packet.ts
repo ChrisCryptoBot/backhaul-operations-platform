@@ -1,14 +1,15 @@
 import { PDFDocument } from "pdf-lib";
 import type { Terminals } from "@/lib/scope";
 import { prisma } from "@/lib/db";
+import { podStopsMissing } from "@/server/tl/documents";
 import { invoicePdf } from "@/server/tl/invoice-pdf";
 import { readFile } from "@/server/tl/message-files";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { isPacketImage, normalizePacketImage } from "./packet-image";
 
 /**
- * The factoring packet for one invoice (docs/MONEY_PLAN.md, rule B; what counts as on file is server/tl/documents.ts packetFiles, shared with the factoring view and the schedule): one PDF holding the invoice, then each load's rate confirmation and proof of delivery, in that order, ready for a
- * factor to take by email or SFTP. It is refused unless every load on the invoice has a rate confirmation and a proof of delivery on file as an actual file (a delivery photo sent
+ * The factoring packet for one invoice (docs/MONEY_PLAN.md, rule B; what counts as on file is server/tl/documents.ts packetFiles, shared with the factoring view and the schedule): one PDF holding the invoice, then each load's rate confirmation, proof of delivery (every delivery stop covered), and lumper receipts, in that order, ready for a
+ * factor to take by email or SFTP or direct broker billing. It is refused unless every load on the invoice has a rate confirmation and complete proof of delivery on file as an actual file (a delivery photo sent
  * from the driver's phone that was never kept as a document does not count), and unless the result is within the size a factor's mailbox takes. Every picture is fitted inside
  * 1600 pixels on its longest side and saved as a JPEG at quality 75 first (packet-image.ts), so phone photos do not push a packet over the limit.
  */
@@ -22,14 +23,62 @@ const MARGIN = 36;
 
 type Doc = { id: string; name: string; mime: string; storageKey: string; kind: string };
 
-export async function buildPacket(loadId: string, workspaceId = currentWorkspaceId(), terminal: Terminals = null): Promise<PacketOut> {
-  const invoice = await invoicePdf(loadId, workspaceId, terminal);
+export async function buildPacket(
+  loadId: string,
+  workspaceId = currentWorkspaceId(),
+  terminal: Terminals = null,
+  opts: { invoiceId?: string } = {}
+): Promise<PacketOut> {
+  const invoiceTargetId = opts.invoiceId?.trim() || null;
+  let rec: { id: string; supplementOfId: string | null; loads: Array<{ loadId: string }>; lines: Array<{ loadId: string | null }> } | null = null;
+  if (invoiceTargetId) {
+    const found = await prisma.invoice.findFirst({
+      where: { id: invoiceTargetId, workspaceId, kind: "invoice", status: { not: "void" } },
+      select: {
+        id: true,
+        supplementOfId: true,
+        loads: { select: { loadId: true } },
+        lines: { select: { loadId: true } },
+        supplementOf: { select: { loads: { select: { loadId: true } } } }
+      }
+    });
+    if (!found) return { ok: false, error: "That invoice does not exist." };
+    const parentLoadIds = found.supplementOf?.loads.map((l) => l.loadId) ?? [];
+    const belongs =
+      found.loads.some((l) => l.loadId === loadId) ||
+      found.lines.some((l) => l.loadId === loadId) ||
+      parentLoadIds.includes(loadId);
+    if (!belongs) return { ok: false, error: "That invoice does not belong to this load." };
+    rec = {
+      id: found.id,
+      supplementOfId: found.supplementOfId,
+      loads: found.loads.length > 0 ? found.loads : parentLoadIds.map((id) => ({ loadId: id })),
+      lines: found.lines
+    };
+  } else {
+    rec = await prisma.invoice.findFirst({
+      where: { workspaceId, kind: "invoice", supplementOfId: null, status: { not: "void" }, loads: { some: { loadId } } },
+      include: { loads: true, lines: { select: { loadId: true } } },
+      orderBy: [{ issuedAt: "desc" }, { id: "desc" }]
+    });
+  }
+  const pdfKey = rec?.supplementOfId ? rec.id : loadId;
+  const invoice = await invoicePdf(pdfKey, workspaceId, terminal);
   if (!invoice) return { ok: false, error: "That load has no invoice." };
-  const rec = await prisma.invoice.findFirst({ where: { workspaceId, kind: "invoice", supplementOfId: null, status: { not: "void" }, loads: { some: { loadId } } }, include: { loads: true }, orderBy: [{ issuedAt: "desc" }, { id: "desc" }] });
-  const loadIds = rec ? rec.loads.map((l) => l.loadId) : [loadId];
-  const loads = await prisma.load.findMany({ where: { id: { in: loadIds }, workspaceId, deletedAt: null }, select: { id: true, loadNumber: true } });
+  const lineLoads = rec ? [...new Set(rec.lines.map((l) => l.loadId).filter((x): x is string => !!x))] : [];
+  const loadIds = rec
+    ? rec.supplementOfId && lineLoads.length > 0
+      ? lineLoads
+      : rec.loads.length > 0
+        ? rec.loads.map((l) => l.loadId)
+        : [loadId]
+    : [loadId];
+  const [loads, rows, missingPods] = await Promise.all([
+    prisma.load.findMany({ where: { id: { in: loadIds }, workspaceId, deletedAt: null }, select: { id: true, loadNumber: true } }),
+    prisma.loadDocument.findMany({ where: { workspaceId, loadId: { in: loadIds }, kind: { in: ["rate_con", "pod", "lumper"] } }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, loadId: true, kind: true, name: true, mime: true, storageKey: true } }),
+    podStopsMissing(loadIds, workspaceId)
+  ]);
   const number = new Map(loads.map((l) => [l.id, l.loadNumber ?? "a load"]));
-  const rows = await prisma.loadDocument.findMany({ where: { workspaceId, loadId: { in: loadIds }, kind: { in: ["rate_con", "pod"] } }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, loadId: true, kind: true, name: true, mime: true, storageKey: true } });
 
   const missing: string[] = [];
   const plan: Array<{ loadId: string; docs: Doc[] }> = [];
@@ -37,9 +86,11 @@ export async function buildPacket(loadId: string, workspaceId = currentWorkspace
     const mine = rows.filter((r) => r.loadId === id);
     const rate = mine.filter((r) => r.kind === "rate_con");
     const pod = mine.filter((r) => r.kind === "pod");
+    const lumper = mine.filter((r) => r.kind === "lumper");
     if (rate.length === 0) missing.push(`${number.get(id) ?? "A load"}: rate confirmation`);
-    if (pod.length === 0) missing.push(`${number.get(id) ?? "A load"}: proof of delivery`);
-    plan.push({ loadId: id, docs: [...rate, ...pod] });
+    const missingStops = missingPods.get(id);
+    if (missingStops != null ? missingStops > 0 : pod.length === 0) missing.push(`${number.get(id) ?? "A load"}: proof of delivery`);
+    plan.push({ loadId: id, docs: [...rate, ...pod, ...lumper] });
   }
   if (missing.length > 0) return { ok: false, error: `The packet needs a file for each of these: ${missing.join("; ")}.` };
 

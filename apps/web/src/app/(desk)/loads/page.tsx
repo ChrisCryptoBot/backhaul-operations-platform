@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { currentTerminal } from "@/server/tl/terminal";
 import { checkAccess } from "@/server/tl/access";
 import { isOverdue } from "@/lib/overdue";
@@ -10,7 +11,7 @@ import { countHistory, listHistory } from "@/server/tl/history";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { workspaceTimezone } from "@/server/tl/zone";
 import { Pager } from "@/components/desk/pager";
-import { AssignmentChip, PageHead, StatusChip, Tabs, VerdictChip } from "@/components/desk/ui";
+import { AssignmentChip, PageHead, StatusChip, Tabs } from "@/components/desk/ui";
 import { AlertDot } from "@/components/desk/alert-bits";
 import { DataTable, type Column, type Row, type SortHref } from "@/components/desk/data-table";
 import { asPage, asSort, nextSortParam } from "@/lib/paging";
@@ -18,6 +19,8 @@ import { DataTableTools } from "@/components/desk/data-table-tools";
 import { EmptyState } from "@/components/desk/kit/states";
 import { NewLoad } from "@/components/desk/new-load";
 import { RestoreLoadButton } from "@/components/desk/restore-load";
+import { LoadPick, LoadsSelectBar, LoadsSelectProvider, type SelectableLoad } from "@/components/desk/loads-bulk";
+import type { TogetherLoad } from "@/components/desk/invoice-together";
 import { countDeletedLoads, listDeletedLoads } from "@/server/tl/deleted";
 import { ASSIGNMENT_STATUS, dateTime, dockTime } from "@/lib/desk-format";
 import { asBoardStatus, BOARD_STATUSES, filterBoard, isBelowCost, onTab, searchBoard } from "@/lib/board-filter";
@@ -26,6 +29,11 @@ import { asHistoryFilter, asHistorySort, fellThrough, HISTORY_FILTERS, HISTORY_S
 import { miles, perMile, shortDate, stopTime, usd } from "@/lib/desk-format";
 import { moneyState } from "@/lib/money-state";
 import { daysPastDue } from "@/lib/overdue";
+import { canInvoiceStatus, defaultInvoiceNumber, invoiceBasis, invoiceReadiness, revisedInvoiceNumber } from "@/lib/invoicing";
+import { podStopsMissing } from "@/server/tl/documents";
+import { customerTermsMap } from "@/server/tl/customers";
+import { getThresholds } from "@/server/tl/thresholds";
+import { voidedInvoiceNumbers } from "@/server/tl/invoicing";
 import { CanGate } from "@/components/desk/kit/can-gate";
 
 export const metadata = { title: "Loads · TrueLane" };
@@ -60,7 +68,6 @@ const COLUMNS: Column[] = [
   { key: "assignment", label: "Answer", priority: 3 },
   { key: "miles", sortable: true, label: "Miles", align: "num", priority: 2 },
   { key: "pay", sortable: true, label: "Pay", align: "num" },
-  { key: "verdict", label: "Verdict" },
   { key: "perMile", sortable: true, label: "$/mi", align: "num" },
   { key: "floor", sortable: true, label: "Floor", align: "num" }
 ];
@@ -102,13 +109,15 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   // The open board is the loads still moving. History is read a page at a time: the database filters, sorts, searches and counts it.
   const histFilter = asHistoryFilter(searchParams?.filter);
   const histSort = asHistorySort(searchParams?.sort);
-  const [openAll, { byLoad }, hist, dispatchAccess] = await Promise.all([
+  const [openAll, { byLoad }, hist, dispatchAccess, billAccess] = await Promise.all([
     listBoardRows(currentWorkspaceId(), "open", terminal),
     getAlerts(new Date(), currentWorkspaceId(), "open", undefined, terminal),
     view === "history" ? listHistory({ filter: histFilter, sort: histSort, q, page: Number(searchParams?.page) || 1, terminal }) : Promise.resolve(null),
-    checkAccess("dispatch")
+    checkAccess("dispatch"),
+    checkAccess("bill")
   ]);
   const mayDispatch = dispatchAccess.ok;
+  const mayBill = billAccess.ok;
   const openCount = searchBoard(openAll, q).length;
   const historyCount = hist ? hist.counts.all : await countHistory(q, currentWorkspaceId(), terminal);
   const deletedCount = await countDeletedLoads(currentWorkspaceId(), terminal);
@@ -226,6 +235,63 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
 
     // A figure the cost profile's math could not work (no truck, no fuel price, a TONU) is a dash that says why, never a zero.
     const needs = (missing: boolean, text: string) => (missing ? <span className="dim" title="Needs a truck with a cost profile and a fuel price">—</span> : text);
+    const invoiceCandidates = shown.filter((r) => !r.paymentStatus && canInvoiceStatus(r.status, r.tonuRevenue));
+    const togetherMap = new Map<string, TogetherLoad>();
+    if (mayBill && invoiceCandidates.length > 0) {
+      const ids = invoiceCandidates.map((r) => r.id);
+      const [voided, missingPods, thresholds, customerTerms, extras] = await Promise.all([
+        voidedInvoiceNumbers(ids),
+        podStopsMissing(ids),
+        getThresholds(),
+        customerTermsMap(),
+        (await import("@/lib/db")).prisma.load.findMany({
+          where: { id: { in: ids } },
+          select: { id: true, fuelSurcharge: true, brokerEmail: true, brokerPhone: true, closedWithoutPod: true, podNote: true, actualRevenue: true }
+        })
+      ]);
+      const extraById = new Map(extras.map((e) => [e.id, e]));
+      for (const r of invoiceCandidates) {
+        const ex = extraById.get(r.id);
+        const fsc = ex?.fuelSurcharge != null ? Number(ex.fuelSurcharge.toString()) : 0;
+        const paidLh = ex?.actualRevenue != null ? Number(ex.actualRevenue.toString()) : null;
+        const basis = invoiceBasis({ status: r.status, quotedRevenue: r.quotedRevenue, fuelSurcharge: fsc, tonuRevenue: r.tonuRevenue });
+        const readiness = invoiceReadiness({
+          status: r.status,
+          brokerName: r.brokerName,
+          loadNumber: r.loadNumber,
+          brokerEmail: ex?.brokerEmail ?? null,
+          brokerPhone: ex?.brokerPhone ?? null,
+          closedWithoutPod: ex?.closedWithoutPod ?? null,
+          podNote: ex?.podNote ?? null,
+          podStopsMissing: missingPods.get(r.id) ?? null,
+          quotedRevenue: basis.rate,
+          paidLinehaul: paidLh
+        });
+        const cents = new Prisma.Decimal(basis.rate)
+          .plus(basis.surcharge)
+          .plus(basis.tonu ? 0 : r.billedExtrasTotal)
+          .times(100)
+          .toDecimalPlaces(0)
+          .toNumber();
+        togetherMap.set(r.id, {
+          id: r.id,
+          loadNumber: r.loadNumber,
+          customer: r.brokerName,
+          mc: r.brokerMc,
+          cents,
+          defaultNumber: revisedInvoiceNumber(defaultInvoiceNumber(r.loadNumber, r.id), voided.get(r.id) ?? new Set()),
+          defaultTerms: r.payTermsDays ?? customerTerms.get((r.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays,
+          blocked: readiness.blockers[0] ?? null
+        });
+      }
+    }
+    const selectableHistory: SelectableLoad[] = shown.map((r) => ({
+      id: r.id,
+      loadNumber: r.loadNumber,
+      customer: r.brokerName,
+      mc: r.brokerMc,
+      together: togetherMap.get(r.id) ?? null
+    }));
     const rowOf = (r: BoardRow): Row => {
       const done = historyDate(r);
       const pastDue = r.paymentStatus === "invoiced" && isOverdue(r.invoicedAt, r.payTermsDays);
@@ -233,12 +299,15 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
         id: r.id,
         href: `/loads/${r.id}`,
         flag: pastDue ? "bad" : undefined,
-        search: [r.loadNumber, r.poNumber, r.invoiceNumber, r.brokerName, r.brokerMc, r.origin, r.destination, r.vehicleName, r.driverName].filter(Boolean).join(" "),
+        search: [r.loadNumber, r.rateConNumber, r.proNumber, r.bolNumber, r.poNumber, r.invoiceNumber, r.brokerName, r.brokerMc, r.origin, r.destination, r.vehicleName, r.driverName].filter(Boolean).join(" "),
         cells: {
           load: (
             <>
+              <LoadPick id={r.id} />
               <Link href={`/loads/${r.id}`}>{r.loadNumber ?? "—"}</Link>
-              <span className="sub" title={r.brokerName ?? undefined}>{r.brokerName}</span>
+              <span className="sub" title={r.brokerName ?? undefined}>
+                {[r.rateConNumber && r.rateConNumber !== r.loadNumber ? `RC ${r.rateConNumber}` : null, r.brokerName].filter(Boolean).join(" · ")}
+              </span>
             </>
           ),
           status: <StatusChip status={r.status} />,
@@ -307,19 +376,22 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
         {hist.total === 0 ? (
           <DataTable id="loads-history" label="History" columns={HISTORY_COLUMNS} rows={[]} empty={<EmptyState icon="loads" title="No finished loads match">Try another filter, or clear the search.</EmptyState>} />
         ) : (
-          groups.map((g) => {
-            const month = hist.months[g.key];
-            return (
-              <section key={g.key} style={{ marginTop: 18 }}>
-                <h2 className="t-sec">
-                  {g.label} · {month ? month.loads : g.rows.length} {(month ? month.loads : g.rows.length) === 1 ? "load" : "loads"}
-                  {month && month.loads > g.rows.length ? ` (${g.rows.length} on this page)` : ""}
-                  {month && month.earned > 0 ? ` · ${usd(month.earned)} earned` : ""}
-                </h2>
-                <DataTable id={`loads-history--${g.key}`} label={`History, ${g.label}`} columns={HISTORY_COLUMNS} rows={g.rows.map(rowOf)} />
-              </section>
-            );
-          })
+          <LoadsSelectProvider loads={selectableHistory} canBill={mayBill}>
+            <LoadsSelectBar />
+            {groups.map((g) => {
+              const month = hist.months[g.key];
+              return (
+                <section key={g.key} style={{ marginTop: 18 }}>
+                  <h2 className="t-sec">
+                    {g.label} · {month ? month.loads : g.rows.length} {(month ? month.loads : g.rows.length) === 1 ? "load" : "loads"}
+                    {month && month.loads > g.rows.length ? ` (${g.rows.length} on this page)` : ""}
+                    {month && month.earned > 0 ? ` · ${usd(month.earned)} earned` : ""}
+                  </h2>
+                  <DataTable id={`loads-history--${g.key}`} label={`History, ${g.label}`} columns={HISTORY_COLUMNS} rows={g.rows.map(rowOf)} />
+                </section>
+              );
+            })}
+          </LoadsSelectProvider>
         )}
         {hist.windowed ? <p className="tl-note">Sorted across the latest {hist.windowSize.toLocaleString("en-US")} finished loads of {hist.total.toLocaleString("en-US")}; narrow the search to reach older ones.</p> : null}
         <Pager page={hist.page} pageSize={hist.pageSize} total={hist.total} hrefFor={(n) => hrefFor({ page: n })} {...(grouped ? {} : { newer: "Previous", older: "Next" })} />
@@ -363,18 +435,29 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   const pageNo = Math.min(asPage(searchParams?.page), Math.max(1, Math.ceil(ordered.length / OPEN_PAGE)));
   const sortHref: SortHref = (key) => ({ href: href(active, below, q, { sort: nextSortParam(sortKey, key), page: 1 }), dir: sortKey?.key === key ? (sortKey.dir === "asc" ? "asc" : "desc") : "none" });
 
-  const rows: Row[] = ordered.slice((pageNo - 1) * OPEN_PAGE, pageNo * OPEN_PAGE).map((r) => {
+  const openPageRows = ordered.slice((pageNo - 1) * OPEN_PAGE, pageNo * OPEN_PAGE);
+  const selectableOpen: SelectableLoad[] = openPageRows.map((r) => ({
+    id: r.id,
+    loadNumber: r.loadNumber,
+    customer: r.brokerName,
+    mc: r.brokerMc,
+    together: null
+  }));
+  const rows: Row[] = openPageRows.map((r) => {
     return {
       id: r.id,
       href: `/loads/${r.id}`,
       sort: { pickup: r.scheduledDate?.getTime() ?? null },
-      search: [r.loadNumber, r.poNumber, r.brokerName, r.brokerMc, r.origin, r.destination, r.vehicleName, r.driverName].filter(Boolean).join(" "),
+      search: [r.loadNumber, r.rateConNumber, r.proNumber, r.bolNumber, r.poNumber, r.brokerName, r.brokerMc, r.origin, r.destination, r.vehicleName, r.driverName].filter(Boolean).join(" "),
       cells: {
         load: (
           <>
+            <LoadPick id={r.id} />
             <Link href={`/loads/${r.id}`}>{r.loadNumber ?? "—"}</Link>
             <AlertDot alerts={byLoad.get(r.id)?.filter((a) => a.code !== "BELOW_COST_UNASSIGNED")} />
-            <span className="sub fold-2">{[r.brokerName, r.driverName ?? (r.openHandoff ? "awaiting handoff" : "no driver"), miles(r.totalMiles)].filter(Boolean).join(" · ")}</span>
+            <span className="sub fold-2">
+              {[r.rateConNumber && r.rateConNumber !== r.loadNumber ? `RC ${r.rateConNumber}` : null, r.brokerName, r.driverName ?? (r.openHandoff ? "awaiting handoff" : "no driver"), miles(r.totalMiles)].filter(Boolean).join(" · ")}
+            </span>
           </>
         ),
         status: (
@@ -410,7 +493,6 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
         pay: usd(r.grossRevenue),
         perMile: perMile(r.perMile),
         floor: <span className="dim">{perMile(r.floorPerMile)}</span>,
-        verdict: <VerdictChip verdict={r.verdict} />,
         driver: (
           <span
             className="cut"
@@ -438,15 +520,18 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
           </Link>
         ) : null}
       </DataTableTools>
-      <DataTable
-        id="loads-table"
-        label="Loads"
-        columns={COLUMNS}
-        rows={rows}
-        foldNote={false}
-        sortHref={sortHref}
-        empty={<EmptyState icon="loads" title="No open loads match">Another status, or clear the search.</EmptyState>}
-      />
+      <LoadsSelectProvider loads={selectableOpen} canBill={false}>
+        <LoadsSelectBar />
+        <DataTable
+          id="loads-table"
+          label="Loads"
+          columns={COLUMNS}
+          rows={rows}
+          foldNote={false}
+          sortHref={sortHref}
+          empty={<EmptyState icon="loads" title="No open loads match">Another status, or clear the search.</EmptyState>}
+        />
+      </LoadsSelectProvider>
       <Pager page={pageNo} pageSize={OPEN_PAGE} total={ordered.length} hrefFor={(n) => href(active, below, q, { page: n })} newer="Previous" older="Next" />
     </>
   );

@@ -135,7 +135,7 @@ function Fld({ label, error, hint, children }: { label: string; error?: string; 
   );
 }
 
-function TogetherDialog({ chosen, onClose, onDone }: { chosen: TogetherLoad[]; onClose: () => void; onDone: () => void }) {
+export function TogetherDialog({ chosen, onClose, onDone }: { chosen: TogetherLoad[]; onClose: () => void; onDone: () => void }) {
   const router = useRouter();
   const toast = useToast();
   const ids = chosen.map((l) => l.id);

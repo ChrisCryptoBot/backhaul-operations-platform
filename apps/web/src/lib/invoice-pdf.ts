@@ -7,6 +7,9 @@ import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf
 export type InvoicePdfLine = { label: string; amount: number };
 export type InvoicePdfLoad = {
   loadNumber: string | null;
+  rateCon?: string | null;
+  pro?: string | null;
+  bol?: string | null;
   po: string | null;
   origin: string | null;
   destination: string | null;
@@ -175,7 +178,13 @@ export async function buildInvoicePdf(d: InvoicePdfData): Promise<Uint8Array> {
   for (const l of d.loads) {
     ensure(48);
     rule(y + 10, RULE);
-    const head = [l.loadNumber ? `Load ${l.loadNumber}` : "Load", l.po ? `PO ${l.po}` : null].filter(Boolean).join(" | ");
+    const head = [
+      l.loadNumber ? `Load ${l.loadNumber}` : "Load",
+      l.rateCon && l.rateCon !== l.loadNumber ? `RC ${l.rateCon}` : null,
+      l.pro ? `PRO ${l.pro}` : null,
+      l.po ? `PO ${l.po}` : null,
+      l.bol ? `BOL ${l.bol}` : null
+    ].filter(Boolean).join(" | ");
     text(head, M, 10, bold);
     y -= 13;
     const where = [l.origin && l.destination ? `${l.origin} to ${l.destination}` : l.origin ?? l.destination, l.pickedUp ? `Picked up ${l.pickedUp}` : null, l.delivered ? `Delivered ${l.delivered}` : null].filter(Boolean).join(" | ");

@@ -152,7 +152,7 @@ export function scheduleState(eta: number, windowLatest: Date | number | null | 
 /** A road route: the points along the road (lng, lat pairs), its driven miles, and the roads it runs on with the share of the way each one ends at. */
 export type RoadLine = { coords: ReadonlyArray<readonly [number, number]>; miles: number; roads?: ReadonlyArray<{ name: string; until: number }> };
 /** What the road line and its miles rest on, said wherever they are shown: standard car directions, not truck routing. */
-export const ROAD_ROUTE_NOTE = "The road line and miles left follow standard Mapbox driving directions (mapbox/driving): car routing, not truck routing, so no bridge heights or weight limits.";
+export const ROAD_ROUTE_NOTE = "Car route — check truck restrictions. The road line and miles left follow standard Mapbox driving directions (mapbox/driving), not truck routing (no bridge heights or weight limits).";
 /** Why there is no road line or arrival. */
 export const NO_ROAD_NOTE = "No road route for this load yet, so no line is drawn and no arrival is worked out.";
 export const OFF_ROAD_NOTE = "The truck is off its road route and the road from where it is could not be had yet, so no arrival is worked out.";

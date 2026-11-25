@@ -16,10 +16,24 @@ export type RateConLoadDraft = {
     brokerName: string | null;
     brokerMcNumber: string | null;
     loadNumber: string | null;
+    rateConNumber?: string | null;
+    proNumber?: string | null;
+    bolNumber?: string | null;
     poNumber: string | null;
     originAddress: string | null;
     destinationAddress: string | null;
     trailerType: string | null;
+    commodity?: string | null;
+    pieceCount?: number | null;
+    palletCount?: number | null;
+    reeferSetTempF?: number | null;
+    reeferMinF?: number | null;
+    reeferMaxF?: number | null;
+    reeferMode?: string | null;
+    hazmatClass?: string | null;
+    hazmatUnNumber?: string | null;
+    hazmatPackingGroup?: string | null;
+    hazmatEmergencyPhone?: string | null;
     /** What the document pays all-in. A flat fuel surcharge printed on it is already inside this: see `printed`. */
     quotedRevenue: number | null;
     loadedMiles: number | null;
@@ -101,10 +115,24 @@ export function extractionToLoadDraft(raw: unknown, zones?: Array<StopZone | und
       brokerName: x.broker.name,
       brokerMcNumber: x.broker.mcNumber,
       loadNumber: x.loadNumber,
+      rateConNumber: x.loadNumber,
+      proNumber: null,
+      bolNumber: null,
       poNumber: x.poNumber,
       originAddress: cityState(first?.address ?? null),
       destinationAddress: cityState(last?.address ?? null),
       trailerType: trailer,
+      commodity: x.commodity,
+      pieceCount: null,
+      palletCount: null,
+      reeferSetTempF: x.temperature.setPointF,
+      reeferMinF: x.temperature.minF,
+      reeferMaxF: x.temperature.maxF,
+      reeferMode: x.temperature.mode,
+      hazmatClass: null,
+      hazmatUnNumber: null,
+      hazmatPackingGroup: null,
+      hazmatEmergencyPhone: null,
       quotedRevenue: total,
       loadedMiles: x.milesPrinted,
       payTermsDays: x.paymentTermsDays,

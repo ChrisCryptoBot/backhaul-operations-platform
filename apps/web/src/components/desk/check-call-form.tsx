@@ -7,7 +7,7 @@ import { CALL_STATUSES } from "@/lib/asset-history";
 import { DateInput } from "./date-input";
 import { tried } from "./kit/tried";
 import { useToast } from "./kit/toast";
-import { useDraft } from "./kit/use-draft";
+import { DraftNote, useDraft } from "./kit/use-draft";
 
 /**
  * Log a check call on a truck or a trailer: where the driver says they are, when they expect to arrive, how it is going, and a note. The time of the call and the arrival are typed on the carrier's
@@ -15,28 +15,44 @@ import { useDraft } from "./kit/use-draft";
  */
 const BLANK = { at: "", place: "", eta: "", status: "", spokeWith: "", loadId: "", note: "" };
 
-export function CheckCallForm({ unit, openLoads, clock }: { unit: { kind: "truck" | "trailer"; id: string; name: string }; openLoads: Array<{ id: string; number: string }>; clock: string }) {
+export function CheckCallForm({
+  unit,
+  openLoads,
+  clock,
+  fixedLoad
+}: {
+  unit: { kind: "truck" | "trailer"; id: string; name: string };
+  openLoads: Array<{ id: string; number: string }>;
+  clock: string;
+  /** Pin check calls to a single load inside the load drawer. */
+  fixedLoad?: { id: string; number: string };
+}) {
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
-  const [form, setForm, draft] = useDraft(`check-call:${unit.kind}:${unit.id}`, BLANK);
+  const [form, setForm, draft] = useDraft(
+    fixedLoad ? `check-call:load:${fixedLoad.id}` : `check-call:${unit.kind}:${unit.id}`,
+    BLANK
+  );
   const [error, setError] = React.useState("");
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     start(async () => {
-      const got = await tried(() => logCheckCallAction({ unit: { kind: unit.kind, id: unit.id }, at: form.at, place: form.place, etaAt: form.eta, status: form.status, spokeWith: form.spokeWith, loadId: form.loadId, note: form.note }));
+      const targetLoadId = fixedLoad ? fixedLoad.id : form.loadId;
+      const got = await tried(() => logCheckCallAction({ unit: { kind: unit.kind, id: unit.id }, at: form.at, place: form.place, etaAt: form.eta, status: form.status, spokeWith: form.spokeWith, loadId: targetLoadId, note: form.note }));
       if (!got.ok) return setError(got.message);
       if (!got.value.ok) return setError(got.value.error);
       setError("");
       draft.discard();
-      toast({ text: `Check call logged on ${unit.name}.`, tone: "ok" });
+      toast({ text: `Check call logged on ${fixedLoad ? fixedLoad.number : unit.name}.`, tone: "ok" });
       router.refresh();
     });
   };
 
   return (
     <form onSubmit={submit} aria-label={`Log a check call on ${unit.name}`}>
+      <DraftNote draft={draft} what="this check call" />
       <fieldset disabled={pending} style={{ border: 0, padding: 0, margin: 0, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "end" }}>
         <label className="tl-field" style={{ flex: "1 1 240px" }}>
           Where they are
@@ -61,7 +77,7 @@ export function CheckCallForm({ unit, openLoads, clock }: { unit: { kind: "truck
           Spoke with
           <input value={form.spokeWith} maxLength={100} size={14} placeholder="The driver" onChange={(e) => setForm({ ...form, spokeWith: e.target.value })} />
         </label>
-        {openLoads.length > 0 ? (
+        {!fixedLoad && openLoads.length > 0 ? (
           <label className="tl-field">
             About load
             <select value={form.loadId} onChange={(e) => setForm({ ...form, loadId: e.target.value })}>

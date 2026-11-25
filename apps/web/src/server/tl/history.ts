@@ -55,7 +55,7 @@ const like = (t: string) => `%${t.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 const termSql = (t: string, workspaceId: string) => {
   const p = like(t);
   return Prisma.sql`l.id in (
-    select id from loads where workspace_id = ${workspaceId} and (load_number ilike ${p} or po_number ilike ${p} or invoice_number ilike ${p} or broker_name ilike ${p} or broker_mc_number ilike ${p} or origin_address ilike ${p} or destination_address ilike ${p})
+    select id from loads where workspace_id = ${workspaceId} and (load_number ilike ${p} or rate_con_number ilike ${p} or pro_number ilike ${p} or po_number ilike ${p} or bol_number ilike ${p} or invoice_number ilike ${p} or broker_name ilike ${p} or broker_mc_number ilike ${p} or origin_address ilike ${p} or destination_address ilike ${p})
     union select ld.id from loads ld join vehicles tv on tv.id = ld.vehicle_id where ld.workspace_id = ${workspaceId} and tv.name ilike ${p}
     union select ad.load_id from assignments ad join drivers dv on dv.id = ad.driver_id where dv.workspace_id = ${workspaceId} and dv.name ilike ${p})`;
 };

@@ -1165,6 +1165,29 @@ export function QuoteDesk({
                           <span />
                         )}
                       </li>
+                      <li style={{ listStyle: "none", marginTop: 2, marginBottom: 4 }}>
+                        <details className="qt-more" open={Boolean(s.facility || s.contactName || s.contactPhone || s.notes) || undefined}>
+                          <summary className="tl-sub">Stop {i + 1} facility, contact &amp; notes</summary>
+                          <div className="qt-grid" style={{ marginTop: 6 }}>
+                            <label className="tl-field">
+                              Facility
+                              <input value={s.facility ?? ""} onChange={(e) => setStop(i, { facility: e.target.value })} autoComplete="off" />
+                            </label>
+                            <label className="tl-field">
+                              Contact
+                              <input value={s.contactName ?? ""} onChange={(e) => setStop(i, { contactName: e.target.value })} autoComplete="off" />
+                            </label>
+                            <label className="tl-field">
+                              Phone
+                              <input value={s.contactPhone ?? ""} inputMode="tel" onChange={(e) => setStop(i, { contactPhone: e.target.value })} autoComplete="off" />
+                            </label>
+                            <label className="tl-field">
+                              Stop notes
+                              <input value={s.notes ?? ""} onChange={(e) => setStop(i, { notes: e.target.value })} autoComplete="off" />
+                            </label>
+                          </div>
+                        </details>
+                      </li>
                       {first && stopCount >= 2 ? (
                         <li className="qt-swap">
                           <button type="button" className="tl-btn ghost sm" aria-label="Swap pickup and delivery" title="Swap pickup and delivery" disabled={locked} onClick={swapStops}>
@@ -1265,6 +1288,14 @@ export function QuoteDesk({
                   <label className="tl-field">
                     Customer&apos;s load number
                     <input value={values.loadNumber} onChange={(e) => set({ loadNumber: e.target.value })} autoComplete="off" />
+                  </label>
+                  <label className="tl-field">
+                    Rate con #
+                    <input value={values.rateConNumber ?? ""} onChange={(e) => set({ rateConNumber: e.target.value })} autoComplete="off" />
+                  </label>
+                  <label className="tl-field">
+                    PRO #
+                    <input value={values.proNumber ?? ""} onChange={(e) => set({ proNumber: e.target.value })} autoComplete="off" />
                   </label>
                   <label className="tl-field">
                     PO number
@@ -1400,6 +1431,10 @@ export function QuoteDesk({
                   Load specs & equipment <span className="tl-sub">Weight, size, trailer, accessorials.</span>
                 </summary>
                 <div className="qt-grid">
+                  <label className="tl-field">
+                    Commodity
+                    <input value={values.commodity ?? ""} onChange={(e) => set({ commodity: e.target.value })} autoComplete="off" />
+                  </label>
                   <Money label="Weight" unit="lb" value={values.weightLbs} error={err("weightLbs")} onChange={(v) => set({ weightLbs: v })} />
                   <Money label="Length" unit="ft" value={values.lengthFt} error={err("lengthFt")} onChange={(v) => set({ lengthFt: v })} />
                   <Money label="Width" unit="ft" value={values.widthFt} error={err("widthFt")} onChange={(v) => set({ widthFt: v })} />

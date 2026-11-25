@@ -48,10 +48,13 @@ export const CAN_CANCEL = ["draft", "accepted", "in_progress"];
 export const CAN_TONU = ["accepted", "in_progress"];
 export const CAN_RESCHEDULE = ["draft", "accepted"];
 
-export type StopTimes = { timeWindowEarliest: Date | null; timeWindowLatest: Date | null };
+export type StopTimes = { id?: string; timeWindowEarliest: Date | null; timeWindowLatest: Date | null };
 
-/** Every stop moved by the same amount, so the pickup-to-delivery gaps stay as they were. */
-export function shiftStops<T extends StopTimes>(stops: T[], deltaMs: number): T[] {
+/** Selected stops (or every stop when `onlyIds` is omitted) moved by the same amount, so the pickup-to-delivery gaps stay as they were. */
+export function shiftStops<T extends StopTimes>(stops: T[], deltaMs: number, onlyIds?: ReadonlySet<string>): T[] {
   const move = (d: Date | null) => (d ? new Date(d.getTime() + deltaMs) : null);
-  return stops.map((s) => ({ ...s, timeWindowEarliest: move(s.timeWindowEarliest), timeWindowLatest: move(s.timeWindowLatest) }));
+  return stops.map((s) => {
+    if (onlyIds && (!s.id || !onlyIds.has(s.id))) return s;
+    return { ...s, timeWindowEarliest: move(s.timeWindowEarliest), timeWindowLatest: move(s.timeWindowLatest) };
+  });
 }

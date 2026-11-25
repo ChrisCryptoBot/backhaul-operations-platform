@@ -7,7 +7,7 @@ import { getAlerts } from "@/server/tl/alerts";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { checkAccess } from "@/server/tl/access";
 import { topLevel, type Alert } from "@/lib/alerts";
-import { Card, PageHead, RowLink, VerdictChip } from "@/components/desk/ui";
+import { Card, PageHead, RowLink } from "@/components/desk/ui";
 import { AssignButton } from "@/components/desk/assign-modal";
 import { EmptyState } from "@/components/desk/kit/states";
 import { dockTime, miles, shortDate, stopTime, usd } from "@/lib/desk-format";
@@ -26,7 +26,15 @@ function Signal({ r, alerts }: { r: BoardRow; alerts: Alert[] | undefined }) {
   const level = topLevel(alerts);
   const worst = level && level !== "info" ? alerts!.find((a) => a.level === level) : null;
   if (worst) return <span className={`dq-sig ${worst.level}`}>{worst.message}</span>;
-  if (r.verdict && r.verdict !== "accept") return <VerdictChip verdict={r.verdict} />;
+  if (r.verdict === "needs_fuel") return <span className="dq-sig warn">Needs fuel price</span>;
+  if (r.perMile != null && r.floorPerMile != null && r.verdict && r.verdict !== "accept") {
+    const gap = r.perMile - r.floorPerMile;
+    return (
+      <span className={`dq-sig ${gap < 0 ? "block" : "warn"}`}>
+        {gap < 0 ? `$${Math.abs(gap).toFixed(2)}/mi below floor` : `+$${gap.toFixed(2)}/mi vs floor`}
+      </span>
+    );
+  }
   return null;
 }
 

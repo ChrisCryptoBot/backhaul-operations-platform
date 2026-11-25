@@ -1,7 +1,9 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { AuditSnapshot } from "@/lib/audit-diff";
 import { kindLabel, validateCustomer, type CustomerCheck, type CustomerValues } from "@/lib/customer";
 import { customerScorecard } from "@/lib/customer-scorecard";
+import { normalizeMcNumber } from "@/lib/fmcsa";
 import { notQuote } from "@/lib/quote-status";
 import { termList, type Terminals } from "@/lib/scope";
 import { inTerminal } from "./terminal-sql";
@@ -47,6 +49,38 @@ export async function customerTermsMap(workspaceId = currentWorkspaceId()): Prom
   return new Map(rows.map((r) => [lc(r.name), r.defaultPayTermsDays!]));
 }
 
+/**
+ * Find the Customer record matching `name` (case-insensitive) inside `workspaceId`, or create one from the load's contact/MC/terms details
+ * when no record exists yet. Returns null only when `name` is blank. Runs inside the caller's transaction.
+ */
+export async function resolveOrCreateCustomer(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  input: { name?: string | null; mcNumber?: string | null; phone?: string | null; email?: string | null; payTermsDays?: number | null }
+): Promise<{ id: string; name: string } | null> {
+  const clean = (input.name ?? "").trim();
+  if (!clean) return null;
+  const existing = await tx.customer.findFirst({
+    where: { workspaceId, name: { equals: clean, mode: "insensitive" } },
+    select: { id: true, name: true },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }]
+  });
+  if (existing) return existing;
+  const created = await tx.customer.create({
+    data: {
+      workspaceId,
+      name: clean.slice(0, 80),
+      kind: "broker",
+      mcNumber: normalizeMcNumber(input.mcNumber ?? null),
+      contactPhone: input.phone?.trim().slice(0, 40) || null,
+      contactEmail: input.email?.trim().slice(0, 120) || null,
+      defaultPayTermsDays: input.payTermsDays ?? null
+    },
+    select: { id: true, name: true }
+  });
+  return created;
+}
+
 export async function saveCustomer(values: CustomerValues, id: string | null, now = new Date(), workspaceId = currentWorkspaceId()): Promise<SaveCustomerResult> {
   const check = validateCustomer(values);
   if (!check.ok) return { ok: false, errors: check.errors };
@@ -57,8 +91,9 @@ export async function saveCustomer(values: CustomerValues, id: string | null, no
   if (id == null) {
     const created = await prisma.$transaction(async (tx) => {
       const c = await tx.customer.create({ data: { workspaceId, ...v } });
-      // Loads that spell this name differently only in capitals come to the record's spelling, so the two stay one customer.
-      const respelled = await tx.load.updateMany({ where: { workspaceId, brokerName: { equals: v.name, mode: "insensitive" }, NOT: { brokerName: v.name } }, data: { brokerName: v.name } });
+      // Loads that spell this name differently only in capitals come to the record's spelling, and link to it.
+      const respelled = await tx.load.updateMany({ where: { workspaceId, brokerName: { equals: v.name, mode: "insensitive" }, NOT: { brokerName: v.name } }, data: { brokerName: v.name, customerId: c.id } });
+      await tx.load.updateMany({ where: { workspaceId, brokerName: v.name, customerId: null }, data: { customerId: c.id } });
       await recordAudit({ entity: "customer", action: "customer_added", summary: `${v.name} added as a ${kindLabel(v.kind).toLowerCase()}${respelled.count > 0 ? `; ${respelled.count} ${respelled.count === 1 ? "load" : "loads"} now spell it the same` : ""}`, before: null, after: snapshot(v), at: now, workspaceId }, tx);
       return c;
     });
@@ -73,7 +108,7 @@ export async function saveCustomer(values: CustomerValues, id: string | null, no
   if (moved.length === 0) return { ok: true, id, changed: false };
   await prisma.$transaction(async (tx) => {
     await tx.customer.update({ where: { id }, data: v });
-    const renamed = prev.name !== v.name ? await tx.load.updateMany({ where: { workspaceId, brokerName: { equals: prev.name, mode: "insensitive" } }, data: { brokerName: v.name } }) : null;
+    const renamed = prev.name !== v.name ? await tx.load.updateMany({ where: { workspaceId, OR: [{ customerId: id }, { brokerName: { equals: prev.name, mode: "insensitive" } }] }, data: { brokerName: v.name, customerId: id } }) : null;
     await recordAudit({ entity: "customer", action: "customer_changed", summary: `${v.name}: changed ${moved.join(", ").toLowerCase()}${renamed ? `; ${renamed.count} ${renamed.count === 1 ? "load" : "loads"} renamed with it` : ""}`, before: Object.fromEntries(moved.map((k) => [k, before[k] ?? null])), after: Object.fromEntries(moved.map((k) => [k, after[k] ?? null])), at: now, workspaceId }, tx);
   });
   return { ok: true, id, changed: true };

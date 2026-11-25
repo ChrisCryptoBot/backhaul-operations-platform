@@ -88,6 +88,41 @@ export async function logCheckCall(input: CheckCallInput, now = new Date(), work
   return { ok: true, id: row.id };
 }
 
+export type LoadCheckCallRow = {
+  id: string;
+  at: Date;
+  place: string | null;
+  etaAt: Date | null;
+  status: string | null;
+  note: string | null;
+  spokeWith: string | null;
+  loggedBy: string | null;
+  unitLabel: string | null;
+};
+
+/** Check calls tied to a single load, newest first, within the caller's terminal scope. */
+export async function listLoadCheckCalls(loadId: string, workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<LoadCheckCallRow[]> {
+  const scope = await allowedFor(workspaceId, allowed);
+  if (!(await loadInScope(loadId, workspaceId, scope))) return [];
+  const rows = await prisma.checkCall.findMany({
+    where: { workspaceId, loadId },
+    orderBy: [{ at: "desc" }, { id: "desc" }],
+    include: { vehicle: { select: { name: true } }, trailer: { select: { number: true } } },
+    take: 50
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    at: r.at,
+    place: r.place,
+    etaAt: r.etaAt,
+    status: r.status,
+    note: r.note,
+    spokeWith: r.spokeWith,
+    loggedBy: r.loggedBy,
+    unitLabel: r.vehicle?.name ? `Truck ${r.vehicle.name}` : r.trailer?.number ? `Trailer ${r.trailer.number}` : null
+  }));
+}
+
 /** Remove a call that was logged by mistake. The audit trail keeps what it said. */
 export async function removeCheckCall(id: string, workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<{ ok: true } | { ok: false; error: string }> {
   const scope = await allowedFor(workspaceId, allowed);

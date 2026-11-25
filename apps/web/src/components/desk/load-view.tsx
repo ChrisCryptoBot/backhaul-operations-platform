@@ -54,11 +54,19 @@ import { linkStateFor } from "@/server/bridge/outbox";
 import { stopZoneOf } from "@/server/geo/stop-zone";
 import { activeTz } from "@/lib/tz";
 import { FAILURE_TEXT, type FailureWord } from "@/server/bridge/core";
-import { AssignmentChip, StatusChip, VerdictChip } from "./ui";
+import { AssignmentChip, StatusChip } from "./ui";
 import { AlertList } from "./alert-bits";
 import { SubmitButton } from "./kit/submit-button";
 import { BillingDetailsDialog } from "./billing-details-dialog";
 import { listLoadDocuments, podStopsMissing } from "@/server/tl/documents";
+import { listLoadCheckCalls } from "@/server/tl/check-calls";
+import { listLoadClaims } from "@/server/tl/claims";
+import { unbilledExtrasOfLoad } from "@/server/tl/invoicing";
+import { parseBilledExtras } from "@/lib/invoicing";
+import { CALL_STATUSES } from "@/lib/asset-history";
+import { zoneAbbr } from "@/lib/tz";
+import { CheckCallForm, RemoveCheckCall } from "./check-call-form";
+import { LoadClaims } from "./load-claims";
 import { ConfirmForm } from "./kit/confirm-form";
 import { DisruptionButtons } from "./disruption-dialogs";
 import { Fold } from "./kit/fold";
@@ -94,7 +102,7 @@ export async function LoadView({ id }: { id: string }) {
     <p className="tl-note" role="note">You can read this load but not change it. A dispatcher or the accounting office can.</p>
   );
 
-  const [{ byLoad }, feed, loadSettlements, waivedMap, tracking, evidence, holders, legs, batons, primaryInv, loadSupplementals, suppDetention] = await Promise.all([
+  const [{ byLoad }, feed, loadSettlements, waivedMap, tracking, evidence, holders, legs, batons, primaryInv, loadSupplementals, suppDetention, checkCalls, claims, unbilledExtras] = await Promise.all([
     getAlerts(new Date(), currentWorkspaceId(), "open", id),
     listLoadAudit(id),
     settlementsOfLoad(id),
@@ -109,7 +117,10 @@ export async function LoadView({ id }: { id: string }) {
     handoffsOfLoad(id),
     detail.load.paymentStatus ? primaryInvoiceOfLoad(id) : Promise.resolve(null),
     detail.load.paymentStatus ? supplementalsByLoad([id]).then((m) => m.get(id) ?? []) : Promise.resolve([]),
-    detail.load.status === "completed" ? supplementalDetentionByLoad([id]).then((m) => m.get(id) ?? 0) : Promise.resolve(0)
+    detail.load.status === "completed" ? supplementalDetentionByLoad([id]).then((m) => m.get(id) ?? 0) : Promise.resolve(0),
+    listLoadCheckCalls(id),
+    listLoadClaims(id),
+    detail.load.paymentStatus ? unbilledExtrasOfLoad(id) : Promise.resolve([])
   ]);
   const waivedReason = waivedMap.get(id) ?? null;
   const openBaton = batons.find((b) => b.state === "dropped" || b.state === "disputed") ?? null;
@@ -150,11 +161,17 @@ export async function LoadView({ id }: { id: string }) {
   const dt = detentionOfLoad(load, thresholds.detentionGraceMinutes, suppDetention);
   const fellThrough = load.status === "cancelled" || load.status === "tonu";
   const firstPickup = load.stops.map((s) => s.timeWindowEarliest).find((d): d is Date => d != null) ?? null;
+  const firstUnvisitedWithTime = load.stops.find((s) => s.arrivedAt == null && (s.timeWindowEarliest ?? s.timeWindowLatest) != null) ?? null;
+  const hasHazmat = Boolean(load.hazmatClass || load.hazmatUnNumber || load.hazmatPackingGroup);
 
   const deleteBlocked = load.status === "in_progress" ? "A load on the road cannot be deleted." : load.paymentStatus ? "An invoiced load cannot be deleted." : anySettled ? "A load on a driver statement cannot be deleted." : null;
-  const can = { cancel: CAN_CANCEL.includes(load.status), tonu: CAN_TONU.includes(load.status), reschedule: CAN_RESCHEDULE.includes(load.status) && firstPickup != null };
+  const can = {
+    cancel: CAN_CANCEL.includes(load.status),
+    tonu: CAN_TONU.includes(load.status),
+    reschedule: (CAN_RESCHEDULE.includes(load.status) && firstPickup != null) || (load.status === "in_progress" && firstUnvisitedWithTime != null)
+  };
 
-  const scheduleLocked = !["draft", "accepted"].includes(load.status);
+  const scheduleLocked = !["draft", "accepted", "in_progress"].includes(load.status);
   const stored = (v: Parameters<typeof num>[0]) => {
     const n = num(v);
     return n > 0 ? String(n) : "";
@@ -164,6 +181,8 @@ export async function LoadView({ id }: { id: string }) {
   const stopZones = Object.fromEntries(load.stops.map((s) => [s.id, stopZoneOf(s, workspaceZone)]));
   const lastStopZone = load.stops.length > 0 ? stopZones[load.stops[load.stops.length - 1]!.id] : undefined;
   const pickupStop = load.stops.find((s) => s.timeWindowEarliest != null);
+  const rescheduleAnchorTime = firstUnvisitedWithTime ? (firstUnvisitedWithTime.timeWindowEarliest ?? firstUnvisitedWithTime.timeWindowLatest) : firstPickup;
+  const rescheduleAnchorZone = firstUnvisitedWithTime ? stopZones[firstUnvisitedWithTime.id] : pickupStop ? stopZones[pickupStop.id] : undefined;
   const tripStops = load.stops.map((s) => ({
     id: s.id,
     sequence: s.stopSequence,
@@ -184,7 +203,14 @@ export async function LoadView({ id }: { id: string }) {
   const milesVariance = load.quotedLoadedMiles != null && quotedTotal > 0 && actualTotal > 0 && Math.round(quotedTotal) !== Math.round(actualTotal) ? { quoted: Math.round(quotedTotal), actual: Math.round(actualTotal), pct: (actualTotal - quotedTotal) / quotedTotal, over: Math.abs(actualTotal - quotedTotal) / quotedTotal > 0.08 } : null;
   const suggestedNumber = load.paymentStatus ? "" : await suggestedInvoiceNumber(load);
   const readiness = invoiceReadiness({ ...load, quotedRevenue: basis.rate, paidLinehaul: numOrNull(load.actualRevenue), podStopsMissing: (await podStopsMissing([load.id])).get(load.id) ?? null });
-  const invoiceContext = { rate: basis.rate, surcharge: basis.surcharge, detention: basis.tonu ? 0 : dt.billable, rateLabel: basis.label, defaultTerms: load.payTermsDays ?? (await customerTermsMap()).get((load.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays };
+  const invoiceContext = {
+    rate: basis.rate,
+    surcharge: basis.surcharge,
+    detention: basis.tonu ? 0 : dt.billable,
+    rateLabel: basis.label,
+    defaultTerms: load.payTermsDays ?? (await customerTermsMap()).get((load.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays,
+    billedExtras: parseBilledExtras(load.billedExtras)
+  };
   const billed = billedOf({ invoicedAmount: numOrNull(load.invoicedAmount), status: load.status, quotedRevenue: num(load.quotedRevenue), fuelSurcharge: numOrNull(load.fuelSurcharge), tonuRevenue: numOrNull(load.tonuRevenue) });
   const invoiceLines = Array.isArray(load.invoiceLines) ? (load.invoiceLines as Array<{ label: string; amount: number }>) : null;
   const dueAt = dueAtOf(load.invoicedAt, load.payTermsDays);
@@ -435,6 +461,7 @@ export async function LoadView({ id }: { id: string }) {
     <section className="sec">
       <h3>Driver & HOS Assignment</h3>
       <div className="sec-box">
+        {hasHazmat ? <p className="tl-note warn" style={{ marginBottom: 10 }}>Check the driver&apos;s H endorsement (49 CFR 383.93)</p> : null}
         {a ? (
           <dl className="tl-kv" style={{ marginBottom: 12 }}>
             <dt>Driver</dt>
@@ -688,6 +715,11 @@ export async function LoadView({ id }: { id: string }) {
               </tr>
             </tbody>
           </table>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+            <a href={`/invoices/${load.id}/packet`} className="tl-btn sm" target="_blank" rel="noopener">
+              Download packet
+            </a>
+          </div>
           {loadSupplementals.length > 0 ? (
             <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
               {loadSupplementals.map((s) => (
@@ -703,6 +735,11 @@ export async function LoadView({ id }: { id: string }) {
                     <a href={`/invoices/${s.id}/pdf`} className="tl-btn sm" target="_blank" rel="noopener">
                       PDF
                     </a>
+                    {s.status !== "void" ? (
+                      <a href={`/invoices/${load.id}/packet?invoiceId=${s.id}`} className="tl-btn sm" target="_blank" rel="noopener">
+                        Packet
+                      </a>
+                    ) : null}
                     {s.status === "open" && may("bill") ? (
                       <PaidDialog loadId={load.id} invoiceId={s.id} invoiceNumber={s.number} billed={s.total} owing={s.balance} canWriteOff={may("writeoff")} tz={workspaceZone} size="sm" buttonLabel="Mark paid" />
                     ) : null}
@@ -829,15 +866,28 @@ export async function LoadView({ id }: { id: string }) {
             loadId={load.id}
             loadNumber={load.loadNumber ?? "This load"}
             can={can}
-            pickupLocal={firstPickup ? toCentralLocal(firstPickup.getTime(), pickupStop ? stopZones[pickupStop.id] : undefined) : null}
-            pickupZone={pickupStop ? stopZones[pickupStop.id] : undefined}
+            pickupLocal={
+              load.status === "in_progress" && rescheduleAnchorTime
+                ? toCentralLocal(rescheduleAnchorTime.getTime(), rescheduleAnchorZone)
+                : firstPickup
+                  ? toCentralLocal(firstPickup.getTime(), pickupStop ? stopZones[pickupStop.id] : undefined)
+                  : null
+            }
+            pickupZone={load.status === "in_progress" ? rescheduleAnchorZone : pickupStop ? stopZones[pickupStop.id] : undefined}
             driverName={a?.driver.name ?? null}
             reconfirm={!!a && (a.status === "dispatched" || a.status === "accepted")}
+            stops={load.stops.map((s) => ({
+              id: s.id,
+              sequence: s.stopSequence,
+              role: roleOfStop(s) === "pickup" ? "Pickup" : "Delivery",
+              label: s.facilityName ?? s.addressString,
+              visited: s.arrivedAt != null
+            }))}
           />
         ) : null}
         <DeleteLoadButton loadId={load.id} loadNumber={load.loadNumber ?? "This load"} driverName={a?.driver.name ?? null} blocked={deleteBlocked} />
         <Link className="tl-btn ghost sm" href={`/quote?like=${load.id}`}>
-          Quote like this
+          Book again
         </Link>
       </div>
     </section>
@@ -961,6 +1011,7 @@ export async function LoadView({ id }: { id: string }) {
               invoiceNumber={primaryInv.number}
               loadId={load.id}
               unbilledDetention={basis.tonu || waivedReason ? 0 : dt.unbilled}
+              unbilledExtras={unbilledExtras.map((e) => ({ kind: e.kind === "stop_off" ? ("stop_off" as const) : ("other" as const), label: e.label, amount: e.amount }))}
               factored={primaryInv.factoringStatus !== "none" && primaryInv.factoringStatus !== "rejected"}
             />
           ) : null}
@@ -1023,7 +1074,11 @@ export async function LoadView({ id }: { id: string }) {
   const chips = (
     <>
       <StatusChip status={load.status} />
-      {fellThrough ? null : <VerdictChip verdict={evaluation?.finalDecision ?? null} />}
+      {fellThrough || deckMargin == null ? null : (
+        <span className={`tl-chip ${deckMargin >= 0 ? "ok" : "bad"}`}>
+          {deckMargin >= 0 ? `+$${deckMargin.toFixed(2)}/mi vs floor` : `−$${Math.abs(deckMargin).toFixed(2)}/mi vs floor`}
+        </span>
+      )}
       {a && ASSIGNMENT_STATUS[a.status]?.label !== LOAD_STATUS[load.status]?.label ? <AssignmentChip status={a.status} /> : null}
     </>
   );
@@ -1138,13 +1193,56 @@ export async function LoadView({ id }: { id: string }) {
     <section className="lv-sec">
       <h3>Details</h3>
       <dl className="lv-kv">
+        {load.rateConNumber ? detailRow("Rate con #", load.rateConNumber) : null}
+        {load.proNumber ? detailRow("PRO #", load.proNumber) : null}
+        {load.bolNumber ? detailRow("BOL #", load.bolNumber) : null}
         {load.poNumber ? detailRow("Customer PO", load.poNumber) : null}
         {detailRow("Equipment", [load.trailer ? `Trailer ${load.trailer.number}` : load.trailerType ? load.trailerType.replace(/_/g, " ") : "Not stated", size, needs.length > 0 ? `needs ${needs.join(", ")}` : null].filter(Boolean).join(" · "))}
+        {load.commodity || load.pieceCount != null || load.palletCount != null
+          ? detailRow(
+              "Freight",
+              [load.commodity, load.pieceCount != null ? `${load.pieceCount} pcs` : null, load.palletCount != null ? `${load.palletCount} pallets` : null].filter(Boolean).join(" · ")
+            )
+          : null}
         {detailRow("Weight", `${weightVal != null ? `${weightVal.toLocaleString("en-US")} lb` : "Not set"}${load.hazmatClass ? ` · hazmat ${load.hazmatClass}` : ""}`)}
+        {[load.reeferSetTempF, load.reeferMinF, load.reeferMaxF, load.reeferMode].some((x) => x != null && x !== "")
+          ? detailRow(
+              "Reefer",
+              [
+                load.reeferSetTempF != null ? `set ${num(load.reeferSetTempF)}°F` : null,
+                load.reeferMinF != null || load.reeferMaxF != null ? `range ${load.reeferMinF != null ? num(load.reeferMinF) : "?"}–${load.reeferMaxF != null ? num(load.reeferMaxF) : "?"}°F` : null,
+                load.reeferMode ?? null
+              ]
+                .filter(Boolean)
+                .join(" · ")
+            )
+          : null}
+        {hasHazmat
+          ? detailRow(
+              "Hazmat",
+              <>
+                <span>
+                  {[
+                    load.hazmatClass ? `Class ${load.hazmatClass}` : null,
+                    load.hazmatUnNumber ?? null,
+                    load.hazmatPackingGroup ? `PG ${load.hazmatPackingGroup}` : null,
+                    load.hazmatEmergencyPhone ? `24h ${load.hazmatEmergencyPhone}` : null
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+                <br />
+                <span className="tl-note warn" style={{ display: "inline-block", marginTop: 4 }}>
+                  Check the driver&apos;s H endorsement (49 CFR 383.93)
+                </span>
+              </>
+            )
+          : null}
         {detailRow(
           "Miles",
           <>
             {`${num(load.pickupDeadheadMiles)} empty to pickup · ${loadedMiles} loaded · ${load.isBackhaul ? 0 : num(load.returnDeadheadMiles)} empty home`}
+            <span className="tl-sub"> Car route — check truck restrictions</span>
             {payMilesGap.label ? <span className="tl-sub"> {payMilesGap.label}</span> : null}
             {milesVariance ? (
               <span className={`tl-sub${milesVariance.over ? " warn" : ""}`}>
@@ -1175,6 +1273,55 @@ export async function LoadView({ id }: { id: string }) {
       </dl>
     </section>
   );
+  const callUnit = load.vehicle
+    ? { kind: "truck" as const, id: load.vehicle.id, name: load.vehicle.name ?? "Truck" }
+    : load.trailer
+      ? { kind: "trailer" as const, id: load.trailer.id, name: load.trailer.number }
+      : null;
+  const checkCallsSec = (
+    <section className="lv-sec">
+      <h3>Check calls</h3>
+      <div className="sec-box">
+        {checkCalls.length === 0 ? (
+          <p className="tl-sub" style={{ marginBottom: 10 }}>
+            No check calls logged on this load yet.
+          </p>
+        ) : (
+          <ul style={{ listStyle: "none", padding: 0, margin: "0 0 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+            {checkCalls.map((c) => {
+              const stLabel = c.status ? CALL_STATUSES.find((s) => s.key === c.status)?.label ?? c.status.replace("_", " ") : null;
+              return (
+                <li key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, paddingBottom: 6, borderBottom: "1px solid var(--db-line, rgba(255,255,255,0.08))" }}>
+                  <div>
+                    <div>
+                      <b>{dateTime(c.at)}</b>
+                      {c.place ? ` · ${c.place}` : ""}
+                      {stLabel ? ` · ${stLabel}` : ""}
+                      {c.etaAt ? ` · ETA ${dateTime(c.etaAt)}` : ""}
+                    </div>
+                    {c.note || c.spokeWith || c.unitLabel || c.loggedBy ? (
+                      <div className="tl-sub">
+                        {[c.unitLabel, c.spokeWith ? `spoke with ${c.spokeWith}` : null, c.note, c.loggedBy ? `by ${c.loggedBy}` : null].filter(Boolean).join(" · ")}
+                      </div>
+                    ) : null}
+                  </div>
+                  {may("dispatch") ? <RemoveCheckCall id={c.id} /> : null}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        {gate(
+          callUnit ? (
+            <CheckCallForm unit={callUnit} openLoads={[]} clock={zoneAbbr(workspaceZone)} fixedLoad={{ id: load.id, number: load.loadNumber ?? "This load" }} />
+          ) : (
+            <p className="tl-note">Put a truck on the load first.</p>
+          ),
+          "dispatch"
+        )}
+      </div>
+    </section>
+  );
   const waitWordsLine = dt.totalWaitMinutes > 0 ? `${dt.totalWaitMinutes} min · ${dt.billable > 0 ? `${usd(dt.billable, 2)} billable` : "nothing billable"}` : "none yet";
   const drawerTrip = (
     <>
@@ -1184,6 +1331,7 @@ export async function LoadView({ id }: { id: string }) {
       {open && !trailerOk ? gate(trailerSec, "dispatch") : null}
       {/* Pickup, arrivals, waits, delivery and what the trip cost: in view while it is the work, one line once it is done. */}
       {tripSec ? open ? gate(tripSec, "dispatch", "figures") : <Fold title="Trip record" meta={load.completedAt ? `delivered ${dateTime(load.completedAt)}` : undefined}>{gate(tripSec, "dispatch", "figures")}</Fold> : null}
+      {checkCallsSec}
       {gate(relaySec, "dispatch")}
       {drawerDetails}
       {/* Booked and heading to the pickup: where the truck is now. */}
@@ -1328,6 +1476,32 @@ export async function LoadView({ id }: { id: string }) {
           )}
         </Fold>
       ) : null}
+      <section className="lv-sec">
+        <h3>OS&amp;D claims (49 CFR Part 370)</h3>
+        <div className="sec-box">
+          <LoadClaims
+            loadId={load.id}
+            defaultClaimant={load.brokerName}
+            items={claims.map((c) => ({
+              id: c.id,
+              type: c.type,
+              status: c.status,
+              pieces: c.pieces,
+              amount: c.amount,
+              claimant: c.claimant,
+              externalNumber: c.externalNumber,
+              openedAt: c.openedAt.toISOString(),
+              ackBy: c.ackBy.toISOString(),
+              decideBy: c.decideBy.toISOString(),
+              note: c.note
+            }))}
+            invoiced={Boolean(load.paymentStatus)}
+            canEdit={may("documents") || may("dispatch") || may("bill")}
+            canRemove={may("documents_remove") || may("admin")}
+            canWriteOff={may("writeoff")}
+          />
+        </div>
+      </section>
       {gate(invoiceSec, "bill")}
     </>
   );
@@ -1432,7 +1606,7 @@ export async function LoadView({ id }: { id: string }) {
       sub={sub}
       chips={chips}
       href={`/loads/${load.id}`}
-      actions={fellThrough || !may("dispatch") ? null : <LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load, stopZones)} scheduleLocked={scheduleLocked} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} truckName={load.vehicle?.name ?? null} dealLocked={load.paymentStatus ? "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." : anySettled ? "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." : null} />}
+      actions={fellThrough || !may("dispatch") ? null : <LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load, stopZones)} scheduleLocked={scheduleLocked} loadStatus={load.status} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} truckName={load.vehicle?.name ?? null} dealLocked={load.paymentStatus ? "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." : anySettled ? "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." : null} />}
       footer={footer}
       deck={drawerDeck}
       trip={drawerTrip}

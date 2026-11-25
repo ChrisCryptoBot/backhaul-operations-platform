@@ -4,7 +4,7 @@ import { grossOf } from "@/lib/load-gross";
 import { dueAt } from "@/lib/overdue";
 import { customerTermsMap } from "./customers";
 import { prisma } from "@/lib/db";
-import { defaultInvoiceNumber, invoiceBasis, invoiceReadiness, owedOf, revisedInvoiceNumber } from "@/lib/invoicing";
+import { defaultInvoiceNumber, invoiceBasis, invoiceReadiness, owedOf, parseBilledExtras, revisedInvoiceNumber } from "@/lib/invoicing";
 import { billedOf } from "@/lib/billed";
 import { computeAnalytics, type AnalyticsPeriod } from "@/truelane/lib/analytics";
 import { evaluateTlLoad, resolveLabour } from "./evaluate";
@@ -46,6 +46,9 @@ export function boardRowOf(l: BoardLoad) {
   return {
     id: l.id,
     loadNumber: l.loadNumber,
+    rateConNumber: l.rateConNumber,
+    proNumber: l.proNumber,
+    bolNumber: l.bolNumber,
     status: deskStatusOf(l.status),
     brokerName: l.brokerName,
     origin: l.originAddress,
@@ -88,6 +91,8 @@ export function boardRowOf(l: BoardLoad) {
     paidAt: l.paidAt,
     invoicedAmount: numOrNull(l.invoicedAmount),
     paidAmount: numOrNull(l.paidAmount),
+    billedExtrasTotal: parseBilledExtras(l.billedExtras).reduce((sum, x) => new Prisma.Decimal(sum).plus(x.amount).toNumber(), 0),
+    readyBlocked: null as string | null,
     openHandoff: null as { state: string; locationName: string | null } | null
   };
 }
@@ -219,8 +224,8 @@ const SCOPE_WHERE: Record<InvoiceScope, object> = { ready: { paymentStatus: null
 /** A search over the words a person has for an invoice: its number, the load's, the customer's PO, the customer. Every word must match something. */
 const invoiceSearch = (q?: string) => {
   const terms = (q ?? "").split(/\s+/).filter(Boolean).slice(0, 6);
-  const has = (field: "invoiceNumber" | "loadNumber" | "poNumber" | "brokerName", t: string) => ({ [field]: { contains: t, mode: "insensitive" as const } });
-  return terms.length ? { AND: terms.map((t) => ({ OR: [has("invoiceNumber", t), has("loadNumber", t), has("poNumber", t), has("brokerName", t)] })) } : {};
+  const has = (field: "invoiceNumber" | "loadNumber" | "rateConNumber" | "proNumber" | "poNumber" | "bolNumber" | "brokerName", t: string) => ({ [field]: { contains: t, mode: "insensitive" as const } });
+  return terms.length ? { AND: terms.map((t) => ({ OR: [has("invoiceNumber", t), has("loadNumber", t), has("rateConNumber", t), has("proNumber", t), has("poNumber", t), has("bolNumber", t), has("brokerName", t)] })) } : {};
 };
 
 /** A filter on the invoices that are out: late (on the desk's calendar), part paid, or gone to a factor. */
@@ -435,6 +440,8 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
     const rate = basis.rate;
     // A TONU hauled nothing, so it carries no detention; already-invoiced rows keep what was billed on their invoice.
     const billable = light || basis.tonu ? 0 : detentionOfLoad(l, thresholds.detentionGraceMinutes).billable;
+    const billedExtras = light || basis.tonu ? [] : parseBilledExtras(l.billedExtras);
+    const billedExtrasTotal = billedExtras.reduce((s, e) => s.plus(e.amount), new Prisma.Decimal(0));
     const billed = billedOf({ invoicedAmount: numOrNull(l.invoicedAmount), status: l.status, quotedRevenue: num(l.quotedRevenue), fuelSurcharge: numOrNull(l.fuelSurcharge), tonuRevenue: numOrNull(l.tonuRevenue) });
     const paidAmount = numOrNull(l.paidAmount);
     const extraOpen = suppOpen.get(l.id) ?? 0;
@@ -460,8 +467,8 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
       payTermsDays: l.payTermsDays,
       status: l.paymentStatus,
       amount: billed,
-      /** What a load not yet invoiced would bill if invoiced now with its detention (the invoice dialog's total to start from). */
-      readyAmount: new Prisma.Decimal(billed).plus(l.paymentStatus === null ? billable : 0).toDecimalPlaces(2).toNumber(),
+      /** What a load not yet invoiced would bill if invoiced now with its detention and unbilled extras (the invoice dialog's total to start from). */
+      readyAmount: new Prisma.Decimal(billed).plus(l.paymentStatus === null ? new Prisma.Decimal(billable).plus(billedExtrasTotal) : 0).toDecimalPlaces(2).toNumber(),
       detentionBillable: billable,
       writeOffAmount: numOrNull(l.writeOffAmount),
       writeOffReason: l.writeOffReason,
@@ -471,7 +478,14 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
       balance: l.paymentStatus === "invoiced" || extraOpen > 0 ? (owedOf(billed, paidAmount, { supplementalOpen: extraOpen, parentPaid }) ?? billed) : 0,
       /** Negative when the broker paid less than the invoice. */
       paidDifference: l.paymentStatus === "paid" && paidAmount != null ? new Prisma.Decimal(paidAmount).minus(billed).toDecimalPlaces(2).toNumber() : null,
-      invoiceContext: { rate, surcharge: basis.surcharge, detention: billable, rateLabel: basis.label, defaultTerms: l.payTermsDays ?? customerTerms.get((l.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays },
+      invoiceContext: {
+        rate,
+        surcharge: basis.surcharge,
+        detention: billable,
+        rateLabel: basis.label,
+        defaultTerms: l.payTermsDays ?? customerTerms.get((l.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays,
+        ...(billedExtras.length > 0 ? { billedExtras: billedExtras.map((e) => ({ label: e.label, amount: e.amount })) } : {})
+      },
       defaultNumber: revisedInvoiceNumber(defaultInvoiceNumber(l.loadNumber, l.id), voidedNumbers.get(l.id) ?? new Set()),
       readiness: invoiceReadiness({ ...l, quotedRevenue: rate, paidLinehaul: numOrNull(l.actualRevenue), podStopsMissing: missingPods.get(l.id) ?? null }),
       /** More than one load on this invoice: the row stands for the whole invoice and carries its money. */

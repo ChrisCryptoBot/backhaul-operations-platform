@@ -32,7 +32,9 @@ import { listQuoteDecisions, reportScope } from "./quote-report";
 import { asKpiPeriod } from "@/lib/kpi-periods";
 import { listHistory } from "./history";
 import { LOAD_STATUS } from "@/lib/desk-format";
-import { asInvoiceShow, INVOICE_SORT_KEYS, listBoardRows, listInvoiceRows, type BoardRow, type InvoiceScope } from "./queries";
+import { asInvoiceShow, boardRowOf, INVOICE_SORT_KEYS, listBoardRows, listInvoiceRows, loadInclude, type BoardRow, type InvoiceScope } from "./queries";
+import { inTerminal } from "./terminal-sql";
+import { notQuote } from "@/lib/quote-status";
 import { listSettlements } from "./settlement";
 import { DEDUCTION_ROW_LABEL } from "@/lib/deductions";
 import { contractor1099, form1099Csv } from "./form1099";
@@ -88,10 +90,14 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
   }
 
   if (kind === "loads") {
-    // Asked from Loads, the file is the list on screen: the Open board with its status tab, below-cost flag and search, or History with its filter,
+    // Asked from Loads, the file is the list on screen (or explicit selected IDs via ?ids=): the Open board with its status tab, below-cost flag and search, or History with its filter,
     // sort and search. Asked with no view (an old link), it is every load.
     const view = first(query.view);
     const q = first(query.q);
+    const rawIds = first(query.ids);
+    const pickedIds = rawIds
+      ? [...new Set(rawIds.split(",").map((s) => s.trim()).filter(Boolean))].slice(0, cap)
+      : null;
     // The header's terminal scope narrows the file the way it narrows the screen.
     const terminal = await currentTerminal();
     // History is read in pages of a thousand (it can be tens of thousands of loads); the Open board is small. A profit sort orders only the latest thousand, so a file in one of those sorts is the
@@ -109,8 +115,23 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
         if (page >= got.pages) return out;
       }
     };
-    const rows =
-      view === "history"
+    const rows = pickedIds
+      ? pickedIds.length === 0
+        ? []
+        : (
+            await prisma.load.findMany({
+              where: {
+                id: { in: pickedIds },
+                workspaceId: currentWorkspaceId(),
+                deletedAt: null,
+                ...notQuote,
+                ...inTerminal(terminal)
+              },
+              include: loadInclude,
+              orderBy: [{ scheduledDate: "desc" }, { createdAt: "desc" }]
+            })
+          ).map(boardRowOf)
+      : view === "history"
         ? await history()
         : filterBoard(view === "open" ? await listBoardRows(undefined, "open", terminal) : (await listBoardRows(undefined, "open", terminal)).concat(await history()), { status: first(query.status), flag: first(query.flag), q });
     const showDriverPay = (await checkAccess("billing_details")).ok;
@@ -129,7 +150,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
       ])
     );
     return {
-      filename: cut ? name(`loads-first-${cap}`) : name("loads"),
+      filename: cut ? name(`loads-first-${cap}`) : pickedIds ? name("loads-selected") : name("loads"),
       csv: toCsv(
         ["Load", "Status", "Customer", "Origin", "Destination", "Pickup date", "Truck", "Driver", "Answer", "Miles", "Pay", "Pay per mile", "Floor per mile", "Verdict", "Invoice status", "Delivered", "Invoice number", "Invoiced", "Invoiced amount", "Paid", "Expenses", ...(showDriverPay ? ["Driver pay (estimate)"] : []), "Cancel reason"],
         rows.map((r): CsvCell[] => [

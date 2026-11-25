@@ -57,8 +57,59 @@ export function invoiceReadiness(l: ReadinessLoad): { blockers: string[]; cautio
   return { blockers, cautions };
 }
 
+export type BilledExtra = {
+  id: string;
+  label: string;
+  amount: number;
+  reason: string;
+  at: string;
+  kind: "stop_off" | "other";
+};
+
+export function parseBilledExtras(raw: unknown): BilledExtra[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BilledExtra[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const o = item as Record<string, unknown>;
+    const amount = typeof o.amount === "number" ? o.amount : Number(o.amount);
+    const label = typeof o.label === "string" ? o.label.trim() : "";
+    if (!label || !Number.isFinite(amount) || amount <= 0) continue;
+    out.push({
+      id: typeof o.id === "string" && o.id ? o.id : label,
+      label: label.slice(0, 80),
+      amount: Number(amount.toFixed(2)),
+      reason: typeof o.reason === "string" ? o.reason : "",
+      at: typeof o.at === "string" ? o.at : "",
+      kind: o.kind === "stop_off" ? "stop_off" : "other"
+    });
+  }
+  return out;
+}
+
+/**
+ * Extras on the load that have not yet been billed on the primary invoice or any non-void supplemental invoice.
+ * Matched 1:1 on lowercased label and exact cent amount so multiple charges don't collapse.
+ */
+export function unbilledExtrasOf(
+  extras: readonly BilledExtra[],
+  billedLines: ReadonlyArray<{ label: string; amount: number }>
+): BilledExtra[] {
+  if (extras.length === 0) return [];
+  const remaining = billedLines.map((l) => ({ key: l.label.trim().toLowerCase(), cents: Math.round(l.amount * 100), used: false }));
+  const unbilled: BilledExtra[] = [];
+  for (const e of extras) {
+    const k = e.label.trim().toLowerCase();
+    const c = Math.round(e.amount * 100);
+    const match = remaining.find((r) => !r.used && r.key === k && r.cents === c);
+    if (match) match.used = true;
+    else unbilled.push(e);
+  }
+  return unbilled;
+}
+
 export type InvoiceForm = { number: string; terms: string; detention: boolean; lumper: string; layover: string; otherLabel: string; other: string };
-export type InvoiceContext = { rate: number; surcharge: number; detention: number; defaultTerms: number; /** What the rate is called on the invoice: "Line haul", or "TONU fee". */ rateLabel?: string };
+export type InvoiceContext = { rate: number; surcharge: number; detention: number; defaultTerms: number; /** What the rate is called on the invoice: "Line haul", or "TONU fee". */ rateLabel?: string; /** Unbilled stop-change / reconsignment extras on the load. */ billedExtras?: InvoiceLine[] };
 export type InvoiceCheck = { ok: true; value: { number: string; terms: number; lines: InvoiceLine[]; total: number } } | { ok: false; errors: Record<string, string> };
 
 /** Dollars and cents as typed: digits with at most two after the point. Read as text, never by multiplying by 100 (19.99 * 100 is 1998.9999999999998), so 19.99, 8.20 and 1.15 are all fine. */
@@ -98,6 +149,11 @@ export function validateInvoice(form: InvoiceForm, ctx: InvoiceContext): Invoice
   if (lumper.n > 0) extras.push({ label: "Lumper", amount: lumper.n });
   if (layover.n > 0) extras.push({ label: "Layover", amount: layover.n });
   if (other.n > 0) extras.push({ label: form.otherLabel.trim(), amount: other.n });
+  for (const extra of ctx.billedExtras ?? []) {
+    if (extra.amount > 0 && extra.label.trim()) {
+      extras.push({ label: extra.label.trim().slice(0, 80), amount: Number(extra.amount.toFixed(2)) });
+    }
+  }
   const total = invoiceTotalDue({ quotedRevenue: ctx.rate, fuelSurcharge: ctx.surcharge > 0 ? ctx.surcharge : null }, extras);
   const lines: InvoiceLine[] = [{ label: ctx.rateLabel ?? "Line haul", amount: ctx.rate }, ...(ctx.surcharge > 0 ? [{ label: "Fuel surcharge", amount: ctx.surcharge }] : []), ...extras];
   return { ok: true, value: { number, terms, lines, total } };
@@ -125,13 +181,14 @@ export function owedOf(
   return Math.max(0, parentCents + suppCents - creditCents) / 100;
 }
 
-export const SUPPLEMENTAL_KINDS = ["detention", "layover", "lumper", "linehaul", "other"] as const;
+export const SUPPLEMENTAL_KINDS = ["detention", "layover", "lumper", "linehaul", "stop_off", "other"] as const;
 export type SupplementalKind = (typeof SUPPLEMENTAL_KINDS)[number];
 export const SUPPLEMENTAL_KIND_LABEL: Record<SupplementalKind, string> = {
   detention: "Detention",
   layover: "Layover",
   lumper: "Lumper",
   linehaul: "Rate correction",
+  stop_off: "Stop-off / Reconsignment",
   other: "Other"
 };
 

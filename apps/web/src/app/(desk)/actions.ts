@@ -65,6 +65,8 @@ import { capabilityOf, saveKeysAndConnect, type SaveAndConnect } from "@/server/
 import { importEldFleet, type ImportEldResult } from "@/server/partners/eld-import";
 import { adjustTrailerDwell, clearTrailerDwell, waiveTrailerDwell, type DwellInput, type DwellResult } from "@/server/tl/dwell";
 import { logCheckCall, removeCheckCall, type CheckCallInput, type CheckCallResult } from "@/server/tl/check-calls";
+import { createLoadClaim, removeLoadClaim, updateLoadClaim, type ClaimResult } from "@/server/tl/claims";
+import type { ClaimCreateInput, ClaimUpdateInput } from "@/lib/claims";
 import { addRegion, archiveRegion, renameRegion, setMemberScope, setTerminalRegion, type MemberScopeInput, type RegionResult } from "@/server/tl/regions";
 import { sendTestEvent, type TestEventResult } from "@/server/partners/test-event";
 import { shareLoadLocation, type ShareResult } from "@/server/partners/tracking";
@@ -407,12 +409,23 @@ export async function rescheduleAction(formData: FormData) {
   await requireCan("dispatch");
   const loadId = text(formData, "loadId");
   await attempt(loadId, async () => {
-    // The new pickup is typed on the clock at the pickup (the dock's time), as the dialog says.
+    // The new time is typed on the dock's clock at the first selected stop (or the pickup), as the dialog says.
     const ws = currentWorkspaceId();
-    const at = parseCentralLocal(text(formData, "pickup"), pickupClock(await stopClocksOf(loadId, ws), await workspaceTimezone(ws)));
-    if (at == null) throw new DispatchError("bad_time", "Pick a date and time for the new pickup.");
-    await rescheduleLoad({ loadId, newPickup: new Date(at), reason: text(formData, "reason"), note: text(formData, "note") });
-    return "Pickup rescheduled. Every stop moved with it.";
+    const stopIds = formData.getAll("stopIds").map(String).filter(Boolean);
+    const clocks = await stopClocksOf(loadId, ws);
+    const carrier = await workspaceTimezone(ws);
+    const chosen = stopIds.length > 0 ? clocks.filter((c) => stopIds.includes(c.id)) : clocks;
+    const zone = pickupClock(chosen.length > 0 ? chosen : clocks, carrier);
+    const at = parseCentralLocal(text(formData, "pickup"), zone);
+    if (at == null) throw new DispatchError("bad_time", "Pick a date and time for the new time.");
+    await rescheduleLoad({
+      loadId,
+      newPickup: new Date(at),
+      reason: text(formData, "reason"),
+      note: text(formData, "note"),
+      ...(stopIds.length > 0 ? { stopIds } : {})
+    });
+    return stopIds.length > 0 ? "Selected stops rescheduled." : "Pickup rescheduled. Every stop moved with it.";
   });
 }
 
@@ -696,10 +709,13 @@ export async function setMemberScopeAction(memberId: string, input: MemberScopeI
 
 export async function logCheckCallAction(input: CheckCallInput): Promise<CheckCallResult> {
   await requireCan("dispatch");
-  const out = await logCheckCall(input && typeof input === "object" ? input : ({} as CheckCallInput));
+  const clean = input && typeof input === "object" ? input : ({} as CheckCallInput);
+  const out = await logCheckCall(clean);
   if (out.ok) {
     revalidatePath("/fleet");
     revalidatePath("/trailers");
+    revalidatePath("/loads");
+    if (clean.loadId) revalidatePath(`/loads/${String(clean.loadId)}`);
   }
   return out;
 }
@@ -710,7 +726,29 @@ export async function removeCheckCallAction(id: string): Promise<ActResult> {
   if (out.ok) {
     revalidatePath("/fleet");
     revalidatePath("/trailers");
+    revalidatePath("/loads");
   }
+  return out;
+}
+
+export async function createLoadClaimAction(loadId: string, input: ClaimCreateInput): Promise<ClaimResult> {
+  await requireCan("dispatch", "bill");
+  const out = await createLoadClaim(String(loadId), input && typeof input === "object" ? input : ({} as ClaimCreateInput));
+  if (out.ok) refreshLoads();
+  return out;
+}
+
+export async function updateLoadClaimAction(claimId: string, input: ClaimUpdateInput): Promise<ClaimResult> {
+  await requireCan("dispatch", "bill");
+  const out = await updateLoadClaim(String(claimId), input && typeof input === "object" ? input : ({} as ClaimUpdateInput));
+  if (out.ok) refreshLoads();
+  return out;
+}
+
+export async function removeLoadClaimAction(claimId: string): Promise<ClaimResult> {
+  await requireCan("admin");
+  const out = await removeLoadClaim(String(claimId));
+  if (out.ok) refreshLoads();
   return out;
 }
 

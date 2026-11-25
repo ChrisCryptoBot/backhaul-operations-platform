@@ -48,7 +48,7 @@ export async function invoicePdfData(loadId: string, workspaceId = currentWorksp
     const loads = targetIds.length > 0
       ? await prisma.load.findMany({
           where: { id: { in: targetIds } },
-          select: { id: true, loadNumber: true, poNumber: true, originAddress: true, destinationAddress: true, completedAt: true, stops: { orderBy: { stopSequence: "asc" }, select: { arrivedAt: true, stopRole: true, stopType: true, referenceNumbers: true } } }
+          select: { id: true, loadNumber: true, rateConNumber: true, proNumber: true, bolNumber: true, poNumber: true, originAddress: true, destinationAddress: true, completedAt: true, stops: { orderBy: { stopSequence: "asc" }, select: { arrivedAt: true, stopRole: true, stopType: true, referenceNumbers: true } } }
         })
       : [];
     const byId = new Map(loads.map((l) => [l.id, l]));
@@ -76,6 +76,9 @@ export async function invoicePdfData(loadId: string, workspaceId = currentWorksp
         const matched = supp.lines.filter((x) => x.loadId === id || (targetIds.length === 1 && !x.loadId));
         return {
           loadNumber: l?.loadNumber ?? null,
+          rateCon: l?.rateConNumber ?? null,
+          pro: l?.proNumber ?? null,
+          bol: l?.bolNumber ?? null,
           po: l?.poNumber ?? null,
           origin: l?.originAddress ?? null,
           destination: l?.destinationAddress ?? null,
@@ -104,7 +107,7 @@ export async function invoicePdfData(loadId: string, workspaceId = currentWorksp
   if (rec) {
     const loads = await prisma.load.findMany({
       where: { id: { in: rec.loads.map((l) => l.loadId) } },
-      select: { id: true, loadNumber: true, poNumber: true, originAddress: true, destinationAddress: true, completedAt: true, stops: { orderBy: { stopSequence: "asc" }, select: { arrivedAt: true, stopRole: true, stopType: true, referenceNumbers: true } } }
+      select: { id: true, loadNumber: true, rateConNumber: true, proNumber: true, bolNumber: true, poNumber: true, originAddress: true, destinationAddress: true, completedAt: true, stops: { orderBy: { stopSequence: "asc" }, select: { arrivedAt: true, stopRole: true, stopType: true, referenceNumbers: true } } }
     });
     const order: string[] = [];
     for (const l of rec.lines) if (l.loadId && !order.includes(l.loadId)) order.push(l.loadId);
@@ -133,6 +136,9 @@ export async function invoicePdfData(loadId: string, workspaceId = currentWorksp
         const pickup = l?.stops.find((s) => (s.stopRole ?? s.stopType) === "pickup");
         return {
           loadNumber: l?.loadNumber ?? null,
+          rateCon: l?.rateConNumber ?? null,
+          pro: l?.proNumber ?? null,
+          bol: l?.bolNumber ?? null,
           po: l?.poNumber ?? null,
           origin: l?.originAddress ?? null,
           destination: l?.destinationAddress ?? null,
@@ -165,7 +171,7 @@ export async function invoicePdfData(loadId: string, workspaceId = currentWorksp
     status: inv.status === "paid" ? "Paid" : "Open",
     issuer,
     billTo: { name: inv.billTo.name, mc: inv.billTo.mc, email: inv.billTo.email, phone: inv.billTo.phone },
-    loads: [{ loadNumber: inv.load.number, po: inv.load.po, origin: inv.load.origin, destination: inv.load.destination, pickedUp: null, delivered: day(inv.load.delivered), refs: inv.stops.flatMap((s) => s.refs).slice(0, 12), lines: inv.lines }],
+    loads: [{ loadNumber: inv.load.number, rateCon: inv.load.rateCon, pro: inv.load.pro, bol: inv.load.bol, po: inv.load.po, origin: inv.load.origin, destination: inv.load.destination, pickedUp: null, delivered: day(inv.load.delivered), refs: inv.stops.flatMap((s) => s.refs).slice(0, 12), lines: inv.lines }],
     invoiceLines: [],
     total: inv.total,
     received: inv.paidAmount ?? 0,

@@ -19,6 +19,7 @@ import { Icon } from "./kit/icons";
 import { DateInput } from "./date-input";
 import { activeTz, zoneAbbr } from "@/lib/tz";
 import { clockName } from "@/lib/tz";
+import { PACKING_GROUPS, REEFER_MODES } from "@/lib/load-edit";
 
 const SAMPLES = [
   { file: "RC-AFB-482913_dallas-to-houston_cargo-van.pdf", title: "Sample 1", lane: "Dallas, TX to Houston, TX", detail: "One pickup, one delivery · cargo van" },
@@ -473,6 +474,18 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
                     <input value={draft.load.loadNumber ?? ""} onChange={(e) => setLoad({ loadNumber: e.target.value })} autoComplete="off" />
                   </label>
                   <label className="tl-field">
+                    Rate con #
+                    <input value={draft.load.rateConNumber ?? ""} onChange={(e) => setLoad({ rateConNumber: e.target.value === "" ? null : e.target.value })} autoComplete="off" />
+                  </label>
+                  <label className="tl-field">
+                    PRO #
+                    <input value={draft.load.proNumber ?? ""} onChange={(e) => setLoad({ proNumber: e.target.value === "" ? null : e.target.value })} autoComplete="off" />
+                  </label>
+                  <label className="tl-field">
+                    BOL #
+                    <input value={draft.load.bolNumber ?? ""} onChange={(e) => setLoad({ bolNumber: e.target.value === "" ? null : e.target.value })} autoComplete="off" />
+                  </label>
+                  <label className="tl-field">
                     PO number
                     <input value={draft.load.poNumber ?? ""} onChange={(e) => setLoad({ poNumber: e.target.value })} autoComplete="off" />
                   </label>
@@ -519,7 +532,77 @@ export function RateConIntake({ liveReading }: { liveReading: boolean }) {
                     <input type="number" min="0" step="1" inputMode="numeric" value={draft.load.payTermsDays ?? ""} onChange={(e) => setLoad({ payTermsDays: e.target.value === "" ? null : Number(e.target.value) })} />
                     {draft.load.paymentTerms ? <span className="rc-hint">{`Printed as “${draft.load.paymentTerms}”.`}</span> : null}
                   </label>
+                  <label className="tl-field">
+                    Commodity
+                    <input
+                      value={draft.load.commodity ?? draft.printed.commodity ?? ""}
+                      onChange={(e) => {
+                        const val = e.target.value === "" ? null : e.target.value;
+                        setDraft((d) => (d ? { ...d, load: { ...d.load, commodity: val }, printed: { ...d.printed, commodity: val } } : d));
+                      }}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label className="tl-field">
+                    Pieces
+                    <input type="number" min="0" step="1" inputMode="numeric" value={draft.load.pieceCount ?? ""} onChange={(e) => setLoad({ pieceCount: e.target.value === "" ? null : Number(e.target.value) })} />
+                  </label>
+                  <label className="tl-field">
+                    Pallets
+                    <input type="number" min="0" step="1" inputMode="numeric" value={draft.load.palletCount ?? ""} onChange={(e) => setLoad({ palletCount: e.target.value === "" ? null : Number(e.target.value) })} />
+                  </label>
+                  <label className="tl-field">
+                    Reefer set temp (°F)
+                    <input type="number" step="0.1" inputMode="decimal" value={draft.load.reeferSetTempF ?? ""} onChange={(e) => setLoad({ reeferSetTempF: e.target.value === "" ? null : Number(e.target.value) })} />
+                  </label>
+                  <label className="tl-field">
+                    Reefer min (°F)
+                    <input type="number" step="0.1" inputMode="decimal" value={draft.load.reeferMinF ?? ""} onChange={(e) => setLoad({ reeferMinF: e.target.value === "" ? null : Number(e.target.value) })} />
+                  </label>
+                  <label className="tl-field">
+                    Reefer max (°F)
+                    <input type="number" step="0.1" inputMode="decimal" value={draft.load.reeferMaxF ?? ""} onChange={(e) => setLoad({ reeferMaxF: e.target.value === "" ? null : Number(e.target.value) })} />
+                  </label>
+                  <label className="tl-field">
+                    Reefer mode
+                    <select value={draft.load.reeferMode ?? ""} onChange={(e) => setLoad({ reeferMode: e.target.value === "" ? null : e.target.value })}>
+                      <option value="">Not set</option>
+                      {REEFER_MODES.map((m) => (
+                        <option key={m} value={m}>
+                          {m === "continuous" ? "Continuous" : "Cycle"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="tl-field">
+                    Hazmat class
+                    <input value={draft.load.hazmatClass ?? ""} onChange={(e) => setLoad({ hazmatClass: e.target.value === "" ? null : e.target.value })} autoComplete="off" />
+                  </label>
+                  <label className="tl-field">
+                    Hazmat UN #
+                    <input value={draft.load.hazmatUnNumber ?? ""} onChange={(e) => setLoad({ hazmatUnNumber: e.target.value === "" ? null : e.target.value })} autoComplete="off" />
+                  </label>
+                  <label className="tl-field">
+                    Hazmat packing group
+                    <select value={draft.load.hazmatPackingGroup ?? ""} onChange={(e) => setLoad({ hazmatPackingGroup: e.target.value === "" ? null : e.target.value })}>
+                      <option value="">Not set</option>
+                      {PACKING_GROUPS.map((g) => (
+                        <option key={g} value={g}>
+                          {g}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="tl-field">
+                    Hazmat emergency phone
+                    <input value={draft.load.hazmatEmergencyPhone ?? ""} inputMode="tel" onChange={(e) => setLoad({ hazmatEmergencyPhone: e.target.value === "" ? null : e.target.value })} autoComplete="off" />
+                  </label>
                 </div>
+                {draft.load.hazmatClass || draft.load.hazmatUnNumber ? (
+                  <p className="tl-note warn" style={{ marginTop: 8 }}>
+                    Check the driver&apos;s H endorsement (49 CFR 383.93)
+                  </p>
+                ) : null}
               </section>
 
               <section className="tl-card">

@@ -25,7 +25,8 @@ export const isFeeShortCode = (v: unknown): boolean => isShortCode(v) && FEE_SHO
 
 /** The labels the invoice dialog has always written, read back as kinds. Anything else typed by a person is "other". */
 export function lineKindOf(label: string): LineKind {
-  switch (label.trim().toLowerCase()) {
+  const norm = label.trim().toLowerCase();
+  switch (norm) {
     case "line haul":
     case "linehaul":
     case "rate correction":
@@ -44,8 +45,17 @@ export function lineKindOf(label: string): LineKind {
     case "stop off":
     case "stop-off":
     case "stop charge":
+    case "stop-off / reconsignment":
+    case "reconsignment":
+    case "stop added":
+    case "stop dropped":
+    case "stop change":
+    case "appointment change":
       return "stop_off";
     default:
+      if (/^(stop-off|stop off|stop charge|reconsignment|stop added|stop dropped|stop change|appointment change)\b/.test(norm)) {
+        return "stop_off";
+      }
       return "other";
   }
 }

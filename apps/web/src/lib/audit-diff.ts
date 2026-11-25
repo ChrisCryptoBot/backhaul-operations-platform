@@ -189,7 +189,10 @@ export type AuditAction =
   | "check_call_removed"
   | "trailer_unhooked"
   | "trailer_assigned"
-  | "cost_profile_changed";
+  | "cost_profile_changed"
+  | "claim_opened"
+  | "claim_updated"
+  | "claim_removed";
 
 export const ACTION_LABEL: Record<string, string> = {
   assigned: "Driver assigned",
@@ -217,6 +220,9 @@ export const ACTION_LABEL: Record<string, string> = {
   document_added: "Document kept",
   document_removed: "Document removed",
   document_shared: "Document shared",
+  claim_opened: "OS&D claim opened",
+  claim_updated: "OS&D claim updated",
+  claim_removed: "OS&D claim removed",
   receipt_decided: "Receipt decided",
   member_added: "Person added to the desk",
   member_scope_changed: "What a person can see changed",

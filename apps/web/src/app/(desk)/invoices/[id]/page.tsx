@@ -22,7 +22,7 @@ import { can, whoCan } from "@/lib/roles";
 import { factoringLabel, getFactoringView } from "@/server/partners/factoring";
 import { checkAccess } from "@/server/tl/access";
 import { unbilledDetentionOfLoad } from "@/server/tl/detention";
-import { getInvoice } from "@/server/tl/invoicing";
+import { getInvoice, unbilledExtrasOfLoad } from "@/server/tl/invoicing";
 import { currentTerminal } from "@/server/tl/terminal";
 
 export const dynamic = "force-dynamic";
@@ -38,7 +38,7 @@ export async function generateMetadata({ params }: { params: { id: string } }) {
  * it came from and each stop, so the broker's accounts team has what it needs to pay it. Nothing is sent from here: when it is past due, the
  * reminder is written and ready to copy into the dispatcher's own email.
  */
-export default async function InvoicePage({ params }: { params: { id: string } }) {
+export default async function InvoicePage({ params, searchParams }: { params: { id: string }; searchParams?: { writeoff?: string } }) {
   const terminal = await currentTerminal();
   const [inv, factoring, access] = await Promise.all([
     getInvoice(params.id, undefined, terminal),
@@ -52,7 +52,12 @@ export default async function InvoicePage({ params }: { params: { id: string } }
   const canAdmin = !!me && can(me.role, me.grants, "admin");
   const isSupplemental = !!inv.supplementOf;
   const loadTargetId = inv.supplementOf?.loadId ?? inv.loads[0]?.id ?? null;
-  const parentUnbilledDetention = !isSupplemental && canBill && inv.recordId && inv.loads.length === 1 ? await unbilledDetentionOfLoad(inv.loads[0]!.id) : 0;
+  const parentLoadId = !isSupplemental && inv.loads.length === 1 ? inv.loads[0]!.id : null;
+  const [parentUnbilledDetention, parentUnbilledExtras] =
+    canBill && inv.recordId && parentLoadId
+      ? await Promise.all([unbilledDetentionOfLoad(parentLoadId), unbilledExtrasOfLoad(parentLoadId)])
+      : [0, []];
+  const openDamageWriteOff = searchParams?.writeoff === "damage_claim" && canWriteOff;
   const now = new Date();
   const lastPayment = inv.payments[inv.payments.length - 1] ?? null;
   const loadWord = inv.loads.length > 1 ? `${inv.loads.length} loads` : "the load";
@@ -101,12 +106,18 @@ export default async function InvoicePage({ params }: { params: { id: string } }
         <a href={`/invoices/${isSupplemental ? inv.recordId : inv.id}/pdf`} className="tl-btn" target="_blank" rel="noopener">
           PDF
         </a>
+        {canBill && loadTargetId && inv.status !== "void" ? (
+          <a href={`/invoices/${loadTargetId}/packet${isSupplemental && inv.recordId ? `?invoiceId=${inv.recordId}` : ""}`} className="tl-btn" target="_blank" rel="noopener">
+            Download packet
+          </a>
+        ) : null}
         {canBill && !isSupplemental && inv.recordId ? (
           <SupplementalDialog
             invoiceId={inv.recordId}
             invoiceNumber={inv.invoiceNumber}
             loadId={inv.loads[0]?.id ?? inv.id}
             unbilledDetention={parentUnbilledDetention}
+            unbilledExtras={parentUnbilledExtras.map((e) => ({ kind: e.kind === "stop_off" ? ("stop_off" as const) : ("other" as const), label: e.label, amount: e.amount }))}
             factored={!!factoring && factoring.status !== "none" && factoring.status !== "rejected"}
             size="sm"
           />
@@ -119,6 +130,8 @@ export default async function InvoicePage({ params }: { params: { id: string } }
             billed={inv.total}
             owing={inv.balance}
             canWriteOff={canWriteOff}
+            defaultShortCode={openDamageWriteOff ? "damage_claim" : undefined}
+            defaultOpen={openDamageWriteOff}
             size="sm"
           />
         ) : null}
@@ -215,6 +228,16 @@ export default async function InvoicePage({ params }: { params: { id: string } }
               <th>Delivered</th>
               <td>{inv.loads.length > 1 ? (inv.loads.map((x) => (x.delivered ? shortDate(x.delivered) : "—")).join(", ")) : inv.load.delivered ? dayYear(inv.load.delivered) : "—"}</td>
             </tr>
+            {inv.loads.some((x) => x.rateCon || x.pro || x.bol) || inv.load.rateCon || inv.load.pro || inv.load.bol ? (
+              <tr>
+                <th>Rate con #</th>
+                <td>{inv.loads.length > 1 ? inv.loads.map((x) => x.rateCon).filter(Boolean).join(", ") || "—" : (inv.load.rateCon ?? "—")}</td>
+                <th>PRO #</th>
+                <td>{inv.loads.length > 1 ? inv.loads.map((x) => x.pro).filter(Boolean).join(", ") || "—" : (inv.load.pro ?? "—")}</td>
+                <th>BOL #</th>
+                <td>{inv.loads.length > 1 ? inv.loads.map((x) => x.bol).filter(Boolean).join(", ") || "—" : (inv.load.bol ?? "—")}</td>
+              </tr>
+            ) : null}
           </tbody>
         </table>
 

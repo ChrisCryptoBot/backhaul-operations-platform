@@ -22,7 +22,26 @@ export async function searchDesk(raw: string, workspaceId = currentWorkspaceId()
 
   const [loads, drivers, brokers, lanes] = await Promise.all([
     prisma.load.findMany({
-      where: { workspaceId, deletedAt: null, ...notQuote, AND: [here, { OR: [has("loadNumber"), has("poNumber"), has("brokerName"), has("originAddress"), has("destinationAddress")] }] },
+      where: {
+        workspaceId,
+        deletedAt: null,
+        ...notQuote,
+        AND: [
+          here,
+          {
+            OR: [
+              has("loadNumber"),
+              has("rateConNumber"),
+              has("proNumber"),
+              has("poNumber"),
+              has("bolNumber"),
+              has("brokerName"),
+              has("originAddress"),
+              has("destinationAddress")
+            ]
+          }
+        ]
+      },
       orderBy: [{ scheduledDate: "desc" }, { createdAt: "desc" }],
       take: 6
     }),

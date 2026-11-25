@@ -97,7 +97,7 @@ export function LoadTracker({ t, quietHead = false }: { t: LoadTracking; /** The
       {t.geofences.map((g) => (
         <p key={g.stop} className="lt-geo">{`✔ ${g.text}`}</p>
       ))}
-      <p className="lt-sub">{t.roadState === "on" ? ROAD_ROUTE_NOTE : t.roadState === "none" ? NO_ROAD_NOTE : `${OFF_ROAD_NOTE} ${ROAD_ROUTE_NOTE}`}</p>
+      <p className="lt-sub">{t.roadState === "on" ? ROAD_ROUTE_NOTE : t.roadState === "none" ? `${NO_ROAD_NOTE} ${ROAD_ROUTE_NOTE}` : `${OFF_ROAD_NOTE} ${ROAD_ROUTE_NOTE}`}</p>
       <p className="lt-sub">Last fix {agoText(t.asOf, Date.now())}. Shown from the ELD; it does not record an arrival on the stop.</p>
     </div>
   );

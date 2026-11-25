@@ -2,7 +2,7 @@ import type { Terminals } from "@/lib/scope";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { billedOf } from "@/lib/billed";
-import { termsLabel, canInvoiceStatus, defaultInvoiceNumber, invoiceBasis, invoiceReadiness, revisedInvoiceNumber, validateInvoice, validateSupplementalLines, type InvoiceForm, type SupplementalLineInput } from "@/lib/invoicing";
+import { termsLabel, canInvoiceStatus, defaultInvoiceNumber, invoiceBasis, invoiceReadiness, parseBilledExtras, revisedInvoiceNumber, unbilledExtrasOf, validateInvoice, validateSupplementalLines, type BilledExtra, type InvoiceForm, type SupplementalLineInput } from "@/lib/invoicing";
 import { isPaidMethod, paidMethodLabel } from "@/lib/pay-method";
 import { parseCentralLocal, toCentralLocal } from "@/lib/zoned";
 import { customerTermsMap } from "./customers";
@@ -95,8 +95,16 @@ export async function invoiceLoad(loadId: string, opts: { includeDetention?: boo
   const thresholds = await getThresholds(workspaceId);
   // A TONU hauled nothing, so there is no detention to bill on it.
   const billable = basis.tonu ? 0 : detentionOfLoad(load, thresholds.detentionGraceMinutes).billable;
+  const billedExtras = basis.tonu ? [] : parseBilledExtras(load.billedExtras);
   const form: InvoiceForm = opts.form ?? { number: await suggestedInvoiceNumber(load, workspaceId), terms: "", detention: !!opts.includeDetention, lumper: "", layover: "", otherLabel: "", other: "" };
-  const check = validateInvoice(form, { rate: basis.rate, surcharge: basis.surcharge, detention: billable, rateLabel: basis.label, defaultTerms: load.payTermsDays ?? (await customerTermsMap(load.workspaceId)).get((load.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays });
+  const check = validateInvoice(form, {
+    rate: basis.rate,
+    surcharge: basis.surcharge,
+    detention: billable,
+    rateLabel: basis.label,
+    defaultTerms: load.payTermsDays ?? (await customerTermsMap(load.workspaceId)).get((load.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays,
+    billedExtras: billedExtras.map((e) => ({ label: e.label, amount: e.amount }))
+  });
   if (!check.ok) return { ok: false, detention: 0, errors: check.errors };
   const { number, terms, lines, total } = check.value;
   const detention = lines.find((l) => l.label === "Detention")?.amount ?? 0;
@@ -566,7 +574,7 @@ export async function getInvoice(loadId: string, workspaceId = currentWorkspaceI
     due: dueAt(l.invoicedAt, terms) ?? l.invoicedAt,
     terms,
     billTo: { name: l.brokerName, mc: l.brokerMcNumber, email: l.brokerEmail, phone: l.brokerPhone },
-    load: { number: l.loadNumber, po: l.poNumber, origin: l.originAddress, destination: l.destinationAddress, miles: num(l.loadedMiles), delivered: l.completedAt, podNote: l.podNote, closedWithoutPod: l.closedWithoutPod },
+    load: { number: l.loadNumber, rateCon: l.rateConNumber, pro: l.proNumber, bol: l.bolNumber, po: l.poNumber, origin: l.originAddress, destination: l.destinationAddress, miles: num(l.loadedMiles), delivered: l.completedAt, podNote: l.podNote, closedWithoutPod: l.closedWithoutPod },
     stops: l.stops.map((s) => ({ sequence: s.stopSequence, role: s.stopRole ?? s.stopType, name: s.facilityName, address: s.addressString, arrived: s.arrivedAt, refs: Array.isArray(s.referenceNumbers) ? (s.referenceNumbers as unknown[]).map(String) : [] })),
     // An invoice sent before lines were kept shows its total as one line.
     lines: lines ?? [{ label: "Line haul and fuel surcharge", amount: total }],
@@ -589,14 +597,14 @@ export async function getInvoice(loadId: string, workspaceId = currentWorkspaceI
     credits: [] as CreditView[],
     supplementOf: null as { id: string; number: string; loadId: string | null } | null,
     supplementals: [] as SupplementalSummary[],
-    loads: [{ id: l.id, number: l.loadNumber, po: l.poNumber, origin: l.originAddress, destination: l.destinationAddress, miles: num(l.loadedMiles), delivered: l.completedAt, stops: l.stops.map((s) => ({ sequence: s.stopSequence, role: s.stopRole ?? s.stopType, name: s.facilityName, address: s.addressString, arrived: s.arrivedAt, refs: Array.isArray(s.referenceNumbers) ? (s.referenceNumbers as unknown[]).map(String) : [] })) }] as InvoiceLoadView[]
+    loads: [{ id: l.id, number: l.loadNumber, rateCon: l.rateConNumber, pro: l.proNumber, bol: l.bolNumber, po: l.poNumber, origin: l.originAddress, destination: l.destinationAddress, miles: num(l.loadedMiles), delivered: l.completedAt, stops: l.stops.map((s) => ({ sequence: s.stopSequence, role: s.stopRole ?? s.stopType, name: s.facilityName, address: s.addressString, arrived: s.arrivedAt, refs: Array.isArray(s.referenceNumbers) ? (s.referenceNumbers as unknown[]).map(String) : [] })) }] as InvoiceLoadView[]
   };
   if (!recordView) return fromLoad;
   return { ...fromLoad, ...recordView.over, loads: recordView.loads.length > 0 ? recordView.loads : fromLoad.loads };
 }
 
 export type CreditView = { id: string; number: string; amount: number; label: string; reason: string | null; issuedAt: Date; status: "paid" | "void"; voidReason: string | null };
-export type InvoiceLoadView = { id: string; number: string | null; po: string | null; origin: string | null; destination: string | null; miles: number; delivered: Date | null; stops: Array<{ sequence: number; role: string; name: string | null; address: string; arrived: Date | null; refs: string[] }> };
+export type InvoiceLoadView = { id: string; number: string | null; rateCon: string | null; pro: string | null; bol: string | null; po: string | null; origin: string | null; destination: string | null; miles: number; delivered: Date | null; stops: Array<{ sequence: number; role: string; name: string | null; address: string; arrived: Date | null; refs: string[] }> };
 export type SupplementalLineSummary = { id: string; kind: string; label: string; amount: number; loadId: string | null };
 export type SupplementalSummary = {
   id: string;
@@ -672,6 +680,9 @@ async function getSupplementalInvoiceView(invoiceId: string, workspaceId: string
     .map((x) => ({
       id: x.id,
       number: x.loadNumber,
+      rateCon: x.rateConNumber,
+      pro: x.proNumber,
+      bol: x.bolNumber,
       po: x.poNumber,
       origin: x.originAddress,
       destination: x.destinationAddress,
@@ -695,6 +706,9 @@ async function getSupplementalInvoiceView(invoiceId: string, workspaceId: string
     billTo: { name: supp.billToName, mc: supp.billToMc, email: supp.billToEmail, phone: supp.billToPhone },
     load: {
       number: first?.loadNumber ?? null,
+      rateCon: first?.rateConNumber ?? null,
+      pro: first?.proNumber ?? null,
+      bol: first?.bolNumber ?? null,
       po: first?.poNumber ?? null,
       origin: first?.originAddress ?? null,
       destination: first?.destinationAddress ?? null,
@@ -757,6 +771,9 @@ async function recordViewOf(
     .map((x) => ({
       id: x.id,
       number: x.loadNumber,
+      rateCon: x.rateConNumber,
+      pro: x.proNumber,
+      bol: x.bolNumber,
       po: x.poNumber,
       origin: x.originAddress,
       destination: x.destinationAddress,
@@ -852,6 +869,11 @@ export async function invoiceLoads(loadIds: string[], form: { number?: string; t
     const basis = invoiceBasis({ status: l.status, quotedRevenue: num(l.quotedRevenue), fuelSurcharge: num(l.fuelSurcharge), tonuRevenue: numOrNull(l.tonuRevenue) });
     const out = [{ loadId: l.id, label: basis.label, amount: dec(basis.rate).toNumber() }];
     if (basis.surcharge > 0) out.push({ loadId: l.id, label: "Fuel surcharge", amount: dec(basis.surcharge).toNumber() });
+    if (!basis.tonu) {
+      for (const e of parseBilledExtras(l.billedExtras)) {
+        out.push({ loadId: l.id, label: e.label, amount: dec(e.amount).toNumber() });
+      }
+    }
     return out;
   };
   const perLoad = loads.map((l) => ({ load: l, lines: linesOf(l) }));
@@ -1365,3 +1387,39 @@ export async function openSupplementalBalanceByLoad(loadIds: string[], workspace
 
 /** Sum of detention charges billed on non-void supplemental invoices, grouped by load id. */
 export { supplementalDetentionByLoad };
+
+/** Reconsignment / stop-change extra charges saved on `load.billedExtras` that have not yet been billed on the primary invoice or any non-void supplemental invoice. */
+export async function unbilledExtrasOfLoad(loadId: string, workspaceId = currentWorkspaceId()): Promise<BilledExtra[]> {
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null }, select: { billedExtras: true, invoiceLines: true } });
+  if (!load) return [];
+  const extras = parseBilledExtras(load.billedExtras);
+  if (extras.length === 0) return [];
+  const [primaries, supps] = await Promise.all([
+    prisma.invoice.findMany({
+      where: { workspaceId, kind: "invoice", supplementOfId: null, status: { not: "void" }, loads: { some: { loadId } } },
+      select: { lines: { where: { OR: [{ loadId }, { loadId: null }] }, select: { label: true, amount: true } } }
+    }),
+    supplementalsByLoad([loadId], workspaceId)
+  ]);
+  const billed: Array<{ label: string; amount: number }> = [];
+  if (primaries.length > 0) {
+    for (const inv of primaries) {
+      for (const l of inv.lines) billed.push({ label: l.label, amount: l.amount.toNumber() });
+    }
+  } else if (Array.isArray(load.invoiceLines)) {
+    for (const item of load.invoiceLines) {
+      if (item && typeof item === "object" && !Array.isArray(item)) {
+        const rec = item as { label?: unknown; amount?: unknown };
+        const amt = numOrNull(rec.amount as never);
+        if (typeof rec.label === "string" && amt != null) billed.push({ label: rec.label, amount: amt });
+      }
+    }
+  }
+  for (const s of supps.get(loadId) ?? []) {
+    if (s.status === "void") continue;
+    for (const l of s.lines) {
+      if (!l.loadId || l.loadId === loadId) billed.push({ label: l.label, amount: l.amount });
+    }
+  }
+  return unbilledExtrasOf(extras, billed);
+}

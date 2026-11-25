@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { RateConLoadDraft } from "./map";
 import { currentWorkspace } from "@/server/tl/workspace";
+import { resolveOrCreateCustomer } from "@/server/tl/customers";
 import { recordAudit } from "@/server/tl/audit";
 import { findTwinLoad } from "@/server/tl/twins";
 import { freezeLoadSnapshot } from "@/server/tl/snapshot";
@@ -53,9 +54,10 @@ export async function saveReviewedDraft(d: ReviewedDraft) {
   // The truck comes from the browser: it must be one of this desk's own, in service. Otherwise another desk's truck (and its cost profile) would be copied onto this load.
   if (d.vehicleId && !(await prisma.vehicle.findFirst({ where: { id: d.vehicleId, workspaceId: ws.id, archivedAt: null }, select: { id: true } }))) throw new Error("That truck is not available.");
   const number = d.load.loadNumber?.trim();
-  if (number && !d.allowDuplicate) {
-    const twin = await findTwinLoad(ws.id, number, d.load.brokerName);
-    if (twin) throw new DuplicateLoadError(`Load ${number}${twin.brokerName ? ` from ${twin.brokerName}` : ""} is already on the desk. Open it, or save this one anyway.`, twin.id);
+  const rcNumber = (d.load.rateConNumber ?? d.load.loadNumber)?.trim() || null;
+  if ((number || rcNumber) && !d.allowDuplicate) {
+    const twin = await findTwinLoad(ws.id, number, d.load.brokerName, undefined, prisma, undefined, rcNumber);
+    if (twin) throw new DuplicateLoadError(`Load ${number ?? rcNumber}${twin.brokerName ? ` from ${twin.brokerName}` : ""} is already on the desk. Open it, or save this one anyway.`, twin.id);
   }
   const weight = d.printed.weightLbs != null && d.printed.weightLbs > 0 ? new Prisma.Decimal(d.printed.weightLbs).toDecimalPlaces(0).toNumber() : null;
   // What the document says about the dock and anything else, kept where the dispatcher will see it (the load's notes).
@@ -63,21 +65,43 @@ export async function saveReviewedDraft(d: ReviewedDraft) {
   const saved = await prisma.$transaction(async (tx) => {
     // Two saves of one document at once (a double click, two tabs) both passed the check above; with the desk locked, the second one sees the first one's load.
     await lockWorkspace(tx, ws.id);
-    if (number && !d.allowDuplicate) {
-      const twin = await findTwinLoad(ws.id, number, d.load.brokerName);
-      if (twin) throw new DuplicateLoadError(`Load ${number}${twin.brokerName ? ` from ${twin.brokerName}` : ""} is already on the desk. Open it, or save this one anyway.`, twin.id);
+    const cust = await resolveOrCreateCustomer(tx, ws.id, {
+      name: d.load.brokerName,
+      mcNumber: d.load.brokerMcNumber,
+      payTermsDays: d.load.payTermsDays
+    });
+    if ((number || rcNumber) && !d.allowDuplicate) {
+      const twin = await findTwinLoad(ws.id, number, d.load.brokerName, undefined, tx, cust?.id ?? null, rcNumber);
+      if (twin) throw new DuplicateLoadError(`Load ${number ?? rcNumber}${twin.brokerName ? ` from ${twin.brokerName}` : ""} is already on the desk. Open it, or save this one anyway.`, twin.id);
     }
+    const whole = (v: number | null | undefined) => (v != null && v > 0 ? new Prisma.Decimal(v).toDecimalPlaces(0).toNumber() : null);
+    const temp = (v: number | null | undefined) => (v != null && Number.isFinite(v) ? new Prisma.Decimal(v).toDecimalPlaces(1) : null);
     const load = await tx.load.create({
     data: {
       workspaceId: ws.id,
+      customerId: cust?.id ?? null,
       vehicleId: d.vehicleId ?? null,
       channel: d.load.channel,
       status: "draft",
-      brokerName: d.load.brokerName,
+      brokerName: cust?.name ?? d.load.brokerName,
       // Digits only, as everywhere else: a reviewer who typed "MC 1515" must not leave the load reading "MC MC 1515".
       brokerMcNumber: normalizeMcNumber(d.load.brokerMcNumber),
       loadNumber: d.load.loadNumber,
+      rateConNumber: rcNumber,
+      proNumber: d.load.proNumber?.trim() || null,
       poNumber: d.load.poNumber,
+      bolNumber: d.load.bolNumber?.trim() || null,
+      commodity: (d.load.commodity ?? d.printed.commodity)?.trim() || null,
+      pieceCount: whole(d.load.pieceCount),
+      palletCount: whole(d.load.palletCount),
+      reeferSetTempF: temp(d.load.reeferSetTempF),
+      reeferMinF: temp(d.load.reeferMinF),
+      reeferMaxF: temp(d.load.reeferMaxF),
+      reeferMode: d.load.reeferMode?.trim() || null,
+      hazmatClass: d.load.hazmatClass?.trim() || null,
+      hazmatUnNumber: d.load.hazmatUnNumber?.trim() || null,
+      hazmatPackingGroup: d.load.hazmatPackingGroup?.trim() || null,
+      hazmatEmergencyPhone: d.load.hazmatEmergencyPhone?.trim() || null,
       originAddress: d.load.originAddress,
       destinationAddress: d.load.destinationAddress,
       trailerType: d.load.trailerType,

@@ -22,7 +22,30 @@ export type EditStopValues = {
   contactName: string;
   contactPhone: string;
   notes: string;
+  /** True once a driver has arrived at this stop; locks address, time, role, and sequence order. */
+  visited?: boolean;
 };
+
+export const STOP_CHANGE_REASONS = [
+  { key: "reconsignment", label: "Reconsignment" },
+  { key: "appointment_change", label: "Appointment change" },
+  { key: "stop_added", label: "Stop added" },
+  { key: "stop_dropped", label: "Stop dropped" }
+] as const;
+export type StopChangeReason = (typeof STOP_CHANGE_REASONS)[number]["key"];
+export const isStopChangeReason = (v: unknown): v is StopChangeReason =>
+  typeof v === "string" && STOP_CHANGE_REASONS.some((r) => r.key === v);
+export const STOP_CHANGE_FEE_LABEL: Record<StopChangeReason, string> = {
+  reconsignment: "Reconsignment",
+  appointment_change: "Appointment change",
+  stop_added: "Stop added",
+  stop_dropped: "Stop dropped"
+};
+
+export const REEFER_MODES = ["continuous", "cycle"] as const;
+export type ReeferMode = (typeof REEFER_MODES)[number];
+export const PACKING_GROUPS = ["I", "II", "III"] as const;
+export type PackingGroup = (typeof PACKING_GROUPS)[number];
 
 /** The money and the truck: what the load pays, how far it runs, and which truck has it. Optional so a caller that only fixes details can leave it out. */
 export type DealValues = {
@@ -43,19 +66,34 @@ export type LoadEditValues = {
   brokerPhone: string;
   brokerEmail: string;
   loadNumber: string;
+  rateConNumber?: string;
+  proNumber?: string;
   poNumber: string;
+  bolNumber?: string;
   trailer: string;
+  commodity?: string;
+  pieceCount?: string;
+  palletCount?: string;
   weightLbs: string;
   lengthFt: string;
   widthFt: string;
   heightIn: string;
+  reeferSetTempF?: string;
+  reeferMinF?: string;
+  reeferMaxF?: string;
+  reeferMode?: string;
   hazmat: string;
+  hazmatUnNumber?: string;
+  hazmatPackingGroup?: string;
+  hazmatEmergencyPhone?: string;
   liftgate: boolean;
   ramp: boolean;
   palletJack: boolean;
   payTermsDays: string;
   notes: string;
   stops: EditStopValues[];
+  stopChangeReason?: string;
+  stopChangeFee?: string;
   deal?: DealValues;
   /** When the load was last changed, as it was when the form opened: a save made on an older version is refused, so a stale form cannot overwrite what someone else changed. */
   version?: string;
@@ -69,19 +107,34 @@ export type LoadEditInput = {
   brokerPhone: string | null;
   brokerEmail: string | null;
   loadNumber: string | null;
+  rateConNumber: string | null;
+  proNumber: string | null;
   poNumber: string | null;
+  bolNumber: string | null;
   trailer: string | null;
+  commodity: string | null;
+  pieceCount: number | null;
+  palletCount: number | null;
   weightLbs: number | null;
   lengthFt: number | null;
   widthFt: number | null;
   heightIn: number | null;
+  reeferSetTempF: number | null;
+  reeferMinF: number | null;
+  reeferMaxF: number | null;
+  reeferMode: ReeferMode | null;
   hazmat: string | null;
+  hazmatUnNumber: string | null;
+  hazmatPackingGroup: PackingGroup | null;
+  hazmatEmergencyPhone: string | null;
   liftgate: boolean;
   ramp: boolean;
   palletJack: boolean;
   payTermsDays: number | null;
   notes: string | null;
-  stops: Array<{ id: string; address: string; facility: string | null; earliest: Date | null; latest: Date | null; refs: string[]; contactName: string | null; contactPhone: string | null; notes: string | null }>;
+  stopChangeReason: StopChangeReason | null;
+  stopChangeFee: number | null;
+  stops: Array<{ id: string; role: "pickup" | "delivery"; address: string; facility: string | null; earliest: Date | null; latest: Date | null; refs: string[]; contactName: string | null; contactPhone: string | null; notes: string | null }>;
   deal: DealInput | null;
 };
 
@@ -122,18 +175,49 @@ export function validateLoadEdit(v: LoadEditValues, fallbackZone?: string): Load
   if (t(v.brokerPhone) && !phoneOk(t(v.brokerPhone))) errors.brokerPhone = "A phone number, for example 555-0142.";
   if (t(v.brokerEmail) && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t(v.brokerEmail))) errors.brokerEmail = "An email address, for example name@example.com.";
   len("loadNumber", v.loadNumber, "The load number", 40);
+  len("rateConNumber", v.rateConNumber ?? "", "The rate con number", 40);
+  len("proNumber", v.proNumber ?? "", "The PRO number", 40);
   len("poNumber", v.poNumber, "The PO number", 40);
+  len("bolNumber", v.bolNumber ?? "", "The BOL number", 60);
+  len("commodity", v.commodity ?? "", "Commodity", 120);
   const trailer = t(v.trailer);
   // A listed trailer, equipment typed as "other:<text>" or the retired "hopper" a saved load can still carry (what the rate-confirmation reader produces) are all fine to save back.
   if (trailer !== "" && !TRAILER_TYPES.some((x) => x.value === trailer) && !isOtherTrailer(trailer) && trailer !== "hopper") errors.trailer = "Pick a trailer from the list.";
   if (isOtherTrailer(trailer) && trailer.length > OTHER_TRAILER_PREFIX.length + OTHER_TRAILER_MAX) errors.trailer = "That equipment name is too long.";
+  const pieceCount = num("pieceCount", v.pieceCount ?? "", "Pieces", 1, 100_000, true);
+  const palletCount = num("palletCount", v.palletCount ?? "", "Pallets", 1, 10_000, true);
   const weightLbs = num("weightLbs", v.weightLbs, "Weight", 1, LOAD_LIMITS.weightLbs, true);
   const lengthFt = num("lengthFt", v.lengthFt, "Length", 1, LOAD_LIMITS.lengthFt);
   const widthFt = num("widthFt", v.widthFt, "Width", 1, LOAD_LIMITS.widthFt);
   const heightIn = num("heightIn", v.heightIn, "Height", 1, LOAD_LIMITS.heightIn);
+  const reeferSetTempF = num("reeferSetTempF", v.reeferSetTempF ?? "", "Set temperature", -60, 150);
+  const reeferMinF = num("reeferMinF", v.reeferMinF ?? "", "Minimum temperature", -60, 150);
+  const reeferMaxF = num("reeferMaxF", v.reeferMaxF ?? "", "Maximum temperature", -60, 150);
+  if (reeferMinF != null && reeferMaxF != null && reeferMinF > reeferMaxF && !errors.reeferMaxF) {
+    errors.reeferMaxF = "Maximum temperature cannot be below minimum temperature.";
+  }
+  const reeferModeRaw = t(v.reeferMode ?? "").toLowerCase();
+  if (reeferModeRaw !== "" && !(REEFER_MODES as readonly string[]).includes(reeferModeRaw)) errors.reeferMode = "Pick continuous or cycle.";
   len("hazmat", v.hazmat, "The hazmat class", 20);
+  len("hazmatUnNumber", v.hazmatUnNumber ?? "", "UN number", 20);
+  const pgRaw = t(v.hazmatPackingGroup ?? "").toUpperCase();
+  if (pgRaw !== "" && !(PACKING_GROUPS as readonly string[]).includes(pgRaw)) errors.hazmatPackingGroup = "Pick I, II, or III.";
+  const hazmatPhone = t(v.hazmatEmergencyPhone ?? "");
+  if (hazmatPhone !== "" && !phoneOk(hazmatPhone)) errors.hazmatEmergencyPhone = "A phone number, for example 800-424-9300.";
   const payTermsDays = num("payTermsDays", v.payTermsDays, "Pay terms", 0, 120, true);
   len("notes", v.notes, "Notes", 1000);
+  const stopReasonRaw = t(v.stopChangeReason ?? "");
+  if (stopReasonRaw !== "" && !isStopChangeReason(stopReasonRaw)) errors.stopChangeReason = "Pick a stop change reason.";
+  const stopFeeRaw = t(v.stopChangeFee ?? "").replace(/,/g, "");
+  let stopChangeFee: number | null = null;
+  if (stopFeeRaw !== "") {
+    const fee = Number(stopFeeRaw);
+    if (!/^\d+(\.\d{1,2})?$/.test(stopFeeRaw) || !Number.isFinite(fee) || fee < 0 || fee > 100_000) {
+      errors.stopChangeFee = "Extra fee: dollars and cents from 0 to 100,000.";
+    } else if (fee > 0) {
+      stopChangeFee = fee;
+    }
+  }
 
   let deal: DealInput | null = null;
   if (v.deal) {
@@ -173,6 +257,7 @@ export function validateLoadEdit(v: LoadEditValues, fallbackZone?: string): Load
     if (earliest != null && (maxPrevEarliest == null || earliest > maxPrevEarliest)) maxPrevEarliest = earliest;
     return {
       id: s.id,
+      role: (s.role === "pickup" ? "pickup" : "delivery") as "pickup" | "delivery",
       address: t(s.address),
       facility: orNull(t(s.facility)),
       earliest: earliest == null ? null : new Date(earliest),
@@ -192,22 +277,160 @@ export function validateLoadEdit(v: LoadEditValues, fallbackZone?: string): Load
       brokerPhone: orNull(t(v.brokerPhone)),
       brokerEmail: orNull(t(v.brokerEmail)),
       loadNumber: orNull(t(v.loadNumber)),
+      rateConNumber: orNull(t(v.rateConNumber ?? "")),
+      proNumber: orNull(t(v.proNumber ?? "")),
       poNumber: orNull(t(v.poNumber)),
+      bolNumber: orNull(t(v.bolNumber ?? "")),
       trailer: orNull(trailer),
+      commodity: orNull(t(v.commodity ?? "")),
+      pieceCount,
+      palletCount,
       weightLbs,
       lengthFt,
       widthFt,
       heightIn,
+      reeferSetTempF,
+      reeferMinF,
+      reeferMaxF,
+      reeferMode: (reeferModeRaw === "" ? null : reeferModeRaw) as ReeferMode | null,
       hazmat: orNull(t(v.hazmat)),
+      hazmatUnNumber: orNull(t(v.hazmatUnNumber ?? "")),
+      hazmatPackingGroup: (pgRaw === "" ? null : pgRaw) as PackingGroup | null,
+      hazmatEmergencyPhone: orNull(hazmatPhone),
       liftgate: v.liftgate === true,
       ramp: v.ramp === true,
       palletJack: v.palletJack === true,
       payTermsDays,
       notes: orNull(t(v.notes)),
+      stopChangeReason: stopReasonRaw === "" ? null : (stopReasonRaw as StopChangeReason),
+      stopChangeFee,
       stops,
       deal
     }
   };
+}
+
+export type ExistingStopPlan = {
+  id: string;
+  stopSequence: number;
+  role: "pickup" | "delivery";
+  address: string;
+  earliest: Date | null;
+  latest: Date | null;
+  visited: boolean;
+};
+
+export type IncomingStopPlan = {
+  id: string;
+  role: "pickup" | "delivery";
+  address: string;
+  earliest: Date | null;
+  latest: Date | null;
+};
+
+export type PlannedStop = IncomingStopPlan & {
+  stopSequence: number;
+  isNew: boolean;
+  visited: boolean;
+};
+
+export type StopPlanResult =
+  | {
+      ok: true;
+      planned: PlannedStop[];
+      removedIds: string[];
+      scheduleChanged: boolean;
+      routeChanged: boolean;
+      structureChanged: boolean;
+    }
+  | { ok: false; error: string };
+
+const stopMinute = (d: Date | null) => (d ? Math.floor(d.getTime() / 60_000) : null);
+const sameWindow = (a: Date | null, b: Date | null) => stopMinute(a) === stopMinute(b);
+const isNewStopId = (id: string) => id === "" || id.startsWith("new:");
+
+/**
+ * Plan edits/additions/removals/reordering on a load's stops. Visited stops (`visited === true`, up to and including the last visited stop)
+ * are strictly locked in order, place, time, and `stopSequence` so driver arrivals, waits, seals, PODs, and mobile `mergeStops` sequences
+ * never shift or break. Unvisited stops after the last visited stop receive sequential numbers starting right after it.
+ */
+export function planStopChanges(existing: readonly ExistingStopPlan[], incoming: readonly IncomingStopPlan[]): StopPlanResult {
+  if (incoming.length < 2) {
+    return { ok: false, error: "A load needs at least two stops (pickup and delivery); the stops changed since you opened it." };
+  }
+  if (incoming.length > 10) {
+    return { ok: false, error: "At most 10 stops per load." };
+  }
+  if (!incoming.some((s) => s.role === "pickup") || !incoming.some((s) => s.role === "delivery")) {
+    return { ok: false, error: "A load needs at least one pickup and one delivery." };
+  }
+  const byId = new Map(existing.map((s) => [s.id, s]));
+  const seenExisting = new Set<string>();
+  for (const s of incoming) {
+    if (isNewStopId(s.id)) continue;
+    if (!byId.has(s.id) || seenExisting.has(s.id)) {
+      return { ok: false, error: "The stops on this load changed since you opened it. Reload it and try again." };
+    }
+    seenExisting.add(s.id);
+  }
+
+  let lastVisitedIdx = -1;
+  for (let i = 0; i < existing.length; i++) {
+    if (existing[i]!.visited) lastVisitedIdx = i;
+  }
+
+  for (let i = 0; i <= lastVisitedIdx; i++) {
+    const ex = existing[i]!;
+    const inc = incoming[i];
+    if (
+      !inc ||
+      inc.id !== ex.id ||
+      inc.role !== ex.role ||
+      inc.address !== ex.address ||
+      !sameWindow(inc.earliest, ex.earliest) ||
+      !sameWindow(inc.latest, ex.latest)
+    ) {
+      return { ok: false, error: "This load has started: visited stops cannot change where or when they are, or their order." };
+    }
+  }
+
+  const baseSeq = lastVisitedIdx >= 0 ? existing[lastVisitedIdx]!.stopSequence : 0;
+  const planned: PlannedStop[] = incoming.map((inc, i) => {
+    const isVisitedPrefix = i <= lastVisitedIdx;
+    const ex = isVisitedPrefix ? existing[i]! : null;
+    const stopSequence = isVisitedPrefix ? ex!.stopSequence : baseSeq + (i - lastVisitedIdx);
+    return {
+      id: inc.id,
+      role: inc.role,
+      address: inc.address,
+      earliest: inc.earliest,
+      latest: inc.latest,
+      stopSequence,
+      isNew: isNewStopId(inc.id),
+      visited: isVisitedPrefix
+    };
+  });
+
+  const removedIds = existing.filter((ex) => !seenExisting.has(ex.id)).map((ex) => ex.id);
+  const structureChanged =
+    removedIds.length > 0 ||
+    planned.some((p) => p.isNew) ||
+    planned.length !== existing.length ||
+    planned.some((p, i) => p.id !== existing[i]!.id || p.role !== existing[i]!.role);
+  const routeChanged =
+    structureChanged ||
+    planned.some((p) => {
+      const ex = byId.get(p.id);
+      return !ex || ex.address !== p.address;
+    });
+  const scheduleChanged =
+    routeChanged ||
+    planned.some((p) => {
+      const ex = byId.get(p.id);
+      return !ex || !sameWindow(ex.earliest, p.earliest) || !sameWindow(ex.latest, p.latest);
+    });
+
+  return { ok: true, planned, removedIds, scheduleChanged, routeChanged, structureChanged };
 }
 
 type StoredLoad = {
@@ -224,19 +447,32 @@ type StoredLoad = {
   brokerPhone: string | null;
   brokerEmail: string | null;
   loadNumber: string | null;
+  rateConNumber?: string | null;
+  proNumber?: string | null;
   poNumber: string | null;
+  bolNumber?: string | null;
   trailerType: string | null;
+  commodity?: string | null;
+  pieceCount?: number | null;
+  palletCount?: number | null;
   weightLbs: number | null;
   lengthFt: unknown;
   widthFt: unknown;
   loadHeightIn: unknown;
+  reeferSetTempF?: unknown;
+  reeferMinF?: unknown;
+  reeferMaxF?: unknown;
+  reeferMode?: string | null;
   hazmatClass: string | null;
+  hazmatUnNumber?: string | null;
+  hazmatPackingGroup?: string | null;
+  hazmatEmergencyPhone?: string | null;
   requiresLiftgate: boolean | null;
   requiresRamp: boolean | null;
   requiresPalletJack: boolean | null;
   payTermsDays: number | null;
   notes: string | null;
-  stops: Array<{ id: string; stopRole: string | null; stopType: string; addressString: string; facilityName: string | null; timeWindowEarliest: Date | null; timeWindowLatest: Date | null; referenceNumbers: unknown; contactName: string | null; contactPhone: string | null; stopNotes: string | null }>;
+  stops: Array<{ id: string; stopRole: string | null; stopType: string; addressString: string; facilityName: string | null; timeWindowEarliest: Date | null; timeWindowLatest: Date | null; arrivedAt?: Date | null; referenceNumbers: unknown; contactName: string | null; contactPhone: string | null; stopNotes: string | null }>;
 };
 
 /** The form's values from a stored load, each stop's times on the clock at that stop (`zones` by stop id; a stop with none is on the carrier's clock). */
@@ -249,6 +485,11 @@ export function toEditValues(load: StoredLoad, zones: Record<string, string> = {
     const n = Number(String(v));
     return Number.isFinite(n) && n !== 0 ? String(n) : "";
   };
+  const temp = (v: unknown) => {
+    if (v == null) return "";
+    const n = Number(String(v));
+    return Number.isFinite(n) ? String(n) : "";
+  };
   return {
     version: load.updatedAt ? String(load.updatedAt.getTime()) : undefined,
     brokerName: s(load.brokerName),
@@ -256,18 +497,33 @@ export function toEditValues(load: StoredLoad, zones: Record<string, string> = {
     brokerPhone: s(load.brokerPhone),
     brokerEmail: s(load.brokerEmail),
     loadNumber: s(load.loadNumber),
+    rateConNumber: s(load.rateConNumber),
+    proNumber: s(load.proNumber),
     poNumber: s(load.poNumber),
+    bolNumber: s(load.bolNumber),
     trailer: s(load.trailerType),
+    commodity: s(load.commodity),
+    pieceCount: s(load.pieceCount),
+    palletCount: s(load.palletCount),
     weightLbs: s(load.weightLbs),
     lengthFt: s(load.lengthFt),
     widthFt: s(load.widthFt),
     heightIn: s(load.loadHeightIn),
+    reeferSetTempF: temp(load.reeferSetTempF),
+    reeferMinF: temp(load.reeferMinF),
+    reeferMaxF: temp(load.reeferMaxF),
+    reeferMode: s(load.reeferMode),
     hazmat: s(load.hazmatClass),
+    hazmatUnNumber: s(load.hazmatUnNumber),
+    hazmatPackingGroup: s(load.hazmatPackingGroup),
+    hazmatEmergencyPhone: s(load.hazmatEmergencyPhone),
     liftgate: load.requiresLiftgate === true,
     ramp: load.requiresRamp === true,
     palletJack: load.requiresPalletJack === true,
     payTermsDays: s(load.payTermsDays),
     notes: s(load.notes),
+    stopChangeReason: "",
+    stopChangeFee: "",
     deal: {
       vehicleId: s(load.vehicleId),
       rate: load.quotedRevenue == null ? "" : String(Number(String(load.quotedRevenue))),
@@ -287,7 +543,8 @@ export function toEditValues(load: StoredLoad, zones: Record<string, string> = {
       refs: Array.isArray(x.referenceNumbers) ? (x.referenceNumbers as unknown[]).map(String).join(", ") : "",
       contactName: s(x.contactName),
       contactPhone: s(x.contactPhone),
-      notes: s(x.stopNotes)
+      notes: s(x.stopNotes),
+      visited: x.arrivedAt != null
     }))
   };
 }

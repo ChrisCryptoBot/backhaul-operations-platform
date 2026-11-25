@@ -7,7 +7,7 @@ import { completeTripAction, correctTripAction, invoiceLoadAction, paidAction, p
 import { shortDate, usd } from "@/lib/desk-format";
 import { termsLabel, validateInvoice, type InvoiceContext, type InvoiceForm } from "@/lib/invoicing";
 import { dueAt } from "@/lib/overdue";
-import { validateLoadEdit, type DealValues, type EditStopValues, type LoadEditValues } from "@/lib/load-edit";
+import { isStopChangeReason, PACKING_GROUPS, REEFER_MODES, STOP_CHANGE_FEE_LABEL, STOP_CHANGE_REASONS, validateLoadEdit, type DealValues, type EditStopValues, type LoadEditValues, type StopChangeReason } from "@/lib/load-edit";
 import { EXPENSE_ITEMS, validateComplete, validateCorrection, validateExpenses, validateStart, type CompleteValues, type CorrectValues, type ExpenseValues, type StartValues } from "@/lib/trip";
 import { toCentralLocal } from "@/lib/zoned";
 import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
@@ -109,7 +109,7 @@ const clockOf = (zone?: string | null) => zoneAbbr(zone ?? activeTz());
  * contact. A load that has started keeps its stops where they are (its details can still be corrected). A driver who already has it is asked to
  * confirm again if a place or time changes.
  */
-export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, driverName, truckName, dealLocked }: { loadId: string; loadNumber: string; initial: LoadEditValues; scheduleLocked: boolean; driverName: string | null; truckName: string | null; dealLocked: string | null }) {
+export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, loadStatus, driverName, truckName, dealLocked }: { loadId: string; loadNumber: string; initial: LoadEditValues; scheduleLocked: boolean; loadStatus?: string; driverName: string | null; truckName: string | null; dealLocked: string | null }) {
   const router = useRouter();
   const toast = useToast();
   const [open, setOpen] = React.useState(false);
@@ -127,9 +127,61 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
   }, [open]);
 
   const authority = useAuthorityLookup();
+  const isInProgress = loadStatus === "in_progress";
+  const truckLocked = scheduleLocked || isInProgress;
+  const lastVisitedIdx = React.useMemo(() => {
+    let last = -1;
+    v.stops.forEach((s, idx) => {
+      if (s.visited) last = idx;
+    });
+    return last;
+  }, [v.stops]);
+  const isStopLocked = (idx: number, s: EditStopValues) => scheduleLocked || (isInProgress && (Boolean(s.visited) || idx <= lastVisitedIdx));
+  const stopsChanged = React.useMemo(() => {
+    if (v.stops.length !== initial.stops.length) return true;
+    return v.stops.some((s, idx) => {
+      const orig = initial.stops[idx];
+      if (!orig) return true;
+      return s.id !== orig.id || s.role !== orig.role || s.address !== orig.address || s.earliest !== orig.earliest || s.latest !== orig.latest;
+    });
+  }, [v.stops, initial.stops]);
+  const hasHazmat = Boolean(v.hazmat.trim() || (v.hazmatUnNumber ?? "").trim() || (v.hazmatPackingGroup ?? "").trim());
+
   const set = (patch: Partial<LoadEditValues>) => setV((s) => ({ ...s, ...patch }));
   const setStop = (i: number, patch: Partial<EditStopValues>) => setV((s) => ({ ...s, stops: s.stops.map((x, k) => (k === i ? { ...x, ...patch } : x)) }));
   const setDeal = (patch: Partial<DealValues>) => setV((s) => (s.deal ? { ...s, deal: { ...s.deal, ...patch } } : s));
+  const addStop = (role: "pickup" | "delivery") => {
+    const newStop: EditStopValues = {
+      id: `new:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      role,
+      address: "",
+      earliest: "",
+      latest: "",
+      facility: "",
+      refs: "",
+      contactName: "",
+      contactPhone: "",
+      notes: "",
+      visited: false
+    };
+    setV((s) => ({ ...s, stops: [...s.stops, newStop] }));
+  };
+  const removeStop = (i: number) => {
+    setV((s) => (s.stops.length <= 2 ? s : { ...s, stops: s.stops.filter((_, k) => k !== i) }));
+  };
+  const moveStop = (i: number, dir: -1 | 1) => {
+    const target = i + dir;
+    if (target <= lastVisitedIdx || target < 0 || target >= v.stops.length) return;
+    setV((s) => {
+      const next = [...s.stops];
+      const cur = next[i];
+      const swp = next[target];
+      if (!cur || !swp) return s;
+      next[i] = swp;
+      next[target] = cur;
+      return { ...s, stops: next };
+    });
+  };
   const money = (key: keyof DealValues, label: string, opts: { hint?: string; unit?: string } = {}) => (
     <Fld label={label} error={errors[`deal.${key}`]} hint={opts.hint}>
       <input value={v.deal?.[key] ?? ""} inputMode="decimal" autoComplete="off" disabled={dealLocked != null} onChange={(e) => setDeal({ [key]: e.target.value } as Partial<DealValues>)} aria-invalid={errors[`deal.${key}`] ? true : undefined} />
@@ -194,13 +246,13 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
               <h3 className="th-group">The deal</h3>
               {dealLocked ? <p className="tl-note" style={{ marginBottom: 8 }}>{dealLocked}</p> : null}
               <div className="rc-grid">
-                <Fld label="Truck" error={errors["deal.vehicleId"]} hint={!dealLocked && scheduleLocked ? "A load that has started keeps its truck." : undefined}>
+                <Fld label="Truck" error={errors["deal.vehicleId"]} hint={!dealLocked && truckLocked ? "A load that has started keeps its truck." : undefined}>
                   <TruckPicker
                     id={v.deal.vehicleId}
                     name={truckName ?? ""}
                     readyOnly
                     label="Truck"
-                    disabled={dealLocked != null || scheduleLocked}
+                    disabled={dealLocked != null || truckLocked}
                     invalid={v.deal.vehicleId === "?" || (initial.deal?.vehicleId !== "" && v.deal.vehicleId === "")}
                     onPick={(id) => setDeal({ vehicleId: id })}
                   />
@@ -231,9 +283,12 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
               <AuthorityStatus busy={authority.busy} result={authority.result} />
             </Fld>
             {text("loadNumber", "Load number")}
+            {text("rateConNumber", "Rate con #")}
+            {text("proNumber", "PRO #")}
+            {text("bolNumber", "BOL #")}
+            {text("poNumber", "PO number")}
             {text("brokerPhone", "Customer phone", { inputMode: "tel" })}
             {text("brokerEmail", "Customer email", { inputMode: "email", hint: "Where the invoice and a reminder go." })}
-            {text("poNumber", "PO number")}
           </div>
 
           <h3 className="th-group">The freight</h3>
@@ -248,12 +303,45 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
                 ))}
               </select>
             </Fld>
+            {text("commodity", "Commodity")}
             {text("weightLbs", "Weight (lb)", { inputMode: "numeric" })}
-            {text("hazmat", "Hazmat class")}
+            {text("pieceCount", "Pieces", { inputMode: "numeric" })}
+            {text("palletCount", "Pallets", { inputMode: "numeric" })}
             {text("lengthFt", "Length (ft)", { inputMode: "decimal" })}
             {text("widthFt", "Width (ft)", { inputMode: "decimal" })}
             {text("heightIn", "Height (in)", { inputMode: "decimal" })}
+            {text("reeferSetTempF", "Reefer set temp (°F)", { inputMode: "decimal" })}
+            {text("reeferMinF", "Reefer min (°F)", { inputMode: "decimal" })}
+            {text("reeferMaxF", "Reefer max (°F)", { inputMode: "decimal" })}
+            <Fld label="Reefer mode" error={errors.reeferMode}>
+              <select value={v.reeferMode ?? ""} onChange={(e) => set({ reeferMode: e.target.value })}>
+                <option value="">Not set</option>
+                {REEFER_MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {m === "continuous" ? "Continuous" : "Cycle"}
+                  </option>
+                ))}
+              </select>
+            </Fld>
+            {text("hazmat", "Hazmat class")}
+            {text("hazmatUnNumber", "Hazmat UN #")}
+            <Fld label="Hazmat packing group" error={errors.hazmatPackingGroup}>
+              <select value={v.hazmatPackingGroup ?? ""} onChange={(e) => set({ hazmatPackingGroup: e.target.value })}>
+                <option value="">Not set</option>
+                {PACKING_GROUPS.map((g) => (
+                  <option key={g} value={g}>
+                    {g}
+                  </option>
+                ))}
+              </select>
+            </Fld>
+            {text("hazmatEmergencyPhone", "Hazmat emergency phone", { inputMode: "tel" })}
           </div>
+          {hasHazmat ? (
+            <p className="tl-note warn" style={{ marginTop: 8 }}>
+              Check the driver&apos;s H endorsement (49 CFR 383.93)
+            </p>
+          ) : null}
           <div className="le-checks">
             <label className="dlg-check">
               <input type="checkbox" checked={v.liftgate} onChange={(e) => set({ liftgate: e.target.checked })} /> Needs a liftgate
@@ -273,47 +361,105 @@ export function LoadEditDialog({ loadId, loadNumber, initial, scheduleLocked, dr
           </Fld>
 
           <h3 className="th-group">Stops</h3>
-          {scheduleLocked ? <p className="tl-note" style={{ marginBottom: 8 }}>This load has started, so where and when its stops are cannot change. The rest can still be corrected.</p> : driverName ? <p className="tl-note" style={{ marginBottom: 8 }}>{driverName} is on this load. If a place or time changes, they confirm it again.</p> : null}
+          {scheduleLocked ? (
+            <p className="tl-note" style={{ marginBottom: 8 }}>
+              This load is finished, so where and when its stops are cannot change. The rest can still be corrected.
+            </p>
+          ) : isInProgress ? (
+            <p className="tl-note" style={{ marginBottom: 8 }}>
+              This load has started. Visited stops stay locked, but unvisited stops after the last check-in can still be updated, added, reordered or dropped with a reason.
+            </p>
+          ) : driverName ? (
+            <p className="tl-note" style={{ marginBottom: 8 }}>
+              {driverName} is on this load. If a place or time changes, they confirm it again.
+            </p>
+          ) : null}
           <ol className="rc-stops">
-            {v.stops.map((s, i) => (
-              <li key={s.id} className={`rc-stop ${s.role}`}>
-                <span className="badge" aria-hidden="true">
-                  {i + 1}
-                </span>
-                <div className="rc-stop-body">
-                  <div className="rc-stop-head">
-                    <span className={`tl-chip ${s.role === "pickup" ? "info" : "ok"}`}>{s.role === "pickup" ? "Pickup" : "Delivery"}</span>
+            {v.stops.map((s, i) => {
+              const locked = isStopLocked(i, s);
+              return (
+                <li key={s.id} className={`rc-stop ${s.role}`}>
+                  <span className="badge" aria-hidden="true">
+                    {i + 1}
+                  </span>
+                  <div className="rc-stop-body">
+                    <div className="rc-stop-head" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                      <span className={`tl-chip ${s.role === "pickup" ? "info" : "ok"}`}>{s.role === "pickup" ? "Pickup" : "Delivery"}</span>
+                      {s.visited ? <span className="tl-chip ok">Visited</span> : locked ? <span className="tl-chip">Locked</span> : null}
+                      {!locked && !scheduleLocked ? (
+                        <span style={{ marginLeft: "auto", display: "inline-flex", gap: 4 }}>
+                          <button type="button" className="tl-btn sm" disabled={i - 1 <= lastVisitedIdx || i === 0} onClick={() => moveStop(i, -1)}>
+                            Up
+                          </button>
+                          <button type="button" className="tl-btn sm" disabled={i >= v.stops.length - 1} onClick={() => moveStop(i, 1)}>
+                            Down
+                          </button>
+                          <button type="button" className="tl-btn sm" disabled={v.stops.length <= 2} onClick={() => removeStop(i)}>
+                            Remove
+                          </button>
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="rc-stop-grid">
+                      <Fld label="Address" error={errors[`stop${i}.address`]}>
+                        <AddressInput label={`Address for stop ${i + 1}`} value={s.address} disabled={locked} onChange={(text) => setStop(i, { address: text })} invalid={!!errors[`stop${i}.address`]} />
+                      </Fld>
+                      <Fld label={`Opens (${clockName(s.zone ?? undefined)})`} error={errors[`stop${i}.earliest`]}>
+                        <DateInput type="datetime-local" value={s.earliest} disabled={locked} onChange={(e) => setStop(i, { earliest: e.target.value })} />
+                      </Fld>
+                      <Fld label={`Closes (${clockName(s.zone ?? undefined)})`} error={errors[`stop${i}.latest`]}>
+                        <DateInput type="datetime-local" value={s.latest} disabled={locked} onChange={(e) => setStop(i, { latest: e.target.value })} />
+                      </Fld>
+                      <Fld label="Facility" error={errors[`stop${i}.facility`]}>
+                        <input value={s.facility} onChange={(e) => setStop(i, { facility: e.target.value })} autoComplete="off" />
+                      </Fld>
+                      <Fld label="Reference numbers" error={errors[`stop${i}.refs`]} hint="Separate with commas.">
+                        <input value={s.refs} onChange={(e) => setStop(i, { refs: e.target.value })} autoComplete="off" />
+                      </Fld>
+                      <Fld label="Contact" error={errors[`stop${i}.contactName`]}>
+                        <input value={s.contactName} onChange={(e) => setStop(i, { contactName: e.target.value })} autoComplete="off" />
+                      </Fld>
+                      <Fld label="Contact phone" error={errors[`stop${i}.contactPhone`]}>
+                        <input value={s.contactPhone} inputMode="tel" onChange={(e) => setStop(i, { contactPhone: e.target.value })} autoComplete="off" />
+                      </Fld>
+                      <Fld label="Notes for this stop" error={errors[`stop${i}.notes`]}>
+                        <input value={s.notes} onChange={(e) => setStop(i, { notes: e.target.value })} autoComplete="off" />
+                      </Fld>
+                    </div>
                   </div>
-                  <div className="rc-stop-grid">
-                    <Fld label="Address" error={errors[`stop${i}.address`]}>
-                      <AddressInput label={`Address for stop ${i + 1}`} value={s.address} disabled={scheduleLocked} onChange={(text) => setStop(i, { address: text })} invalid={!!errors[`stop${i}.address`]} />
-                    </Fld>
-                    <Fld label={`Opens (${clockName(s.zone ?? undefined)})`} error={errors[`stop${i}.earliest`]}>
-                      <DateInput type="datetime-local" value={s.earliest} disabled={scheduleLocked} onChange={(e) => setStop(i, { earliest: e.target.value })} />
-                    </Fld>
-                    <Fld label={`Closes (${clockName(s.zone ?? undefined)})`} error={errors[`stop${i}.latest`]}>
-                      <DateInput type="datetime-local" value={s.latest} disabled={scheduleLocked} onChange={(e) => setStop(i, { latest: e.target.value })} />
-                    </Fld>
-                    <Fld label="Facility" error={errors[`stop${i}.facility`]}>
-                      <input value={s.facility} onChange={(e) => setStop(i, { facility: e.target.value })} autoComplete="off" />
-                    </Fld>
-                    <Fld label="Reference numbers" error={errors[`stop${i}.refs`]} hint="Separate with commas.">
-                      <input value={s.refs} onChange={(e) => setStop(i, { refs: e.target.value })} autoComplete="off" />
-                    </Fld>
-                    <Fld label="Contact" error={errors[`stop${i}.contactName`]}>
-                      <input value={s.contactName} onChange={(e) => setStop(i, { contactName: e.target.value })} autoComplete="off" />
-                    </Fld>
-                    <Fld label="Contact phone" error={errors[`stop${i}.contactPhone`]}>
-                      <input value={s.contactPhone} inputMode="tel" onChange={(e) => setStop(i, { contactPhone: e.target.value })} autoComplete="off" />
-                    </Fld>
-                    <Fld label="Notes for this stop" error={errors[`stop${i}.notes`]}>
-                      <input value={s.notes} onChange={(e) => setStop(i, { notes: e.target.value })} autoComplete="off" />
-                    </Fld>
-                  </div>
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ol>
+          {!scheduleLocked ? (
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button type="button" className="tl-btn sm" onClick={() => addStop("pickup")}>
+                + Add pickup
+              </button>
+              <button type="button" className="tl-btn sm" onClick={() => addStop("delivery")}>
+                + Add delivery
+              </button>
+            </div>
+          ) : null}
+          {isInProgress && stopsChanged ? (
+            <div className="rc-grid" style={{ marginTop: 12 }}>
+              <Fld label="Reason for mid-trip stop change" error={errors.stopChangeReason} hint="Recorded in the audit trail.">
+                <select value={v.stopChangeReason ?? ""} onChange={(e) => set({ stopChangeReason: (e.target.value || undefined) as StopChangeReason | undefined })} aria-invalid={errors.stopChangeReason ? true : undefined}>
+                  <option value="">Pick a reason</option>
+                  {STOP_CHANGE_REASONS.map((r) => (
+                    <option key={r.key} value={r.key}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+              </Fld>
+              {text(
+                "stopChangeFee",
+                v.stopChangeReason && isStopChangeReason(v.stopChangeReason) ? `${STOP_CHANGE_FEE_LABEL[v.stopChangeReason]} fee ($)` : "Stop change / reconsignment fee ($)",
+                { inputMode: "decimal", hint: "Optional extra charge for the broker invoice." }
+              )}
+            </div>
+          ) : null}
         </div>
       </Modal>
     </>
@@ -881,7 +1027,9 @@ export function PaidDialog({
   canWriteOff = true,
   tz,
   size = "primary",
-  buttonLabel
+  buttonLabel,
+  defaultShortCode,
+  defaultOpen
 }: {
   loadId: string;
   /** Set when paying a supplemental invoice record directly instead of updating the parent load. */
@@ -894,6 +1042,8 @@ export function PaidDialog({
   tz?: string;
   size?: "primary" | "sm";
   buttonLabel?: string;
+  defaultShortCode?: ShortCode;
+  defaultOpen?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -901,19 +1051,32 @@ export function PaidDialog({
   // What is still owed: the whole invoice, or what is left of it after part payments.
   const due = owing ?? billed;
   const received = Math.round((billed - due) * 100) / 100;
-  const [open, setOpen] = React.useState(false);
+  const startWriteOff = Boolean(defaultOpen && canWriteOff && defaultShortCode);
+  const [open, setOpen] = React.useState(startWriteOff);
   // What is typed is kept until the payment is recorded.
   const [{ amount, paidOn, method, shortAction, shortReason, overAck, reference, payer, shortCode }, setPaid, draft] = useDraft<{ amount: string; paidOn: string; method: string; shortAction: "balance" | "writeoff"; shortReason: string; overAck: boolean; reference: string; payer: string; shortCode: ShortCode | "" }>(`paid:${invoiceId ?? loadId}`, {
-    amount: due.toFixed(2),
+    amount: startWriteOff && due > 0 ? "0.00" : due.toFixed(2),
     paidOn: nowLocal(zone).slice(0, 10),
     method: "",
-    shortAction: "balance",
+    shortAction: startWriteOff ? "writeoff" : "balance",
     shortReason: "",
     overAck: false,
     reference: "",
     payer: "",
-    shortCode: ""
+    shortCode: startWriteOff && defaultShortCode ? defaultShortCode : ""
   });
+  React.useEffect(() => {
+    if (defaultOpen && canWriteOff && defaultShortCode) {
+      setOpen(true);
+      setPaid((p) => ({
+        ...p,
+        shortAction: "writeoff",
+        shortCode: defaultShortCode,
+        amount: p.amount === due.toFixed(2) && due > 0 ? "0.00" : p.amount
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultOpen, defaultShortCode, canWriteOff]);
   const setAmount = (v: string) => setPaid((p) => ({ ...p, amount: v }));
   const setPaidOn = (v: string) => setPaid((p) => ({ ...p, paidOn: v }));
   const setMethod = (v: string) => setPaid((p) => ({ ...p, method: v }));

@@ -14,7 +14,16 @@ import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
  * the server both run it.
  */
 export type QuoteStopRole = "pickup" | "delivery";
-export type QuoteStop = { role: QuoteStopRole; address: string; /** "2026-10-30T08:00" on the Dallas clock, or blank. */ appointment: string };
+export type QuoteStop = {
+  role: QuoteStopRole;
+  address: string;
+  /** "2026-10-30T08:00" on the Dallas clock, or blank. */
+  appointment: string;
+  facility?: string;
+  contactName?: string;
+  contactPhone?: string;
+  notes?: string;
+};
 
 export type QuoteValues = {
   stops: QuoteStop[];
@@ -22,10 +31,13 @@ export type QuoteValues = {
   /** The broker's paperwork, kept on the load when it is booked. All optional. */
   brokerMc: string;
   loadNumber: string;
+  rateConNumber?: string;
+  proNumber?: string;
   poNumber: string;
   brokerPhone: string;
   brokerEmail: string;
   trailer: string;
+  commodity?: string;
   /** What the load is, so a truck that cannot carry it is not offered. All optional; blank checks nothing. */
   weightLbs: string;
   lengthFt: string;
@@ -83,10 +95,13 @@ export const BLANK_QUOTE: QuoteValues = {
   broker: "",
   brokerMc: "",
   loadNumber: "",
+  rateConNumber: "",
+  proNumber: "",
   poNumber: "",
   brokerPhone: "",
   brokerEmail: "",
   trailer: "",
+  commodity: "",
   weightLbs: "",
   lengthFt: "",
   widthFt: "",
@@ -120,14 +135,17 @@ export const BLANK_QUOTE: QuoteValues = {
 };
 
 export type QuoteInput = {
-  stops: Array<{ role: QuoteStopRole; address: string; appointment: number | null }>;
+  stops: Array<{ role: QuoteStopRole; address: string; appointment: number | null; facility: string | null; contactName: string | null; contactPhone: string | null; notes: string | null }>;
   broker: string | null;
   brokerMc: string | null;
   loadNumber: string | null;
+  rateConNumber: string | null;
+  proNumber: string | null;
   poNumber: string | null;
   brokerPhone: string | null;
   brokerEmail: string | null;
   trailer: string | null;
+  commodity: string | null;
   specs: LoadSpecs;
   offer: number;
   fsc: number;
@@ -211,8 +229,18 @@ export function grossPerLoadedMile(offer: string, loadedMiles: string): number |
  * carrying them along would put the delivery before the pickup, and the form refuses that.
  */
 export function reverseStops(stops: QuoteStop[]): QuoteStop[] {
-  const addresses = stops.map((s) => s.address).reverse();
-  return stops.map((s, i) => ({ ...s, address: addresses[i] ?? "" }));
+  const flipped = [...stops].reverse();
+  return stops.map((s, i) => {
+    const f = flipped[i];
+    return {
+      ...s,
+      address: f?.address ?? "",
+      ...(f?.facility !== undefined ? { facility: f.facility } : s.facility !== undefined ? { facility: "" } : {}),
+      ...(f?.contactName !== undefined ? { contactName: f.contactName } : s.contactName !== undefined ? { contactName: "" } : {}),
+      ...(f?.contactPhone !== undefined ? { contactPhone: f.contactPhone } : s.contactPhone !== undefined ? { contactPhone: "" } : {}),
+      ...(f?.notes !== undefined ? { notes: f.notes } : s.notes !== undefined ? { notes: "" } : {})
+    };
+  });
 }
 
 /** The empty-mile figures that depend on which way the route runs: to the pickup, home after the delivery, and one truck's own. */
@@ -263,14 +291,25 @@ export function readQuote(values: QuoteValues): QuoteInput | null {
   const market = positive(values.marketRate);
   const factoring = num(str(values.factoringPct));
   return {
-    stops: values.stops.map((s) => ({ role: s.role, address: str(s.address), appointment: s.appointment ? parseCentralLocal(s.appointment) : null })),
+    stops: values.stops.map((s) => ({
+      role: s.role,
+      address: str(s.address),
+      appointment: s.appointment ? parseCentralLocal(s.appointment) : null,
+      facility: str(s.facility) || null,
+      contactName: str(s.contactName) || null,
+      contactPhone: str(s.contactPhone) || null,
+      notes: str(s.notes) || null
+    })),
     broker: str(values.broker) || null,
     brokerMc: str(values.brokerMc).replace(/^mc[\s-]*/i, "") || null,
     loadNumber: str(values.loadNumber) || null,
+    rateConNumber: str(values.rateConNumber ?? "") || null,
+    proNumber: str(values.proNumber ?? "") || null,
     poNumber: str(values.poNumber) || null,
     brokerPhone: str(values.brokerPhone) || null,
     brokerEmail: str(values.brokerEmail) || null,
     trailer: str(values.trailer) || null,
+    commodity: str(values.commodity ?? "") || null,
     specs: {
       weightLbs: positive(values.weightLbs ?? ""),
       lengthFt: positive(values.lengthFt ?? ""),
@@ -320,6 +359,11 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
     if (str(s.address).length < 2) errors[`stop${i}`] = "Where is this stop? A city and state is enough.";
     else if (str(s.address).length > 200) errors[`stop${i}`] = "At most 200 characters.";
     if (s.appointment && parseCentralLocal(s.appointment) == null) errors[`stop${i}Time`] = "A real date and time.";
+    if (str(s.facility).length > 80) errors[`stop${i}Facility`] = "At most 80 characters.";
+    if (str(s.contactName).length > 60) errors[`stop${i}ContactName`] = "At most 60 characters.";
+    const sp = str(s.contactPhone);
+    if (sp !== "" && (sp.replace(/\D/g, "").length < 7 || sp.replace(/\D/g, "").length > 15 || /[^\d\s()+.\-x]/i.test(sp))) errors[`stop${i}ContactPhone`] = "A phone number, for example 555-0142.";
+    if (str(s.notes).length > 300) errors[`stop${i}Notes`] = "At most 300 characters.";
   });
   // Stops in order: a stop cannot be due before the one ahead of it.
   let earlier: number | null = null;
@@ -335,7 +379,10 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
   const mc = str(values.brokerMc).replace(/^mc[\s-]*/i, "");
   if (mc !== "" && !/^\d{3,8}$/.test(mc)) errors.brokerMc = "Digits only, for example 123456.";
   if (str(values.loadNumber).length > 40) errors.loadNumber = "At most 40 characters.";
+  if (str(values.rateConNumber ?? "").length > 40) errors.rateConNumber = "At most 40 characters.";
+  if (str(values.proNumber ?? "").length > 40) errors.proNumber = "At most 40 characters.";
   if (str(values.poNumber).length > 40) errors.poNumber = "At most 40 characters.";
+  if (str(values.commodity ?? "").length > 120) errors.commodity = "At most 120 characters.";
   const phone = str(values.brokerPhone);
   if (phone !== "" && (phone.replace(/\D/g, "").length < 7 || phone.replace(/\D/g, "").length > 15 || /[^\d\s()+.\-x]/i.test(phone))) errors.brokerPhone = "A phone number, for example 555-0142.";
   const email = str(values.brokerEmail);

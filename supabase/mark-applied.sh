@@ -89,6 +89,7 @@ for m in \
   20270111000000_load_detention_waive \
   20270111010000_assignment_events_kinds \
   20270112000000_relay_settlement_and_pay_arrangement \
-  20270113000000_supplemental_invoices; do
+  20270113000000_supplemental_invoices \
+  20270114000000_ops_freight_claims_customer; do
   npx prisma migrate resolve --applied "$m" --schema=./prisma/schema.prisma
 done

@@ -28,7 +28,8 @@ export function DisruptionButtons({
   pickupLocal,
   pickupZone,
   driverName,
-  reconfirm
+  reconfirm,
+  stops
 }: {
   loadId: string;
   loadNumber: string;
@@ -40,9 +41,21 @@ export function DisruptionButtons({
   driverName: string | null;
   /** The driver already has the load, so a new time means they have to confirm again. */
   reconfirm: boolean;
+  /** Stops on this load, used to restrict mid-trip rescheduling to checked unvisited stops. */
+  stops?: Array<{ id: string; sequence: number; role: string; label: string; visited: boolean }>;
 }) {
   const [open, setOpen] = React.useState<Kind | null>(null);
   const [v, setV, draft] = useDraft<Fields>(`disruption:${loadId}`, { pickup: pickupLocal ?? "", ...BLANK });
+  const unvisitedIds = React.useMemo(() => (stops ?? []).filter((s) => !s.visited).map((s) => s.id), [stops]);
+  const [pickedStops, setPickedStops] = React.useState<Set<string>>(() => new Set(unvisitedIds));
+  const toggleStop = (id: string) =>
+    setPickedStops((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const hasVisited = Boolean(stops?.some((s) => s.visited));
   const sent = useSubmitOutcome();
   const set = (patch: Partial<Fields>) => setV((cur) => ({ ...cur, ...patch }));
   const close = React.useCallback(() => setOpen(null), []);
@@ -107,14 +120,37 @@ export function DisruptionButtons({
         ) : null}
       </div>
 
-      <Modal open={open === "reschedule"} onClose={close} eyebrow={loadNumber} title="Move the pickup">
+      <Modal open={open === "reschedule"} onClose={close} eyebrow={loadNumber} title={hasVisited ? "Move remaining stops" : "Move the pickup"}>
         <form action={rescheduleAction} className="dlg-form" onSubmit={onSend}>
           <input type="hidden" name="loadId" value={loadId} />
-          <p className="tl-note">Every stop moves by the same amount, so the time between them stays as it was. The new time is the pickup&apos;s own clock, {clockName(pickupZone)}.</p>
+          <p className="tl-note">
+            {hasVisited
+              ? `Visited stops stay locked. Checked unvisited stops move by the same offset from the first stop moving (${clockName(pickupZone)}).`
+              : `Every stop moves by the same amount, so the time between them stays as it was. The new time is the pickup's own clock, ${clockName(pickupZone)}.`}
+          </p>
           <label className="tl-field">
-            New pickup
+            {hasVisited ? "New time for first selected stop" : "New pickup"}
             <DateInput type="datetime-local" name="pickup" required value={v.pickup} onChange={(e) => set({ pickup: e.target.value })} />
           </label>
+          {stops && stops.length > 0 ? (
+            <fieldset className="dlg-choice" style={{ border: 0, padding: 0, margin: 0 }}>
+              <legend className="tl-field">Stops to move</legend>
+              {stops.map((s) =>
+                s.visited ? (
+                  <p key={s.id} className="tl-sub" style={{ margin: "4px 0" }}>
+                    #{s.sequence} {s.role} — {s.label} (visited, locked)
+                  </p>
+                ) : (
+                  <label key={s.id} className="dlg-check" style={{ display: "flex", gap: 6, margin: "4px 0" }}>
+                    <input type="checkbox" name="stopIds" value={s.id} checked={pickedStops.has(s.id)} onChange={() => toggleStop(s.id)} />
+                    <span>
+                      #{s.sequence} {s.role} — {s.label}
+                    </span>
+                  </label>
+                )
+              )}
+            </fieldset>
+          ) : null}
           {reasonField(RESCHEDULE_REASONS, "rescheduleReason")}
           {noteField("rescheduleNote")}
           {reconfirm && driverName ? <p className="tl-note warn">{driverName} already has this load and will be asked to confirm the new time.</p> : null}

@@ -1,5 +1,5 @@
 /** The kinds of document kept on a load, and what each is called. Pure, so a screen and the server say the same words (src/server/tl/documents.ts keeps them). */
-export const DOC_KINDS = ["rate_con", "pod", "bol", "instructions", "lumper", "receipt", "other"] as const;
+export const DOC_KINDS = ["rate_con", "pod", "bol", "instructions", "lumper", "receipt", "osd_photo", "other"] as const;
 export type DocKind = (typeof DOC_KINDS)[number];
 export const DOC_LABEL: Record<DocKind, string> = {
   rate_con: "Rate confirmation",
@@ -8,6 +8,7 @@ export const DOC_LABEL: Record<DocKind, string> = {
   instructions: "Delivery instructions",
   lumper: "Lumper receipt",
   receipt: "Receipt",
+  osd_photo: "OS&D photo",
   other: "Other"
 };
 export const isDocKind = (v: unknown): v is DocKind => typeof v === "string" && (DOC_KINDS as readonly string[]).includes(v);
