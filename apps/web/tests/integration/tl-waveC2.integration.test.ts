@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { prisma } from "@/lib/db";
-import { assignDriver } from "@/server/tl/dispatch";
+import { assignDriver, dispatchLoad } from "@/server/tl/dispatch";
 import { saveCostProfile, saveDriver, saveTruck } from "@/server/tl/fleet";
 import { assignFromQueue, assignOptions } from "@/server/tl/suggest";
 
@@ -161,6 +161,24 @@ describe.skipIf(!run)("who could take a load, on the demo database", () => {
     }
   });
 
+  test("each condition needs its own reason: a reason for changing the driver does not double-book them", async () => {
+    const day = "2027-06-21";
+    const held = await mkLoad("R1", day);
+    const elsewhere = await mkLoad("R2", day, { vehicleId: ids.other });
+    expect(await assignFromQueue({ loadId: held.id, driverId: ids.Dear!, payKind: "cpm", rate: "0.80" })).toEqual({ ok: true });
+    await dispatchLoad(held.id);
+    expect(await assignFromQueue({ loadId: elsewhere.id, driverId: ids.Cheap!, payKind: "cpm", rate: "0.40" })).toEqual({ ok: true });
+    // Cheap is on R2 at the same time, and Dear has R1: both need a reason, and the window is told both at once.
+    const both = await assignFromQueue({ loadId: held.id, driverId: ids.Cheap!, payKind: "cpm", rate: "0.40" });
+    expect(both).toMatchObject({ ok: false, code: "reasons_needed" });
+    expect((both as { needs: Array<{ code: string }> }).needs.map((n) => n.code).sort()).toEqual(["double_booked", "reason_required"]);
+    const one = await assignFromQueue({ loadId: held.id, driverId: ids.Cheap!, payKind: "cpm", rate: "0.40", reasons: { reason_required: "Dear called in sick" } });
+    expect((one as { needs: Array<{ code: string }> }).needs.map((n) => n.code)).toEqual(["double_booked"]);
+    expect(await assignFromQueue({ loadId: held.id, driverId: ids.Cheap!, payKind: "cpm", rate: "0.40", reasons: { reason_required: "Dear called in sick", double_booked: "R2 is a short hop first" } })).toEqual({ ok: true });
+    const audit = await prisma.auditEvent.findFirst({ where: { loadId: held.id, action: "reassigned" }, orderBy: { createdAt: "desc" } });
+    expect(audit?.reason).toBe("Double-booked: R2 is a short hop first; Driver changed: Dear called in sick");
+  });
+
   test("assigning from the queue answers in place: it assigns, says what is wrong, and wants a reason to double-book", async () => {
     const day = "2027-06-14";
     const first = await mkLoad("Q1", day);
@@ -169,7 +187,7 @@ describe.skipIf(!run)("who could take a load, on the demo database", () => {
     expect((await prisma.assignment.findUniqueOrThrow({ where: { loadId: first.id } })).driverId).toBe(ids.Cheap);
 
     const clash = await assignFromQueue({ loadId: second.id, driverId: ids.Cheap!, payKind: "cpm", rate: "0.40" });
-    expect(clash).toMatchObject({ ok: false, error: expect.stringContaining("already on WC2-Q1") });
+    expect(clash).toMatchObject({ ok: false, code: "reasons_needed", error: expect.stringContaining("already on WC2-Q1") });
     expect(await assignFromQueue({ loadId: second.id, driverId: ids.Cheap!, payKind: "cpm", rate: "0.40", overrideReason: "Two short hops, same dock" })).toEqual({ ok: true });
 
     expect(await assignFromQueue({ loadId: second.id, driverId: ids.Lapsed!, payKind: "cpm", rate: "0.40" })).toMatchObject({ ok: false, error: expect.stringContaining("CDL") });

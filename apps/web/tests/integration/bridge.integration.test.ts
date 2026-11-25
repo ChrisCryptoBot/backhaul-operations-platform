@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { prisma } from "@/lib/db";
-import { assignDriver, dispatchLoad, driverSummaryFor, unassignLoad } from "@/server/tl/dispatch";
+import { assignDriver, dispatchLoad, DispatchError, driverSummaryFor, unassignLoad } from "@/server/tl/dispatch";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { flushBridgeOutbox, pullBridgeResponses } from "@/server/bridge/service";
 import { memoryTransport } from "@/server/bridge/transport";
@@ -101,6 +101,54 @@ describe.skipIf(!run)("the driver link, desk half", () => {
 
     expect(await flushBridgeOutbox(t)).toMatchObject({ delivered: 0 });
     expect(t.table).toHaveLength(1);
+  });
+
+  test("a pay change after sending takes the phone's offer back and needs its own reason; no change at all is nothing to do", async () => {
+    await reset();
+    const t = memoryTransport();
+    await assignAndSend();
+    await flushBridgeOutbox(t);
+    const sent = await prisma.assignment.findUniqueOrThrow({ where: { loadId } });
+
+    // The same driver at the same pay: nothing moves, nothing is told to the phone.
+    await assignDriver({ loadId, driverId, pay: { kind: "cpm", rate: 0.62 } });
+    const same = await prisma.assignment.findUniqueOrThrow({ where: { loadId } });
+    expect(same).toMatchObject({ status: "dispatched", assignmentVersion: sent.assignmentVersion });
+    expect(await prisma.bridgeOutbox.count({ where: { loadId, kind: "reassign_old" } })).toBe(0);
+
+    // A new pay needs a reason of its own: the old catch-all reason does not cover it.
+    const refused = await assignDriver({ loadId, driverId, pay: { kind: "cpm", rate: 0.7 }, overrideReason: "driver link test" }).catch((e: unknown) => e);
+    expect(refused).toBeInstanceOf(DispatchError);
+    expect((refused as DispatchError).code).toBe("reasons_needed");
+    expect((refused as DispatchError).needs.map((n) => n.code)).toEqual(["pay_changed"]);
+
+    await assignDriver({ loadId, driverId, pay: { kind: "cpm", rate: 0.7 }, reasons: { pay_changed: "Customer raised the rate", double_booked: "driver link test" } });
+    expect(await prisma.assignment.findUniqueOrThrow({ where: { loadId } })).toMatchObject({ status: "draft" });
+    expect(await prisma.bridgeOutbox.count({ where: { loadId, kind: "reassign_old", status: "pending" } })).toBe(1);
+    await flushBridgeOutbox(t);
+    expect(t.table[0]).toMatchObject({ status: "reassigned" });
+    // A late accept of the withdrawn row does not land.
+    await dispatchLoad(loadId);
+    await flushBridgeOutbox(t);
+    const open = t.table.filter((r) => r.status === "dispatched");
+    expect(open).toHaveLength(1);
+    expect(open[0]!.id).not.toBe(t.table[0]!.id);
+    const audit = await prisma.auditEvent.findFirst({ where: { loadId, action: "reassigned" }, orderBy: { createdAt: "desc" } });
+    // Sam is also on another demo load at that time: each reason is kept beside its own condition.
+    expect(audit?.reason).toBe("Double-booked: driver link test; Pay changed after sending: Customer raised the rate");
+  });
+
+  test("an assignment someone else changed since the window opened is refused, not written over", async () => {
+    await reset();
+    const dbl = { double_booked: "driver link test" }; // Sam is also on another demo load at that time
+    await assignDriver({ loadId, driverId, pay: { kind: "cpm", rate: 0.62 }, reasons: dbl });
+    const stale = await assignDriver({ loadId, driverId, pay: { kind: "cpm", rate: 0.65 }, reasons: dbl, expected: { assignmentVersion: null, driverId: null } }).catch((e: unknown) => e);
+    expect((stale as DispatchError).code).toBe("stale");
+    const a = await prisma.assignment.findUniqueOrThrow({ where: { loadId } });
+    expect(Number(a.payRate)).toBe(0.62);
+    // The version the window saw is accepted.
+    await assignDriver({ loadId, driverId, pay: { kind: "cpm", rate: 0.65 }, reasons: dbl, expected: { assignmentVersion: a.assignmentVersion, driverId } });
+    expect(Number((await prisma.assignment.findUniqueOrThrow({ where: { loadId } })).payRate)).toBe(0.65);
   });
 
   test("who sent it goes by name only", async () => {

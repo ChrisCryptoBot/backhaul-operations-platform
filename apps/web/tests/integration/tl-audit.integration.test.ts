@@ -93,14 +93,15 @@ describe.skipIf(!run)("audit trail, unassign and the double-booking guard", () =
     const c = await makeLoad("AUD-3C", base + 11 * D, base + 12 * D); // starts as A ends: fine
     await assignDriver({ loadId: a.id, driverId, pay: { kind: "flat", rate: 400 } });
 
-    await expect(assignDriver({ loadId: b.id, driverId, pay: { kind: "flat", rate: 400 } })).rejects.toMatchObject({ code: "double_booked" });
+    await expect(assignDriver({ loadId: b.id, driverId, pay: { kind: "flat", rate: 400 } })).rejects.toMatchObject({ code: "reasons_needed", needs: [expect.objectContaining({ code: "double_booked" })] });
     expect(await prisma.assignment.count({ where: { loadId: b.id } })).toBe(0);
 
     await assignDriver({ loadId: c.id, driverId, pay: { kind: "flat", rate: 400 } });
 
     await assignDriver({ loadId: b.id, driverId, pay: { kind: "flat", rate: 400 }, overrideReason: "Team run, second seat" });
     const [ev] = await listLoadAudit(b.id);
-    expect(ev).toMatchObject({ action: "assigned", reason: "Team run, second seat" });
+    // The reason is kept beside the condition it answers (src/lib/assign-reasons.ts).
+    expect(ev).toMatchObject({ action: "assigned", reason: "Double-booked: Team run, second seat" });
     expect(ev!.summary).toContain("double-booked on purpose");
 
     const alerts = (await getAlerts()).alerts.filter((x) => x.code === "DOUBLE_BOOKED" && [a.id, b.id].includes(x.loadId));

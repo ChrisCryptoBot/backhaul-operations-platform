@@ -18,6 +18,7 @@ import { getThresholds } from "@/server/tl/thresholds";
 import { settlementsOfLoad } from "@/server/tl/settlement";
 import { milesGapSummary, PAY_ARRANGEMENT_LABEL } from "@/lib/pay-arrangement";
 import { AssignFields } from "./assign-fields";
+import { REASON_IF } from "@/lib/assign-reasons";
 import { DeclineNote } from "./load-view-fields";
 import { AssignTrailer } from "./trailer-forms";
 import { trailerBlocker } from "@/lib/trailer-clearance";
@@ -509,7 +510,13 @@ export async function LoadView({ id }: { id: string }) {
         {canAssign ? (
           <form action={assignAction} className="tl-form-row" style={{ marginBottom: canUnassign ? 10 : 0 }}>
             <input type="hidden" name="loadId" value={load.id} />
-            <AssignFields loadId={load.id} drivers={drivers} initial={{ driverId: a?.driverId ?? null, payKind: a?.payKind ?? null, rate: a ? num(a.payRate) : null }} rateConTotal={rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge))} askOverride={drivers.some((d) => d.busy)} />
+            <AssignFields loadId={load.id} drivers={drivers} initial={{ driverId: a?.driverId ?? null, payKind: a?.payKind ?? null, rate: a ? num(a.payRate) : null }} rateConTotal={rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge))}
+              needs={[
+                // Each box is asked up front, "only if ...": the page form cannot ask again after the server says which apply, and a reason typed in one never covers another.
+                ...(drivers.some((d) => d.busy) ? [{ code: "double_booked" as const, label: REASON_IF.double_booked }] : []),
+                ...(a && (a.status === "dispatched" || a.status === "accepted") ? [{ code: "reason_required" as const, label: REASON_IF.reason_required }, { code: "pay_changed" as const, label: REASON_IF.pay_changed }] : [])
+              ]}
+            />
             <SubmitButton className="tl-btn sm" pending="Saving…">{a ? "Change driver or pay" : "Assign driver"}</SubmitButton>
           </form>
         ) : null}

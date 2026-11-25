@@ -779,6 +779,8 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .as-ok { color: var(--db-pos); font-variant-numeric: tabular-nums; }
 .as-bad { color: var(--db-neg); font-variant-numeric: tabular-nums; }
 .as-fields { display: flex; flex-wrap: wrap; gap: var(--db-3); align-items: flex-end; }
+/* A reason box takes the whole line: one per condition that needs a reason (src/lib/assign-reasons.ts). */
+.as-reason { flex-basis: 100%; }
 
 /* The dispatch queue: a load per ruled row, one signal on it, and the action that moves it on. */
 .dq { list-style: none; margin: 0; padding: 0; }

@@ -27,6 +27,7 @@ import { isOfferedRecallCode, isRecallCode, recallReasonText, type RecallCode } 
 import { resolveIsContractor, type PayArrangement, type PayMilesBasis } from "@/lib/pay-arrangement";
 import { senderNameOf } from "@/lib/driver-messages";
 import { currentActor } from "./identity";
+import { missingReasons, needsMessage, reasonText, type ReasonNeed, type Reasons } from "@/lib/assign-reasons";
 
 export { driverBlocker };
 
@@ -63,8 +64,13 @@ export class DispatchError extends Error {
       | "not_allowed"
       | "bad_reason"
       | "bad_fee"
-      | "bad_time",
-    message: string
+      | "bad_time"
+      | "reasons_needed"
+      | "stale"
+      | "no_default_pay",
+    message: string,
+    /** For "reasons_needed": every condition still without its reason, so the screen can ask for each one at once. */
+    readonly needs: ReasonNeed[] = []
   ) {
     super(message);
   }
@@ -173,7 +179,24 @@ export function tripHoursOf(load: { pickupDeadheadMiles: unknown; loadedMiles: u
   return new Prisma.Decimal(driveHoursFor({ estimatedLoadedHours: load.estimatedLoadedHours as never, loadedMiles: load.loadedMiles as never }, total)).toDecimalPlaces(2).toNumber();
 }
 
-export async function assignDriver(input: { loadId: string; driverId: string; pay: AssignmentPay; estimatedHours?: number | null; overrideReason?: string | null; /** The person's limit (null: not limited); read from the request when left out. Tests and scripts stand in for a request with it. */ allowed?: Terminals }, now = new Date(), workspaceId = currentWorkspaceId()) {
+export async function assignDriver(
+  input: {
+    loadId: string;
+    driverId: string;
+    pay: AssignmentPay;
+    estimatedHours?: number | null;
+    /** One reason per condition (src/lib/assign-reasons.ts): the screens send these. */
+    reasons?: Reasons;
+    /** Older callers (scripts, tests): one reason that covers a double-book and a change of driver, the two it always covered, and nothing added since. The screens send `reasons`. */
+    overrideReason?: string | null;
+    /** What the dispatcher saw when they opened the window: the assignment's version and driver then (null: none). Someone else's change since is refused, never written over. */
+    expected?: { assignmentVersion: number | null; driverId: string | null } | null;
+    /** The person's limit (null: not limited); read from the request when left out. Tests and scripts stand in for a request with it. */
+    allowed?: Terminals;
+  },
+  now = new Date(),
+  workspaceId = currentWorkspaceId()
+) {
   assertPay(input.pay);
   // A person limited to some terminals reaches only the loads and drivers of those terminals (a load not placed anywhere yet is everyone's), whatever id arrives.
   const allowed = input.allowed !== undefined ? input.allowed : await currentAllowed(workspaceId);
@@ -188,14 +211,11 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
   const blocker = driverBlocker(driver, now, loadWindow(load.stops)?.end ?? load.scheduledDate ?? null);
   if (blocker) throw new DispatchError("driver_not_cleared", `${driver.name}: ${blocker}.`);
 
-  let override: string | null = null;
-  const clash = await findDriverClash(driver.id, load.id, loadWindow(load.stops));
-  if (clash) {
-    const reason = (input.overrideReason ?? "").trim();
-    if (reason.length < 3) {
-      throw new DispatchError("double_booked", `${driver.name} is already on ${clash.loadNumber ?? "another load"} (${windowText(clash.window)}). Add a reason to assign anyway.`);
-    }
-    override = reason;
+  const reasons: Reasons = { ...(input.reasons ?? {}) };
+  const legacy = (input.overrideReason ?? "").trim();
+  if (legacy) {
+    reasons.double_booked ??= legacy;
+    reasons.reason_required ??= legacy;
   }
 
   // An hourly driver is paid for the trip's hours, so the estimate needs them: the hours typed, else the load's own drive time (measured when it was quoted, else 50 mph over every mile).
@@ -208,21 +228,44 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
   };
   const payText = describePay(input.pay.kind, input.pay.rate);
   const prev = load.assignment;
+  const held = prev != null && (prev.status === "dispatched" || prev.status === "accepted");
   // A driver who already has the load (sent to them, or accepted) is not swapped for another without a reason, as taking them off it needs one.
-  const replacing = prev != null && (prev.status === "dispatched" || prev.status === "accepted") && prev.driverId !== driver.id;
-  const changeWhy = (input.overrideReason ?? "").trim();
-  if (replacing && changeWhy.length < 3) throw new DispatchError("reason_required", `${prev.driver.name} has this load. Add a reason to change the driver.`);
+  const replacing = held && prev!.driverId !== driver.id;
+  // The same driver, already holding it: a change of pay is a new offer (their phone's is taken back and it is sent again), so it needs a reason; no change at all is nothing to do.
+  const samePay = prev != null && prev.payKind === input.pay.kind && new Prisma.Decimal(prev.payRate).equals(input.pay.rate) && num(prev.payEstimate) === num(estimate);
+  const repaid = held && !replacing && !samePay;
+  if (held && !replacing && samePay) return prev!;
+
+  // Every condition that needs a reason, each with its own: the dispatcher sees them all at once and a reason typed for one never covers another.
+  const needs: ReasonNeed[] = [];
+  const clash = await findDriverClash(driver.id, load.id, loadWindow(load.stops));
+  if (clash) needs.push({ code: "double_booked", message: `${driver.name} is already on ${clash.loadNumber ?? "another load"} (${windowText(clash.window)}).` });
+  if (replacing) needs.push({ code: "reason_required", message: `${prev!.driver.name} has this load.` });
+  if (repaid) needs.push({ code: "pay_changed", message: `${driver.name} was sent this load at ${describePay(prev!.payKind, num(prev!.payRate))}. The offer on their phone is taken back and the load has to be sent again.` });
+  const missing = missingReasons(needs, reasons);
+  if (missing.length > 0) throw new DispatchError("reasons_needed", needsMessage(missing), missing);
 
   return prisma.$transaction(async (tx) => {
     // The clash was checked above, before this transaction; two dispatchers assigning one driver to two loads at once would both have passed it. Checked again here, with the desk
-    // locked, so the second one sees the first. (Only when the dispatcher has not already given a reason to double-book.)
+    // locked, so the second one sees the first.
     await lockWorkspace(tx, workspaceId);
     // The load was read before the lock: re-read it here. One that was picked up, delivered, cancelled or deleted in between is not put back to a draft with a new driver.
-    const fresh = await tx.load.findFirst({ where: { id: load.id, workspaceId, deletedAt: null }, select: { status: true } });
+    const fresh = await tx.load.findFirst({ where: { id: load.id, workspaceId, deletedAt: null }, select: { status: true, assignment: { select: { assignmentVersion: true, driverId: true } } } });
     if (!fresh || !["draft", "accepted"].includes(fresh.status)) throw new DispatchError("load_not_assignable", "That load has started, finished or been cancelled since you opened it. Reload it.");
-    if (override == null) {
+    // What the dispatcher saw when they opened the window is still what is there: another dispatcher's assignment since then is refused, never written over.
+    if (input.expected) {
+      const nowA = fresh.assignment;
+      if ((nowA?.assignmentVersion ?? null) !== input.expected.assignmentVersion || (nowA?.driverId ?? null) !== input.expected.driverId) {
+        throw new DispatchError("stale", "Someone else changed the driver on this load since you opened it. Reload it to see who has it.");
+      }
+    }
+    if (!clash) {
       const now2 = await findDriverClash(driver.id, load.id, loadWindow(load.stops), tx);
-      if (now2) throw new DispatchError("double_booked", `${driver.name} is already on ${now2.loadNumber ?? "another load"} (${windowText(now2.window)}). Add a reason to assign anyway.`);
+      if (now2) {
+        const need: ReasonNeed = { code: "double_booked", message: `${driver.name} is already on ${now2.loadNumber ?? "another load"} (${windowText(now2.window)}).` };
+        if (missingReasons([need], reasons).length > 0) throw new DispatchError("reasons_needed", needsMessage([need]), [need]);
+        needs.push(need);
+      }
     }
     const saved = prev
       ? await tx.assignment.update({
@@ -230,12 +273,14 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
           data: { ...data, status: "draft", driverResponse: Prisma.JsonNull, assignmentVersion: { increment: 1 }, dispatchedAt: null, respondedAt: null }
         })
       : await tx.assignment.create({ data: { loadId: load.id, status: "draft", ...data } });
-    // The last driver, if they had it on their phone, is taken off it; the new one is sent it when the dispatcher sends.
-    if (prev && replacing) await enqueueBridge(tx, { workspaceId, loadId: load.id, kind: "reassign_old", driverId: prev.driverId, now });
+    // The driver who had it on their phone (another one, or the same one at the old pay) has that offer taken back; the load goes again when the dispatcher sends it.
+    if (prev && (replacing || repaid)) await enqueueBridge(tx, { workspaceId, loadId: load.id, kind: "reassign_old", driverId: prev.driverId, now });
     // A new driver has not said yes: a load that was accepted by the last one goes back to draft with the assignment (src/lib/load-state.ts).
     if (load.status !== loadStatusFor("draft")) await tx.load.update({ where: { id: load.id }, data: { status: loadStatusFor("draft") } });
     // Who is driving, and at what pay, is now known: freeze it with the rest of what the load was booked with.
     await freezeLoadSnapshot(tx, load.id, { labour: true });
+    const why = reasonText(needs, reasons);
+    const prevPay = prev ? describePay(prev.payKind, num(prev.payRate)) : null;
     await recordAudit(
       {
         entity: "assignment",
@@ -244,18 +289,20 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
         loadNumber: load.loadNumber,
         summary:
           (prev
-            ? prev.driverId === driver.id && describePay(prev.payKind, num(prev.payRate)) === payText
+            ? prev.driverId === driver.id && prevPay === payText
               ? `${driver.name} assigned again at ${payText}`
-              : `Changed from ${prev.driver.name} (${describePay(prev.payKind, num(prev.payRate))}) to ${driver.name} (${payText})`
-            : `${driver.name} assigned at ${payText}`) + (override ? ", double-booked on purpose" : ""),
-        reason: override ?? (replacing ? changeWhy : null),
-        before: prev ? { Driver: prev.driver.name, Pay: describePay(prev.payKind, num(prev.payRate)), Estimate: money(num(prev.payEstimate)) } : null,
+              : prev.driverId === driver.id
+                ? `${driver.name}'s pay changed from ${prevPay} to ${payText}`
+                : `Changed from ${prev.driver.name} (${prevPay}) to ${driver.name} (${payText})`
+            : `${driver.name} assigned at ${payText}`) + (needs.some((n) => n.code === "double_booked") ? ", double-booked on purpose" : ""),
+        reason: why,
+        before: prev ? { Driver: prev.driver.name, Pay: prevPay, Estimate: money(num(prev.payEstimate)) } : null,
         after: { Driver: driver.name, Pay: payText, Estimate: money(num(estimate)) },
         at: now, workspaceId
       },
       tx
     );
-    await recordAssignmentEvent(tx, { workspaceId, loadId: load.id, loadNumber: load.loadNumber, kind: prev ? "reassigned" : "assigned", driverId: driver.id, driverName: driver.name, reasonNote: override ?? (replacing ? changeWhy : null), assignmentVersion: saved.assignmentVersion, at: now });
+    await recordAssignmentEvent(tx, { workspaceId, loadId: load.id, loadNumber: load.loadNumber, kind: prev ? "reassigned" : "assigned", driverId: driver.id, driverName: driver.name, reasonNote: why, assignmentVersion: saved.assignmentVersion, at: now });
     return saved;
   });
 }

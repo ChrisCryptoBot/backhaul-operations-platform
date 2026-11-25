@@ -84,8 +84,8 @@ describe.skipIf(!run)("percent pay and driver statements on the demo database", 
     expect(sent.driver_pay).toEqual({ kind: "flat", rate: 287.5, estimate: 287.5 });
     expect(JSON.stringify(sent)).not.toMatch(/1150|percent|25%/);
 
-    // A set amount is still a set amount.
-    const flat = await assignDriver({ loadId: load.id, driverId: driver.id, pay: { kind: "flat", rate: 410 } });
+    // A set amount is still a set amount. The load was sent, so changing the pay takes the offer back and needs its own reason.
+    const flat = await assignDriver({ loadId: load.id, driverId: driver.id, pay: { kind: "flat", rate: 410 }, reasons: { pay_changed: "Agreed a set amount instead" } });
     expect(Number(flat.payEstimate)).toBe(410);
     L.pct = load.id; // kept for cleanup: its audit events outlive the load
   });

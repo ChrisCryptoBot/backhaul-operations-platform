@@ -5,6 +5,7 @@ import { payLabel, usd } from "@/lib/desk-format";
 import { PERCENT_MAX, RATE_CON_BASIS, percentOf } from "@/lib/pay";
 import { useDraft } from "./kit/use-draft";
 import { useClearOnSuccess } from "./kit/use-submit-outcome";
+import type { ReasonCode } from "@/lib/assign-reasons";
 
 /** `home` is the driver's home terminal and `shiftNote` a caution that a stop of this load falls outside their shift; neither stops an assignment. */
 type Option = { id: string; name: string; blocker: string | null; busy: string | null; payKind: string | null; payRate: number | null; code?: string | null; home?: string | null; shiftNote?: string | null };
@@ -28,7 +29,8 @@ export function AssignFields({
   overrideLabel = "Reason, only for a driver who is already on another load at the same time",
   overridePlaceholder = "For example: team run",
   draftKey,
-  forgetRef
+  forgetRef,
+  needs = []
 }: {
   drivers: Option[];
   loadId: string;
@@ -40,6 +42,8 @@ export function AssignFields({
   draftKey?: string;
   /** For a form that does not submit the way a page form does: it calls this to forget what was kept, once the assignment has gone through. */
   forgetRef?: React.MutableRefObject<(() => void) | null>;
+  /** One box per condition that needs a reason (src/lib/assign-reasons.ts), each sent as `reason_<code>`: a reason typed in one never covers another. `hint` says why it is asked. */
+  needs?: Array<{ code: ReasonCode; label: string; hint?: string }>;
   initial: { driverId: string | null; payKind: string | null; rate: number | null };
   rateConTotal?: number | null;
 }) {
@@ -70,11 +74,12 @@ export function AssignFields({
   const firstDriver = initial.driverId ?? firstFree;
   const first: { kind: string; rate: number | null } = initial.driverId ? { kind: initial.payKind ?? "cpm", rate: initial.rate } : (startsAt(firstDriver) ?? { kind: "cpm", rate: null });
   // What is typed here is kept until the assignment has gone through (the form around it is the page's, so the field watches it).
-  const [{ driverId, kind, rate, overrideReason }, setPick, draft] = useDraft(draftKey ?? `assign:${loadId}`, { driverId: firstDriver, kind: first.kind, rate: first.rate == null ? "" : String(first.rate), overrideReason: "" });
+  const [{ driverId, kind, rate, overrideReason, reasons = {} }, setPick, draft] = useDraft(draftKey ?? `assign:${loadId}`, { driverId: firstDriver, kind: first.kind, rate: first.rate == null ? "" : String(first.rate), overrideReason: "", reasons: {} as Record<string, string> });
   const setDriverId = (v: string) => setPick((p) => ({ ...p, driverId: v }));
   const setKind = (v: string) => setPick((p) => ({ ...p, kind: v }));
   const setRate = (v: string) => setPick((p) => ({ ...p, rate: v }));
   const setOverrideReason = (v: string) => setPick((p) => ({ ...p, overrideReason: v }));
+  const setReason = (code: string, v: string) => setPick((p) => ({ ...p, reasons: { ...(p.reasons ?? {}), [code]: v } }));
   const anchor = React.useRef<HTMLSpanElement>(null);
   useClearOnSuccess(anchor, draft);
   React.useEffect(() => {
@@ -169,6 +174,13 @@ export function AssignFields({
           <input name="overrideReason" type="text" placeholder={overridePlaceholder} value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} />
         </label>
       ) : null}
+      {needs.map((n) => (
+        <label key={n.code} className="tl-field as-reason">
+          {n.label}
+          {n.hint ? <span className="tl-sub">{n.hint}</span> : null}
+          <input name={`reason_${n.code}`} type="text" placeholder="A few words, kept in the audit log" value={reasons[n.code] ?? ""} onChange={(e) => setReason(n.code, e.target.value)} />
+        </label>
+      ))}
       <span ref={anchor} hidden />
     </>
   );

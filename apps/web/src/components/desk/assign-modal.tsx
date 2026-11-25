@@ -9,6 +9,7 @@ import type { AssignOptions } from "@/server/tl/suggest";
 import { AssignFields } from "./assign-fields";
 import { Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
+import { REASON_LABEL, reasonsFrom, type ReasonNeed } from "@/lib/assign-reasons";
 
 /**
  * Assign a driver without leaving the queue or the planner. The window opens on the best fits (what the load leaves over the cost floor at
@@ -26,13 +27,21 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
   const [chosen, setChosen] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  // The conditions the server said need a reason, each its own box; kept across tries so a box filled in once stays when another is added.
+  const [needs, setNeeds] = React.useState<ReasonNeed[]>([]);
+  // Asks for the options again (after someone else changed the load), without closing the window.
+  const [reloads, setReloads] = React.useState(0);
+  // A reload after "someone else changed it" keeps that message on screen; opening the window afresh clears it.
+  const keepError = React.useRef(false);
   const close = React.useCallback(() => setOpen(false), []);
 
   React.useEffect(() => {
     if (!open) return;
     let live = true;
     setData(undefined);
-    setError(null);
+    if (!keepError.current) setError(null);
+    keepError.current = false;
+    setNeeds([]);
     void assignOptionsAction(loadId).then((out) => {
       if (!live) return;
       setData(out);
@@ -41,14 +50,24 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
     return () => {
       live = false;
     };
-  }, [open, loadId]);
+  }, [open, loadId, reloads]);
 
   async function go() {
     const f = formRef.current;
     if (!f) return;
     const v = new FormData(f);
     setBusy(true);
-    const got = await tried(() => assignFromQueueAction({ loadId, driverId: String(v.get("driverId") ?? ""), payKind: String(v.get("payKind") ?? ""), rate: String(v.get("rate") ?? ""), overrideReason: String(v.get("overrideReason") ?? "") }));
+    const got = await tried(() =>
+      assignFromQueueAction({
+        loadId,
+        driverId: String(v.get("driverId") ?? ""),
+        payKind: String(v.get("payKind") ?? ""),
+        rate: String(v.get("rate") ?? ""),
+        reasons: reasonsFrom((k) => v.get(k)),
+        // What was there when the window opened: someone else's change in between is refused, not written over.
+        expected: data?.current ?? null
+      })
+    );
     setBusy(false);
     if (!got.ok) {
       setError(got.message);
@@ -57,6 +76,15 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
     const out = got.value;
     if (!out.ok) {
       setError(out.error);
+      if (out.code === "reasons_needed" && out.needs) {
+        const asked = out.needs;
+        setNeeds((was) => [...was.filter((n) => !asked.some((m) => m.code === n.code)), ...asked]);
+      }
+      // Someone else changed the load: read who has it now, so the window shows the truth before anything else is pressed.
+      if (out.code === "stale") {
+        keepError.current = true;
+        setReloads((n) => n + 1);
+      }
       return;
     }
     forget.current?.();
@@ -65,7 +93,6 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
     router.refresh();
   }
 
-  const needsReason = error != null && /reason/i.test(error);
   // The form starts from the chosen driver's usual pay; changing the driver in the form still does the same.
   const chosenOption = data?.drivers.find((d) => d.id === chosen);
 
@@ -137,9 +164,7 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
               <AssignFields key={chosen} loadId={loadId} drivers={data.drivers} initial={{ driverId: chosen || null, payKind: chosenOption?.payKind ?? null, rate: chosenOption?.payRate ?? null }} rateConTotal={data.rateConTotal}
                 draftKey={`assign-queue:${loadId}:${chosen}`}
                 forgetRef={forget}
-                askOverride={needsReason}
-                overrideLabel="Why double-book this driver?"
-                overridePlaceholder="A few words, kept in the audit log"
+                needs={needs.map((n) => ({ code: n.code, label: REASON_LABEL[n.code], hint: n.message }))}
               />
             </form>
           </div>

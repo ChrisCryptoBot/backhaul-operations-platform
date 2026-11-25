@@ -17,6 +17,7 @@ import { removeLoadDocument, setDocumentToDriver, type DocResult } from "@/serve
 import { addMember, setMemberGrants, removeMember, setMemberRole, type MemberResult } from "@/server/tl/members";
 import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
 import { isRecallCode } from "@/lib/recall-reasons";
+import { reasonsFrom, type Reasons } from "@/lib/assign-reasons";
 import { RelayError, acknowledgeDiscrepancy, flagDiscrepancy, receiveHandoff, recordDrop } from "@/server/tl/relay";
 import type { MilesSource } from "@/lib/relay";
 import { retryBridgeDelivery } from "@/server/bridge/retry";
@@ -153,7 +154,8 @@ export async function assignAction(formData: FormData) {
       loadId,
       driverId: String(formData.get("driverId")),
       pay: { kind: String(formData.get("payKind")) as PayKind, rate },
-      overrideReason: String(formData.get("overrideReason") ?? "")
+      // One box per condition (src/lib/assign-reasons.ts): a reason typed for one never covers another.
+      reasons: reasonsFrom((k) => formData.get(k))
     });
     return "Driver assigned. Send it when you are ready.";
   });
@@ -169,7 +171,7 @@ export async function assignOptionsAction(loadId: string): Promise<AssignOptions
 }
 
 /** Assign from the queue or the planner. Answers in place (no redirect), and everything that shows a load looks again. */
-export async function assignFromQueueAction(input: { loadId: string; driverId: string; payKind: string; rate: string; overrideReason?: string }): Promise<AssignOutcome> {
+export async function assignFromQueueAction(input: { loadId: string; driverId: string; payKind: string; rate: string; reasons?: Reasons; expected?: { assignmentVersion: number | null; driverId: string | null } | null }): Promise<AssignOutcome> {
   await requireCan("dispatch");
   const out = await assignFromQueue(input);
   if (out.ok) refreshLoads();
