@@ -35,13 +35,14 @@ export async function ensureActiveLeg(tx: Tx, load: LoadForLeg, a: AssignmentFor
   const legs = await legsOf(tx, load.id);
   const active = legs.find((l) => l.status === "active");
   if (active) return active;
-  if (legs.length > 0) throw new Error("This load has legs but none is active.");
+  // When closed legs (e.g. a positioning recall) already exist, open the next haul leg with seq = max + 1 rather than throwing or colliding with seq 1.
+  const seq = legs.reduce((max, l) => (l.seq > max ? l.seq : max), 0) + 1;
   const first = load.stops[0];
   return tx.loadLeg.create({
     data: {
       workspaceId: load.workspaceId,
       loadId: load.id,
-      seq: 1,
+      seq,
       kind: "haul",
       status: "active",
       driverId: a.driverId,

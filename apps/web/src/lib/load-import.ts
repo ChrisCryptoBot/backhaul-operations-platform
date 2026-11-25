@@ -1,5 +1,6 @@
 import { toCsv } from "./csv";
 import { IMPORT_MAX_PROBLEMS, IMPORT_MAX_ROWS, asYmd, type ProblemRow } from "./import-csv";
+import { LOAD_LIMITS } from "./load-limits";
 import { DEFAULT_TZ } from "./tz";
 import { parseCentralLocal } from "./zoned";
 
@@ -154,7 +155,7 @@ export type LoadDraft = {
 export type DraftStop = { role: "pickup" | "delivery"; address: string; arrivedAt: Date | null; waitMinutes: number | null };
 
 /** The most miles one load can plausibly carry, and the most dollars: a cell past these is a typo, not a load. */
-export const MAX_MILES = 6_000;
+export const MAX_MILES = LOAD_LIMITS.miles;
 export const MAX_DOLLARS = 1_000_000;
 
 function money(raw: string): number | null | "bad" {

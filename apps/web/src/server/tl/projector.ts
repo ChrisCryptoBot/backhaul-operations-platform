@@ -8,6 +8,8 @@
  */
 import { Prisma } from "@prisma/client";
 import type { PayKind } from "@/lib/pay";
+import { numberInText } from "@/lib/secret-text";
+import { roleOfStop } from "@/lib/stop-role";
 
 export type { PayKind } from "@/lib/pay";
 export type AssignmentPay = { kind: PayKind; rate: number };
@@ -104,8 +106,7 @@ export function driverFacingPay(pay: AssignmentPay, rateConTotal: number): { kin
 }
 
 const iso = (d?: Date | null) => (d ? d.toISOString() : undefined);
-const role = (s: ProjectableStop): "pickup" | "delivery" =>
-  (s.stopRole ?? s.stopType) === "pickup" || s.stopType === "origin" ? "pickup" : "delivery";
+const role = (s: ProjectableStop): "pickup" | "delivery" => roleOfStop(s);
 
 function firstRef(refs: unknown): string | undefined {
   if (Array.isArray(refs) && refs.length > 0 && typeof refs[0] === "string") return refs[0];
@@ -210,8 +211,7 @@ function secretIn(value: unknown, numbers: number[], path = "summary"): { n: num
   if (typeof value === "string") {
     const text = value.replace(ISO_TIME, " ");
     for (const n of wanted) {
-      const pattern = new RegExp(`(^|[^0-9.])${String(n).replace(".", "\.")}([^0-9]|$)`);
-      if (pattern.test(text)) return { n, path };
+      if (numberInText(text, n)) return { n, path };
     }
     return null;
   }

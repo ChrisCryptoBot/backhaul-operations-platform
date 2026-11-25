@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { encodeCursor, type Cursor } from "@/lib/api-keys";
+import { notQuote } from "@/lib/quote-status";
 
 /**
  * What the partner read API answers (docs/MONEY_PLAN.md, Wave 7 step 2). Every function takes the workspace as a required parameter, with no default, and reads only that workspace's rows.
@@ -119,7 +120,7 @@ export async function listSettlements(workspaceId: string, page: Page): Promise<
 
 export async function listLoads(workspaceId: string, page: Page): Promise<ListOut> {
   const rows = await prisma.load.findMany({
-    where: { workspaceId, deletedAt: null, ...afterCursor(page.after) },
+    where: { workspaceId, deletedAt: null, ...notQuote, ...afterCursor(page.after) },
     orderBy: ORDER,
     take: page.limit + 1,
     select: {

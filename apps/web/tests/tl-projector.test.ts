@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { loadSecrets } from "@/lib/secret-text";
 import { assertDriverSafe, contractorMoney, payEstimate, projectLoadToSummary, type ProjectableLoad } from "@/server/tl/projector";
 
 const load: ProjectableLoad = {
@@ -89,5 +90,23 @@ describe("a contractor's load money (finalization plan F2)", () => {
   it("the rest of a contractor's summary is still checked: a note that repeats the rate is caught", () => {
     const leaky = { ...s, contractor: { gross: 1499.5, fee_pct: 25 }, destination: { address: "Columbus, OH", dock_notes: "pays 1499.5" } };
     expect(() => assertDriverSafe(leaky, { numbers: [1499.5] }, { contractor: true })).toThrow(/secret value/);
+  });
+
+  it("catches comma-formatted dollars, trailing zeroes (.50), extra rate fields, and allows coincidental substrings like pallets", () => {
+    expect(() => assertDriverSafe({ ...s, destination: { address: "Columbus, OH", dock_notes: "Rate $2,500" } }, { numbers: [2500] })).toThrow(/secret value/);
+    expect(() => assertDriverSafe({ ...s, destination: { address: "Columbus, OH", dock_notes: "Check 1499.50" } }, { numbers: [1499.5] })).toThrow(/secret value/);
+    expect(() => assertDriverSafe({ ...s, destination: { address: "Columbus, OH", dock_notes: "12.5 pallets at dock 4" } }, { numbers: [1205] })).not.toThrow();
+    const secrets = loadSecrets({ quotedRevenue: 2000, fuelSurcharge: 350, tonuRevenue: 400, layoverPay: 150, invoicedAmount: 2450 });
+    expect(secrets).toEqual(expect.arrayContaining([2000, 350, 2350, 400, 150]));
+  });
+
+  it("maps origin stopType to pickup role", () => {
+    const originLoad: ProjectableLoad = {
+      ...load,
+      stops: [{ stopSequence: 1, stopType: "origin", addressString: "Dallas, TX", referenceNumbers: ["ORIG-9"] }, load.stops[1]!]
+    };
+    const projected = projectLoadToSummary(originLoad, { kind: "cpm", rate: 0.65 });
+    // The origin stop is the pickup: its reference becomes the pickup number the phone's Start Trip gate needs.
+    expect(projected.origin?.po_number).toBe("ORIG-9");
   });
 });

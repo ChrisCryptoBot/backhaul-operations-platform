@@ -1,4 +1,5 @@
 import { LOAD_LIMITS } from "./load-limits";
+import { roleOfStop } from "./stop-role";
 import { OTHER_TRAILER_MAX, OTHER_TRAILER_PREFIX, TRAILER_TYPES, isOtherTrailer } from "@/truelane/constants/trailerData";
 import { parseCentralLocal, toCentralLocal } from "./zoned";
 
@@ -141,9 +142,9 @@ export function validateLoadEdit(v: LoadEditValues): LoadEditCheck {
     const rate = num("deal.rate", d.rate, "The rate", 0, 1_000_000);
     if (rate == null && !errors["deal.rate"]) errors["deal.rate"] = "Type the agreed rate.";
     const fuelSurcharge = num("deal.fuelSurcharge", d.fuelSurcharge, "The fuel surcharge", 0, 100_000);
-    const loadedMiles = num("deal.loadedMiles", d.loadedMiles, "Loaded miles", 0, 5000);
-    const emptyToPickup = num("deal.emptyToPickup", d.emptyToPickup, "Empty miles to the pickup", 0, 5000);
-    const emptyHome = num("deal.emptyHome", d.emptyHome, "Empty miles home", 0, 5000);
+    const loadedMiles = num("deal.loadedMiles", d.loadedMiles, "Loaded miles", 0, LOAD_LIMITS.miles);
+    const emptyToPickup = num("deal.emptyToPickup", d.emptyToPickup, "Empty miles to the pickup", 0, LOAD_LIMITS.miles);
+    const emptyHome = num("deal.emptyHome", d.emptyHome, "Empty miles home", 0, LOAD_LIMITS.miles);
     if (t(d.vehicleId) === "?") errors["deal.vehicleId"] = "Pick a truck from the list.";
     deal = { vehicleId: orNull(t(d.vehicleId)), rate: rate ?? 0, fuelSurcharge, loadedMiles: loadedMiles ?? 0, emptyToPickup: emptyToPickup ?? 0, emptyHome: emptyHome ?? 0 };
   }
@@ -271,7 +272,7 @@ export function toEditValues(load: StoredLoad, zones: Record<string, string> = {
     },
     stops: load.stops.map((x) => ({
       id: x.id,
-      role: (x.stopRole ?? x.stopType) === "delivery" ? "delivery" : "pickup",
+      role: roleOfStop(x),
       address: x.addressString,
       facility: s(x.facilityName),
       earliest: local(x.timeWindowEarliest, zones[x.id]),

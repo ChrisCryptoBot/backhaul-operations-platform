@@ -325,4 +325,20 @@ describe.skipIf(!run)("a driver recalled while rolling empty keeps the miles the
     expect(await prisma.assignment.count({ where: { loadId: load.id } })).toBe(1);
     expect(await legsOfLoad(load.id, P)).toHaveLength(0);
   });
+
+  test("after a positioning recall, reassigning and dropping opens seq 2 instead of colliding on seq 1", async () => {
+    // Earlier tests leave this driver on other loads in the same window: clear them so the reassignment is not a double booking.
+    await prisma.assignment.deleteMany({ where: { load: { workspaceId: P } } });
+    const load = await accepted("RP-4");
+    await recordDriverResponse(load.id, "accepted", NOW, undefined, P);
+    await unassignLoad(load.id, "Truck switched", NOW, P, null, "ASSIGNED_IN_ERROR", { milesDriven: 30, milesSource: "driver" });
+    await assignDriver({ loadId: load.id, driverId: ids.d, pay: { kind: "cpm", rate: 0.6 } }, NOW, P);
+    await dispatchLoad(load.id, NOW, {}, P);
+    await recordDriverResponse(load.id, "accepted", NOW, undefined, P);
+    await prisma.load.update({ where: { id: load.id }, data: { status: "in_progress" } });
+    await prisma.assignment.update({ where: { loadId: load.id }, data: { status: "in_progress" } });
+    await recordDrop(load.id, GOOD, NOW, P, null);
+    const legs = await legsOfLoad(load.id, P);
+    expect(legs.map((l) => [l.seq, l.kind, l.status])).toEqual([[1, "positioning", "closed"], [2, "haul", "closed"]]);
+  });
 });

@@ -52,10 +52,11 @@ describe.skipIf(!run)("Wave 7 step 2: the partner read API", () => {
       if (i === 0) await prisma.invoicePayment.create({ data: { workspaceId: A, invoiceId: inv.id, amount: "1234.50", paidAt: t, method: "ach", source: "desk", createdAt: t } });
     }
     await prisma.invoice.create({ data: { workspaceId: B, number: "B-1", issuedAt: at(0), total: 99, createdAt: at(0) } });
-    // Loads: one assigned to the driver, one deleted.
+    // Loads: one assigned to the driver, one deleted, and one saved quote (which must stay off the API).
     const load = await prisma.load.create({ data: { workspaceId: A, loadNumber: "L-1", status: "completed", quotedRevenue: "2000.00", loadedMiles: "512.3456", originAddress: "Dallas, TX", destinationAddress: "Tulsa, OK", createdAt: at(0) } });
     await prisma.assignment.create({ data: { loadId: load.id, driverId: driverA, payKind: "percent", payRate: "0.25" } });
     await prisma.load.create({ data: { workspaceId: A, loadNumber: "L-GONE", status: "draft", deletedAt: at(5), createdAt: at(1) } });
+    await prisma.load.create({ data: { workspaceId: A, loadNumber: "L-QUOTE", status: "quote", quotedRevenue: "1800.00", createdAt: at(2) } });
     // Statements: a draft (not listed) and a final one.
     await prisma.settlement.create({ data: { workspaceId: A, driverId: driverA, number: "ST-DRAFT", status: "draft", periodStart: at(-10_080), periodEnd: at(0), createdAt: at(0) } });
     await prisma.settlement.create({ data: { workspaceId: A, driverId: driverA, number: "ST-1", status: "final", periodStart: new Date("2026-09-21"), periodEnd: new Date("2026-09-27"), total: "800.00", finalizedAt: at(2), payrollReference: "pending:abc", payrollSentAt: at(2), createdAt: at(1) } });

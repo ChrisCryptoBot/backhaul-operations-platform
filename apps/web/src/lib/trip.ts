@@ -1,3 +1,5 @@
+import { MAX_WAIT_MINUTES } from "./detention-evidence";
+import { LOAD_LIMITS } from "./load-limits";
 import { parseCentralLocal } from "./zoned";
 
 /**
@@ -7,8 +9,8 @@ import { parseCentralLocal } from "./zoned";
  */
 /** `zone`: the clock at the stop the time is typed for (an IANA zone). The desk fills it in from where the stop is; left out, a time is read on the carrier's clock. */
 export type StartValues = { arrivedAt: string; waitMinutes: string; seal: string; zone?: string | null };
-/** `seal` is the seal number put on or read at that stop (optional; blank keeps what is already recorded). */
-export type CompleteStopValues = { id: string; arrivedAt: string; waitMinutes: string; seal?: string; zone?: string | null };
+/** `seal` is the seal number put on or read at that stop (optional; blank keeps what is already recorded). `arrivedAt` omitted in a correction means keep existing arrival. */
+export type CompleteStopValues = { id: string; arrivedAt?: string; waitMinutes: string; seal?: string; zone?: string | null };
 /** The costs a trip can carry beyond fuel and tolls, itemised as the phone does. Their total is added to "other" and kept as the load's other expense, so every sum that reads it is unchanged. */
 export const EXPENSE_ITEMS = [
   { key: "lumper", label: "Lumper" },
@@ -40,13 +42,13 @@ export type ExpenseInput = {
   tolls: number;
   /** "Other" as typed; the load keeps it plus the itemised costs (see expenseTotal). */
   misc: number;
-  layover: number;
+  layover?: number;
   items?: Partial<Record<ExpenseItemKey, number>>;
-  rider?: number;
-  revenueNote?: string;
+  rider?: number | null;
+  revenueNote?: string | null;
   miles?: { pickup?: number; loaded?: number; home?: number };
   backhaul?: boolean;
-  tonuMiles?: number;
+  tonuMiles?: number | null;
 };
 
 /** Everything a trip cost beyond fuel and tolls: "other" plus each itemised cost. This is what the load stores as its other expense. */
@@ -74,12 +76,12 @@ function time(errors: TripErrors, key: string, raw: string, now: number, require
   return new Date(ms);
 }
 
-function minutes(errors: TripErrors, key: string, raw: string): number | null {
+function minutes(errors: TripErrors, key: string, raw: string, max = 1440): number | null {
   const s = t(raw);
   if (s === "") return null;
   const n = Number(s);
-  if (!Number.isInteger(n) || n < 0 || n > 1440) {
-    errors[key] = "Whole minutes, 0 to 1,440.";
+  if (!Number.isInteger(n) || n < 0 || n > max) {
+    errors[key] = `Whole minutes, 0 to ${max.toLocaleString("en-US")}.`;
     return null;
   }
   return n;
@@ -97,13 +99,13 @@ function money(errors: TripErrors, key: string, raw: string): number {
   return n;
 }
 
-/** A mile count: to four decimals (what the load stores), 0 to 6,000 for one leg. Blank is "keep what the load has". */
+/** A mile count: to four decimals (what the load stores), 0 to LOAD_LIMITS.miles for one leg. Blank is "keep what the load has". */
 function legMiles(errors: TripErrors, key: string, raw: string | undefined): number | undefined {
   const s = t(raw ?? "").replace(/,/g, "");
   if (s === "") return undefined;
   const n = /^(\d+(\.\d{0,4})?|\.\d{1,4})$/.test(s) ? Number(s) : Number.NaN;
-  if (!Number.isFinite(n) || n > 6000) {
-    errors[key] = "Miles, 0 to 6,000.";
+  if (!Number.isFinite(n) || n > LOAD_LIMITS.miles) {
+    errors[key] = `Miles, 0 to ${LOAD_LIMITS.miles.toLocaleString("en-US")}.`;
     return undefined;
   }
   return n;
@@ -111,32 +113,43 @@ function legMiles(errors: TripErrors, key: string, raw: string | undefined): num
 
 export function validateExpenses(v: ExpenseValues): { ok: true; value: ExpenseInput } | { ok: false; errors: TripErrors } {
   const errors: TripErrors = {};
-  const value: ExpenseInput = { fuel: money(errors, "fuel", v.fuel), tolls: money(errors, "tolls", v.tolls), misc: money(errors, "misc", v.misc), layover: money(errors, "layover", v.layover ?? "") };
+  const value: ExpenseInput = { fuel: money(errors, "fuel", v.fuel), tolls: money(errors, "tolls", v.tolls), misc: money(errors, "misc", v.misc) };
+  if (v.layover !== undefined) value.layover = money(errors, "layover", v.layover);
   if (v.items) value.items = Object.fromEntries(EXPENSE_ITEMS.map((i) => [i.key, money(errors, `item.${i.key}`, v.items?.[i.key] ?? "")]).filter(([, n]) => (n as number) > 0)) as ExpenseInput["items"];
-  if (t(v.rider ?? "") !== "") value.rider = money(errors, "rider", v.rider ?? "");
-  const note = t(v.revenueNote ?? "");
-  if (note.length > 300) errors.revenueNote = "300 characters at most.";
-  else if (note !== "") value.revenueNote = note;
+  if (v.rider !== undefined) {
+    value.rider = t(v.rider) === "" ? null : money(errors, "rider", v.rider);
+  }
+  if (v.revenueNote !== undefined) {
+    const note = t(v.revenueNote);
+    if (note.length > 300) errors.revenueNote = "300 characters at most.";
+    else value.revenueNote = note === "" ? null : note;
+  }
   if (v.miles) {
     const miles = { pickup: legMiles(errors, "miles.pickup", v.miles.pickup), loaded: legMiles(errors, "miles.loaded", v.miles.loaded), home: legMiles(errors, "miles.home", v.miles.home) };
     if (miles.pickup != null || miles.loaded != null || miles.home != null) value.miles = miles;
   }
   if (typeof v.backhaul === "boolean") value.backhaul = v.backhaul;
-  const tonuMiles = legMiles(errors, "tonuMiles", v.tonuMiles);
-  if (tonuMiles != null) value.tonuMiles = tonuMiles;
+  if (v.tonuMiles !== undefined) {
+    if (t(v.tonuMiles) === "") value.tonuMiles = null;
+    else {
+      const tonuMiles = legMiles(errors, "tonuMiles", v.tonuMiles);
+      if (tonuMiles !== undefined) value.tonuMiles = tonuMiles;
+    }
+  }
   return Object.keys(errors).length > 0 ? { ok: false, errors } : { ok: true, value };
 }
 
 /** Waits, arrivals and seals corrected after the fact, and this load's own detention terms when the rate confirmation differs from the truck's profile. Blank detention fields keep the terms the load has. */
 export type CorrectValues = { stops: CompleteStopValues[]; detentionRate?: string; detentionGraceMinutes?: string; reason: string };
-export type CorrectInput = { stops: Array<{ id: string; arrivedAt: Date | null; waitMinutes: number | null; seal: string | null }>; detentionRate?: number; detentionGraceMinutes?: number; reason: string };
+export type CorrectInput = { stops: Array<{ id: string; arrivedAt?: Date | null; waitMinutes: number | null; seal: string | null }>; detentionRate?: number; detentionGraceMinutes?: number; reason: string };
 
 export function validateCorrection(v: CorrectValues, now = Date.now()): { ok: true; value: CorrectInput } | { ok: false; errors: TripErrors } {
   const errors: TripErrors = {};
   const stops = v.stops.map((s, i) => {
     const seal = t(s.seal ?? "");
     if (seal.length > 30) errors[`stop${i}.seal`] = "A seal number is 30 characters at most.";
-    return { id: s.id, arrivedAt: time(errors, `stop${i}.arrivedAt`, s.arrivedAt, now, false, s.zone), waitMinutes: minutes(errors, `stop${i}.waitMinutes`, s.waitMinutes), seal: seal === "" ? null : seal };
+    const arrivedAt = s.arrivedAt === undefined ? undefined : time(errors, `stop${i}.arrivedAt`, s.arrivedAt, now, false, s.zone);
+    return { id: s.id, ...(arrivedAt !== undefined ? { arrivedAt } : {}), waitMinutes: minutes(errors, `stop${i}.waitMinutes`, s.waitMinutes, MAX_WAIT_MINUTES), seal: seal === "" ? null : seal };
   });
   const reason = t(v.reason);
   if (reason.length < 3) errors.reason = "Say what was wrong, so the record shows why it changed.";
@@ -148,7 +161,7 @@ export function validateCorrection(v: CorrectValues, now = Date.now()): { ok: tr
   }
   let detentionGraceMinutes: number | undefined;
   if (t(v.detentionGraceMinutes ?? "") !== "") {
-    const n = minutes(errors, "detentionGraceMinutes", v.detentionGraceMinutes ?? "");
+    const n = minutes(errors, "detentionGraceMinutes", v.detentionGraceMinutes ?? "", 1440);
     if (n != null) detentionGraceMinutes = n;
   }
   if (Object.keys(errors).length > 0) return { ok: false, errors };
@@ -158,7 +171,7 @@ export function validateCorrection(v: CorrectValues, now = Date.now()): { ok: tr
 export function validateStart(v: StartValues, now = Date.now()): { ok: true; value: StartInput } | { ok: false; errors: TripErrors } {
   const errors: TripErrors = {};
   const arrivedAt = time(errors, "arrivedAt", v.arrivedAt, now, true, v.zone);
-  const waitMinutes = minutes(errors, "waitMinutes", v.waitMinutes);
+  const waitMinutes = minutes(errors, "waitMinutes", v.waitMinutes, MAX_WAIT_MINUTES);
   const seal = t(v.seal);
   if (seal.length > 30) errors.seal = "A seal number is 30 characters at most.";
   if (Object.keys(errors).length > 0 || !arrivedAt) return { ok: false, errors };
@@ -170,7 +183,7 @@ export function validateComplete(v: CompleteValues, now = Date.now()): { ok: tru
   const stops = v.stops.map((s, i) => {
     const seal = t(s.seal ?? "");
     if (seal.length > 30) errors[`stop${i}.seal`] = "A seal number is 30 characters at most.";
-    return { id: s.id, arrivedAt: time(errors, `stop${i}.arrivedAt`, s.arrivedAt, now, false, s.zone), waitMinutes: minutes(errors, `stop${i}.waitMinutes`, s.waitMinutes), seal: seal === "" ? null : seal };
+    return { id: s.id, arrivedAt: time(errors, `stop${i}.arrivedAt`, s.arrivedAt ?? "", now, false, s.zone), waitMinutes: minutes(errors, `stop${i}.waitMinutes`, s.waitMinutes, MAX_WAIT_MINUTES), seal: seal === "" ? null : seal };
   });
   const deliveredAt = time(errors, "deliveredAt", v.deliveredAt, now, true, v.deliveredZone);
   const note = t(v.podNote);

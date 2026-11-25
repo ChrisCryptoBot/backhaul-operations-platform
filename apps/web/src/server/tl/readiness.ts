@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { roleOfStop } from "@/lib/stop-role";
 import { currentWorkspaceId } from "./workspace";
 import { refList, sendReadiness, type SendGap } from "@/lib/send-readiness";
 
@@ -11,7 +12,7 @@ export async function loadSendGaps(loadId: string, workspaceId = currentWorkspac
   if (!l) return [];
   const first = l.stops[0];
   const last = l.stops[l.stops.length - 1];
-  const pickupRefs = [...refList(l.pickupNumbers), ...l.stops.filter((s) => s.stopRole === "pickup").flatMap((s) => refList(s.referenceNumbers))];
+  const pickupRefs = [...refList(l.pickupNumbers), ...l.stops.filter((s) => roleOfStop(s) === "pickup").flatMap((s) => refList(s.referenceNumbers))];
   return sendReadiness({
     weightLbs: l.weightLbs,
     loadNumber: l.loadNumber,

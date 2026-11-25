@@ -20,8 +20,10 @@ import { AssignFields } from "./assign-fields";
 import { DeclineNote } from "./load-view-fields";
 import { AssignTrailer } from "./trailer-forms";
 import { trailerBlocker } from "@/lib/trailer-clearance";
-import { acknowledgeDiscrepancyAction, assignAction, discrepancyAction, dropAction, receiveAction, reopenCancelledAction, reopenDeliveredAction, respondAction, retryBridgeAction, sendAction, unassignAction, undoPaidAction, undoStartAction, voidInvoiceAction } from "@/app/(desk)/actions";
+import { acknowledgeDiscrepancyAction, assignAction, discrepancyRelayAction, dropRelayAction, recallAction, receiveRelayAction, reopenCancelledAction, reopenDeliveredAction, respondAction, retryBridgeAction, sendAction, unassignAction, undoPaidAction, undoStartAction, voidInvoiceAction } from "@/app/(desk)/actions";
 import { InvoiceDialog, LoadEditDialog, PaidDialog, TripEntry } from "./load-actions";
+import { loadLedger } from "@/lib/load-ledger";
+import { roleOfStop } from "@/lib/stop-role";
 import { RecallForm } from "./recall-form";
 import { DiscrepancyForm, DropForm, ReceiveForm } from "./relay-forms";
 import { handoffsOfLoad, legsOfLoad, receiveOptions } from "@/server/tl/relay";
@@ -118,7 +120,7 @@ export async function LoadView({ id }: { id: string }) {
   const totalMiles = evaluation?.totalMiles ?? 0;
   const delivered = load.status === "completed";
   const earned = grossOf({ status: load.status, quotedRevenue: num(load.quotedRevenue), actualRevenue: numOrNull(load.actualRevenue), fuelSurcharge: numOrNull(load.fuelSurcharge), layoverPay: numOrNull(load.layoverPay), tonuRevenue: numOrNull(load.tonuRevenue) });
-  const heroGross = delivered ? earned : evaluation?.effectiveGross ?? num(load.quotedRevenue);
+  const heroGross = delivered || load.status === "cancelled" || load.status === "tonu" ? earned : evaluation?.effectiveGross ?? num(load.quotedRevenue);
   const allIn = evaluation && totalMiles > 0 ? heroGross / totalMiles : null;
   const loadedMiles = num(load.loadedMiles);
   const perLoaded = evaluation && loadedMiles > 0 ? heroGross / loadedMiles : null;
@@ -178,7 +180,7 @@ export async function LoadView({ id }: { id: string }) {
   const gaps = sendReadiness({
     weightLbs: load.weightLbs,
     loadNumber: load.loadNumber,
-    pickupRefs: [...refList(load.pickupNumbers), ...load.stops.filter((s) => s.stopRole === "pickup").flatMap((s) => refList(s.referenceNumbers))],
+    pickupRefs: [...refList(load.pickupNumbers), ...load.stops.filter((s) => roleOfStop(s) === "pickup").flatMap((s) => refList(s.referenceNumbers))],
     trailerType: load.trailerType,
     vehicleType: load.vehicle?.type ?? null,
     pickupTime: load.stops[0]?.timeWindowEarliest ?? null,
@@ -196,7 +198,7 @@ export async function LoadView({ id }: { id: string }) {
     firstArrivedAt: arrived,
     assignment: a ? { status: a.status, createdAt: a.createdAt, dispatchedAt: a.dispatchedAt, respondedAt: a.respondedAt } : null,
     // Each stop as it is reached (the driver's phone reports arrivals, sync plan Step 2). Not before the trip is on the road: an unsent load's stops are a plan, not progress.
-    stops: ["in_progress", "completed"].includes(load.status) ? load.stops.map((s) => ({ sequence: s.stopSequence, role: (s.stopRole ?? s.stopType) === "pickup" || s.stopType === "origin" ? "pickup" : "delivery", arrivedAt: s.arrivedAt, waitMinutes: s.waitMinutes, fromPhone: s.arrivedSource === "phone" })) : undefined
+    stops: ["in_progress", "completed"].includes(load.status) ? load.stops.map((s) => ({ sequence: s.stopSequence, role: roleOfStop(s), arrivedAt: s.arrivedAt, waitMinutes: s.waitMinutes, fromPhone: s.arrivedSource === "phone" })) : undefined
   });
 
   const bar = (value: number | null, floor: number | null, max: number, verdict: string | undefined) => (
@@ -253,7 +255,7 @@ export async function LoadView({ id }: { id: string }) {
     onStatement: Boolean(settled),
     totalMiles
   });
-  const deliveryStopOptions = load.stops.filter((s) => (s.stopRole ?? s.stopType) === "delivery").map((s) => ({ id: s.id, label: `Stop ${s.stopSequence}, ${s.facilityName ?? s.addressString}` }));
+  const deliveryStopOptions = load.stops.filter((s) => roleOfStop(s) === "delivery").map((s) => ({ id: s.id, label: `Stop ${s.stopSequence}, ${s.facilityName ?? s.addressString}` }));
   const stopLabelOf = (id: string | null) => (id ? (deliveryStopOptions.find((s) => s.id === id)?.label ?? null) : null);
   const docsLocked = load.factoringStatus !== "none" && load.factoringStatus !== "rejected" ? "This load's invoice has gone to a factoring company, so its documents stay as they were sent." : null;
 
@@ -268,30 +270,35 @@ export async function LoadView({ id }: { id: string }) {
 
   // Compliance Gates Status
   const weightVal = numOrNull(load.weightLbs);
-  const weightOk = weightVal == null || weightVal <= 45000;
+  const maxWeightLbs = load.vehicle?.payloadLbs ?? 45000;
+  const weightOk = weightVal == null || weightVal <= maxWeightLbs;
   const trailerOk = !!load.trailer || !!load.trailerType;
   const driverOk = !!a && (a.status === "accepted" || a.status === "dispatched" || a.status === "in_progress");
   const refsOk = gaps.length === 0;
   const floorThreshold = delivered && frozenFloor != null ? frozenFloor : (evaluation?.verdictFloorRpm ?? 0);
 
   // Margin Ledger Math
-  const revLinehaul = num(load.quotedRevenue);
-  const revFsc = num(load.fuelSurcharge);
-  const revDetention = dt.billedExtra > 0 ? dt.billedExtra : (load.status === "completed" ? dt.billable : 0);
-  const revLayover = num(load.layoverPay);
-  const revTonu = num(load.tonuRevenue);
-  const totalRev = revLinehaul + revFsc + revDetention + revLayover + revTonu;
-
-  const expDriver = a?.payEstimate != null ? num(a.payEstimate) : 0;
-  const expFuel = num(load.expenseFuelActual) > 0 ? num(load.expenseFuelActual) : (evaluation?.fuelCost?.totalFuelCost ?? 0);
-  const expTolls = num(load.expenseTolls);
-  const expRider = num(load.insuranceRiderFlat);
-  const expMisc = Math.max(0, num(load.expenseMisc));
-  const totalExp = expDriver + expFuel + expTolls + expRider + expMisc;
-
-  const netProfit = totalRev - totalExp;
-  const netMarginPct = totalRev > 0 ? (netProfit / totalRev) * 100 : 0;
-  const netProfitPerMile = totalMiles > 0 ? netProfit / totalMiles : 0;
+  const ledger = loadLedger(
+    {
+      status: load.status,
+      quotedRevenue: num(load.quotedRevenue),
+      actualRevenue: numOrNull(load.actualRevenue),
+      fuelSurcharge: numOrNull(load.fuelSurcharge),
+      layoverPay: numOrNull(load.layoverPay),
+      tonuRevenue: numOrNull(load.tonuRevenue),
+      expenseFuelActual: numOrNull(load.expenseFuelActual),
+      expenseTolls: numOrNull(load.expenseTolls),
+      expenseMisc: numOrNull(load.expenseMisc),
+      insuranceRiderFlat: numOrNull(load.insuranceRiderFlat),
+      assignmentPayEstimate: a?.payEstimate != null ? num(a.payEstimate) : null,
+      forecastFuel: evaluation?.fuelCost?.totalFuelCost ?? 0,
+      totalMiles
+    },
+    legs.map((l) => ({ status: l.status, kind: l.kind, payEstimate: l.payEstimate != null ? num(l.payEstimate) : null })),
+    settled,
+    { billedExtra: dt.billedExtra, billable: dt.billable, waived: waivedReason != null }
+  );
+  const { netMarginPct, netProfitPerMile, netProfit } = ledger;
 
   // Deck figures. One hero: the margin against the floor when the load has a floor, else what it pays (a load not judged yet must never leave the header blank).
   const deckTonu = load.status === "tonu";
@@ -358,8 +365,8 @@ export async function LoadView({ id }: { id: string }) {
                       <p className="tl-note">This says dispatch has seen it. The next driver can then take the load, and the report stays on it.</p>
                     </ConfirmForm>
                   ) : null}
-                  <ReceiveForm action={receiveAction} loadId={load.id} handoff={{ id: b.id, type: b.type, locationName: b.locationName, tractorOutName: b.tractorOutName, sealNumber: b.sealNumber }} drivers={relayOptions.drivers} trucks={relayOptions.trucks} rateConTotal={rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge))} blockedByDiscrepancy={b.state === "disputed"} />
-                  {b.state === "dropped" ? <DiscrepancyForm action={discrepancyAction} loadId={load.id} handoffId={b.id} location={b.locationName ?? "the handoff"} /> : null}
+                  <ReceiveForm action={receiveRelayAction} loadId={load.id} handoff={{ id: b.id, type: b.type, locationName: b.locationName, tractorOutId: b.tractorOutId, tractorOutName: b.tractorOutName, sealNumber: b.sealNumber }} drivers={relayOptions.drivers} trucks={relayOptions.trucks} rateConTotal={rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge))} blockedByDiscrepancy={b.state === "disputed"} />
+                  {b.state === "dropped" ? <DiscrepancyForm action={discrepancyRelayAction} loadId={load.id} handoffId={b.id} location={b.locationName ?? "the handoff"} /> : null}
                 </div>
               ) : null}
             </div>
@@ -367,7 +374,7 @@ export async function LoadView({ id }: { id: string }) {
         })}
         {canHandOff && a ? (
           <div style={{ marginTop: 12 }}>
-            <DropForm action={dropAction} loadId={load.id} loadNumber={load.loadNumber ?? "this load"} driverName={a.driver.name} />
+            <DropForm action={dropRelayAction} loadId={load.id} loadNumber={load.loadNumber ?? "this load"} driverName={a.driver.name} />
             <p className="tl-note" style={{ marginTop: 6 }}>For a planned relay, a driver who ran out of hours, or a breakdown. If the driver was recalled while rolling, this is how the load moves on.</p>
           </div>
         ) : null}
@@ -439,7 +446,7 @@ export async function LoadView({ id }: { id: string }) {
         ) : null}
 
         {canUnassign && a && (a.status === "dispatched" || a.status === "accepted") ? (
-          <RecallForm action={unassignAction} loadId={load.id} driverName={a.driver.name} loadNumber={load.loadNumber ?? "this load"} accepted={a.status === "accepted"} />
+          <RecallForm action={recallAction} loadId={load.id} driverName={a.driver.name} loadNumber={load.loadNumber ?? "this load"} accepted={a.status === "accepted"} />
         ) : null}
 
         {canUnassign && a && !(a.status === "dispatched" || a.status === "accepted") ? (
@@ -978,7 +985,7 @@ export async function LoadView({ id }: { id: string }) {
   const moving = load.status === "in_progress";
   // Only what this stage needs, in the order a dispatcher reaches for it. A section with nothing to say is not drawn.
   // Trip: the stops as a short list (when, where, and what happened there), the few details a dispatcher quotes on the phone, and the wait in one line.
-  const roleWord = (s: (typeof load.stops)[number]) => ((s.stopRole ?? s.stopType) === "pickup" || s.stopType === "origin" ? "Pickup" : "Delivery");
+  const roleWord = (s: (typeof load.stops)[number]) => (roleOfStop(s) === "pickup" ? "Pickup" : "Delivery");
   const drawerStops = (
     <section className="lv-sec">
       <header className="lv-sec-h">
@@ -1086,16 +1093,54 @@ export async function LoadView({ id }: { id: string }) {
             /> : null}
       </header>
       <dl className="lv-ledger">
-        {moneyRow("Linehaul", revLinehaul)}
-        {revFsc > 0 ? moneyRow("Fuel surcharge", revFsc) : null}
-        {revDetention > 0 ? moneyRow("Detention", revDetention) : null}
-        {revLayover > 0 ? moneyRow("Layover", revLayover) : null}
-        {revTonu > 0 ? moneyRow("TONU fee", revTonu) : null}
-        {moneyRow("Driver pay", expDriver, { cost: true, note: a?.payEstimate != null ? "estimate" : undefined })}
-        {moneyRow("Fuel", expFuel, { cost: true, note: num(load.expenseFuelActual) > 0 ? "actual" : "forecast" })}
-        {expTolls > 0 ? moneyRow("Tolls", expTolls, { cost: true }) : null}
-        {expRider > 0 ? moneyRow("Insurance rider", expRider, { cost: true }) : null}
-        {expMisc > 0 ? moneyRow("Lumpers and other", expMisc, { cost: true }) : null}
+        {load.status === "cancelled" || load.status === "quote" ? (
+          <>
+            {moneyRow("Revenue", 0, { note: "cancelled" })}
+            {ledger.referenceRate != null ? (
+              <div key="Original rate">
+                <dt>
+                  Original rate
+                  <span>reference only, not earned</span>
+                </dt>
+                <dd><s>{usd(ledger.referenceRate, 2)}</s></dd>
+              </div>
+            ) : null}
+          </>
+        ) : load.status === "tonu" ? (
+          <>
+            {moneyRow("TONU fee", ledger.revTonu)}
+            {ledger.referenceRate != null ? (
+              <div key="Original rate">
+                <dt>
+                  Original rate
+                  <span>reference only, not earned</span>
+                </dt>
+                <dd><s>{usd(ledger.referenceRate, 2)}</s></dd>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <>
+            {moneyRow("Linehaul", ledger.revAgreed)}
+            {ledger.revVariance !== 0 ? (
+              <div key="Linehaul variance">
+                <dt>
+                  {ledger.revVariance < 0 ? "Short pay" : "Rate adjustment"}
+                  <span>{`paid ${usd(ledger.revLinehaul, 2)}`}</span>
+                </dt>
+                <dd>{`${ledger.revVariance > 0 ? "+" : "−"}${usd(Math.abs(ledger.revVariance), 2)}`}</dd>
+              </div>
+            ) : null}
+            {ledger.revFsc > 0 ? moneyRow("Fuel surcharge", ledger.revFsc) : null}
+            {ledger.revDetention > 0 ? moneyRow("Detention", ledger.revDetention) : null}
+            {ledger.revLayover > 0 ? moneyRow("Layover", ledger.revLayover) : null}
+          </>
+        )}
+        {moneyRow("Driver pay", ledger.expDriver, { cost: true, note: ledger.driverCostNote })}
+        {moneyRow("Fuel", ledger.expFuel, { cost: true, note: ledger.fuelCostSource })}
+        {ledger.expTolls > 0 ? moneyRow("Tolls", ledger.expTolls, { cost: true }) : null}
+        {ledger.expRider > 0 ? moneyRow("Insurance rider", ledger.expRider, { cost: true }) : null}
+        {ledger.expMisc > 0 ? moneyRow("Lumpers and other", ledger.expMisc, { cost: true }) : null}
         <div className="lv-total">
           <dt>
             Left over
@@ -1164,7 +1209,7 @@ export async function LoadView({ id }: { id: string }) {
     if (!a) stillNeeds.push("a driver");
     else if (!driverOk && a.status !== "completed") stillNeeds.push("driver clearance");
     if (!trailerOk) stillNeeds.push("a trailer");
-    if (!weightOk) stillNeeds.push("a weight check (over 45,000 lb)");
+    if (!weightOk) stillNeeds.push(`a weight check (over ${maxWeightLbs.toLocaleString("en-US")} lb)`);
   }
   if ((open || (delivered && !load.paymentStatus)) && !refsOk) stillNeeds.push(gapsPhrase(gaps));
   const drawerDeck = (

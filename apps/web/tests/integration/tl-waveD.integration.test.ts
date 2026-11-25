@@ -55,7 +55,7 @@ describe.skipIf(!run)("Part D: the Quote, editing a load, and what must stay put
   afterAll(() => prisma.workspace.deleteMany({ where: { id: W } }));
 
   test("a load's weight and size have one set of limits, on the Quote and on Edit details", () => {
-    expect(LOAD_LIMITS).toEqual({ weightLbs: 200000, lengthFt: 120, widthFt: 30, heightIn: 300 });
+    expect(LOAD_LIMITS).toEqual({ weightLbs: 200000, lengthFt: 120, widthFt: 30, heightIn: 300, miles: 6000 });
     // 150,000 lb passes the Quote, so it must pass Edit: a load booked from a quote can be corrected
     expect(validateQuote({ ...quote("2027-05-03"), weightLbs: "150000" })).toMatchObject({ ok: true });
     expect(validateQuote({ ...quote("2027-05-03"), weightLbs: "200001" })).toMatchObject({ ok: false });
@@ -206,6 +206,18 @@ describe.skipIf(!run)("Part D: the Quote, editing a load, and what must stay put
     expect(await saveLoadDetails(free.id, { ...fv, deal: { ...fv.deal!, vehicleId: truck2 } }, new Date(), W)).toMatchObject({ ok: true, changed: true });
     expect((await prisma.load.findUniqueOrThrow({ where: { id: free.id } })).vehicleId).toBe(truck2);
     expect((await events(free.id)).some((e) => e.action === "load_edited")).toBe(true);
+
+    // Increasing load weight on its existing truck (without changing vehicleId) still runs truckFit.
+    const fvNow = await valuesOf(free.id);
+    expect(await saveLoadDetails(free.id, { ...fvNow, weightLbs: "20000" }, new Date(), W)).toMatchObject({ ok: false, error: expect.stringContaining("cannot take this load") });
+
+    // An `origin` stop's references land in pickupNumbers when saved.
+    const origLoad = await mk("E-8", {}, 24);
+    await prisma.stop.updateMany({ where: { loadId: origLoad.id, stopSequence: 1 }, data: { stopRole: null, stopType: "origin" } });
+    const ov = await valuesOf(origLoad.id);
+    ov.stops[0]!.refs = "ORIG-11";
+    expect(await saveLoadDetails(origLoad.id, ov, new Date(), W)).toMatchObject({ ok: true, changed: true });
+    expect((await prisma.load.findUniqueOrThrow({ where: { id: origLoad.id } })).pickupNumbers).toEqual(["ORIG-11"]);
   });
 });
 

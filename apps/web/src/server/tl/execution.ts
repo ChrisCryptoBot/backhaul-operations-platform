@@ -5,7 +5,7 @@ import { dateTime, usd } from "@/lib/desk-format";
 import { EXPENSE_ITEMS, otherExpenseTotal, validateComplete, validateCorrection, validateExpenses, validateStart, type CompleteValues, type CorrectValues, type ExpenseInput, type ExpenseValues, type StartValues, type TripErrors } from "@/lib/trip";
 import { recordAudit } from "./audit";
 import { claimAssignment, claimLoad, LoadMoved } from "./claim";
-import { num } from "./convert";
+import { num, numOrNull } from "./convert";
 import { settlementOfLoad } from "./settlement";
 import { tripHoursOf } from "./dispatch";
 import { payEstimate, type PayKind } from "./projector";
@@ -84,9 +84,12 @@ export function extrasPatch(load: ExtrasLoad, v: ExpenseInput) {
     note("Other", money(wasOther), money(v.misc));
     changed = true;
   }
-  if (num(load.layoverPay as never) !== v.layover) { data.layoverPay = v.layover > 0 ? v.layover : null; note("Layover pay", money(num(load.layoverPay as never)), money(v.layover)); changed = true; }
-  if (v.rider != null && num(load.insuranceRiderFlat as never) !== v.rider) { data.insuranceRiderFlat = v.rider > 0 ? v.rider : null; note("Insurance rider", money(num(load.insuranceRiderFlat as never)), money(v.rider)); changed = true; }
-  if (v.revenueNote != null && v.revenueNote !== (load.revenueNote ?? "")) { data.revenueNote = v.revenueNote; note("Revenue note", load.revenueNote, v.revenueNote); changed = true; }
+  if (v.layover !== undefined && num(load.layoverPay as never) !== v.layover) { data.layoverPay = v.layover > 0 ? v.layover : null; note("Layover pay", money(num(load.layoverPay as never)), money(v.layover)); changed = true; }
+  if (v.rider !== undefined) {
+    const nextRider = v.rider ?? 0;
+    if (num(load.insuranceRiderFlat as never) !== nextRider) { data.insuranceRiderFlat = nextRider > 0 ? nextRider : null; note("Insurance rider", money(num(load.insuranceRiderFlat as never)), nextRider > 0 ? money(nextRider) : null); changed = true; }
+  }
+  if (v.revenueNote !== undefined && v.revenueNote !== (load.revenueNote ?? null)) { data.revenueNote = v.revenueNote; note("Revenue note", load.revenueNote, v.revenueNote); changed = true; }
   if (v.miles) {
     const cur = { pickup: num(load.pickupDeadheadMiles as never), loaded: num(load.loadedMiles as never), home: num(load.returnDeadheadMiles as never) };
     const next = { pickup: v.miles.pickup ?? cur.pickup, loaded: v.miles.loaded ?? cur.loaded, home: v.miles.home ?? cur.home };
@@ -103,7 +106,7 @@ export function extrasPatch(load: ExtrasLoad, v: ExpenseInput) {
       changed = true;
     }
   }
-  if (v.tonuMiles != null && num(load.tonuMiles as never) !== v.tonuMiles) { data.tonuMiles = v.tonuMiles; note("Miles driven for the TONU", load.tonuMiles == null ? null : `${num(load.tonuMiles as never)}`, `${v.tonuMiles}`); changed = true; }
+  if (v.tonuMiles !== undefined && numOrNull(load.tonuMiles as never) !== v.tonuMiles) { data.tonuMiles = v.tonuMiles; note("Miles driven for the TONU", load.tonuMiles == null ? null : `${num(load.tonuMiles as never)}`, v.tonuMiles == null ? null : `${v.tonuMiles}`); changed = true; }
   if (v.backhaul != null && v.backhaul !== load.isBackhaul) { data.isBackhaul = v.backhaul; note("Way home", load.isBackhaul ? "A load covers it" : "Counted empty", v.backhaul ? "A load covers it" : "Counted empty"); changed = true; }
   return { data, before, after, changed };
 }
@@ -264,7 +267,7 @@ export async function completeTrip(loadId: string, values: CompleteValues, now =
         expenseFuelActual: v.expenses.fuel,
         expenseTolls: v.expenses.tolls,
         expenseMisc: otherExpenseTotal(v.expenses),
-        layoverPay: v.expenses.layover > 0 ? v.expenses.layover : null
+        ...(v.expenses.layover !== undefined ? { layoverPay: v.expenses.layover > 0 ? v.expenses.layover : null } : {})
     });
     if (a) await claimAssignment(tx, load.id, ["accepted", "in_progress"], { status: "completed" });
     const spent = v.expenses.fuel + v.expenses.tolls + otherExpenseTotal(v.expenses);
@@ -355,17 +358,18 @@ export async function saveExpenses(loadId: string, values: ExpenseValues, now = 
   return { ok: true, changed: true };
 }
 
+type Tx = Prisma.TransactionClient;
+
 /**
- * Correct what was entered at the stops after the fact: when the driver arrived, how long they waited, the seal, and (for a rate confirmation that differs from the truck's profile) this
- * load's own detention rate and free time. The dock wait the verdict and the detention read is the sum of the stops' waits, so it is worked out again. A load that is on the road or
- * delivered can be corrected; not once an invoice is made from it (it carries what was billed), unless only a seal changed. The reason is kept.
+ * Correct what was entered at the stops inside an existing transaction: arrival (`undefined` keeps what is on the stop; `null` clears it), wait and seal,
+ * plus this load's own detention terms. Used by both `correctTrip` and atomic detention-evidence confirmation.
  */
-export async function correctTrip(loadId: string, values: CorrectValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult & { changed?: boolean }> {
+export async function applyCorrection(tx: Tx, loadId: string, values: CorrectValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult & { changed?: boolean }> {
   const clocks = await stopClocksOf(loadId, workspaceId);
-  const check = validateCorrection({ ...values, stops: values.stops.map((s) => ({ ...s, zone: clocks.find((c) => c.id === s.id)?.zone })) }, now.getTime());
+  const check = validateCorrection({ ...values, stops: values.stops.map((s) => ({ ...s, zone: s.zone ?? clocks.find((c) => c.id === s.id)?.zone })) }, now.getTime());
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
-  const load = await loadFor(loadId, workspaceId);
+  const load = await tx.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null }, include: { stops: { orderBy: { stopSequence: "asc" } }, assignment: { include: { driver: true } } } });
   if (!load || load.status === "quote") return { ok: false, error: "That load does not exist." };
   if (!["in_progress", "completed"].includes(load.status)) return { ok: false, error: "Only a load that is on the road, or delivered, has a trip to correct." };
   if (v.stops.some((s) => !load.stops.some((x) => x.id === s.id))) return { ok: false, error: "The stops on this load changed. Reload it and try again." };
@@ -378,30 +382,61 @@ export async function correctTrip(loadId: string, values: CorrectValues, now = n
     const had = load.stops.find((x) => x.id === s.id)!;
     const data: Prisma.StopUncheckedUpdateInput = {};
     const tag = `Stop ${had.stopSequence}`;
-    if ((s.arrivedAt?.getTime() ?? null) !== (had.arrivedAt?.getTime() ?? null)) { data.arrivedAt = s.arrivedAt; before[`${tag} arrived`] = had.arrivedAt ? dateTime(had.arrivedAt) : null; after[`${tag} arrived`] = s.arrivedAt ? dateTime(s.arrivedAt) : null; timesChanged = true; }
-    if (s.waitMinutes !== had.waitMinutes) { data.waitMinutes = s.waitMinutes; before[`${tag} waited`] = had.waitMinutes != null ? `${had.waitMinutes} min` : null; after[`${tag} waited`] = s.waitMinutes != null ? `${s.waitMinutes} min` : null; timesChanged = true; }
-    if (s.seal !== had.sealNumber) { data.sealNumber = s.seal; before[`${tag} seal`] = had.sealNumber; after[`${tag} seal`] = s.seal; }
+    if (s.arrivedAt !== undefined && (s.arrivedAt?.getTime() ?? null) !== (had.arrivedAt?.getTime() ?? null)) {
+      data.arrivedAt = s.arrivedAt;
+      before[`${tag} arrived`] = had.arrivedAt ? dateTime(had.arrivedAt) : null;
+      after[`${tag} arrived`] = s.arrivedAt ? dateTime(s.arrivedAt) : null;
+      timesChanged = true;
+    }
+    if (s.waitMinutes !== had.waitMinutes) {
+      data.waitMinutes = s.waitMinutes;
+      before[`${tag} waited`] = had.waitMinutes != null ? `${had.waitMinutes} min` : null;
+      after[`${tag} waited`] = s.waitMinutes != null ? `${s.waitMinutes} min` : null;
+      timesChanged = true;
+    }
+    if (s.seal !== had.sealNumber) {
+      data.sealNumber = s.seal;
+      before[`${tag} seal`] = had.sealNumber;
+      after[`${tag} seal`] = s.seal;
+    }
     if (Object.keys(data).length > 0) edits.push({ id: s.id, data });
   }
   const loadData: Prisma.LoadUncheckedUpdateInput = {};
-  if (v.detentionRate != null && v.detentionRate !== num(load.snapshotDetentionRate)) { loadData.snapshotDetentionRate = v.detentionRate; before["Detention rate"] = load.snapshotDetentionRate == null ? null : `${money(num(load.snapshotDetentionRate))}/hr`; after["Detention rate"] = `${money(v.detentionRate)}/hr`; timesChanged = true; }
-  if (v.detentionGraceMinutes != null && v.detentionGraceMinutes !== load.snapshotFreeGraceMinutes) { loadData.snapshotFreeGraceMinutes = v.detentionGraceMinutes; before["Free time"] = load.snapshotFreeGraceMinutes == null ? null : `${load.snapshotFreeGraceMinutes} min`; after["Free time"] = `${v.detentionGraceMinutes} min`; timesChanged = true; }
+  if (v.detentionRate != null && v.detentionRate !== num(load.snapshotDetentionRate)) {
+    loadData.snapshotDetentionRate = v.detentionRate;
+    before["Detention rate"] = load.snapshotDetentionRate == null ? null : `${money(num(load.snapshotDetentionRate))}/hr`;
+    after["Detention rate"] = `${money(v.detentionRate)}/hr`;
+    timesChanged = true;
+  }
+  if (v.detentionGraceMinutes != null && v.detentionGraceMinutes !== load.snapshotFreeGraceMinutes) {
+    loadData.snapshotFreeGraceMinutes = v.detentionGraceMinutes;
+    before["Free time"] = load.snapshotFreeGraceMinutes == null ? null : `${load.snapshotFreeGraceMinutes} min`;
+    after["Free time"] = `${v.detentionGraceMinutes} min`;
+    timesChanged = true;
+  }
   if (edits.length === 0 && Object.keys(loadData).length === 0) return { ok: true, changed: false };
   if (timesChanged && load.paymentStatus) return { ok: false, error: "This load has been invoiced, and the invoice carries the waits it was billed on. Take the invoice back first, or correct only the seals." };
 
   const waits = load.stops.map((s) => edits.find((e) => e.id === s.id)?.data.waitMinutes ?? s.waitMinutes ?? 0);
   loadData.dockWaitMinutes = waits.reduce<number>((sum, w) => sum + num(w as never), 0);
+  const claimed = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: null, status: load.status, updatedAt: load.updatedAt, ...(timesChanged ? { paymentStatus: null } : {}) }, data: loadData as Prisma.LoadUncheckedUpdateManyInput });
+  if (claimed.count !== 1) throw new LoadMoved("This load was just changed by someone else. Reload it and try again.");
+  // A correction is the desk's: the driver's phone never overwrites it after this.
+  for (const e of edits) await tx.stop.update({ where: { id: e.id }, data: { ...e.data, arrivedSource: "desk" } });
+  await recordAudit({ entity: "load", action: "trip_corrected", loadId: load.id, loadNumber: load.loadNumber, summary: `Trip corrected: ${Object.keys(after).join(", ")}`, reason: v.reason, before, after, at: now, workspaceId }, tx);
+  return { ok: true, changed: true };
+}
+
+/**
+ * Correct what was entered at the stops after the fact: when the driver arrived, how long they waited, the seal, and (for a rate confirmation that differs from the truck's profile) this
+ * load's own detention rate and free time. The dock wait the verdict and the detention read is the sum of the stops' waits, so it is worked out again. A load that is on the road or
+ * delivered can be corrected; not once an invoice is made from it (it carries what was billed), unless only a seal changed. The reason is kept.
+ */
+export async function correctTrip(loadId: string, values: CorrectValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult & { changed?: boolean }> {
   try {
-    await prisma.$transaction(async (tx) => {
-      const claimed = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: null, status: load.status, updatedAt: load.updatedAt, ...(timesChanged ? { paymentStatus: null } : {}) }, data: loadData as Prisma.LoadUncheckedUpdateManyInput });
-      if (claimed.count !== 1) throw new LoadMoved("This load was just changed by someone else. Reload it and try again.");
-      // A correction is the desk's: the driver's phone never overwrites it after this.
-      for (const e of edits) await tx.stop.update({ where: { id: e.id }, data: { ...e.data, arrivedSource: "desk" } });
-      await recordAudit({ entity: "load", action: "trip_corrected", loadId: load.id, loadNumber: load.loadNumber, summary: `Trip corrected: ${Object.keys(after).join(", ")}`, reason: v.reason, before, after, at: now, workspaceId }, tx);
-    });
+    return await prisma.$transaction((tx) => applyCorrection(tx, loadId, values, now, workspaceId));
   } catch (e) {
     if (e instanceof LoadMoved) return { ok: false, error: e.message };
     throw e;
   }
-  return { ok: true, changed: true };
 }

@@ -8,6 +8,7 @@ import { num } from "@/server/tl/convert";
 import { workspaceTimezone } from "@/server/tl/zone";
 import { toCentralLocal } from "@/lib/zoned";
 import { assertDriverSafe } from "@/server/tl/projector";
+import { loadSecrets } from "@/lib/secret-text";
 export { bridgeServerReady, driverMode, enqueueBridge, enqueueForLoad, type OutboxKind } from "./outbox";
 import { BridgeTransportError, type BridgeTransport } from "./transport";
 import { deliverDriverMessage } from "./messages";
@@ -141,9 +142,9 @@ async function deliver(transport: BridgeTransport, orgId: string, workspaceId: s
   const onThePhone = item.kind === "update" ? ["dispatched", "accepted", "in_progress", "completed"] : ["dispatched", "accepted", "in_progress"];
   if (!a || a.driver.phoneUserId !== item.phoneUserId || !onThePhone.includes(a.status)) return null;
   const summary = await driverSummaryFor(item.loadId, workspaceId);
-  const load = await prisma.load.findFirst({ where: { id: item.loadId, workspaceId }, select: { quotedRevenue: true, actualRevenue: true, fuelSurcharge: true } });
+  const load = await prisma.load.findFirst({ where: { id: item.loadId, workspaceId }, select: { quotedRevenue: true, actualRevenue: true, fuelSurcharge: true, tonuRevenue: true, layoverPay: true, invoicedAmount: true } });
   // Checked again at the door, with the link looked up again: contractor money goes only to a contractor's phone (finalization plan F2).
-  assertDriverSafe(summary, { numbers: [num(load?.quotedRevenue), num(load?.actualRevenue), num(load?.fuelSurcharge)] }, { contractor: summary.contractor !== undefined && (await driverIsContractor(a.driverId, workspaceId)) });
+  assertDriverSafe(summary, { numbers: loadSecrets(load) }, { contractor: summary.contractor !== undefined && (await driverIsContractor(a.driverId, workspaceId)) });
   const existing = await transport.findOpenRow(orgId, item.loadId, item.phoneUserId);
   if (!existing) {
     const row = await transport.insert(newDispatchRow({ orgId, phoneUserId: item.phoneUserId, loadId: item.loadId, summary, assignmentVersion: a.assignmentVersion }));

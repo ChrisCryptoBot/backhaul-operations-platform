@@ -37,9 +37,9 @@ describe("expenses with items, a rider, miles and a note", () => {
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(Object.keys(bad.errors).sort()).toEqual(["item.scale", "miles.pickup", "rider"]);
   });
-  it("leaves out whatever was not typed, so a blank keeps what the load has", () => {
+  it("clears explicitly blank optional fields while leaving absent ones untouched", () => {
     const ok = validateExpenses({ ...base, rider: "", revenueNote: " ", miles: { pickup: "", loaded: "", home: "" } });
-    expect(ok.ok && ok.value).toEqual({ fuel: 100, tolls: 0, misc: 10, layover: 0 });
+    expect(ok.ok && ok.value).toEqual({ fuel: 100, tolls: 0, misc: 10, rider: null, revenueNote: null });
   });
   it("takes miles to four places, the way the load stores them", () => {
     const ok = validateExpenses({ ...base, miles: { pickup: "25", loaded: "257.2", home: "0.1234" }, backhaul: true, tonuMiles: "30" });

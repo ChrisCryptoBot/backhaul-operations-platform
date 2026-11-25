@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { toCentralLocal } from "@/lib/zoned";
 import { purgeOldPings } from "@/server/partners/retention";
 import { getDetentionRecovery } from "@/server/tl/detention";
-import { confirmStopEvidence, dismissStopEvidence, freezeEvidence, freezeRecentDeliveries, getEvidencePack, listProposed } from "@/server/tl/detention-evidence";
+import { confirmStopEvidence, dismissStopEvidence, earliestUnfrozenTrackSince, freezeEvidence, freezeRecentDeliveries, getEvidencePack, listProposed } from "@/server/tl/detention-evidence";
 import { completeTrip } from "@/server/tl/execution";
 
 /**
@@ -266,5 +266,81 @@ describe.skipIf(!run)("detention evidence", () => {
     const pack = (await getEvidencePack(ids.l5, W, null))!;
     expect(pack.stops[0]!.evidence!.intact).toBe(false);
     expect((await getEvidencePack(ids.l1, W, null))!.stops[0]!.evidence!.intact).toBe(true);
+  });
+
+  test("waits over 24h confirm while preserving an existing stop arrival when proposedArrivalAt is null, and double confirmation rolls back", async () => {
+    const existingArrivedAt = at(-2000);
+    const lLong = await load("DV-30H", ids.dallas, { completedAt: at(-60) });
+    await prisma.stop.update({ where: { id: lLong.stops[0]!.id }, data: { arrivedAt: existingArrivedAt } });
+    const ev = await prisma.stopEvidence.create({
+      data: {
+        workspaceId: W,
+        loadId: lLong.id,
+        stopId: lLong.stops[0]!.id,
+        vehicleId: ids.dallas,
+        state: "proposed",
+        quality: "none",
+        radiusMiles: 0.25,
+        fixes: [],
+        fixCount: 0,
+        insideCount: 0,
+        proposedArrivalAt: null,
+        proposedWaitMinutes: null,
+        sha256: "b".repeat(64),
+        frozenAt: NOW
+      }
+    });
+    const [r1, r2] = await Promise.all([
+      confirmStopEvidence(ev.id, { waitMinutes: "1800", note: "30h dock detention" }, NOW, W, null),
+      confirmStopEvidence(ev.id, { waitMinutes: "1805", note: "concurrent confirm" }, NOW, W, null)
+    ]);
+    expect([r1.ok, r2.ok].filter(Boolean)).toHaveLength(1);
+    const winnerWait = r1.ok ? 1800 : 1805;
+    const stop = await prisma.stop.findUniqueOrThrow({ where: { id: lLong.stops[0]!.id } });
+    expect(stop.waitMinutes).toBe(winnerWait);
+    expect(stop.arrivedAt?.getTime()).toBe(existingArrivedAt.getTime());
+    expect((await prisma.stopEvidence.findUniqueOrThrow({ where: { id: ev.id } })).confirmedWaitMinutes).toBe(winnerWait);
+  });
+
+  test("an unfrozen delivered load past CATCH_UP_LOADS (load #501) protects its pickup pings from purgeOldPings", async () => {
+    const oldTruck = await prisma.vehicle.create({ data: { workspaceId: W, name: "DV Old Unfrozen", terminal: "Dallas" } });
+    const completed501 = at(-5 * 24 * 60);
+    const oldPickupOpen = at(-8 * 24 * 60);
+    const oldPingAt = at(-8 * 24 * 60 + 5);
+    await prisma.vehiclePing.create({ data: { workspaceId: W, vehicleId: oldTruck.id, lat: PU.lat, lng: PU.lng, at: oldPingAt } });
+    const load501 = await prisma.load.create({
+      data: {
+        workspaceId: W,
+        vehicleId: oldTruck.id,
+        loadNumber: "DV-501",
+        status: "completed",
+        completedAt: completed501,
+        quotedRevenue: 1000,
+        stops: { create: [{ stopSequence: 1, stopType: "pickup", addressString: "Dallas, TX", lat: PU.lat, lng: PU.lng, timeWindowEarliest: oldPickupOpen }] }
+      }
+    });
+    // Create 500 newer completed loads so load501 sits at #501 behind CATCH_UP_LOADS = 500.
+    const filler = Array.from({ length: 500 }, (_, i) => ({
+      workspaceId: W,
+      vehicleId: ids.memphis,
+      loadNumber: `DV-FILL-${i}`,
+      status: "completed",
+      completedAt: at(-10 - i),
+      quotedRevenue: 500
+    }));
+    await prisma.load.createMany({ data: filler });
+    const newerLoads = await prisma.load.findMany({ where: { workspaceId: W, loadNumber: { startsWith: "DV-FILL-" } }, select: { id: true } });
+    await prisma.stop.createMany({ data: newerLoads.map((l) => ({ loadId: l.id, stopSequence: 1, stopType: "pickup", addressString: "Waco, TX", lat: PU.lat, lng: PU.lng, timeWindowEarliest: at(-100) })) });
+
+    const earliest = await earliestUnfrozenTrackSince(NOW);
+    expect(earliest).not.toBeNull();
+    expect(earliest!.getTime()).toBeLessThanOrEqual(oldPingAt.getTime());
+    await purgeOldPings(NOW);
+    expect(await prisma.vehiclePing.count({ where: { vehicleId: oldTruck.id } })).toBe(1);
+
+    await freezeEvidence(load501.id, NOW, W);
+    await prisma.load.deleteMany({ where: { workspaceId: W, loadNumber: { startsWith: "DV-FILL-" } } });
+    await purgeOldPings(NOW);
+    expect(await prisma.vehiclePing.count({ where: { vehicleId: oldTruck.id } })).toBe(0);
   });
 });

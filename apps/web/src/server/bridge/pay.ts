@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { advanceLabel } from "@/lib/deductions";
 import { assertStatementSafe, driverSafeStatement, payPlan, toBalanceRow, toStatementRow, type DriverBalanceRow } from "@/lib/driver-pay";
 import { deskFileFolder } from "@/lib/load-documents";
+import { loadSecrets } from "@/lib/secret-text";
 import { linePay } from "@/lib/settlement";
 import { buildStatementPdf } from "@/lib/statement-pdf";
 import { toCentralLocal } from "@/lib/zoned";
@@ -57,11 +58,8 @@ export async function mirrorDriverPay(transport: BridgeTransport, opts: { worksp
       const s = await getSettlement(w.id, workspaceId);
       const data = await statementPdfData(w.id, workspaceId, null, now);
       if (!s || !data || s.status === "draft") continue;
-      const loads = await prisma.load.findMany({ where: { workspaceId, id: { in: s.statement.lines.map((l) => l.loadId) } }, select: { quotedRevenue: true, actualRevenue: true, fuelSurcharge: true } });
-      const secrets = loads.flatMap((l) => {
-        const [q, a, f] = [num(l.quotedRevenue), num(l.actualRevenue), num(l.fuelSurcharge)];
-        return [q, a, q + f].filter((n) => n > 0);
-      });
+      const loads = await prisma.load.findMany({ where: { workspaceId, id: { in: s.statement.lines.map((l) => l.loadId) } }, select: { quotedRevenue: true, actualRevenue: true, fuelSurcharge: true, tonuRevenue: true, layoverPay: true, invoicedAmount: true } });
+      const secrets = loads.flatMap((l) => loadSecrets(l));
       const pdf = await buildStatementPdf({ ...data, voidReason: null, statement: driverSafeStatement(data.statement) });
       const path = `${deskFileFolder(orgId, w.driverSub)}st-${w.id}-${createHash("sha256").update(pdf).digest("hex").slice(0, 10)}.pdf`;
       const row = toStatementRow({ orgId, driverSub: w.driverSub, s, pdfPath: path, rev: w.rev });

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { earliestUnfrozenTrackSince } from "@/server/tl/detention-evidence";
 import { FIXABLE_DETAILS } from "./webhook";
 
 /**
@@ -11,8 +12,10 @@ export const EVENT_KEEP_DAYS = 90;
 /** Position fixes are kept a week: long enough for a load's breadcrumb and a few days of idle time, short enough that a fleet of thousands does not pile up rows. */
 export const PING_KEEP_DAYS = 7;
 
-export async function purgeOldPings(now = new Date()): Promise<number> {
-  const cutoff = new Date(now.getTime() - PING_KEEP_DAYS * 86_400_000);
+export async function purgeOldPings(now = new Date(), earliestProtected?: Date | null): Promise<number> {
+  const weekAgo = new Date(now.getTime() - PING_KEEP_DAYS * 86_400_000);
+  const protectedUntil = earliestProtected !== undefined ? earliestProtected : await earliestUnfrozenTrackSince(now);
+  const cutoff = protectedUntil && protectedUntil < weekAgo ? protectedUntil : weekAgo;
   return (await prisma.vehiclePing.deleteMany({ where: { at: { lt: cutoff } } })).count;
 }
 

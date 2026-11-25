@@ -776,7 +776,7 @@ export async function unsettledByDriver(workspaceId = currentWorkspaceId(), now 
 }
 
 /** The final statement a load was paid on, if any. */
-export async function settlementOfLoad(loadId: string): Promise<{ id: string; number: string } | null> {
+export async function settlementOfLoad(loadId: string): Promise<{ id: string; number: string; amount: number } | null> {
   const row = await prisma.settlementLoad.findUnique({ where: { loadId }, include: { settlement: { select: { id: true, number: true } } } });
-  return row ? { id: row.settlement.id, number: row.settlement.number } : null;
+  return row ? { id: row.settlement.id, number: row.settlement.number, amount: num(row.amount) } : null;
 }

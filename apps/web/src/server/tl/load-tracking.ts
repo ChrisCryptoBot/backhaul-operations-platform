@@ -71,16 +71,38 @@ export async function getLoadTracking(loadId: string, workspaceId = currentWorks
   const at = load.vehicle.lastLocatedAt;
   const state = classifyTractor({ engine: engineStateOf(load.vehicle.engineState), speedMph: speed, onLoad: true });
 
-  // The breadcrumb: the fixes since the pickup window opened (at most three days back), oldest first.
+  // The breadcrumb: the latest 500 fixes since the pickup window opened (at most three days back), ordered oldest first for drawing.
   const since = new Date(Math.max(now.getTime() - 3 * 86_400_000, (load.stops[0]?.timeWindowEarliest ?? load.stops[0]?.timeWindowLatest ?? new Date(0)).getTime() - 6 * 3_600_000));
-  const pings = await prisma.vehiclePing.findMany({ where: { vehicleId: load.vehicleId, workspaceId, at: { gte: since } }, orderBy: { at: "asc" }, take: 500, select: { lat: true, lng: true, at: true } });
+  const latestPings = await prisma.vehiclePing.findMany({ where: { vehicleId: load.vehicleId, workspaceId, at: { gte: since } }, orderBy: { at: "desc" }, take: 500, select: { lat: true, lng: true, at: true } });
+  const pings = [...latestPings].reverse();
   const trail = pings.map((p) => ({ lat: numOrNull(p.lat)!, lng: numOrNull(p.lng)! }));
 
   const clock = (ms: number) => `${hhmm(ms, tz)} ${zoneAbbr(tz)}`;
+  const latPad = 0.02; // > 1 mile everywhere (~1.4 mi lat) so bounding box safely wraps the 1-mile geofence circle
+  const firstInList = await Promise.all(
+    stops.map(async (s) => {
+      const cosLat = Math.max(0.25, Math.cos((s.lat * Math.PI) / 180));
+      const lngPad = latPad / cosLat;
+      const box = await prisma.vehiclePing.findMany({
+        where: {
+          vehicleId: load.vehicleId!,
+          workspaceId,
+          at: { gte: since },
+          lat: { gte: s.lat - latPad, lte: s.lat + latPad },
+          lng: { gte: s.lng - lngPad, lte: s.lng + lngPad }
+        },
+        orderBy: { at: "asc" },
+        take: 50,
+        select: { lat: true, lng: true, at: true }
+      });
+      return box.find((p) => geofence({ lat: numOrNull(p.lat)!, lng: numOrNull(p.lng)! }, s).inside) ?? null;
+    })
+  );
   const geofences: Array<{ stop: number; text: string; inside: boolean }> = [];
-  for (const s of stops) {
+  for (let i = 0; i < stops.length; i++) {
+    const s = stops[i]!;
     const now_ = geofence(here, s);
-    const firstIn = pings.find((p) => geofence({ lat: numOrNull(p.lat)!, lng: numOrNull(p.lng)! }, s).inside);
+    const firstIn = firstInList[i] ?? null;
     if (!now_.inside && !firstIn) continue;
     const who = WHO[s.role] ?? "STOP";
     const when = clock((firstIn?.at ?? at).getTime());

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { roleOfStop } from "../src/lib/stop-role";
 import { toEditValues, validateLoadEdit, type LoadEditValues } from "../src/lib/load-edit";
 
 const base = (): LoadEditValues => ({
@@ -126,8 +127,14 @@ describe("toEditValues", () => {
       requiresPalletJack: null,
       payTermsDays: null,
       notes: null,
-      stops: [{ id: "s1", stopRole: "pickup", stopType: "pickup", addressString: "Dallas, TX", facilityName: null, timeWindowEarliest: new Date("2026-10-30T13:00:00Z"), timeWindowLatest: new Date("2026-10-30T15:00:00Z"), referenceNumbers: null, contactName: null, contactPhone: null, stopNotes: null }]
+      stops: [{ id: "s1", stopRole: null, stopType: "origin", addressString: "Dallas, TX", facilityName: null, timeWindowEarliest: new Date("2026-10-30T13:00:00Z"), timeWindowLatest: new Date("2026-10-30T15:00:00Z"), referenceNumbers: ["PU-ORG"], contactName: null, contactPhone: null, stopNotes: null }]
     });
+    expect(v.stops[0]!.role).toBe("pickup");
+    expect(roleOfStop({ stopRole: null, stopType: "origin" })).toBe("pickup");
     expect(validateLoadEdit(v).ok).toBe(true);
+    expect(validateLoadEdit({ ...v, deal: { vehicleId: "", rate: "1000", fuelSurcharge: "0", loadedMiles: "6000", emptyToPickup: "0", emptyHome: "0" } }).ok).toBe(true);
+    const over = validateLoadEdit({ ...v, deal: { vehicleId: "", rate: "1000", fuelSurcharge: "0", loadedMiles: "6001", emptyToPickup: "0", emptyHome: "0" } });
+    expect(over.ok).toBe(false);
+    if (!over.ok) expect(over.errors["deal.loadedMiles"]).toBeDefined();
   });
 });

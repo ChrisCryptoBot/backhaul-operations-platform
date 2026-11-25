@@ -185,6 +185,33 @@ export async function unassignAction(formData: FormData) {
   });
 }
 
+export type InlineActionResult = { ok: true; message: string } | { ok: false; error: string };
+
+async function tryInline(fn: () => Promise<string>): Promise<InlineActionResult> {
+  try {
+    const message = await fn();
+    refreshLoads();
+    return { ok: true, message };
+  } catch (e) {
+    if (e instanceof DispatchError || e instanceof RelayError) return { ok: false, error: e.message };
+    throw e;
+  }
+}
+
+export async function recallAction(formData: FormData): Promise<InlineActionResult> {
+  await requireCan("dispatch");
+  const loadId = String(formData.get("loadId"));
+  const code = String(formData.get("reasonCode") ?? "");
+  const note = String(formData.get("reasonNote") ?? formData.get("reason") ?? "");
+  return tryInline(async () => {
+    const rolling = formData.get("rolling") === "1";
+    const miles = String(formData.get("milesDriven") ?? "").trim();
+    const positioning = rolling ? { milesDriven: miles === "" ? null : Number(miles), milesSource: (String(formData.get("milesSource") ?? "") || null) as MilesSource | null } : undefined;
+    await unassignLoad(loadId, note, undefined, undefined, undefined, isRecallCode(code) ? code : null, positioning);
+    return code ? "Driver recalled. The load is back in Needs a driver." : "Driver removed. The load is back on the board.";
+  });
+}
+
 const field = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
 const numField = (f: FormData, k: string): number | null => {
   const v = field(f, k);
@@ -243,6 +270,59 @@ export async function discrepancyAction(formData: FormData) {
   const loadId = String(formData.get("loadId"));
   await attempt(loadId, async () => {
     await flagDiscrepancy(field(formData, "handoffId"), { notes: field(formData, "notes"), raisedBy: field(formData, "raisedBy") === "incoming_driver" ? "incoming_driver" : "dispatcher" });
+    return "Discrepancy recorded. The handoff is frozen as found until it is acknowledged.";
+  });
+}
+
+export async function dropRelayAction(formData: FormData): Promise<InlineActionResult> {
+  await requireCan("dispatch");
+  const loadId = String(formData.get("loadId"));
+  return tryInline(async () => {
+    await recordDrop(loadId, {
+      type: field(formData, "type"),
+      reason: field(formData, "reason"),
+      locationName: field(formData, "locationName") || null,
+      lat: numField(formData, "lat"),
+      lng: numField(formData, "lng"),
+      slot: field(formData, "slot") || null,
+      locationSetBy: field(formData, "lat") !== "" ? "emergency_pin" : "dispatcher_typed",
+      outgoingNext: field(formData, "outgoingNext"),
+      sealNumber: field(formData, "sealNumber") || null,
+      reeferSetTemp: numField(formData, "reeferSetTemp"),
+      reeferActualTemp: numField(formData, "reeferActualTemp"),
+      reeferFuelPct: numField(formData, "reeferFuelPct"),
+      conditionOk: yesNo(formData, "conditionOk"),
+      conditionNotes: field(formData, "conditionNotes") || null,
+      milesDriven: numField(formData, "milesDriven"),
+      milesSource: field(formData, "milesSource") || null
+    });
+    return "Handoff recorded. The load is waiting in the yard for its next driver.";
+  });
+}
+
+export async function receiveRelayAction(formData: FormData): Promise<InlineActionResult> {
+  await requireCan("dispatch");
+  return tryInline(async () => {
+    await receiveHandoff(field(formData, "handoffId"), {
+      driverId: field(formData, "driverId"),
+      vehicleId: field(formData, "vehicleId") || null,
+      pay: { kind: field(formData, "payKind") as PayKind, rate: Number(field(formData, "rate")) },
+      sealMatches: yesNo(formData, "sealMatches"),
+      conditionOk: yesNo(formData, "conditionOk"),
+      conditionNotes: field(formData, "conditionNotes") || null,
+      overrideReason: field(formData, "overrideReason") || null
+    });
+    return "Handoff received. The next driver has the load.";
+  });
+}
+
+export async function discrepancyRelayAction(formData: FormData): Promise<InlineActionResult> {
+  await requireCan("dispatch");
+  return tryInline(async () => {
+    await flagDiscrepancy(field(formData, "handoffId"), {
+      notes: field(formData, "notes"),
+      raisedBy: field(formData, "raisedBy") === "incoming_driver" ? "incoming_driver" : "dispatcher"
+    });
     return "Discrepancy recorded. The handoff is frozen as found until it is acknowledged.";
   });
 }

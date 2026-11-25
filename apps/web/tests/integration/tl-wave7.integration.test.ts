@@ -188,7 +188,7 @@ describe.skipIf(!run)("loads and billing on the demo database", () => {
     expect(await startTrip(draft.id, { arrivedAt: toCentralLocal(Date.now() - 5 * H), waitMinutes: "", seal: "" })).toMatchObject({ ok: false });
 
     const load = await accepted("TRIP", "2027-05-01");
-    const bad = await startTrip(load.id, { arrivedAt: toCentralLocal(Date.now() + 5 * H), waitMinutes: "9999", seal: "" });
+    const bad = await startTrip(load.id, { arrivedAt: toCentralLocal(Date.now() + 5 * H), waitMinutes: "10081", seal: "" });
     expect(bad).toMatchObject({ ok: false, errors: { arrivedAt: expect.any(String), waitMinutes: expect.any(String) } });
 
     expect(await startTrip(load.id, { arrivedAt: toCentralLocal(Date.now() - 5 * H), waitMinutes: "30", seal: "SEAL-7" })).toEqual({ ok: true });

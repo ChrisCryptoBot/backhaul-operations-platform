@@ -3,4 +3,4 @@
  * larger, Edit's smaller) meant a heavy or oversize load booked fine and could not then be saved after a correction. Oversize and overweight loads exist, with permits, so the
  * larger set is the one. Pure.
  */
-export const LOAD_LIMITS = { weightLbs: 200_000, lengthFt: 120, widthFt: 30, heightIn: 300 } as const;
+export const LOAD_LIMITS = { weightLbs: 200_000, lengthFt: 120, widthFt: 30, heightIn: 300, miles: 6_000 } as const;

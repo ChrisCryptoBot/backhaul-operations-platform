@@ -5,6 +5,7 @@ import { driverBlocker } from "@/lib/clearance";
 import { dateTime, usd } from "@/lib/desk-format";
 import { loadWindow, windowsOverlap, type StopWindow, type Window } from "@/lib/schedule";
 import { PAY_KIND_KEYS, PERCENT_MAX, rateConTotal } from "@/lib/pay";
+import { loadSecrets } from "@/lib/secret-text";
 import { assertDriverSafe, contractorMoney, driverFacingPay, payEstimate, projectLoadToSummary, type AssignmentPay, type LoadSummary, type PayKind } from "./projector";
 import { num, numOrNull } from "./convert";
 import { recordAudit } from "./audit";
@@ -270,13 +271,13 @@ export async function unassignLoad(loadId: string, reason: string | null, now = 
   const a = load.assignment;
   if (!a) throw new DispatchError("not_assigned", "There is no driver on this load.");
   if (!["draft", "accepted"].includes(load.status) || ["in_progress", "completed"].includes(a.status)) {
-    throw new DispatchError("not_unassignable", "A load that is on the road or delivered cannot be unassigned here. On the road it needs a handoff, which is not built yet: call the driver.");
+    throw new DispatchError("not_unassignable", "A load that is on the road or delivered cannot be unassigned here. Use Hand off to another driver in the Relay section.");
   }
   const note = (reason ?? "").trim();
   const needsReason = a.status === "dispatched" || a.status === "accepted";
   if (needsReason && !code) throw new DispatchError("reason_required", "Say why the driver is coming off a load that was already sent: pick a reason.");
   if (code && !isRecallCode(code)) throw new DispatchError("bad_reason", "That is not a reason a load can be recalled for.");
-  if (code && !isOfferedRecallCode(code)) throw new DispatchError("bad_reason", "A scheduled relay is a handoff, not a recall. Handoffs are not built yet.");
+  if (code && !isOfferedRecallCode(code)) throw new DispatchError("bad_reason", "A scheduled relay is handled in the Relay section once on the road, not as a recall.");
   const why = code ? recallReasonText(code, note) : note;
   if (positioning) {
     if (!needsReason || a.status !== "accepted") throw new DispatchError("bad_reason", "Miles driven are kept only when a driver who accepted the load is recalled while rolling empty to the pickup.");
@@ -365,7 +366,7 @@ export async function driverSummaryFor(loadId: string, workspaceId = currentWork
   const contractor = await driverIsContractor(load.assignment.driverId, workspaceId);
   if (contractor) summary.contractor = contractorMoney(assignmentPay, total, summary.driver_pay.estimate);
   try {
-    assertDriverSafe(summary, { numbers: [num(load.quotedRevenue), num(load.actualRevenue), num(load.fuelSurcharge)] }, { contractor });
+    assertDriverSafe(summary, { numbers: loadSecrets(load) }, { contractor });
   } catch (e) {
     // A note that says what the load pays is the one real case: say where, so it can be reworded, instead of an error page.
     const m = e instanceof Error ? /secret value: ([\d.]+) \(in ([^)]+)\)/.exec(e.message) : null;

@@ -575,10 +575,10 @@ export function TripEntry({
               <input type="radio" name="pod" checked={done.pod === "none"} onChange={() => setDone({ ...done, pod: "none" })} /> None, and here is why
             </label>
           </div>
-          <Fld label={done.pod === "none" ? "Why there is no proof of delivery" : "What it is and where it is (optional)"} error={errors.podNote} hint={done.pod === "received" ? "For example: signed BOL emailed on delivery. The file itself waits for the phone's storage." : undefined}>
+          <Fld label={done.pod === "none" ? "Why there is no proof of delivery" : "What it is and where it is (optional)"} error={errors.podNote} hint={done.pod === "received" ? "For example: signed BOL emailed on delivery." : undefined}>
             <input value={done.podNote} onChange={(e) => setDone({ ...done, podNote: e.target.value })} autoComplete="off" />
           </Fld>
-          <Fld label="Linehaul actually paid ($)" error={errors.actualRevenue} hint={`Leave blank when it is the rate on the load${quoted ? ` ($${quoted})` : ""}. Type the amount when the customer paid a different linehaul: a short pay or an adjusted rate. It becomes what the load earned and what the invoice starts from.`}>
+          <Fld label="Linehaul actually paid ($)" error={errors.actualRevenue} hint={`Leave blank when it is the rate on the load${quoted ? ` ($${quoted})` : ""}. Type the amount when the customer paid a different linehaul (short pay or adjustment): it updates what the load earned, while the invoice bills the agreed rate.`}>
             <input inputMode="decimal" value={done.actualRevenue ?? ""} onChange={(e) => setDone({ ...done, actualRevenue: e.target.value })} placeholder={quoted} />
           </Fld>
           <div className="rc-grid">

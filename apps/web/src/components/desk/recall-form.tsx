@@ -1,5 +1,10 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+import { useToast } from "./kit/toast";
+import { tried } from "./kit/tried";
+import type { InlineActionResult } from "@/app/(desk)/actions";
+
 import React from "react";
 import { Modal } from "./kit/modal";
 import { useDraft } from "./kit/use-draft";
@@ -9,7 +14,7 @@ import { RECALL_LABELS, RECALL_NOTE_MAX, RECALL_OFFERED, type RecallCode } from 
  * Recall a load from a driver who was already sent it (docs/RELAY_DESIGN.md). The dispatcher picks one reason from the fixed list and may add a note; both are kept in the audit trail and the
  * holder trail. The action is `unassignAction`, which reads `reasonCode` and `reasonNote`.
  */
-export function RecallForm({ action, loadId, driverName, loadNumber, accepted }: { action: (formData: FormData) => void | Promise<void>; loadId: string; driverName: string; loadNumber: string; accepted: boolean }) {
+export function RecallForm({ action, loadId, driverName, loadNumber, accepted }: { action: (formData: FormData) => Promise<InlineActionResult>; loadId: string; driverName: string; loadNumber: string; accepted: boolean }) {
   const [open, setOpen] = React.useState(false);
   // What was picked or typed is kept until the recall is sent or cancelled (docs/DESIGN_BRIEF.md, "Fields are kept").
   const [draftValues, setDraftValues, draft] = useDraft<{ code: RecallCode | ""; note: string; rolling: boolean; miles: string; source: string }>(`recall:${loadId}`, { code: "", note: "", rolling: false, miles: "", source: "" });
@@ -17,7 +22,11 @@ export function RecallForm({ action, loadId, driverName, loadNumber, accepted }:
   const setCode = (c: RecallCode | "") => setDraftValues((v) => ({ ...v, code: c }));
   const setNote = (n: string) => setDraftValues((v) => ({ ...v, note: n }));
   const [pending, start] = React.useTransition();
+  const [error, setError] = React.useState<string | null>(null);
+  const router = useRouter();
+  const toast = useToast();
   const cancel = () => {
+    setError(null);
     draft.discard();
     setOpen(false);
   };
@@ -33,26 +42,40 @@ export function RecallForm({ action, loadId, driverName, loadNumber, accepted }:
       data.set("milesDriven", miles.trim());
       data.set("milesSource", source);
     }
-    draft.saved();
-    setOpen(false);
+    setError(null);
     start(async () => {
-      await action(data);
+      const res = await tried(() => action(data));
+      if (!res.ok) {
+        setError(res.message);
+        return;
+      }
+      if (!res.value.ok) {
+        setError(res.value.error);
+        return;
+      }
+      draft.saved();
+      setOpen(false);
+      toast({ text: res.value.message, tone: "ok" });
+      router.refresh();
     });
   };
   return (
     <>
-      <button type="button" className="tl-btn sm danger" disabled={pending} aria-busy={pending || undefined} onClick={() => setOpen(true)}>
+      <button type="button" className="tl-btn sm danger" disabled={pending} aria-busy={pending || undefined} onClick={() => { setError(null); setOpen(true); }}>
         Recall from driver
       </button>
       <Modal
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={() => { setError(null); setOpen(false); }}
         eyebrow="Recall"
         title={`Take ${driverName} off ${loadNumber}?`}
         footer={
           <>
+            {error ? <span className="tl-note warn" role="alert" style={{ marginRight: "auto" }}>{error}</span> : null}
             <button type="button" className="tl-btn" onClick={cancel}>Cancel</button>
-            <button type="button" className="tl-btn danger" disabled={!code || (accepted && rolling && miles.trim() !== "" && !source)} onClick={send}>Recall load</button>
+            <button type="button" className="tl-btn danger" disabled={pending || !code || (accepted && rolling && miles.trim() !== "" && !source)} onClick={send}>
+              {pending ? "Recalling…" : "Recall load"}
+            </button>
           </>
         }>
         <p className="tl-note">

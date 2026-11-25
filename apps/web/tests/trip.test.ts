@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateComplete, validateExpenses, validateStart, type CompleteValues } from "../src/lib/trip";
+import { validateComplete, validateCorrection, validateExpenses, validateStart, type CompleteValues } from "../src/lib/trip";
 
 // 2026-10-29 10:00 on the Dallas clock (CDT) is 15:00 UTC.
 const NOW = Date.parse("2026-10-29T15:00:00Z");
@@ -21,10 +21,12 @@ describe("validateStart", () => {
     if (!out.ok) expect(out.errors.arrivedAt).toMatch(/future/);
   });
 
-  it("wait and seal are optional; bad ones are named", () => {
-    const ok = validateStart({ arrivedAt: "2026-10-29T07:30", waitMinutes: "", seal: "" }, NOW);
-    expect(ok.ok && ok.value).toMatchObject({ waitMinutes: null, seal: null });
-    const bad = validateStart({ arrivedAt: "", waitMinutes: "1441", seal: "x".repeat(31) }, NOW);
+  it("wait and seal are optional; waits above 24h up to 7 days work and excessive ones are named", () => {
+    const ok = validateStart({ arrivedAt: "2026-10-29T07:30", waitMinutes: "1800", seal: "" }, NOW);
+    expect(ok.ok && ok.value).toMatchObject({ waitMinutes: 1800, seal: null });
+    const blank = validateStart({ arrivedAt: "2026-10-29T07:30", waitMinutes: "", seal: "" }, NOW);
+    expect(blank.ok && blank.value).toMatchObject({ waitMinutes: null, seal: null });
+    const bad = validateStart({ arrivedAt: "", waitMinutes: "10081", seal: "x".repeat(31) }, NOW);
     expect(bad.ok).toBe(false);
     if (!bad.ok) expect(Object.keys(bad.errors).sort()).toEqual(["arrivedAt", "seal", "waitMinutes"]);
   });
@@ -61,11 +63,28 @@ describe("validateComplete", () => {
 });
 
 describe("validateExpenses", () => {
-  it("blank is zero, commas are fine, half-cents and negatives are not", () => {
+  it("blank is zero, commas are fine, half-cents and negatives are not; absent stays undefined while blank clears optional fields", () => {
     const ok = validateExpenses({ fuel: "1,200", tolls: "", misc: "0" });
-    expect(ok.ok && ok.value).toEqual({ fuel: 1200, tolls: 0, misc: 0, layover: 0 });
-    const bad = validateExpenses({ fuel: "-1", tolls: "1.005", misc: "abc" });
+    expect(ok.ok && ok.value).toEqual({ fuel: 1200, tolls: 0, misc: 0 });
+    const cleared = validateExpenses({ fuel: "0", tolls: "", misc: "", layover: "", rider: "", revenueNote: "  ", tonuMiles: "" });
+    expect(cleared.ok && cleared.value).toEqual({ fuel: 0, tolls: 0, misc: 0, layover: 0, rider: null, revenueNote: null, tonuMiles: null });
+    const bad = validateExpenses({ fuel: "-1", tolls: "1.005", misc: "abc", tonuMiles: "6001" });
     expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(Object.keys(bad.errors).sort()).toEqual(["fuel", "misc", "tolls"]);
+    if (!bad.ok) expect(Object.keys(bad.errors).sort()).toEqual(["fuel", "misc", "tolls", "tonuMiles"]);
+  });
+});
+
+describe("validateCorrection", () => {
+  it("accepts waits > 24h while keeping free time at 1440, and leaves arrivedAt undefined when omitted", () => {
+    const keepArrival = validateCorrection({ stops: [{ id: "s1", arrivedAt: undefined, waitMinutes: "1800", seal: "" }], detentionGraceMinutes: "1441", reason: "30h dock log" }, NOW);
+    expect(keepArrival.ok).toBe(false);
+    if (!keepArrival.ok) expect(Object.keys(keepArrival.errors)).toEqual(["detentionGraceMinutes"]);
+
+    const ok = validateCorrection({ stops: [{ id: "s1", arrivedAt: undefined, waitMinutes: "1800", seal: "" }], detentionGraceMinutes: "1440", reason: "30h dock log" }, NOW);
+    expect(ok.ok).toBe(true);
+    if (ok.ok) {
+      expect(ok.value.stops[0]!.arrivedAt).toBeUndefined();
+      expect(ok.value.stops[0]!.waitMinutes).toBe(1800);
+    }
   });
 });

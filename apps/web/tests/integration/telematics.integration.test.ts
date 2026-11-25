@@ -223,6 +223,51 @@ describe.skipIf(!run)("telematics: radar, idle, dwell, onboarding", () => {
     expect(await getLoadTracking(noLane.id, OTHER, NOW)).toEqual({ status: "no_truck" }); // another fleet cannot read it
   });
 
+  test("returns the latest 500 pings ending at #800 and ignores bounding-box corners outside the 1-mile geofence circle", async () => {
+    const truck = await prisma.vehicle.create({ data: { workspaceId: W, name: "TEL Trail 800 Truck", lastLat: ATLANTA.lat + 0.005, lastLng: ATLANTA.lng + 0.003, lastSpeedMph: 55, engineState: "moving", lastLocatedAt: NOW } });
+    const pickAt = new Date(NOW.getTime() - 10 * 3_600_000);
+    const load = await prisma.load.create({
+      data: {
+        workspaceId: W,
+        loadNumber: "TEL-TRAIL-800",
+        status: "in_progress",
+        quotedRevenue: 1500,
+        loadedMiles: 781,
+        vehicleId: truck.id,
+        stops: {
+          create: [
+            { stopSequence: 1, stopType: "pickup", stopRole: "pickup", addressString: "Dallas, TX", lat: DALLAS.lat, lng: DALLAS.lng, timeWindowEarliest: pickAt, timeWindowLatest: pickAt },
+            { stopSequence: 2, stopType: "delivery", stopRole: "delivery", addressString: "Atlanta, GA", lat: ATLANTA.lat, lng: ATLANTA.lng, timeWindowEarliest: NOW, timeWindowLatest: NOW }
+          ]
+        }
+      }
+    });
+    const cornerAt = new Date(NOW.getTime() - 3 * 3_600_000);
+    const realInsideAt = new Date(NOW.getTime() - 2 * 3_600_000);
+    const pings = [
+      // Inside lat/lng bounding box (±0.02) yet > 1 mile from Atlanta center: must NOT trigger arrival.
+      { workspaceId: W, vehicleId: truck.id, lat: ATLANTA.lat + 0.017, lng: ATLANTA.lng + 0.017, at: cornerAt },
+      { workspaceId: W, vehicleId: truck.id, lat: ATLANTA.lat + 0.004, lng: ATLANTA.lng, at: realInsideAt }
+    ];
+    for (let i = 1; i <= 798; i++) {
+      pings.push({ workspaceId: W, vehicleId: truck.id, lat: DALLAS.lat + 1 + i / 1000, lng: DALLAS.lng + 1, at: new Date(realInsideAt.getTime() + i * 5_000) });
+    }
+    // Ping #800 at the end: trail must include up through #800 (not stop at #500).
+    pings[pings.length - 1] = { workspaceId: W, vehicleId: truck.id, lat: ATLANTA.lat + 0.005, lng: ATLANTA.lng + 0.003, at: NOW };
+    await prisma.vehiclePing.createMany({ data: pings });
+
+    const res = await getLoadTracking(load.id, W, NOW);
+    expect(res.status).toBe("tracking");
+    if (res.status !== "tracking") return;
+    expect(res.trail).toHaveLength(500);
+    const last = res.trail[res.trail.length - 1]!;
+    expect(last.lat).toBeCloseTo(ATLANTA.lat + 0.005, 4);
+    expect(last.lng).toBeCloseTo(ATLANTA.lng + 0.003, 4);
+    expect(res.geofences).toHaveLength(1);
+    const dallasHour = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "2-digit", minute: "2-digit", hour12: false }).format(realInsideAt);
+    expect(res.geofences[0]!.text).toContain(dallasHour);
+  });
+
   describe("a dropped trailer's dwell can always be typed over or waived by a person", () => {
     let trailerId = "";
     let otherTrailer = "";

@@ -1,5 +1,6 @@
 import { DEDUCTION_ROW_LABEL, type DeductionOption, type DeductionRowKind } from "./deductions";
 import { paidMethodLabel } from "./pay-method";
+import { numberInText } from "./secret-text";
 import { statementRows, type Statement, type StatementLine } from "./settlement";
 import type { StatementYtd } from "./statement-pdf";
 
@@ -87,8 +88,8 @@ export function assertStatementSafe(row: DriverStatementRow, secrets: readonly n
   // A load line is written by the desk, so its words can be held to this; a typed adjustment is the dispatcher's own words on the driver's own statement.
   for (const l of row.lines) {
     if (l.kind !== "load") continue;
-    const text = `${l.detail ?? ""}`.replaceAll(",", "");
-    for (const n of secrets) if (n > 0 && Math.round(n * 100) !== Math.abs(l.amount_cents) && new RegExp(`(^|[^0-9.])${String(n).replace(".", "\\.")}([^0-9]|$)`).test(text)) throw new Error("statement line carries what the load pays");
+    const text = `${l.detail ?? ""}`;
+    for (const n of secrets) if (n > 0 && Math.round(n * 100) !== Math.abs(l.amount_cents) && numberInText(text, n)) throw new Error("statement line carries what the load pays");
   }
 }
 

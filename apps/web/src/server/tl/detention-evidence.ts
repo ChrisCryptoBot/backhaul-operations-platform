@@ -7,7 +7,8 @@ import { toCentralLocal } from "@/lib/zoned";
 import type { Terminals } from "@/lib/scope";
 import { recordAudit } from "./audit";
 import { numOrNull } from "./convert";
-import { correctTrip } from "./execution";
+import { LoadMoved } from "./claim";
+import { applyCorrection } from "./execution";
 import { currentActor } from "./identity";
 import { currentAllowed } from "./scope";
 import { stopClocksOf } from "./stop-clock";
@@ -131,6 +132,27 @@ export async function freezeRecentDeliveries(now = new Date(), workspaceId?: str
     }
   }
   return total;
+}
+
+/**
+ * Earliest track-window start across ALL delivered-but-unfrozen loads in the catch-up window (uncapped, so loads past CATCH_UP_LOADS still protect their pickup pings).
+ * Null when every recent delivery with fixes already has frozen stop evidence.
+ */
+export async function earliestUnfrozenTrackSince(now = new Date()): Promise<Date | null> {
+  const since = new Date(now.getTime() - CATCH_UP_DAYS * DAY);
+  const rows = await prisma.$queryRaw<Array<{ completed_at: Date; first_open: Date | null }>>`
+    select l.completed_at,
+      (select min(s.time_window_earliest) from stops s where s.load_id = l.id and s.lat is not null and s.lng is not null) as first_open
+    from loads l
+    where l.status = 'completed' and l.deleted_at is null and l.vehicle_id is not null and l.completed_at >= ${since} and l.completed_at is not null
+      and exists (select 1 from stops s where s.load_id = l.id and s.lat is not null and s.lng is not null and not exists (select 1 from stop_evidence e where e.stop_id = s.id))
+      and exists (select 1 from vehicle_pings p where p.workspace_id = l.workspace_id and p.vehicle_id = l.vehicle_id and p.at >= l.completed_at - interval '5 days' and p.at <= l.completed_at + interval '12 hours')`;
+  let minMs: number | null = null;
+  for (const r of rows) {
+    const startMs = trackWindow([r.first_open ? r.first_open.getTime() : null], r.completed_at.getTime()).since;
+    if (minMs == null || startMs < minMs) minMs = startMs;
+  }
+  return minMs == null ? null : new Date(minMs);
 }
 
 // ── Reading the pack ──────────────────────────────────────────────────────────────────────────────
@@ -324,38 +346,54 @@ export async function confirmStopEvidence(evidenceId: string, values: ConfirmVal
   const check = checkConfirmation({ arrivalAt: ms(e.proposedArrivalAt), waitMinutes: e.proposedWaitMinutes }, input);
   if (!check.ok) return { ok: false, error: "Check the figures.", errors: check.errors };
 
-  let wrote = false;
-  if (!values.proofOnly) {
-    const clocks = await stopClocksOf(e.loadId, workspaceId);
-    const zone = clocks.find((c) => c.id === e.stopId)?.zone ?? (await workspaceTimezone(workspaceId));
-    const r = await correctTrip(e.loadId, { stops: [{ id: e.stopId, arrivedAt: check.arrivalAt == null ? "" : toCentralLocal(check.arrivalAt, zone), waitMinutes: String(check.waitMinutes), seal: e.stop.sealNumber ?? "", zone }], reason: `Detention evidence confirmed${check.edited ? " (edited)" : ""}${check.note ? `: ${check.note}` : ""}` }, now, workspaceId);
-    if (!r.ok) {
-      const first = "errors" in r && r.errors ? Object.values(r.errors)[0] : null;
-      return { ok: false, error: (("error" in r && r.error) || first || "The stop could not be corrected.") + (e.load.paymentStatus ? " You can confirm it as proof only, which changes nothing on the load." : "") };
-    }
-    wrote = true;
+  const clocks = await stopClocksOf(e.loadId, workspaceId);
+  const zone = clocks.find((c) => c.id === e.stopId)?.zone ?? (await workspaceTimezone(workspaceId));
+
+  try {
+    const outcome = await prisma.$transaction(async (tx): Promise<DecisionResult> => {
+      let wrote = false;
+      if (!values.proofOnly) {
+        const r = await applyCorrection(
+          tx,
+          e.loadId,
+          {
+            stops: [{ id: e.stopId, arrivedAt: check.arrivalAt == null ? undefined : toCentralLocal(check.arrivalAt, zone), waitMinutes: String(check.waitMinutes), seal: e.stop.sealNumber ?? "", zone }],
+            reason: `Detention evidence confirmed${check.edited ? " (edited)" : ""}${check.note ? `: ${check.note}` : ""}`
+          },
+          now,
+          workspaceId
+        );
+        if (!r.ok) {
+          const first = "errors" in r && r.errors ? Object.values(r.errors)[0] : null;
+          return { ok: false, error: (("error" in r && r.error) || first || "The stop could not be corrected.") + (e.load.paymentStatus ? " You can confirm it as proof only, which changes nothing on the load." : "") };
+        }
+        wrote = true;
+      }
+      const claimed = await tx.stopEvidence.updateMany({ where: { id: e.id, state: "proposed" }, data: { state: "confirmed", decidedBy: currentActor(), decidedAt: now, confirmedArrivalAt: when(check.arrivalAt), confirmedWaitMinutes: check.waitMinutes, edited: check.edited, wroteToStop: wrote, note: check.note } });
+      if (claimed.count !== 1) throw new LoadMoved("Already decided.");
+      await recordAudit(
+        {
+          entity: "load",
+          entityId: e.id,
+          action: "detention_evidence_confirmed",
+          loadId: e.loadId,
+          loadNumber: e.load.loadNumber,
+          summary: `Detention evidence confirmed for stop ${e.stop.stopSequence}: ${check.waitMinutes} min${check.edited ? " (edited)" : ""}${wrote ? "" : ", kept as proof only"}`,
+          reason: check.note,
+          before: { Proposed: e.proposedWaitMinutes != null ? `${e.proposedWaitMinutes} min` : "No wait read", Arrival: e.proposedArrivalAt ? dateTime(e.proposedArrivalAt) : null },
+          after: { Confirmed: `${check.waitMinutes} min`, Arrival: check.arrivalAt != null ? dateTime(new Date(check.arrivalAt)) : null, "Written to the stop": wrote ? "Yes" : "No" },
+          at: now,
+          workspaceId
+        },
+        tx
+      );
+      return { ok: true, changed: true };
+    });
+    return outcome;
+  } catch (err) {
+    if (err instanceof LoadMoved) return { ok: false, error: err.message };
+    throw err;
   }
-  await prisma.$transaction(async (tx) => {
-    const claimed = await tx.stopEvidence.updateMany({ where: { id: e.id, state: "proposed" }, data: { state: "confirmed", decidedBy: currentActor(), decidedAt: now, confirmedArrivalAt: when(check.arrivalAt), confirmedWaitMinutes: check.waitMinutes, edited: check.edited, wroteToStop: wrote, note: check.note } });
-    if (claimed.count !== 1) return;
-    await recordAudit(
-      {
-        entity: "load",
-        entityId: e.id,
-        action: "detention_evidence_confirmed",
-        loadId: e.loadId,
-        loadNumber: e.load.loadNumber,
-        summary: `Detention evidence confirmed for stop ${e.stop.stopSequence}: ${check.waitMinutes} min${check.edited ? " (edited)" : ""}${wrote ? "" : ", kept as proof only"}`,
-        reason: check.note,
-        before: { Proposed: e.proposedWaitMinutes != null ? `${e.proposedWaitMinutes} min` : "No wait read", Arrival: e.proposedArrivalAt ? dateTime(e.proposedArrivalAt) : null },
-        after: { Confirmed: `${check.waitMinutes} min`, Arrival: check.arrivalAt != null ? dateTime(new Date(check.arrivalAt)) : null, "Written to the stop": wrote ? "Yes" : "No" },
-        at: now,
-        workspaceId
-      },
-      tx
-    );
-  });
-  return { ok: true, changed: true };
 }
 
 /** A person says the track does not show a wait worth claiming, with the reason. Writes nothing to the stop. */

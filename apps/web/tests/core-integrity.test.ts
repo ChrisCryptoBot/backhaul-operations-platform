@@ -46,7 +46,7 @@ describe("the deal on a load edit", () => {
   });
 
   it("names each wrong figure next to its field", () => {
-    const out = validateLoadEdit(form({ deal: { vehicleId: "t1", rate: "", fuelSurcharge: "-3", loadedMiles: "6000", emptyToPickup: "x", emptyHome: "9999" } }));
+    const out = validateLoadEdit(form({ deal: { vehicleId: "t1", rate: "", fuelSurcharge: "-3", loadedMiles: "6001", emptyToPickup: "x", emptyHome: "9999" } }));
     if (out.ok) throw new Error("expected errors");
     expect(Object.keys(out.errors).sort()).toEqual(["deal.emptyHome", "deal.emptyToPickup", "deal.fuelSurcharge", "deal.loadedMiles", "deal.rate"]);
   });

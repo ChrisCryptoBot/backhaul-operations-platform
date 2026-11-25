@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { grossOf } from "../src/lib/load-gross";
+import { loadLedger } from "../src/lib/load-ledger";
 import { daysPastDue, dueAt, isOverdue } from "../src/lib/overdue";
 import { invoiceReadiness } from "../src/lib/invoicing";
 
@@ -49,5 +50,96 @@ describe("the invoice bills the agreed rate", () => {
   it("says nothing when it matches within a dollar, or was not entered", () => {
     expect(cautions({ paidLinehaul: 1000.4 })).not.toMatch(/paid at delivery/);
     expect(cautions({ paidLinehaul: null })).not.toMatch(/paid at delivery/);
+  });
+});
+
+describe("Money tab ledger (loadLedger)", () => {
+  const mkLoad = (overrides: Record<string, unknown> = {}) => ({
+    status: "completed",
+    quotedRevenue: 2000,
+    actualRevenue: null,
+    fuelSurcharge: 200,
+    layoverPay: 0,
+    tonuRevenue: null,
+    expenseFuelActual: 300,
+    expenseTolls: 20,
+    expenseMisc: 0,
+    insuranceRiderFlat: 0,
+    assignmentPayEstimate: 500,
+    forecastFuel: 250,
+    totalMiles: 1000,
+    ...overrides
+  });
+
+  it("TONU shows only fee in totalRev, keeps referenceRate outside sum, and preserves driver pay", () => {
+    const out = loadLedger(mkLoad({ status: "tonu", tonuRevenue: 250, assignmentPayEstimate: 150 }), [], null, { billedExtra: 0, billable: 0 });
+    expect(out.earned).toBe(250);
+    expect(out.totalRev).toBe(250);
+    expect(out.revTonu).toBe(250);
+    expect(out.referenceRate).toBe(2200);
+    expect(out.expDriver).toBe(150);
+    expect(out.totalRev - out.revDetention).toBe(out.earned);
+  });
+
+  it("cancelled load has $0 earned and $0 totalRev while retaining referenceRate", () => {
+    const out = loadLedger(mkLoad({ status: "cancelled", tonuRevenue: 250 }), [], null, { billedExtra: 0, billable: 0 });
+    expect(out.earned).toBe(0);
+    expect(out.totalRev).toBe(0);
+    expect(out.referenceRate).toBe(2200);
+    expect(out.totalRev - out.revDetention).toBe(out.earned);
+  });
+
+  it("short-paid load matches grossOf to the cent, tracks variance, and respects waived detention", () => {
+    const out = loadLedger(
+      mkLoad({ quotedRevenue: 1000, actualRevenue: 850.25, fuelSurcharge: 50, layoverPay: 100 }),
+      [],
+      null,
+      { billedExtra: 0, billable: 75, waived: false }
+    );
+    expect(out.revAgreed).toBe(1000);
+    expect(out.revLinehaul).toBe(850.25);
+    expect(out.revVariance).toBe(-149.75);
+    expect(out.revDetention).toBe(75);
+    expect(out.earned).toBe(1000.25);
+    expect(out.totalRev).toBe(1075.25);
+    expect(Number((out.totalRev - out.revDetention).toFixed(2))).toBe(out.earned);
+
+    const waived = loadLedger(
+      mkLoad({ quotedRevenue: 1000, actualRevenue: 850.25, fuelSurcharge: 50, layoverPay: 100 }),
+      [],
+      null,
+      { billedExtra: 0, billable: 75, waived: true }
+    );
+    expect(waived.revDetention).toBe(0);
+    expect(waived.totalRev).toBe(waived.earned);
+  });
+
+  it("relayed load sums closed leg estimates + active assignment, uses settled amount when settled, and falls back on legacy null legs", () => {
+    const activeAndClosed = loadLedger(
+      mkLoad({ assignmentPayEstimate: 300 }),
+      [{ status: "closed", kind: "haul", payEstimate: 200 }, { status: "active", kind: "haul", payEstimate: 300 }],
+      null,
+      { billedExtra: 0, billable: 0 }
+    );
+    expect(activeAndClosed.expDriver).toBe(500);
+    expect(activeAndClosed.driverCostSource).toBe("estimate");
+
+    const settled = loadLedger(
+      mkLoad({ assignmentPayEstimate: 300 }),
+      [{ status: "closed", kind: "haul", payEstimate: 200 }],
+      { id: "s1", number: "ST-9", amount: 515.4 },
+      { billedExtra: 0, billable: 0 }
+    );
+    expect(settled.expDriver).toBe(515.4);
+    expect(settled.driverCostSource).toBe("settled");
+    expect(settled.driverCostNote).toBe("settled on ST-9");
+
+    const legacyRelay = loadLedger(
+      mkLoad({ assignmentPayEstimate: 450 }),
+      [{ status: "closed", kind: "haul", payEstimate: null }],
+      null,
+      { billedExtra: 0, billable: 0 }
+    );
+    expect(legacyRelay.expDriver).toBe(450);
   });
 });

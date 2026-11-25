@@ -14,6 +14,7 @@ import { freezeLoadSnapshot } from "./snapshot";
 import { num, numOrNull } from "./convert";
 import { findDriverClash, findTruckClash, windowText } from "./dispatch";
 import { truckFit } from "@/lib/load-fit";
+import { roleOfStop } from "@/lib/stop-role";
 import { truckLimits } from "./quote";
 import { duplicateMessage, findTwinLoad } from "./twins";
 import { enqueueForLoad } from "@/server/bridge/outbox";
@@ -86,6 +87,16 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
   const truckChanged = deal != null && deal.vehicleId !== (load.vehicleId ?? null);
   const milesChanged = deal != null && (deal.loadedMiles !== was.loaded || deal.emptyToPickup !== was.pick || deal.emptyHome !== was.home);
   const moneyChanged = deal != null && (deal.rate !== was.rate || (deal.fuelSurcharge ?? 0) !== (was.fsc ?? 0) || milesChanged);
+  const specs = { weightLbs: v.weightLbs, lengthFt: v.lengthFt, widthFt: v.widthFt, heightIn: v.heightIn, hazmatClass: v.hazmat, requiresLiftgate: v.liftgate, requiresRamp: v.ramp, requiresPalletJack: v.palletJack };
+  const specsChanged =
+    v.weightLbs !== load.weightLbs ||
+    v.lengthFt !== numOrNull(load.lengthFt as never) ||
+    v.widthFt !== numOrNull(load.widthFt as never) ||
+    v.heightIn !== numOrNull(load.loadHeightIn as never) ||
+    v.hazmat !== load.hazmatClass ||
+    v.liftgate !== (load.requiresLiftgate === true) ||
+    v.ramp !== (load.requiresRamp === true) ||
+    v.palletJack !== (load.requiresPalletJack === true);
   let truck: { id: string; name: string } | null = null;
   if (deal && (truckChanged || moneyChanged)) {
     if (load.paymentStatus) return { ok: false, error: "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." };
@@ -97,13 +108,15 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
     const found = await prisma.vehicle.findFirst({ where: { id: deal.vehicleId, workspaceId, archivedAt: null }, include: { costProfile: true } });
     if (!found) return { ok: false, error: "That truck is not available." };
     // The truck has to be able to take the load (weight, size, equipment) and not be on another load at the same time: the Quote checks both, and moving a load to a truck must too.
-    const specs = { weightLbs: v.weightLbs, lengthFt: v.lengthFt, widthFt: v.widthFt, heightIn: v.heightIn, hazmatClass: v.hazmat, requiresLiftgate: v.liftgate, requiresRamp: v.ramp, requiresPalletJack: v.palletJack };
     const fit = truckFit(specs, truckLimits(found));
     if (fit.blocker) return { ok: false, error: `${found.name} cannot take this load. ${fit.blocker}` };
     const busy = await findTruckClash(found.id, load.id, loadWindow(v.stops.map((s) => ({ timeWindowEarliest: s.earliest, timeWindowLatest: s.latest }))), workspaceId);
     if (busy) return { ok: false, error: `${found.name} is already on ${busy.loadNumber ?? "another load"} (${windowText(busy.window)}). Pick another truck, or move that load first.` };
     if (!found.costProfile) return { ok: false, error: `${found.name} has no cost profile yet. Set it up on the truck's page, then move the load.` };
     truck = { id: found.id, name: found.name ?? "Unnamed truck" };
+  } else if (specsChanged && load.vehicle) {
+    const fit = truckFit(specs, truckLimits(load.vehicle));
+    if (fit.blocker) return { ok: false, error: `${load.vehicle.name ?? "This truck"} cannot take this load. ${fit.blocker}` };
   }
 
   // What changed, as label, before and after, for the audit entry.
@@ -167,8 +180,8 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
   const payChanged = newEstimate != null && num(newEstimate) !== num(a!.payEstimate);
   const reconfirm = (scheduleChanged || payChanged) && a != null && (a.status === "dispatched" || a.status === "accepted");
 
-  const pickups = v.stops.filter((s) => (old.get(s.id)!.stopRole ?? old.get(s.id)!.stopType) === "pickup").flatMap((s) => s.refs);
-  const deliveries = v.stops.filter((s) => (old.get(s.id)!.stopRole ?? old.get(s.id)!.stopType) === "delivery").flatMap((s) => s.refs);
+  const pickups = v.stops.filter((s) => roleOfStop(old.get(s.id)!) === "pickup").flatMap((s) => s.refs);
+  const deliveries = v.stops.filter((s) => roleOfStop(old.get(s.id)!) === "delivery").flatMap((s) => s.refs);
   const first = v.stops[0];
   const last = v.stops[v.stops.length - 1];
   await prisma.$transaction(async (tx) => {

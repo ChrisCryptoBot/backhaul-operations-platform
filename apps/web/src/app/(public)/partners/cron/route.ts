@@ -33,8 +33,29 @@ export async function POST(req: NextRequest) {
   const purged = await purgeOldEvents();
   const deliveriesPurged = await purgeOldDeliveries();
   // Freeze what each recently delivered truck's track says about its stops BEFORE the fixes are deleted: the detention evidence pack (docs/DETENTION_EVIDENCE.md) outlives the week the fixes are kept.
-  const frozen = await freezeRecentDeliveries().catch(() => null);
-  const pingsPurged = await purgeOldPings();
+  // If freezing throws or any load failed, hold off purging pings so proof is never lost.
+  let frozen: Awaited<ReturnType<typeof freezeRecentDeliveries>> | null = null;
+  let freezeThrew = false;
+  try {
+    frozen = await freezeRecentDeliveries();
+  } catch {
+    freezeThrew = true;
+  }
+  const freezeFailed = frozen?.failed ?? 0;
+  const pingsHeld = freezeThrew || freezeFailed > 0;
+  const pingsPurged = pingsHeld ? "held" : await purgeOldPings();
   const staysPurged = await purgeOldStays();
-  return NextResponse.json({ ok: true, ran, payroll, webhooks, resealed, purged, deliveriesPurged, pingsPurged, staysPurged, evidenceFrozen: frozen ? frozen.created + frozen.improved : 0 });
+  return NextResponse.json({
+    ok: true,
+    ran,
+    payroll,
+    webhooks,
+    resealed,
+    purged,
+    deliveriesPurged,
+    pingsPurged,
+    ...(freezeThrew ? { freezeFailed: "error" } : freezeFailed > 0 ? { freezeFailed } : {}),
+    staysPurged,
+    evidenceFrozen: frozen ? frozen.created + frozen.improved : 0
+  });
 }

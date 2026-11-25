@@ -1,5 +1,10 @@
 "use client";
 
+import { useRouter } from "next/navigation";
+import { useToast } from "./kit/toast";
+import { tried } from "./kit/tried";
+import type { InlineActionResult } from "@/app/(desk)/actions";
+
 import React from "react";
 import { Modal } from "./kit/modal";
 import { useDraft } from "./kit/use-draft";
@@ -10,24 +15,41 @@ import { HANDOFF_REASON_LABEL, HANDOFF_REASONS, HANDOFF_TYPES, HANDOFF_TYPE_LABE
  * The relay forms (docs/RELAY_DESIGN.md): a driver leaves the load at a place (the drop), the next driver takes it (the receive), and something found wrong is reported and acknowledged.
  * The dispatcher fills them in for the driver until the phone can. Every form keeps what was typed until it is sent or cancelled.
  */
-type Action = (formData: FormData) => void | Promise<void>;
+type Action = (formData: FormData) => Promise<InlineActionResult>;
 type Drivers = React.ComponentProps<typeof AssignFields>["drivers"];
 
 const row: React.CSSProperties = { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 };
 
-function useSend(action: Action, close: () => void, saved: () => void) {
+function useSend(action: Action, open: boolean, close: () => void, saved: () => void) {
   const [pending, start] = React.useTransition();
+  const [error, setError] = React.useState<string | null>(null);
+  const router = useRouter();
+  const toast = useToast();
+  React.useEffect(() => {
+    if (!open) setError(null);
+  }, [open]);
   const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (pending) return;
     const data = new FormData(e.currentTarget);
-    saved();
-    close();
+    setError(null);
     start(async () => {
-      await action(data);
+      const res = await tried(() => action(data));
+      if (!res.ok) {
+        setError(res.message);
+        return;
+      }
+      if (!res.value.ok) {
+        setError(res.value.error);
+        return;
+      }
+      saved();
+      close();
+      toast({ text: res.value.message, tone: "ok" });
+      router.refresh();
     });
   };
-  return { pending, onSubmit };
+  return { pending, error, onSubmit };
 }
 
 const BLANK_DROP = { type: "drop_hook", reason: "planned", locationName: "", slot: "", lat: "", lng: "", outgoingNext: "", sealNumber: "", milesDriven: "", milesSource: "", reeferSetTemp: "", reeferActualTemp: "", reeferFuelPct: "", conditionOk: "", conditionNotes: "" };
@@ -37,7 +59,7 @@ export function DropForm({ action, loadId, loadNumber, driverName }: { action: A
   const [open, setOpen] = React.useState(false);
   const [v, setV, draft] = useDraft(`drop:${loadId}`, BLANK_DROP);
   const set = (k: keyof typeof BLANK_DROP) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setV((x) => ({ ...x, [k]: e.target.value }));
-  const { pending, onSubmit } = useSend(action, () => setOpen(false), () => draft.saved());
+  const { pending, error, onSubmit } = useSend(action, open, () => setOpen(false), () => draft.saved());
   const type = v.type as HandoffType;
   return (
     <>
@@ -123,9 +145,12 @@ export function DropForm({ action, loadId, loadNumber, driverName }: { action: A
               <input name="conditionNotes" type="text" value={v.conditionNotes} onChange={set("conditionNotes")} />
             </label>
           </div>
-          <div style={{ ...row, justifyContent: "flex-end" }}>
+          <div style={{ ...row, justifyContent: "flex-end", alignItems: "center" }}>
+            {error ? <span className="tl-note warn" role="alert" style={{ marginRight: "auto" }}>{error}</span> : null}
             <button type="button" className="tl-btn" onClick={() => { draft.discard(); setOpen(false); }}>Cancel</button>
-            <button type="submit" className="tl-btn primary" disabled={!v.outgoingNext || (!v.locationName.trim() && !(v.lat && v.lng))}>Record the handoff</button>
+            <button type="submit" className="tl-btn primary" disabled={pending || !v.outgoingNext || (!v.locationName.trim() && !(v.lat && v.lng))}>
+              {pending ? "Saving…" : "Record the handoff"}
+            </button>
           </div>
         </form>
       </Modal>
@@ -145,7 +170,7 @@ export function ReceiveForm({
 }: {
   action: Action;
   loadId: string;
-  handoff: { id: string; type: string; locationName: string | null; tractorOutName: string | null; sealNumber: string | null };
+  handoff: { id: string; type: string; locationName: string | null; tractorOutId: string | null; tractorOutName: string | null; sealNumber: string | null };
   drivers: Drivers;
   trucks: Array<{ id: string; name: string }>;
   rateConTotal: number | null;
@@ -154,7 +179,7 @@ export function ReceiveForm({
   const [open, setOpen] = React.useState(false);
   const [v, setV, draft] = useDraft(`receive:${handoff.id}`, { vehicleId: "", sealMatches: "", conditionOk: "", conditionNotes: "" });
   const forget = React.useRef<(() => void) | null>(null);
-  const { pending, onSubmit } = useSend(action, () => setOpen(false), () => { draft.saved(); forget.current?.(); });
+  const { pending, error, onSubmit } = useSend(action, open, () => setOpen(false), () => { draft.saved(); forget.current?.(); });
   const swap = handoff.type === "slip_seat";
   return (
     <>
@@ -173,7 +198,7 @@ export function ReceiveForm({
             <label className="tl-field" style={{ marginTop: 10 }}>Truck taking the trailer
               <select name="vehicleId" value={v.vehicleId} onChange={(e) => setV((x) => ({ ...x, vehicleId: e.target.value }))} required>
                 <option value="">Pick a truck</option>
-                {trucks.filter((t) => t.name !== handoff.tractorOutName).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {trucks.filter((t) => t.id !== handoff.tractorOutId).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </label>
           )}
@@ -197,9 +222,12 @@ export function ReceiveForm({
             </label>
           </div>
           <p className="tl-note" style={{ marginTop: 10 }}>What each leg is paid is not split yet. This driver&rsquo;s pay is kept, but the load carries no estimate for it, and the driver who dropped it keeps their pay as it stood.</p>
-          <div style={{ ...row, justifyContent: "flex-end" }}>
+          <div style={{ ...row, justifyContent: "flex-end", alignItems: "center" }}>
+            {error ? <span className="tl-note warn" role="alert" style={{ marginRight: "auto" }}>{error}</span> : null}
             <button type="button" className="tl-btn" onClick={() => { draft.discard(); setOpen(false); }}>Cancel</button>
-            <button type="submit" className="tl-btn primary">Hand the load to them</button>
+            <button type="submit" className="tl-btn primary" disabled={pending}>
+              {pending ? "Saving…" : "Hand the load to them"}
+            </button>
           </div>
         </form>
       </Modal>
@@ -211,7 +239,7 @@ export function ReceiveForm({
 export function DiscrepancyForm({ action, loadId, handoffId, location }: { action: Action; loadId: string; handoffId: string; location: string }) {
   const [open, setOpen] = React.useState(false);
   const [v, setV, draft] = useDraft(`discrepancy:${handoffId}`, { notes: "", raisedBy: "incoming_driver" });
-  const { pending, onSubmit } = useSend(action, () => setOpen(false), () => draft.saved());
+  const { pending, error, onSubmit } = useSend(action, open, () => setOpen(false), () => draft.saved());
   return (
     <>
       <button type="button" className="tl-btn sm danger" disabled={pending} onClick={() => setOpen(true)}>Report a problem at the handoff</button>
@@ -229,9 +257,12 @@ export function DiscrepancyForm({ action, loadId, handoffId, location }: { actio
           <label className="tl-field" style={{ marginTop: 10 }}>What was found
             <textarea name="notes" value={v.notes} onChange={(e) => setV((x) => ({ ...x, notes: e.target.value }))} placeholder="Bolt seal broken, tire slashed" data-autofocus />
           </label>
-          <div style={{ ...row, justifyContent: "flex-end" }}>
+          <div style={{ ...row, justifyContent: "flex-end", alignItems: "center" }}>
+            {error ? <span className="tl-note warn" role="alert" style={{ marginRight: "auto" }}>{error}</span> : null}
             <button type="button" className="tl-btn" onClick={() => { draft.discard(); setOpen(false); }}>Cancel</button>
-            <button type="submit" className="tl-btn danger" disabled={v.notes.trim().length < 3}>Freeze the handoff</button>
+            <button type="submit" className="tl-btn danger" disabled={pending || v.notes.trim().length < 3}>
+              {pending ? "Saving…" : "Freeze the handoff"}
+            </button>
           </div>
         </form>
       </Modal>
