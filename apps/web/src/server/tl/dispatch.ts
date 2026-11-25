@@ -28,6 +28,8 @@ import { resolveIsContractor, type PayArrangement, type PayMilesBasis } from "@/
 import { senderNameOf } from "@/lib/driver-messages";
 import { currentActor } from "./identity";
 import { missingReasons, needsMessage, reasonText, type ReasonNeed, type Reasons } from "@/lib/assign-reasons";
+import { truckFit } from "@/lib/load-fit";
+import { loadSpecsOf, truckLimits } from "./truck-fit";
 
 export { driverBlocker };
 
@@ -211,6 +213,19 @@ export async function assignDriver(
   const blocker = driverBlocker(driver, now, loadWindow(load.stops)?.end ?? load.scheduledDate ?? null);
   if (blocker) throw new DispatchError("driver_not_cleared", `${driver.name}: ${blocker}.`);
 
+  // The truck goes with the driver: a load with no truck takes the truck this driver usually drives (inside the person's limit), so its cost floor, its verdict and the truck checks are
+  // real. The same rules as a relay hand-over (relay.ts): a truck that cannot carry the load refuses, one already on another load at that time needs its own reason.
+  const attach =
+    load.vehicleId == null && driver.assignedVehicleId
+      ? await prisma.vehicle.findFirst({ where: { id: driver.assignedVehicleId, workspaceId, archivedAt: null } })
+      : null;
+  const truck = attach && inScope(allowed, attach.terminal) ? attach : null;
+  if (truck) {
+    const fit = truckFit(loadSpecsOf(load), truckLimits(truck));
+    if (fit.blocker) throw new DispatchError("load_not_assignable", `${truck.name ?? "Their truck"} would go on this load with ${driver.name}, and it cannot take it. ${fit.blocker}`);
+  }
+  const truckName = truck?.name ?? "Their truck";
+
   const reasons: Reasons = { ...(input.reasons ?? {}) };
   const legacy = (input.overrideReason ?? "").trim();
   if (legacy) {
@@ -241,6 +256,8 @@ export async function assignDriver(
   const clash = await findDriverClash(driver.id, load.id, loadWindow(load.stops));
   if (clash) needs.push({ code: "double_booked", message: `${driver.name} is already on ${clash.loadNumber ?? "another load"} (${windowText(clash.window)}).` });
   if (replacing) needs.push({ code: "reason_required", message: `${prev!.driver.name} has this load.` });
+  const truckBusy = truck ? await findTruckClash(truck.id, load.id, loadWindow(load.stops), workspaceId) : null;
+  if (truckBusy) needs.push({ code: "truck_busy", message: `${truckName} is already on ${truckBusy.loadNumber ?? "another load"} (${windowText(truckBusy.window)}).` });
   if (repaid) needs.push({ code: "pay_changed", message: `${driver.name} was sent this load at ${describePay(prev!.payKind, num(prev!.payRate))}. The offer on their phone is taken back and the load has to be sent again.` });
   const missing = missingReasons(needs, reasons);
   if (missing.length > 0) throw new DispatchError("reasons_needed", needsMessage(missing), missing);
@@ -267,6 +284,16 @@ export async function assignDriver(
         needs.push(need);
       }
     }
+    if (truck && !truckBusy) {
+      const busyNow = await findTruckClash(truck.id, load.id, loadWindow(load.stops), workspaceId, tx);
+      if (busyNow) {
+        const need: ReasonNeed = { code: "truck_busy", message: `${truckName} is already on ${busyNow.loadNumber ?? "another load"} (${windowText(busyNow.window)}).` };
+        if (missingReasons([need], reasons).length > 0) throw new DispatchError("reasons_needed", needsMessage([need]), [need]);
+        needs.push(need);
+      }
+    }
+    // Only while the load still has no truck: one set by someone else in the meantime is theirs to keep.
+    const truckSet = truck ? (await tx.load.updateMany({ where: { id: load.id, workspaceId, vehicleId: null }, data: { vehicleId: truck.id } })).count === 1 : false;
     const saved = prev
       ? await tx.assignment.update({
           where: { loadId: load.id },
@@ -294,7 +321,7 @@ export async function assignDriver(
               : prev.driverId === driver.id
                 ? `${driver.name}'s pay changed from ${prevPay} to ${payText}`
                 : `Changed from ${prev.driver.name} (${prevPay}) to ${driver.name} (${payText})`
-            : `${driver.name} assigned at ${payText}`) + (needs.some((n) => n.code === "double_booked") ? ", double-booked on purpose" : ""),
+            : `${driver.name} assigned at ${payText}`) + (truckSet ? `, on ${truckName}` : "") + (needs.some((n) => n.code === "double_booked") ? ", double-booked on purpose" : ""),
         reason: why,
         before: prev ? { Driver: prev.driver.name, Pay: prevPay, Estimate: money(num(prev.payEstimate)) } : null,
         after: { Driver: driver.name, Pay: payText, Estimate: money(num(estimate)) },

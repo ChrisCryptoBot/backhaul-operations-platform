@@ -16,7 +16,7 @@ import { assertPay, findDriverClash, findTruckClash, windowText } from "./dispat
 import { currentActor } from "./identity";
 import { senderNameOf } from "@/lib/driver-messages";
 import { lockWorkspace } from "./plan";
-import { truckLimits } from "./quote";
+import { truckLimits } from "./truck-fit";
 import { ensureActiveLeg } from "./relay-legs";
 import { currentAllowed } from "./scope";
 import { inTerminal } from "./terminal-sql";

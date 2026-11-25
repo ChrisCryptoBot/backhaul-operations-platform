@@ -19,7 +19,7 @@ import { resolveOrCreateCustomer } from "./customers";
 import { findDriverClash, findTruckClash, windowText } from "./dispatch";
 import { truckFit } from "@/lib/load-fit";
 import { roleOfStop } from "@/lib/stop-role";
-import { truckLimits } from "./quote";
+import { truckLimits } from "./truck-fit";
 import { duplicateMessage, findTwinLoad } from "./twins";
 import type { Terminals } from "@/lib/scope";
 import { enqueueForLoad } from "@/server/bridge/outbox";

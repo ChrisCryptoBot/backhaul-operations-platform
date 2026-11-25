@@ -139,7 +139,7 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
                           <span className="tl-sub">
                             {" "}
                             {payLabel(s.payKind, s.payRate)}
-                            {s.truckName ? ` · priced on ${s.truckName}` : ""}
+                            {s.truckName ? (data.hasTruck ? ` · priced on ${s.truckName}` : ` · priced on ${s.truckName}, which goes on the load`) : ""}
                           </span>
                         </span>
                         <span className={s.leftOver == null ? "tl-sub" : s.leftOver >= 0 ? "as-ok" : "as-bad"}>
@@ -153,7 +153,7 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
             ) : (
               <p className="tl-note">No driver is free for this load. Pick one below and say why, or change the times.</p>
             )}
-            {!data.hasTruck ? <p className="tl-note">This load has no truck yet, so each driver is priced on the truck they usually drive. Set the load&apos;s truck under Edit details for the real figure.</p> : null}
+            {!data.hasTruck ? <p className="tl-note">This load has no truck yet. Each driver is priced on the truck they usually drive, and that truck goes on the load with them.</p> : null}
             <form
               ref={formRef}
               className="as-fields"

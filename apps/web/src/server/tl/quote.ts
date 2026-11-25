@@ -186,16 +186,9 @@ const windowOf = (input: QuoteInput) => {
 
 type TruckForFit = Prisma.VehicleGetPayload<{ include: { costProfile: true; drivers: true; trailers: true } }>;
 
-/** What a truck holds and carries, as the load check reads it. */
-export const truckLimits = (t: { payloadLbs: number | null; maxLengthFt: Prisma.Decimal | null; maxWidthFt: Prisma.Decimal | null; maxHeightIn: Prisma.Decimal | null; hasLiftgate: boolean; hasRamp: boolean; hasPalletJack: boolean }): TruckLimits => ({
-  payloadLbs: t.payloadLbs,
-  maxLengthFt: numOrNull(t.maxLengthFt),
-  maxWidthFt: numOrNull(t.maxWidthFt),
-  maxHeightIn: numOrNull(t.maxHeightIn),
-  hasLiftgate: t.hasLiftgate,
-  hasRamp: t.hasRamp,
-  hasPalletJack: t.hasPalletJack
-});
+/** What a truck holds and carries, as the load check reads it (moved to truck-fit.ts so dispatch.ts can use it too). */
+export { truckLimits } from "./truck-fit";
+import { truckLimits } from "./truck-fit";
 
 function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["drivers"][number] | null, blocked: string | null, shift: QuoteShift = NO_QUOTE_SHIFT, now: Date = new Date(), soonDays = 30): FitRow | null {
   const profile = truck.costProfile;

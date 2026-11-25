@@ -179,6 +179,23 @@ describe.skipIf(!run)("who could take a load, on the demo database", () => {
     expect(audit?.reason).toBe("Double-booked: R2 is a short hop first; Driver changed: Dear called in sick");
   });
 
+  test("a load with no truck takes the driver's truck; a truck already on another load then needs its own reason", async () => {
+    const day = "2027-06-24";
+    const loose = await mkLoad("TRK1", day, { vehicleId: null });
+    expect(await assignFromQueue({ loadId: loose.id, driverId: ids.Cheap!, payKind: "cpm", rate: "0.40" })).toEqual({ ok: true });
+    expect((await prisma.load.findUniqueOrThrow({ where: { id: loose.id } })).vehicleId).toBe(ids.truck);
+    const said = await prisma.auditEvent.findFirst({ where: { loadId: loose.id, action: "assigned" }, orderBy: { createdAt: "desc" } });
+    expect(said?.summary).toContain("on WC2 Truck");
+
+    // The WC2 truck is now on TRK1 that day: Dear, who usually drives it, is free, but the truck is not.
+    const second = await mkLoad("TRK2", day, { vehicleId: null });
+    const busy = await assignFromQueue({ loadId: second.id, driverId: ids.Dear!, payKind: "cpm", rate: "0.80" });
+    expect(busy).toMatchObject({ ok: false, code: "reasons_needed" });
+    expect((busy as { needs: Array<{ code: string }> }).needs.map((n) => n.code)).toEqual(["truck_busy"]);
+    expect(await assignFromQueue({ loadId: second.id, driverId: ids.Dear!, payKind: "cpm", rate: "0.80", reasons: { truck_busy: "TRK1 is done by noon" } })).toEqual({ ok: true });
+    expect((await prisma.load.findUniqueOrThrow({ where: { id: second.id } })).vehicleId).toBe(ids.truck);
+  });
+
   test("send checks the load again inside its own transaction: a load that moved on since it was assigned is not sent", async () => {
     const load = await mkLoad("SEND-MOVED", "2027-06-23");
     expect(await assignFromQueue({ loadId: load.id, driverId: ids.Dear!, payKind: "cpm", rate: "0.80" })).toEqual({ ok: true });
