@@ -3,6 +3,7 @@ import React from "react";
 import { PageHead } from "@/components/desk/ui";
 import { LoadImportPanel } from "@/components/desk/load-import-panel";
 import { CanGate } from "@/components/desk/kit/can-gate";
+import { requirePage } from "@/server/tl/access";
 import { listLoadImports } from "@/server/tl/load-import";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ export const metadata = { title: "Import loads · TrueLane" };
 
 /** Load a carrier's finished loads from a spreadsheet or a TMS export saved as CSV, with the columns matched and every row checked first. */
 export default async function ImportLoadsPage() {
+  await requirePage("dispatch");
   const recent = await listLoadImports(10);
   return (
     <>

@@ -133,15 +133,16 @@ export const agingFor = agingSummary;
 
 import { pickerOptions, rankDrivers } from "./driver-rank";
 import { currentTerminal } from "./terminal";
-import { currentAllowed } from "./scope";
+import { allowedFor, currentAllowed } from "./scope";
 import { inTerminal } from "./terminal-sql";
 import { agingSummary } from "./aging";
 import { rateConTotal } from "@/lib/pay";
 import { driverFacingPay, projectLoadToSummary, type LoadSummary, type PayKind } from "./projector";
 
-export async function getLoadDetail(id: string, workspaceId = currentWorkspaceId()) {
+export async function getLoadDetail(id: string, workspaceId = currentWorkspaceId(), allowed?: Terminals) {
+  const scope = await allowedFor(workspaceId, allowed);
   // The decision is read here only (the board shares loadInclude and does not need it): how the quote became this load.
-  const l = await prisma.load.findFirst({ where: { id, workspaceId, deletedAt: null, ...notQuote }, include: { ...loadInclude, decisions: { orderBy: { decidedAt: "desc" as const }, take: 1 } } });
+  const l = await prisma.load.findFirst({ where: { id, workspaceId, deletedAt: null, ...notQuote, ...inTerminal(scope) }, include: { ...loadInclude, decisions: { orderBy: { decidedAt: "desc" as const }, take: 1 } } });
   if (!l) return null;
   const profile = l.vehicle?.costProfile ?? null;
   const evaluation = profile ? evaluateTlLoad(l, profile, l.vehicle) : null;
@@ -150,7 +151,7 @@ export async function getLoadDetail(id: string, workspaceId = currentWorkspaceId
   // The best few drivers to take it (and whoever has it now); anyone else is found by searching (/drivers/pick). The trucks it can move to are found the same way.
   // Only a load that can still take a driver shows the form that needs them; ranking every driver for a delivered or cancelled load's page is work nobody sees.
   const assignable = l.status === "draft" || l.status === "accepted";
-  const ranked = assignable ? await rankDrivers(l, workspaceId, await currentTerminal(workspaceId), await currentAllowed(workspaceId)) : { options: [], fits: [] };
+  const ranked = assignable ? await rankDrivers(l, workspaceId, await currentTerminal(workspaceId), scope) : { options: [], fits: [] };
   const driverOptions = pickerOptions(ranked.options, l.assignment?.driverId);
   let driverView: LoadSummary | null = null;
   if (l.assignment) {

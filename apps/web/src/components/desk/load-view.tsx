@@ -327,7 +327,7 @@ export async function LoadView({ id }: { id: string }) {
                 <div className="t">
                   {l.fromName ? `From ${l.fromName}` : ""}{l.toName ? ` to ${l.toName}` : ""}
                   {l.milesDriven != null ? ` · ${num(l.milesDriven).toLocaleString("en-US")} mi (${l.milesSource === "eld" ? "ELD" : l.milesSource === "driver" ? "from the driver" : "worked out by dispatch"})` : l.status === "closed" ? " · miles not recorded" : ""}
-                  {l.payEstimate != null ? ` · pay as it stood ${usd(num(l.payEstimate), 2)}` : ""}
+                  {may("billing_details") && l.payEstimate != null ? ` · pay estimate ${usd(num(l.payEstimate), 2)}` : ""}
                 </div>
               </li>
             ))}
@@ -414,13 +414,17 @@ export async function LoadView({ id }: { id: string }) {
                 <dd><a href={telHref(a.driver.phone)}>{a.driver.phone}</a></dd>
               </>
             ) : null}
-            <dt>Pay</dt>
-            <dd>{PAY_KIND_LABEL[a.payKind] ?? a.payKind} · {payLabel(a.payKind, num(a.payRate))}</dd>
-            <dt>Estimate (display only)</dt>
-            <dd>{usd(a.payEstimate == null ? null : num(a.payEstimate), 2)}</dd>
+            {may("billing_details") ? (
+              <>
+                <dt>Pay (estimate)</dt>
+                <dd>{PAY_KIND_LABEL[a.payKind] ?? a.payKind} · {payLabel(a.payKind, num(a.payRate))}</dd>
+                <dt>Estimate (display only)</dt>
+                <dd>{usd(a.payEstimate == null ? null : num(a.payEstimate), 2)}</dd>
+              </>
+            ) : null}
             <dt>Status</dt>
             <dd><AssignmentChip status={a.status} /></dd>
-            {settled ? (
+            {settled && may("billing_details") ? (
               <>
                 <dt>Paid to the driver</dt>
                 <dd>
@@ -916,7 +920,7 @@ export async function LoadView({ id }: { id: string }) {
             </ConfirmForm>
           ) : null}
           </>,
-          "bill"
+          "admin"
         )}
       </div>
     ) : null;
@@ -1046,7 +1050,7 @@ export async function LoadView({ id }: { id: string }) {
         )}
         {detailRow("Terms", `${load.payTermsDays != null ? termsLabel(load.payTermsDays) : load.paymentTerms ?? "Not set"} · ${load.channel ?? "dispatch"}`)}
         {load.notes ? detailRow("Notes", load.notes) : null}
-        {settled ? detailRow("Driver paid", <>On statement <Link href={`/settlements/${settled.id}`}>{settled.number}</Link></>) : null}
+        {settled && may("billing_details") ? detailRow("Driver paid", <>On statement <Link href={`/settlements/${settled.id}`}>{settled.number}</Link></>) : null}
       </dl>
     </section>
   );
@@ -1136,18 +1140,20 @@ export async function LoadView({ id }: { id: string }) {
             {ledger.revLayover > 0 ? moneyRow("Layover", ledger.revLayover) : null}
           </>
         )}
-        {moneyRow("Driver pay", ledger.expDriver, { cost: true, note: ledger.driverCostNote })}
+        {may("billing_details") ? moneyRow("Driver pay", ledger.expDriver, { cost: true, note: ledger.driverCostNote }) : null}
         {moneyRow("Fuel", ledger.expFuel, { cost: true, note: ledger.fuelCostSource })}
         {ledger.expTolls > 0 ? moneyRow("Tolls", ledger.expTolls, { cost: true }) : null}
         {ledger.expRider > 0 ? moneyRow("Insurance rider", ledger.expRider, { cost: true }) : null}
         {ledger.expMisc > 0 ? moneyRow("Lumpers and other", ledger.expMisc, { cost: true }) : null}
-        <div className="lv-total">
-          <dt>
-            Left over
-            <span>{`${netMarginPct.toFixed(1)}% · ${perMile(netProfitPerMile)} over all miles`}</span>
-          </dt>
-          <dd className={netProfit >= 0 ? "ok" : "bad"}>{usd(netProfit, 2)}</dd>
-        </div>
+        {may("billing_details") ? (
+          <div className="lv-total">
+            <dt>
+              Left over
+              <span>{`${netMarginPct.toFixed(1)}% · ${perMile(netProfitPerMile)} over all miles`}</span>
+            </dt>
+            <dd className={netProfit >= 0 ? "ok" : "bad"}>{usd(netProfit, 2)}</dd>
+          </div>
+        ) : null}
       </dl>
     </section>
     {countSec ? <Fold title="Count every mile" meta={`${wayHome.toLowerCase()} ${perMile(allIn)}`}>{countSec}</Fold> : null}
@@ -1166,6 +1172,7 @@ export async function LoadView({ id }: { id: string }) {
             loadId={load.id}
             items={docs.map((d) => ({ id: d.id, kind: d.kind, name: d.name, bytes: d.bytes, when: dateTime(d.createdAt), by: d.addedBy, stop: stopLabelOf(d.stopId), toDriver: d.toDriver }))}
             locked={docsLocked}
+            canRemove={may("documents_remove")}
             defaultKind={load.status === "completed" ? "pod" : "rate_con"}
             deliveryStops={deliveryStopOptions}
           />,
@@ -1180,6 +1187,7 @@ export async function LoadView({ id }: { id: string }) {
               items={docs.map((d) => ({ id: d.id, kind: d.kind, name: d.name, bytes: d.bytes, when: dateTime(d.createdAt), by: d.addedBy, stop: stopLabelOf(d.stopId), toDriver: d.toDriver }))}
               deliveryStops={deliveryStopOptions}
               locked={docsLocked}
+              canRemove={may("documents_remove")}
               defaultKind={load.status === "completed" ? "pod" : "rate_con"}
             />,
             "documents"
@@ -1190,7 +1198,7 @@ export async function LoadView({ id }: { id: string }) {
     </>
   );
   // More: the record of the load and what is reached for now and then.
-  const cabSheet = <DriverCabSheet driverView={driverView} driverName={a?.driver.name ?? null} equipmentType={load.trailer?.number ? `Trailer ${load.trailer.number}` : (load.trailerType ?? null)} />;
+  const cabSheet = <DriverCabSheet driverView={driverView} driverName={a?.driver.name ?? null} equipmentType={load.trailer?.number ? `Trailer ${load.trailer.number}` : (load.trailerType ?? null)} showPay={may("billing_details")} />;
   const drawerMore = (
     <>
       {whereSec}

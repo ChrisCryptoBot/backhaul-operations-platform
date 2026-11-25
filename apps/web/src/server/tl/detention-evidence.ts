@@ -361,7 +361,8 @@ export async function confirmStopEvidence(evidenceId: string, values: ConfirmVal
             reason: `Detention evidence confirmed${check.edited ? " (edited)" : ""}${check.note ? `: ${check.note}` : ""}`
           },
           now,
-          workspaceId
+          workspaceId,
+          allowed
         );
         if (!r.ok) {
           const first = "errors" in r && r.errors ? Object.values(r.errors)[0] : null;

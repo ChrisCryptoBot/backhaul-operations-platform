@@ -3,7 +3,10 @@ import { CHOSEN_TO_DRIVER, DOC_KINDS, DOC_LABEL, isDocKind, type DocKind } from 
 import { recordAudit } from "./audit";
 import { removeFiles, storeFile } from "./message-files";
 import type { CheckedFile } from "./messages";
+import type { Terminals } from "@/lib/scope";
 import { storageRefusal } from "./storage";
+import { allowedFor } from "./scope";
+import { inTerminal } from "./terminal-sql";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -18,9 +21,10 @@ export type DocResult = { ok: true; id: string } | { ok: false; error: string };
 /** `stopId` is the delivery stop a proof of delivery belongs to; blank is the whole load. */
 export type DocRow = { id: string; kind: DocKind; name: string; mime: string; bytes: number; createdAt: Date; addedBy: string; stopId: string | null; /** Kind "other" only: the dispatcher sends it to the driver. */ toDriver: boolean };
 
-export async function addLoadDocument(loadId: string, kind: string, file: CheckedFile, now = new Date(), workspaceId = currentWorkspaceId(), addedBy = "Dispatcher", stopId: string | null = null, toDriver = false): Promise<DocResult> {
+export async function addLoadDocument(loadId: string, kind: string, file: CheckedFile, now = new Date(), workspaceId = currentWorkspaceId(), addedBy = "Dispatcher", stopId: string | null = null, toDriver = false, allowed?: Terminals): Promise<DocResult> {
+  const scope = await allowedFor(workspaceId, allowed);
   if (!isDocKind(kind)) return { ok: false, error: "Say what kind of document it is." };
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, status: { not: "quote" } }, select: { id: true, loadNumber: true, factoringStatus: true, stops: { select: { id: true, stopType: true, stopRole: true } } } });
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, status: { not: "quote" }, ...inTerminal(scope) }, select: { id: true, loadNumber: true, factoringStatus: true, stops: { select: { id: true, stopType: true, stopRole: true } } } });
   if (!load) return { ok: false, error: "That load does not exist." };
   // What went to the factor must stay as it was sent: nothing is added to it either.
   if (load.factoringStatus !== "none" && load.factoringStatus !== "rejected") return { ok: false, error: "This load's invoice has gone to a factoring company, so its documents stay as they were sent." };
@@ -54,14 +58,16 @@ export async function addLoadDocument(loadId: string, kind: string, file: Checke
   }
 }
 
-export async function listLoadDocuments(loadId: string, workspaceId = currentWorkspaceId()): Promise<DocRow[]> {
-  const rows = await prisma.loadDocument.findMany({ where: { loadId, workspaceId }, orderBy: { createdAt: "asc" } });
+export async function listLoadDocuments(loadId: string, workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<DocRow[]> {
+  const scope = await allowedFor(workspaceId, allowed);
+  const rows = await prisma.loadDocument.findMany({ where: { loadId, workspaceId, load: { deletedAt: null, ...inTerminal(scope) } }, orderBy: { createdAt: "asc" } });
   return rows.map((d) => ({ id: d.id, kind: d.kind as DocKind, name: d.name, mime: d.mime, bytes: d.bytes, createdAt: d.createdAt, addedBy: d.addedBy, stopId: d.stopId, toDriver: d.toDriver }));
 }
 
 /** Send a file of kind "other" to the load's driver, or take it back. The bridge mirror (server/bridge/documents.ts) does the sending on its next run; other kinds go or stay by their kind. */
-export async function setDocumentToDriver(id: string, toDriver: boolean, now = new Date(), workspaceId = currentWorkspaceId()): Promise<DocResult> {
-  const d = await prisma.loadDocument.findFirst({ where: { id, workspaceId }, include: { load: { select: { loadNumber: true } } } });
+export async function setDocumentToDriver(id: string, toDriver: boolean, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<DocResult> {
+  const scope = await allowedFor(workspaceId, allowed);
+  const d = await prisma.loadDocument.findFirst({ where: { id, workspaceId, load: { deletedAt: null, ...inTerminal(scope) } }, include: { load: { select: { loadNumber: true } } } });
   if (!d) return { ok: false, error: "That document does not exist." };
   if (d.kind !== CHOSEN_TO_DRIVER) return { ok: false, error: `A ${DOC_LABEL[d.kind as DocKind]?.toLowerCase() ?? "document"} cannot be switched: only a file filed as Other can.` };
   if (d.toDriver === toDriver) return { ok: true, id };
@@ -72,8 +78,9 @@ export async function setDocumentToDriver(id: string, toDriver: boolean, now = n
   return { ok: true, id };
 }
 
-export async function removeLoadDocument(id: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<DocResult> {
-  const d = await prisma.loadDocument.findFirst({ where: { id, workspaceId }, include: { load: { select: { loadNumber: true, factoringStatus: true } } } });
+export async function removeLoadDocument(id: string, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<DocResult> {
+  const scope = await allowedFor(workspaceId, allowed);
+  const d = await prisma.loadDocument.findFirst({ where: { id, workspaceId, load: { deletedAt: null, ...inTerminal(scope) } }, include: { load: { select: { loadNumber: true, factoringStatus: true } } } });
   if (!d) return { ok: false, error: "That document does not exist." };
   // What went to the factor must stay as it was sent.
   if (d.load.factoringStatus !== "none" && d.load.factoringStatus !== "rejected") return { ok: false, error: "This load's invoice has gone to a factoring company, so its documents stay as they were sent." };
@@ -115,8 +122,9 @@ export async function podStopsMissing(loadIds: string[], workspaceId = currentWo
 }
 
 /** Which kinds of document a load has (for the factoring packet). */
-export async function documentKinds(loadId: string, workspaceId = currentWorkspaceId()): Promise<Set<DocKind>> {
-  const rows = await prisma.loadDocument.findMany({ where: { loadId, workspaceId }, select: { kind: true }, distinct: ["kind"] });
+export async function documentKinds(loadId: string, workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<Set<DocKind>> {
+  const scope = await allowedFor(workspaceId, allowed);
+  const rows = await prisma.loadDocument.findMany({ where: { loadId, workspaceId, load: { deletedAt: null, ...inTerminal(scope) } }, select: { kind: true }, distinct: ["kind"] });
   return new Set(rows.map((r) => r.kind as DocKind));
 }
 

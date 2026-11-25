@@ -37,6 +37,7 @@ import { listSettlements } from "./settlement";
 import { DEDUCTION_ROW_LABEL } from "@/lib/deductions";
 import { contractor1099, form1099Csv } from "./form1099";
 import { currentTerminal } from "./terminal";
+import { checkAccess } from "./access";
 import { currentAllowed } from "./scope";
 import { getLeakLedger } from "./leaks";
 import { getDataHealth } from "./data-health";
@@ -112,6 +113,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
       view === "history"
         ? await history()
         : filterBoard(view === "open" ? await listBoardRows(undefined, "open", terminal) : (await listBoardRows(undefined, "open", terminal)).concat(await history()), { status: first(query.status), flag: first(query.flag), q });
+    const showDriverPay = (await checkAccess("billing_details")).ok;
     // What the board does not carry: the money a load cost to run and what its driver is owed.
     const extra = await prisma.load.findMany({
       where: { id: { in: rows.map((r) => r.id) } },
@@ -122,14 +124,14 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
         l.id,
         {
           expenses: new Prisma.Decimal(l.expenseFuelActual ?? 0).plus(l.expenseTolls ?? 0).plus(l.expenseMisc ?? 0).toDecimalPlaces(2).toNumber(),
-          driverPay: l.assignment?.payEstimate == null ? null : new Prisma.Decimal(l.assignment.payEstimate).toDecimalPlaces(2).toNumber()
+          driverPay: !showDriverPay || l.assignment?.payEstimate == null ? null : new Prisma.Decimal(l.assignment.payEstimate).toDecimalPlaces(2).toNumber()
         }
       ])
     );
     return {
       filename: cut ? name(`loads-first-${cap}`) : name("loads"),
       csv: toCsv(
-        ["Load", "Status", "Customer", "Origin", "Destination", "Pickup date", "Truck", "Driver", "Answer", "Miles", "Pay", "Pay per mile", "Floor per mile", "Verdict", "Invoice status", "Delivered", "Invoice number", "Invoiced", "Invoiced amount", "Paid", "Expenses", "Driver pay (estimate)", "Cancel reason"],
+        ["Load", "Status", "Customer", "Origin", "Destination", "Pickup date", "Truck", "Driver", "Answer", "Miles", "Pay", "Pay per mile", "Floor per mile", "Verdict", "Invoice status", "Delivered", "Invoice number", "Invoiced", "Invoiced amount", "Paid", "Expenses", ...(showDriverPay ? ["Driver pay (estimate)"] : []), "Cancel reason"],
         rows.map((r): CsvCell[] => [
           r.loadNumber,
           LOAD_STATUS[r.status]?.label ?? r.status,
@@ -152,7 +154,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
           two(r.invoicedAmount),
           ymd(r.paidAt),
           money.get(r.id)?.expenses ?? null,
-          money.get(r.id)?.driverPay ?? null,
+          ...(showDriverPay ? [money.get(r.id)?.driverPay ?? null] : []),
           r.cancelReason ? reasonLabel(r.cancelReason) : null
         ])
       )

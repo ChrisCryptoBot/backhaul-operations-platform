@@ -14,6 +14,7 @@ import { dueAt } from "@/lib/overdue";
 import { podStopsMissing } from "./documents";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
+import { allowedFor } from "./scope";
 import { inTerminal } from "./terminal-sql";
 import { balanceOf, isShortCode } from "@/lib/invoice-records";
 import { customerKey, MAX_LOADS_PER_INVOICE } from "@/lib/customer-key";
@@ -55,8 +56,23 @@ export async function suggestedInvoiceNumber(load: { id: string; loadNumber: str
  * Record that a late invoice was chased (an email opened to the customer's accounts team, or a call made), so the next person sees when and by whom. The desk sends nothing itself; this is
  * only the memory of it. Audited as a muted event on the load.
  */
-export async function recordChase(loadId: string, how: "email" | "phone", now = new Date(), workspaceId = currentWorkspaceId()): Promise<{ ok: boolean; error?: string }> {
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, paymentStatus: "invoiced" }, select: { loadNumber: true, invoiceNumber: true, brokerName: true } });
+async function invoiceInScope(invoiceId: string, workspaceId: string, scope: Terminals): Promise<boolean> {
+  if (scope == null) return true;
+  const rec = await prisma.invoice.findFirst({ where: { id: invoiceId, workspaceId }, select: { creditOfId: true, loads: { select: { loadId: true } } } });
+  if (!rec) return false;
+  let loadIds = rec.loads.map((l) => l.loadId);
+  if (loadIds.length === 0 && rec.creditOfId) {
+    const parent = await prisma.invoice.findFirst({ where: { id: rec.creditOfId, workspaceId }, select: { loads: { select: { loadId: true } } } });
+    loadIds = parent?.loads.map((l) => l.loadId) ?? [];
+  }
+  if (loadIds.length === 0) return true;
+  const count = await prisma.load.count({ where: { id: { in: loadIds }, workspaceId, ...inTerminal(scope) } });
+  return count === loadIds.length;
+}
+
+export async function recordChase(loadId: string, how: "email" | "phone", now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<{ ok: boolean; error?: string }> {
+  const scope = await allowedFor(workspaceId, allowed);
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, paymentStatus: "invoiced", ...inTerminal(scope) }, select: { loadNumber: true, invoiceNumber: true, brokerName: true } });
   if (!load) return { ok: false, error: "That invoice is not out any more." };
   await recordAudit({ entity: "invoice", action: "invoice_chased", loadId, loadNumber: load.loadNumber, summary: `${load.invoiceNumber ?? "Invoice"} chased by ${how === "email" ? "email" : "phone"}${load.brokerName ? ` (${load.brokerName})` : ""}`, before: null, after: { Invoice: load.invoiceNumber, How: how === "email" ? "Email" : "Phone" }, at: now, workspaceId });
   return { ok: true };
@@ -64,8 +80,9 @@ export async function recordChase(loadId: string, how: "email" | "phone", now = 
 
 export type InvoiceOut = { ok: boolean; detention: number; total?: number; error?: string; errors?: Record<string, string> };
 
-export async function invoiceLoad(loadId: string, opts: { includeDetention?: boolean; form?: InvoiceForm } = {}, now = new Date(), workspaceId = currentWorkspaceId()): Promise<InvoiceOut> {
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null }, include: { stops: true, vehicle: { include: { costProfile: true } } } });
+export async function invoiceLoad(loadId: string, opts: { includeDetention?: boolean; form?: InvoiceForm } = {}, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<InvoiceOut> {
+  const scope = await allowedFor(workspaceId, allowed);
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) }, include: { stops: true, vehicle: { include: { costProfile: true } } } });
   if (!load) return { ok: false, detention: 0, error: "That load does not exist." };
   if (load.paymentStatus) return { ok: false, detention: 0, error: `${load.invoiceNumber ?? "This load"} is already invoiced. Reload the page.` };
   if (!canInvoiceStatus(load.status, numOrNull(load.tonuRevenue))) return { ok: false, detention: 0, error: "Only a delivered load, or a TONU with a fee, can be invoiced." };
@@ -89,7 +106,7 @@ export async function invoiceLoad(loadId: string, opts: { includeDetention?: boo
       const taken = await tx.load.findFirst({ where: { workspaceId: load.workspaceId, invoiceNumber: number, deletedAt: null, id: { not: loadId } }, select: { loadNumber: true } });
       if (taken) throw new NumberTaken(taken.loadNumber);
       // Only a load that is not invoiced yet is invoiced: two clicks, or two tabs, make one invoice and leave its date and its audit entry alone.
-      const claimed = await tx.load.updateMany({ where: { id: loadId, workspaceId, deletedAt: null, status: { in: ["completed", "tonu"] }, paymentStatus: null }, data: { paymentStatus: "invoiced", invoicedAt: now, invoicedAmount: total, invoiceNumber: number, payTermsDays: terms, invoiceLines: lines } });
+      const claimed = await tx.load.updateMany({ where: { id: loadId, workspaceId, deletedAt: null, status: { in: ["completed", "tonu"] }, paymentStatus: null, ...inTerminal(scope) }, data: { paymentStatus: "invoiced", invoicedAt: now, invoicedAmount: total, invoiceNumber: number, payTermsDays: terms, invoiceLines: lines } });
       if (claimed.count !== 1) throw new AlreadyInvoiced();
       // The invoice as its own record, in the same transaction as the load's projection of it (docs/MONEY_PLAN.md, Wave 1).
       await createInvoiceRecord(tx, {
@@ -175,12 +192,14 @@ export async function markLoadPaid(
     /** Where the payment was learned from: the desk (typed), a factor's status file, or the accounting system (a payment a bookkeeper entered there, pulled by the sync). */ source?: "desk" | "factor" | "accounting";
     /** The outside system's own id for this payment: with the source it is unique, so the same payment pulled twice is recorded once. */ externalId?: string;
   } = {},
-  workspaceId = currentWorkspaceId()
+  workspaceId = currentWorkspaceId(),
+  allowed?: Terminals
 ): Promise<PaidOut> {
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null } });
+  const scope = await allowedFor(workspaceId, allowed);
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) } });
   if (!load) return { ok: false, error: "That load does not exist." };
   const shared = await sharedInvoiceOf(loadId, workspaceId);
-  if (shared) return payInvoiceRecord(shared, now, opts, workspaceId);
+  if (shared) return payInvoiceRecord(shared, now, opts, workspaceId, scope);
   if (load.paymentStatus !== "invoiced") return { ok: false, error: load.paymentStatus === "paid" ? `${load.invoiceNumber ?? "This invoice"} is already paid. Reload the page.` : "This load has no invoice that is waiting for payment." };
   const billed = billedOf({ invoicedAmount: numOrNull(load.invoicedAmount), status: load.status, quotedRevenue: num(load.quotedRevenue), fuelSurcharge: numOrNull(load.fuelSurcharge), tonuRevenue: numOrNull(load.tonuRevenue) });
   const before = numOrNull(load.paidAmount) ?? 0;
@@ -270,13 +289,17 @@ export async function markLoadPaid(
  * amount are cleared) and the load is ready to invoice again, with the reason kept in the audit entry. A paid invoice is taken back first ("Undo payment"); one that has gone to a
  * factoring company is not the desk's to take back.
  */
-export async function voidInvoice(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<PaidOut> {
+export async function voidInvoice(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<PaidOut> {
+  const scope = await allowedFor(workspaceId, allowed);
   const why = reason.trim();
   if (why.length < 3) return { ok: false, error: "Say why the invoice is being taken back." };
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null } });
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) } });
   if (!load) return { ok: false, error: "That load does not exist." };
   const shared = await sharedInvoiceOf(loadId, workspaceId);
-  if (shared) return voidSharedInvoice(shared, why, now, workspaceId);
+  if (shared) {
+    if (!(await invoiceInScope(shared, workspaceId, scope))) return { ok: false, error: "That invoice does not exist." };
+    return voidSharedInvoice(shared, why, now, workspaceId);
+  }
   if (load.paymentStatus === "paid") return { ok: false, error: "This invoice is marked paid. Take the payment back first." };
   if (load.paymentStatus !== "invoiced") return { ok: false, error: "This load has no invoice." };
   if ((numOrNull(load.paidAmount) ?? 0) > 0) return { ok: false, error: "Payments have been recorded on this invoice. Take them back first." };
@@ -319,14 +342,18 @@ export async function voidInvoice(loadId: string, reason: string, now = new Date
  * Take the latest payment back: one entered against the wrong invoice, or one that bounced. Its row is removed and the amount received is what the others add up to; if the invoice
  * was closed it is out again, with whatever is then owed. The reason is kept. (An invoice marked paid before payments were kept one by one has no rows: taking it back clears it.)
  */
-export async function undoPaid(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<PaidOut> {
+export async function undoPaid(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<PaidOut> {
+  const scope = await allowedFor(workspaceId, allowed);
   const why = reason.trim();
   if (why.length < 3) return { ok: false, error: "Say why the payment is being taken back." };
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null } });
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) } });
+  if (!load) return { ok: false, error: "That load does not exist." };
   type LoadRead = NonNullable<typeof load>;
   const sharedId = await sharedInvoiceOf(loadId, workspaceId);
-  if (sharedId) return undoSharedPayment(sharedId, why, now, workspaceId);
-  if (!load) return { ok: false, error: "That load does not exist." };
+  if (sharedId) {
+    if (!(await invoiceInScope(sharedId, workspaceId, scope))) return { ok: false, error: "That invoice does not exist." };
+    return undoSharedPayment(sharedId, why, now, workspaceId);
+  }
   const received = numOrNull(load.paidAmount) ?? 0;
   const hasPayment = load.paymentStatus === "paid" || (load.paymentStatus === "invoiced" && received > 0);
   if (!hasPayment) return { ok: false, error: "No payment has been recorded on this invoice." };
@@ -387,19 +414,23 @@ export type CreditOut = { ok: boolean; error?: string; number?: string; closed?:
  * Credit part or all of what is still owed on an open invoice (docs/MONEY_PLAN.md, rule F): a credit memo of its own (negative, naming the invoice), applied to the invoice as a
  * credit so the balance, the aging and the load's amount received all fall by it. The original stays invoiced at its full amount. A credit that covers the rest closes the invoice.
  */
-export async function issueCreditMemo(loadId: string, input: { amount: number; reason: string; label?: string }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<CreditOut> {
+export async function issueCreditMemo(loadId: string, input: { amount: number; reason: string; label?: string }, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<CreditOut> {
+  const scope = await allowedFor(workspaceId, allowed);
   const why = (input.reason ?? "").trim();
   if (why.length < 3) return { ok: false, error: "Say why the customer is credited." };
   const amount = input.amount;
   if (!Number.isFinite(amount) || !(amount > 0)) return { ok: false, error: "Type the amount to credit, above zero." };
   if (dec(amount).toNumber() !== amount) return { ok: false, error: "Dollars and cents, like 125.50." };
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null } });
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) } });
   if (!load) return { ok: false, error: "That load does not exist." };
   if (load.paymentStatus !== "invoiced") return { ok: false, error: load.paymentStatus === "paid" ? "This invoice is paid. A credit after payment is a refund, which the desk does not record." : "This load has no open invoice." };
   // A credit on an invoice a factor has (or is being asked to take) is the factor's to settle: it would cut what the factor collects and so its reserve. Refused, not guessed at.
   if (FACTORED_OPEN.includes(load.factoringStatus)) return { ok: false, error: "This invoice is with a factoring company, so a credit changes what the factor collects and is settled with the factor, not here. Record what the factor reports instead." };
   const sharedId = await sharedInvoiceOf(loadId, workspaceId);
-  if (sharedId) return creditSharedInvoice(sharedId, { amount, label: input.label }, why, now, workspaceId);
+  if (sharedId) {
+    if (!(await invoiceInScope(sharedId, workspaceId, scope))) return { ok: false, error: "That invoice does not exist." };
+    return creditSharedInvoice(sharedId, { amount, label: input.label }, why, now, workspaceId);
+  }
   const billed = billedOf({ invoicedAmount: numOrNull(load.invoicedAmount), status: load.status, quotedRevenue: num(load.quotedRevenue), fuelSurcharge: numOrNull(load.fuelSurcharge), tonuRevenue: numOrNull(load.tonuRevenue) });
   const before = numOrNull(load.paidAmount) ?? 0;
   const owing = dec(billed).minus(dec(before));
@@ -467,11 +498,12 @@ export async function issueCreditMemo(loadId: string, input: { amount: number; r
 }
 
 /** Take a credit memo back: the memo is void (its number stays used), its amount comes off what the invoice counts as received, and a closed invoice opens again. */
-export async function voidCreditMemo(memoId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<CreditOut> {
+export async function voidCreditMemo(memoId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<CreditOut> {
+  const scope = await allowedFor(workspaceId, allowed);
   const why = reason.trim();
   if (why.length < 3) return { ok: false, error: "Say why the credit is taken back." };
   const memo = await prisma.invoice.findFirst({ where: { id: memoId, workspaceId, kind: "credit_memo" }, include: { lines: true } });
-  if (!memo || !memo.creditOfId) return { ok: false, error: "That credit memo does not exist." };
+  if (!memo || !memo.creditOfId || !(await invoiceInScope(memo.creditOfId, workspaceId, scope))) return { ok: false, error: "That credit memo does not exist." };
   if (memo.status === "void") return { ok: false, error: "That credit memo is already void." };
   const amount = memo.total.negated().toNumber();
   const loadId = memo.lines[0]?.loadId ?? null;
@@ -640,11 +672,12 @@ export type MultiInvoiceOut = { ok: boolean; error?: string; errors?: Record<str
  * One invoice for several delivered loads of the same customer (rule G). Each load keeps its own lines (its rate, its fuel surcharge), so its projected amount is its own
  * share (rule A); the invoice number is shared. Every load must be ready to invoice on its own, and none may be invoiced already: all are claimed in one transaction or none.
  */
-export async function invoiceLoads(loadIds: string[], form: { number?: string; terms?: string }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<MultiInvoiceOut> {
+export async function invoiceLoads(loadIds: string[], form: { number?: string; terms?: string }, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<MultiInvoiceOut> {
+  const scope = await allowedFor(workspaceId, allowed);
   const ids = [...new Set(loadIds)];
   if (ids.length < 2) return { ok: false, error: "Pick at least two loads to put on one invoice." };
   if (ids.length > MAX_LOADS_PER_INVOICE) return { ok: false, error: `One invoice can carry up to ${MAX_LOADS_PER_INVOICE} loads.` };
-  const loads = await prisma.load.findMany({ where: { id: { in: ids }, workspaceId, deletedAt: null } });
+  const loads = await prisma.load.findMany({ where: { id: { in: ids }, workspaceId, deletedAt: null, ...inTerminal(scope) } });
   if (loads.length !== ids.length) return { ok: false, error: "One of those loads does not exist any more. Reload the page." };
   const order = new Map(ids.map((id, n) => [id, n]));
   loads.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
@@ -732,10 +765,12 @@ export async function payInvoiceRecord(
   invoiceId: string,
   now: Date,
   opts: { amount?: number; paidOn?: string; method?: string; shortAction?: ShortAction; shortReason?: string; shortCode?: string; reference?: string; payer?: string; source?: "desk" | "factor" | "accounting"; externalId?: string },
-  workspaceId = currentWorkspaceId()
+  workspaceId = currentWorkspaceId(),
+  allowed?: Terminals
 ): Promise<PaidOut> {
+  const scope = await allowedFor(workspaceId, allowed);
   const rec = await prisma.invoice.findFirst({ where: { id: invoiceId, workspaceId, kind: "invoice" }, include: { loads: true } });
-  if (!rec) return { ok: false, error: "That invoice does not exist." };
+  if (!rec || !(await invoiceInScope(rec.id, workspaceId, scope))) return { ok: false, error: "That invoice does not exist." };
   if (rec.status !== "open") return { ok: false, error: rec.status === "paid" ? `${rec.number} is already paid. Reload the page.` : `${rec.number} was taken back.` };
   const owing = dec(rec.total.toNumber()).minus(dec(rec.paidTotal.toNumber())).toNumber();
   const amount = opts.amount ?? owing;

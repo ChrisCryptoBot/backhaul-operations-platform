@@ -11,6 +11,7 @@ const TABLE: Record<Capability, Record<Role, boolean>> = {
   dispatch: { viewer: false, dispatcher: true, driver_manager: false, accounting: false, admin: true },
   roster: { viewer: false, dispatcher: false, driver_manager: true, accounting: false, admin: true },
   documents: { viewer: false, dispatcher: true, driver_manager: true, accounting: true, admin: true },
+  documents_remove: { viewer: false, dispatcher: true, driver_manager: false, accounting: true, admin: true },
   figures: { viewer: false, dispatcher: true, driver_manager: false, accounting: true, admin: true },
   billing_details: { viewer: false, dispatcher: false, driver_manager: false, accounting: true, admin: true },
   bill: { viewer: false, dispatcher: false, driver_manager: false, accounting: true, admin: true },

@@ -18,6 +18,7 @@ export function LoadDocuments({
   loadId,
   items,
   locked,
+  canRemove = true,
   defaultKind = "other",
   deliveryStops = [],
   selectedId,
@@ -27,6 +28,7 @@ export function LoadDocuments({
   loadId: string;
   items: DocItem[];
   locked: string | null;
+  canRemove?: boolean;
   defaultKind?: DocKind;
   /** The delivery stops, so a proof of delivery can be tied to one when there is more than one. */
   deliveryStops?: DeliveryStopOption[];
@@ -169,7 +171,7 @@ export function LoadDocuments({
                       {d.toDriver ? "Take back from driver" : "Send to driver"}
                     </button>
                   ) : null}
-                  {locked ? null : confirming === d.id ? (
+                  {locked || !canRemove ? null : confirming === d.id ? (
                     <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                       <span className="tl-sub" style={{ fontSize: 11, color: "var(--db-neg)" }}>Remove?</span>
                       <button type="button" className="tl-btn sm" disabled={busy} onClick={() => void remove(d).then(() => setConfirming(null))}>

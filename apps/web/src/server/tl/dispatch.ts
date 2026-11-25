@@ -17,7 +17,7 @@ import { claimAssignment, claimLoad, dropAssignment, LoadMoved } from "./claim";
 import { currentWorkspaceId } from "./workspace";
 import { inScope, type Terminals } from "@/lib/scope";
 import { inTerminal } from "./terminal-sql";
-import { currentAllowed } from "./scope";
+import { allowedFor, currentAllowed } from "./scope";
 import { enqueueBridge } from "@/server/bridge/outbox";
 import { UNDO_ACCEPT_REASON } from "@/server/bridge/core";
 import { recordAssignmentEvent } from "./assignment-events";
@@ -326,8 +326,9 @@ export async function driverIsContractor(driverId: string, workspaceId = current
 }
 
 /** What the driver is sent: the driver-safe summary, checked against the confidentiality gate before it goes anywhere. A contractor also gets their load's gross and the fee. */
-export async function driverSummaryFor(loadId: string, workspaceId = currentWorkspaceId()): Promise<LoadSummary> {
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId }, include: { stops: true, assignment: true } });
+export async function driverSummaryFor(loadId: string, workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<LoadSummary> {
+  const scope = await allowedFor(workspaceId, allowed);
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, ...inTerminal(scope) }, include: { stops: true, assignment: true } });
   if (!load || load.deletedAt) throw new DispatchError("load_not_found", "That load does not exist.");
   if (!load.assignment) throw new DispatchError("not_assigned", "Assign a driver first.");
   const assignmentPay: AssignmentPay = { kind: load.assignment.payKind as PayKind, rate: num(load.assignment.payRate) };
@@ -377,9 +378,10 @@ export async function driverSummaryFor(loadId: string, workspaceId = currentWork
 }
 
 /** Send the assignment to the driver: status becomes dispatched and the version is bumped. */
-export async function dispatchLoad(loadId: string, now = new Date(), opts: { sentWithout?: string } = {}, workspaceId = currentWorkspaceId()) {
-  const summary = await driverSummaryFor(loadId, workspaceId); // throws if not assigned, not in this workspace, or if anything would leak
-  const a = await prisma.assignment.findFirstOrThrow({ where: { loadId, load: { workspaceId } }, include: { driver: true, load: true } });
+export async function dispatchLoad(loadId: string, now = new Date(), opts: { sentWithout?: string } = {}, workspaceId = currentWorkspaceId(), allowed?: Terminals) {
+  const scope = await allowedFor(workspaceId, allowed);
+  const summary = await driverSummaryFor(loadId, workspaceId, scope); // throws if not assigned, not in this workspace/terminal, or if anything would leak
+  const a = await prisma.assignment.findFirstOrThrow({ where: { loadId, load: { workspaceId, ...inTerminal(scope) } }, include: { driver: true, load: true } });
   if (a.status !== "draft") throw new DispatchError("already_sent", "This load was already sent to the driver.");
   const updated = await prisma.$transaction(async (tx) => {
     // Sent once: a second press (or another tab) finds it already sent.
@@ -415,8 +417,9 @@ export async function dispatchLoad(loadId: string, now = new Date(), opts: { sen
  * The driver's answer, as the phone would write it back (respond_to_dispatch). Accepting moves the load to accepted;
  * declining returns the load to the board unassigned-able. The desktop never writes the driver's execution fields.
  */
-export async function recordDriverResponse(loadId: string, response: "accepted" | "declined", now = new Date(), note?: string, workspaceId = currentWorkspaceId(), via: "dispatcher" | "phone" = "dispatcher") {
-  const a = await prisma.assignment.findFirst({ where: { loadId, load: { workspaceId } }, include: { driver: true, load: true } });
+export async function recordDriverResponse(loadId: string, response: "accepted" | "declined", now = new Date(), note?: string, workspaceId = currentWorkspaceId(), via: "dispatcher" | "phone" = "dispatcher", allowed?: Terminals) {
+  const scope = await allowedFor(workspaceId, allowed);
+  const a = await prisma.assignment.findFirst({ where: { loadId, load: { workspaceId, ...inTerminal(scope) } }, include: { driver: true, load: true } });
   if (!a) throw new DispatchError("not_assigned", "Assign a driver first.");
   // The one way back: the driver takes back an accept made in error on their phone, before the pickup (server/bridge/core.ts UNDO_ACCEPT_REASON).
   const undo = response === "declined" && via === "phone" && a.status === "accepted" && note === UNDO_ACCEPT_REASON;
@@ -427,7 +430,7 @@ export async function recordDriverResponse(loadId: string, response: "accepted" 
     try {
       await claimAssignment(tx, loadId, [undo ? "accepted" : "dispatched"], { status: response, respondedAt: now, driverResponse: { response, note: note ?? null, at: now.toISOString() } });
       // The load's status follows the assignment's in the same transaction: yes is accepted, a no is back on the board as a draft.
-      await claimLoad(tx, loadId, workspaceId, [a.load.status], { status: loadStatusFor(response) });
+      await claimLoad(tx, loadId, workspaceId, [a.load.status], { status: loadStatusFor(response) }, inTerminal(scope) as Prisma.LoadWhereInput);
     } catch (e) {
       if (e instanceof LoadMoved) throw new DispatchError("not_sent", "That answer was already recorded, or the load changed. Reload it.");
       throw e;

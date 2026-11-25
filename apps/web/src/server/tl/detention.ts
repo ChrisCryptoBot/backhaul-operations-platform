@@ -4,7 +4,8 @@ import { prisma } from "@/lib/db";
 import { summarizeDetention, type DetentionSummary } from "@/lib/detention";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
-import { terminalSql } from "./terminal-sql";
+import { inTerminal, terminalSql } from "./terminal-sql";
+import { allowedFor } from "./scope";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
 
@@ -63,11 +64,12 @@ export async function waivedDetentionLoads(loadIds: string[], workspaceId = curr
  * Mark a load's unbilled detention as waived (for example, the customer refused it or it was forgiven for the relationship), with a reason kept in the audit trail. Once waived, it no
  * longer raises the unbilled-detention alert or sits on the Invoices recovery card. Bumps the load's timestamp so kept answers (alerts) refresh immediately.
  */
-export async function waiveDetention(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<{ ok: boolean; error?: string }> {
+export async function waiveDetention(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<{ ok: boolean; error?: string }> {
+  const scope = await allowedFor(workspaceId, allowed);
   const why = reason.trim();
   if (why.length < 3) return { ok: false, error: "Say why the detention is not being billed." };
   const [load, thresholds, already] = await Promise.all([
-    prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null }, include: { stops: true, vehicle: { include: { costProfile: true } } } }),
+    prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) }, include: { stops: true, vehicle: { include: { costProfile: true } } } }),
     getThresholds(workspaceId),
     waivedDetentionLoads([loadId], workspaceId)
   ]);
@@ -76,7 +78,7 @@ export async function waiveDetention(loadId: string, reason: string, now = new D
   const dt = detentionOfLoad(load, thresholds.detentionGraceMinutes);
   if (!(dt.unbilled > 0)) return { ok: false, error: "There is no unbilled detention on this load." };
   await prisma.$transaction(async (tx) => {
-    await tx.load.update({ where: { id: loadId }, data: { updatedAt: now } });
+    await tx.load.updateMany({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) }, data: { updatedAt: now } });
     await recordAudit(
       {
         entity: "invoice",

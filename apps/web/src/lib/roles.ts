@@ -13,10 +13,11 @@ export const CAPABILITIES = [
   "quote", // negotiate and book in Quote a load
   "dispatch", // run loads: assign, send, cancel, TONU, reschedule, the pickup and the delivery, the fleet, the rate-confirmation intake
   "roster", // who works when and from where: shifts and time off, driver codes, each driver's home terminal
-  "documents", // upload and remove rate confirmations and proof of delivery
+  "documents", // view and upload rate confirmations and proof of delivery
+  "documents_remove", // remove kept documents on a load
   "figures", // a trip's costs, miles, waits and seals
   "billing_details", // the customer, PO, bill-to contact and revenue note on a load
-  "bill", // invoice, record and undo payments, void an invoice, chase, factoring steps, driver statements
+  "bill", // invoice, record payments, chase, factoring steps, driver statements
   "payout", // send statements to payroll, mark a statement paid
   "writeoff", // write off a shortfall, void a finished statement
   "admin" // the company, the rules, the connections, the team and grants
@@ -25,9 +26,9 @@ export type Capability = (typeof CAPABILITIES)[number];
 
 const MATRIX: Record<Role, readonly Capability[]> = {
   viewer: ["read"],
-  dispatcher: ["read", "quote", "dispatch", "documents", "figures"],
+  dispatcher: ["read", "quote", "dispatch", "documents", "documents_remove", "figures"],
   driver_manager: ["read", "roster", "documents"],
-  accounting: ["read", "documents", "figures", "billing_details", "bill", "payout"],
+  accounting: ["read", "documents", "documents_remove", "figures", "billing_details", "bill", "payout"],
   admin: CAPABILITIES
 };
 

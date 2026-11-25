@@ -2,6 +2,8 @@ import { prisma } from "@/lib/db";
 import { isAllowedMime } from "@/lib/attachments";
 import { guardRoute } from "@/server/tl/access";
 import { readFile } from "@/server/tl/message-files";
+import { currentAllowed } from "@/server/tl/scope";
+import { inTerminal } from "@/server/tl/terminal-sql";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 
 /**
@@ -17,8 +19,10 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   const denied = await guardRoute("read");
   if (denied) return denied;
   if (!ID.test(params.id)) return new Response("Not found", { status: 404 });
+  const workspaceId = currentWorkspaceId();
+  const scope = await currentAllowed(workspaceId);
   const doc = await prisma.loadDocument.findFirst({
-    where: { id: params.id, workspaceId: currentWorkspaceId() },
+    where: { id: params.id, workspaceId, load: { deletedAt: null, ...inTerminal(scope) } },
     select: { name: true, mime: true, storageKey: true }
   });
   if (!doc || !isAllowedMime(doc.mime)) return new Response("Not found", { status: 404 });

@@ -4,6 +4,7 @@ import { TERMINAL_COOKIE } from "@/lib/terminal";
 import { SCOPE_COOKIE, allowedNames, buildMenu, parseChoice, resolveScope, termsOf, type RegionInfo, type ResolvedScope, type ScopeChoice, type ScopeLimit, type ScopeMenu, type Terminals } from "@/lib/scope";
 import { sessionIdentity, authOn, demoIdentity } from "./identity";
 import { listTerminals } from "./terminals-in-use";
+import { inTerminal } from "./terminal-sql";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -90,6 +91,20 @@ export async function currentTerminals(workspaceId = currentWorkspaceId()): Prom
 export async function currentAllowed(workspaceId = currentWorkspaceId()): Promise<Terminals> {
   const a = (await currentScope(workspaceId)).allowed;
   return a == null ? null : a.length === 1 ? a[0]! : a;
+}
+
+/** The person's terminal scope when `allowed` was not passed explicitly. Tests pass `allowed` to stand in for a request. */
+export async function allowedFor(workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<Terminals> {
+  return allowed !== undefined ? allowed : currentAllowed(workspaceId);
+}
+
+/** Single-load fence: returns the load id only when it belongs to this workspace and the caller's terminal scope. */
+export async function loadInScope(loadId: string, workspaceId = currentWorkspaceId(), allowed?: Terminals, opts?: { includeDeleted?: boolean }): Promise<{ id: string } | null> {
+  const scope = await allowedFor(workspaceId, allowed);
+  return prisma.load.findFirst({
+    where: { id: loadId, workspaceId, ...(opts?.includeDeleted ? {} : { deletedAt: null }), ...inTerminal(scope) },
+    select: { id: true }
+  });
 }
 
 /** The header menu for this request: the regions and terminals the person may pick, with what is based at each. */

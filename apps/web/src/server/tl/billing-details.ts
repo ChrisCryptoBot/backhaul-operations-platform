@@ -1,7 +1,10 @@
 import { prisma } from "@/lib/db";
 import { termsLabel } from "@/lib/invoicing";
 import { validateBillingDetails, type BillingDetailsValues } from "@/lib/billing-details";
+import type { Terminals } from "@/lib/scope";
 import { recordAudit } from "./audit";
+import { allowedFor } from "./scope";
+import { inTerminal } from "./terminal-sql";
 import { findTwinLoad, duplicateMessage } from "./twins";
 import { currentWorkspaceId } from "./workspace";
 
@@ -12,11 +15,12 @@ import { currentWorkspaceId } from "./workspace";
  */
 export type BillingResult = { ok: true; changed: boolean } | { ok: false; error?: string; errors?: Record<string, string> };
 
-export async function saveBillingDetails(loadId: string, values: BillingDetailsValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<BillingResult> {
+export async function saveBillingDetails(loadId: string, values: BillingDetailsValues, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<BillingResult> {
+  const scope = await allowedFor(workspaceId, allowed);
   const check = validateBillingDetails(values);
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, status: { not: "quote" } } });
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, status: { not: "quote" }, ...inTerminal(scope) } });
   if (!load) return { ok: false, error: "That load does not exist." };
   if (load.paymentStatus) {
     const held: string[] = [];
@@ -45,7 +49,7 @@ export async function saveBillingDetails(loadId: string, values: BillingDetailsV
   if (changes.length === 0) return { ok: true, changed: false };
   const done = await prisma.$transaction(async (tx) => {
     const out = await tx.load.updateMany({
-      where: { id: load.id, workspaceId, deletedAt: null, updatedAt: load.updatedAt, paymentStatus: load.paymentStatus },
+      where: { id: load.id, workspaceId, deletedAt: null, updatedAt: load.updatedAt, paymentStatus: load.paymentStatus, ...inTerminal(scope) },
       data: { brokerName: v.brokerName, brokerMcNumber: v.brokerMcNumber, brokerPhone: v.brokerPhone, brokerEmail: v.brokerEmail, poNumber: v.poNumber, payTermsDays: v.payTermsDays, revenueNote: v.revenueNote }
     });
     if (out.count !== 1) return false;

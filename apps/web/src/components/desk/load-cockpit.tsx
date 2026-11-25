@@ -107,12 +107,14 @@ export function SplitDocViewer({
   loadId,
   items,
   locked,
+  canRemove = true,
   defaultKind = "pod",
   deliveryStops = []
 }: {
   loadId: string;
   items: DocItem[];
   locked: string | null;
+  canRemove?: boolean;
   defaultKind?: DocItem["kind"];
   deliveryStops?: DeliveryStopOption[];
 }) {
@@ -386,6 +388,7 @@ export function SplitDocViewer({
             loadId={loadId}
             items={items}
             locked={locked}
+            canRemove={canRemove}
             defaultKind={defaultKind}
             deliveryStops={deliveryStops}
             selectedId={selectedId}
@@ -552,7 +555,8 @@ export function SplitDocViewer({
 export function DriverCabSheet({
   driverView,
   driverName,
-  equipmentType
+  equipmentType,
+  showPay = false
 }: {
   driverView: {
     origin: { address?: string; window_earliest?: string; window_latest?: string } | null;
@@ -573,6 +577,7 @@ export function DriverCabSheet({
   } | null;
   driverName: string | null;
   equipmentType: string | null;
+  showPay?: boolean;
 }) {
   if (!driverView) return null;
 
@@ -588,10 +593,12 @@ export function DriverCabSheet({
             Assigned to <strong>{driverName ?? "Unassigned"}</strong> · Equipment: {equipmentType ?? driverView.equipment.trailer_type ?? "Any Trailer"}
           </span>
         </div>
-        <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 11, color: "var(--db-fg-dim)", textTransform: "uppercase" }}>Driver Pay</div>
-          <div style={{ fontWeight: 700, fontSize: 13, color: "var(--db-accent-fg)" }}>{payDesc}</div>
-        </div>
+        {showPay ? (
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 11, color: "var(--db-fg-dim)", textTransform: "uppercase" }}>Driver Pay (estimate)</div>
+            <div style={{ fontWeight: 700, fontSize: 13, color: "var(--db-accent-fg)" }}>{payDesc}</div>
+          </div>
+        ) : null}
       </div>
 
       <div style={{ display: "grid", gap: 8, fontSize: 12 }}>

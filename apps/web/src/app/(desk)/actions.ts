@@ -1254,7 +1254,7 @@ export async function paidAction(
 }
 
 export async function voidInvoiceAction(formData: FormData) {
-  await requireCan("bill");
+  await requireCan("admin");
   const loadId = String(formData.get("loadId"));
   await attempt(loadId, async () => {
     const out = await voidInvoice(loadId, String(formData.get("reason") ?? ""));
@@ -1306,7 +1306,7 @@ export async function waiveDetentionAction(loadId: string, reason: string): Prom
 }
 
 export async function undoPaidAction(formData: FormData) {
-  await requireCan("bill");
+  await requireCan("admin");
   const loadId = String(formData.get("loadId"));
   await attempt(loadId, async () => {
     const out = await undoPaid(loadId, String(formData.get("reason") ?? ""));
@@ -1747,7 +1747,7 @@ export async function markThreadReadAction(driverId: string): Promise<number> {
 }
 
 export async function removeDocumentAction(id: string): Promise<DocResult> {
-  await requireCan("documents");
+  await requireCan("documents_remove");
   const out = await removeLoadDocument(id);
   if (out.ok) refreshLoads();
   return out;

@@ -32,9 +32,9 @@ const TABLE: Record<string, Capability[]> = {
   syncEldAction: ["dispatch"], saveFuelCardAction: ["dispatch"], vetCarrierAction: ["dispatch"],
   // shared between the offices
   saveBillingDetailsAction: ["billing_details"], saveCustomerAction: ["dispatch", "billing_details"], sendMessageAction: ["dispatch", "bill"], markThreadReadAction: ["dispatch", "bill"], pullMessagesNowAction: ["dispatch", "bill"],
-  correctTripAction: ["figures"], confirmStopEvidenceAction: ["figures"], dismissStopEvidenceAction: ["figures"], saveExpensesAction: ["figures"], importFuelAction: ["figures"], removeDocumentAction: ["documents"], setDocumentToDriverAction: ["documents"], decideReceiptAction: ["bill"],
+  correctTripAction: ["figures"], confirmStopEvidenceAction: ["figures"], dismissStopEvidenceAction: ["figures"], saveExpensesAction: ["figures"], importFuelAction: ["figures"], removeDocumentAction: ["documents_remove"], setDocumentToDriverAction: ["documents"], decideReceiptAction: ["bill"],
   // billing and payroll
-  invoiceLoadAction: ["bill"], invoiceLoadsAction: ["bill"], saveFactoringTermsAction: ["admin"], setMoneyMovingAction: ["admin"], createApiKeyAction: ["admin"], revokeApiKeyAction: ["admin"], createWebhookAction: ["admin"], rotateWebhookSecretAction: ["admin"], setWebhookActiveAction: ["admin"], sendWebhookTestAction: ["admin"], replayPartnerEventAction: ["admin"], retryWebhookDeliveryAction: ["admin"], retryPartnerSyncAction: ["admin"], resolvePartnerIssueAction: ["admin"], resetShowcaseAction: ["admin"], runShowcaseStepAction: ["admin"], factoringChargebackAction: ["bill"], sendFactoringBatchAction: ["bill"], retryFactoringBatchAction: ["bill"], cancelFactoringBatchAction: ["bill"], checkFactorStatusAction: ["bill"], applyFactorStatusAction: ["bill"], creditMemoAction: ["bill"], voidCreditMemoAction: ["writeoff"], paidAction: ["bill"], voidInvoiceAction: ["bill"], undoPaidAction: ["bill"], chasedAction: ["bill"], waiveDetentionAction: ["bill"], factorInvoiceAction: ["bill"], factoringUpdateAction: ["bill"],
+  invoiceLoadAction: ["bill"], invoiceLoadsAction: ["bill"], saveFactoringTermsAction: ["admin"], setMoneyMovingAction: ["admin"], createApiKeyAction: ["admin"], revokeApiKeyAction: ["admin"], createWebhookAction: ["admin"], rotateWebhookSecretAction: ["admin"], setWebhookActiveAction: ["admin"], sendWebhookTestAction: ["admin"], replayPartnerEventAction: ["admin"], retryWebhookDeliveryAction: ["admin"], retryPartnerSyncAction: ["admin"], resolvePartnerIssueAction: ["admin"], resetShowcaseAction: ["admin"], runShowcaseStepAction: ["admin"], factoringChargebackAction: ["bill"], sendFactoringBatchAction: ["bill"], retryFactoringBatchAction: ["bill"], cancelFactoringBatchAction: ["bill"], checkFactorStatusAction: ["bill"], applyFactorStatusAction: ["bill"], creditMemoAction: ["bill"], voidCreditMemoAction: ["writeoff"], paidAction: ["bill"], voidInvoiceAction: ["admin"], undoPaidAction: ["admin"], chasedAction: ["bill"], waiveDetentionAction: ["bill"], factorInvoiceAction: ["bill"], factoringUpdateAction: ["bill"],
   startSettlementAction: ["bill"], saveSettlementAction: ["bill"], finalizeSettlementAction: ["bill"], discardSettlementAction: ["bill"], sendToPayrollAction: ["payout"], markSettlementPaidAction: ["payout"], saveDriverTaxAction: ["payout"], saveDeductionAction: ["bill"], setDeductionActiveAction: ["bill"], recordAdvanceAction: ["payout"], setAdvanceActiveAction: ["bill"],
   // money that is gone
   voidSettlementAction: ["writeoff"],
@@ -69,23 +69,26 @@ describe("what each office may press", () => {
     expect(may("viewer").sort()).toEqual(["assignOptionsAction", "listQuotesAction", "previewImportAction", "priceQuoteAction", "readSampleRateConAction", "setAppearanceAction"]);
   });
 
-  it("keeps accounting out of every dispatching action, and in every billing one except writing off and voiding a statement", () => {
+  it("keeps accounting out of every dispatching action, and in every billing one except admin voids/writeoffs", () => {
     for (const n of ["assignAction", "sendAction", "cancelAction", "startTripAction", "completeTripAction", "saveQuoteAction", "saveDriverAction", "saveTruckAction"]) expect(may("accounting"), n).not.toContain(n);
-    for (const n of ["invoiceLoadAction", "paidAction", "voidInvoiceAction", "undoPaidAction", "factorInvoiceAction", "startSettlementAction", "finalizeSettlementAction", "sendToPayrollAction", "saveCustomerAction", "correctTripAction", "saveExpensesAction", "removeDocumentAction"]) expect(may("accounting"), n).toContain(n);
-    expect(may("accounting")).not.toContain("voidSettlementAction");
+    for (const n of ["invoiceLoadAction", "paidAction", "factorInvoiceAction", "startSettlementAction", "finalizeSettlementAction", "sendToPayrollAction", "saveCustomerAction", "correctTripAction", "saveExpensesAction", "removeDocumentAction"]) expect(may("accounting"), n).toContain(n);
+    for (const n of ["voidSettlementAction", "voidInvoiceAction", "undoPaidAction"]) expect(may("accounting"), n).not.toContain(n);
   });
 
-  it("keeps a dispatcher out of billing and payroll, and gives them the billing office's work only with the grant", () => {
-    for (const n of ["invoiceLoadAction", "paidAction", "voidInvoiceAction", "undoPaidAction", "startSettlementAction", "finalizeSettlementAction", "sendToPayrollAction"]) {
+  it("keeps a dispatcher out of billing and payroll, and gives them the billing office's work only with the grant (never admin voids)", () => {
+    for (const n of ["invoiceLoadAction", "paidAction", "startSettlementAction", "finalizeSettlementAction", "sendToPayrollAction"]) {
       expect(may("dispatcher"), n).not.toContain(n);
       expect(may("dispatcher", ["bill"]), n).toContain(n);
     }
-    for (const n of ["voidSettlementAction", "saveThresholdsAction", "addMemberAction", "setMemberGrantsAction"]) expect(may("dispatcher", ["bill"]), n).not.toContain(n);
+    for (const n of ["voidSettlementAction", "voidInvoiceAction", "undoPaidAction", "saveThresholdsAction", "addMemberAction", "setMemberGrantsAction"]) expect(may("dispatcher", ["bill"]), n).not.toContain(n);
+    expect(may("dispatcher")).toContain("removeDocumentAction");
+    expect(may("driver_manager")).toContain("setDocumentToDriverAction");
+    expect(may("driver_manager")).not.toContain("removeDocumentAction");
   });
 
-  it("leaves the company, the rules, the team and the destruction of money to an admin alone", () => {
+  it("leaves the company, the rules, the team, invoice/payment voids and the destruction of money to an admin alone", () => {
     for (const r of ROLES.filter((x) => x !== "admin")) {
-      for (const n of ["saveThresholdsAction", "saveCompanyAction", "connectPartnerAction", "addMemberAction", "setMemberRoleAction", "setMemberGrantsAction", "removeMemberAction", "voidSettlementAction"]) expect(may(r, ["bill"]), `${r} ${n}`).not.toContain(n);
+      for (const n of ["saveThresholdsAction", "saveCompanyAction", "connectPartnerAction", "addMemberAction", "setMemberRoleAction", "setMemberGrantsAction", "removeMemberAction", "voidSettlementAction", "voidInvoiceAction", "undoPaidAction"]) expect(may(r, ["bill"]), `${r} ${n}`).not.toContain(n);
     }
     expect(cannot("admin")).toEqual([]);
     expect(can("admin", [], "writeoff")).toBe(true);
@@ -138,5 +141,29 @@ describe("driver pay is the billing office's (billing_details)", () => {
     expect(nav).toContain('{ href: "/payroll", label: "Payroll", code: "PY", billing: true }');
     expect(shell).toContain("(!i.billing || data.account.billing)");
     expect(src("server", "tl", "shell.ts")).toMatch(/const billing = \(await checkAccess\("billing_details"\)\)\.ok/);
+  });
+
+  it("gates driver pay rows, margin, settlement links, document removal and admin voids inside the Loads drawer and board", () => {
+    const drawer = src("components", "desk", "load-view.tsx");
+    const cockpit = src("components", "desk", "load-cockpit.tsx");
+    const exp = src("server", "tl", "exports.ts");
+    const loadsPage = src("app", "(desk)", "loads", "page.tsx");
+    const imp = src("app", "(desk)", "loads", "import", "page.tsx");
+    const weekly = src("app", "(desk)", "loads", "import", "weekly", "page.tsx");
+
+    expect(drawer).toContain('may("billing_details") && l.payEstimate != null');
+    expect(drawer).toContain('may("billing_details") ? moneyRow("Driver pay"');
+    expect(drawer).toContain('may("billing_details") ? (\n          <div className="lv-total">');
+    expect(drawer).toContain('settled && may("billing_details")');
+    expect(drawer).toContain('canRemove={may("documents_remove")}');
+    expect(drawer).toContain('showPay={may("billing_details")}');
+    expect(drawer).toContain('"admin"\n        )');
+    expect(cockpit).toContain("Driver Pay (estimate)");
+    expect(exp).toMatch(/checkAccess\("billing_details"\)/);
+    expect(exp).toContain('showDriverPay ? ["Driver pay (estimate)"] : []');
+    expect(loadsPage).toContain('checkAccess("dispatch")');
+    expect(loadsPage).toContain('{mayDispatch ? <NewLoad /> : null}');
+    expect(imp).toMatch(/await requirePage\("dispatch"\);\s+const recent = await listLoadImports/);
+    expect(weekly).toMatch(/await requirePage\("dispatch"\);\s+const recent = await listHistoryImports/);
   });
 });

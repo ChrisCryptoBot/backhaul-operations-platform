@@ -17,7 +17,10 @@ import { truckFit } from "@/lib/load-fit";
 import { roleOfStop } from "@/lib/stop-role";
 import { truckLimits } from "./quote";
 import { duplicateMessage, findTwinLoad } from "./twins";
+import type { Terminals } from "@/lib/scope";
 import { enqueueForLoad } from "@/server/bridge/outbox";
+import { allowedFor } from "./scope";
+import { inTerminal } from "./terminal-sql";
 import { currentWorkspaceId } from "./workspace";
 import { stopClocksOf } from "./stop-clock";
 import { workspaceTimezone } from "./zone";
@@ -36,14 +39,15 @@ const CLOSED = ["cancelled", "tonu"];
 const text = (v: unknown) => (v == null || v === "" ? null : String(v));
 const yesNo = (v: boolean | null | undefined) => (v === true ? "Yes" : "No");
 
-export async function saveLoadDetails(loadId: string, values: LoadEditValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<EditResult> {
+export async function saveLoadDetails(loadId: string, values: LoadEditValues, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<EditResult> {
+  const scope = await allowedFor(workspaceId, allowed);
   // The times typed for a stop are the dock's: read on the clock where each stop is, worked out here and not taken from the browser.
   const clocks = await stopClocksOf(loadId, workspaceId);
   const carrier = await workspaceTimezone(workspaceId);
   const check = validateLoadEdit({ ...values, stops: values.stops.map((s) => ({ ...s, zone: clocks.find((c) => c.id === s.id)?.zone ?? carrier })) });
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null }, include: { stops: { orderBy: { stopSequence: "asc" } }, assignment: { include: { driver: true } }, vehicle: true, settlement: true } });
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) }, include: { stops: { orderBy: { stopSequence: "asc" } }, assignment: { include: { driver: true } }, vehicle: true, settlement: true } });
   if (!load || load.status === "quote") return { ok: false, error: "That load does not exist." };
   if (CLOSED.includes(load.status)) return { ok: false, error: "A cancelled load, or one closed as a TONU, cannot be edited." };
   // The form was opened on one version of the load. If it has changed since (someone sent it, accepted it, edited it), saving this form would overwrite their change with what

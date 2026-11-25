@@ -47,7 +47,7 @@ describe("what only the page could do is in the drawer", () => {
     const fix = between("const correctionsSec", "const chips");
     for (const action of ["undoStartAction", "reopenCancelledAction", "reopenDeliveredAction", "voidInvoiceAction", "undoPaidAction"]) expect(fix, action).toContain(action);
     expect(fix).toMatch(/"dispatch"/);
-    expect(fix).toMatch(/"bill"/);
+    expect(fix).toMatch(/"admin"/);
   });
   test("Paperwork: the list and upload, the inspector, the invoice", () => {
     for (const part of ["<LoadDocuments", "<SplitDocViewer", "invoiceSec"]) expect(paper, part).toContain(part);

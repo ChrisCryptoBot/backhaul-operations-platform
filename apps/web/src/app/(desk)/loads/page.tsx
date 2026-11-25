@@ -1,4 +1,5 @@
 import { currentTerminal } from "@/server/tl/terminal";
+import { checkAccess } from "@/server/tl/access";
 import { isOverdue } from "@/lib/overdue";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -100,11 +101,13 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   // The open board is the loads still moving. History is read a page at a time: the database filters, sorts, searches and counts it.
   const histFilter = asHistoryFilter(searchParams?.filter);
   const histSort = asHistorySort(searchParams?.sort);
-  const [openAll, { byLoad }, hist] = await Promise.all([
+  const [openAll, { byLoad }, hist, dispatchAccess] = await Promise.all([
     listBoardRows(currentWorkspaceId(), "open", terminal),
     getAlerts(new Date(), currentWorkspaceId(), "open", undefined, terminal),
-    view === "history" ? listHistory({ filter: histFilter, sort: histSort, q, page: Number(searchParams?.page) || 1, terminal }) : Promise.resolve(null)
+    view === "history" ? listHistory({ filter: histFilter, sort: histSort, q, page: Number(searchParams?.page) || 1, terminal }) : Promise.resolve(null),
+    checkAccess("dispatch")
   ]);
+  const mayDispatch = dispatchAccess.ok;
   const openCount = searchBoard(openAll, q).length;
   const historyCount = hist ? hist.counts.all : await countHistory(q, currentWorkspaceId(), terminal);
   const deletedCount = await countDeletedLoads(currentWorkspaceId(), terminal);
@@ -135,8 +138,8 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
   const head = (
     <PageHead title="Loads" sub={view === "open" ? "What is still moving, judged on each truck's own cost." : view === "deleted" ? "Loads taken off the desk, and the way back." : "What has finished, by month, with where the money is."}>
       {view === "deleted" ? null : <a className="tl-btn" href={exportHref}>Export CSV</a>}
-      {view === "history" ? <Link className="tl-btn" href="/loads/import">Import loads</Link> : null}
-      <NewLoad />
+      {view === "history" && mayDispatch ? <Link className="tl-btn" href="/loads/import">Import loads</Link> : null}
+      {mayDispatch ? <NewLoad /> : null}
     </PageHead>
   );
   const views = (

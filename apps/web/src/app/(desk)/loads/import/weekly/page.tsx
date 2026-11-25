@@ -3,6 +3,7 @@ import React from "react";
 import { PageHead } from "@/components/desk/ui";
 import { TrackerImportPanel } from "@/components/desk/tracker-import-panel";
 import { CanGate } from "@/components/desk/kit/can-gate";
+import { requirePage } from "@/server/tl/access";
 import { listHistoryImports } from "@/server/tl/tracker-import";
 
 export const dynamic = "force-dynamic";
@@ -10,6 +11,7 @@ export const metadata = { title: "Import a weekly tracker · TrueLane" };
 
 /** Load a carrier's own weekly tracker (one row per lane per week) as imported history: kept apart from loads, shown under its own heading on the KPI page. */
 export default async function ImportWeeklyPage() {
+  await requirePage("dispatch");
   const recent = await listHistoryImports(10);
   return (
     <>

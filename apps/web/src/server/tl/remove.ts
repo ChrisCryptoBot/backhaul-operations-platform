@@ -5,7 +5,10 @@ import { recordAudit } from "./audit";
 import { enqueueForLoad } from "@/server/bridge/outbox";
 import { findDriverClash, findTruckClash } from "./dispatch";
 import { findTwinLoad, duplicateMessage } from "./twins";
+import type { Terminals } from "@/lib/scope";
 import { loadWindow } from "@/lib/schedule";
+import { allowedFor } from "./scope";
+import { inTerminal } from "./terminal-sql";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -18,8 +21,9 @@ export type RemoveResult = { ok: true } | { ok: false; error: string };
 
 export { DELETE_REASONS };
 
-export async function deleteLoad(input: { loadId: string; reason: string; note?: string | null }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<RemoveResult> {
-  const load = await prisma.load.findFirst({ where: { id: input.loadId, workspaceId, deletedAt: null, status: { not: "quote" } }, include: { assignment: { include: { driver: true } }, settlement: true } });
+export async function deleteLoad(input: { loadId: string; reason: string; note?: string | null }, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<RemoveResult> {
+  const scope = await allowedFor(workspaceId, allowed);
+  const load = await prisma.load.findFirst({ where: { id: input.loadId, workspaceId, deletedAt: null, status: { not: "quote" }, ...inTerminal(scope) }, include: { assignment: { include: { driver: true } }, settlement: true } });
   if (!load) return { ok: false, error: "That load does not exist." };
   if (!isDeleteReason(input.reason)) return { ok: false, error: "Pick a reason from the list." };
   if (input.reason === "other" && (input.note ?? "").trim().length < 3) return { ok: false, error: "Say what happened when the reason is Other." };
@@ -32,7 +36,7 @@ export async function deleteLoad(input: { loadId: string; reason: string; note?:
   const status = LOAD_STATUS[load.status]?.label ?? load.status;
   const gone = await prisma.$transaction(async (tx) => {
     // Only a load that is still what it was when this was read: not picked up, invoiced or put on a statement in the meantime.
-    const out = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: null, status: { notIn: ["in_progress", "quote"] }, paymentStatus: null, settlement: { is: null } }, data: { deletedAt: now } });
+    const out = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: null, status: { notIn: ["in_progress", "quote"] }, paymentStatus: null, settlement: { is: null }, ...inTerminal(scope) }, data: { deletedAt: now } });
     if (out.count !== 1) return false;
     // A load sent to a bridged driver's phone comes off it (the cancel closes the row; the phone evicts its copy).
     if (a) await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "cancel", now });
@@ -57,8 +61,9 @@ export async function deleteLoad(input: { loadId: string; reason: string; note?:
 }
 
 /** Put a deleted load back as it was. */
-export async function restoreLoad(loadId: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<RemoveResult> {
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: { not: null } }, include: { stops: true, assignment: true } });
+export async function restoreLoad(loadId: string, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<RemoveResult> {
+  const scope = await allowedFor(workspaceId, allowed);
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: { not: null }, ...inTerminal(scope) }, include: { stops: true, assignment: true } });
   if (!load) return { ok: false, error: "That load is not deleted." };
   // A thrown-away quote is not a load: it is not brought back here.
   if (load.status === "quote") return { ok: false, error: "A quote that was thrown away stays thrown away. Quote it again from Quote a load." };
@@ -77,7 +82,7 @@ export async function restoreLoad(loadId: string, now = new Date(), workspaceId 
     }
   }
   const back = await prisma.$transaction(async (tx) => {
-    const out = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: { not: null } }, data: { deletedAt: null } });
+    const out = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: { not: null }, ...inTerminal(scope) }, data: { deletedAt: null } });
     if (out.count !== 1) return false;
     await recordAudit(
       {

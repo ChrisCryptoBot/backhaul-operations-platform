@@ -8,7 +8,10 @@ import { classifyTractor, engineStateOf, etaAt, geofence, roadMilesLeft, roadSch
 import { fixAge } from "@/lib/whereabouts";
 import { ensureRoadRoute, ensureWayThere } from "@/server/geo/road-route";
 import { numOrNull } from "./convert";
+import type { Terminals } from "@/lib/scope";
 import { workspaceTimezone } from "@/server/tl/zone";
+import { allowedFor } from "./scope";
+import { inTerminal } from "./terminal-sql";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -44,9 +47,10 @@ export type LoadTracking =
 const OPEN = ["draft", "accepted", "in_progress", "completed"];
 const WHO: Record<string, string> = { pickup: "SHIPPER", delivery: "RECEIVER" };
 
-export async function getLoadTracking(loadId: string, workspaceId = currentWorkspaceId(), now = new Date()): Promise<LoadTracking> {
+export async function getLoadTracking(loadId: string, workspaceId = currentWorkspaceId(), now = new Date(), allowed?: Terminals): Promise<LoadTracking> {
+  const scope = await allowedFor(workspaceId, allowed);
   const load = await prisma.load.findFirst({
-    where: { id: loadId, workspaceId, deletedAt: null, status: { in: OPEN } },
+    where: { id: loadId, workspaceId, deletedAt: null, status: { in: OPEN }, ...inTerminal(scope) },
     select: {
       vehicleId: true,
       status: true,

@@ -20,7 +20,8 @@ type Tx = Prisma.TransactionClient;
 export async function claimLoad(tx: Tx, loadId: string, workspaceId: string, from: readonly string[], data: Prisma.LoadUpdateManyMutationInput, extra: Prisma.LoadWhereInput = {}): Promise<void> {
   // A claim that changes nothing still has to count as a move: an update with no fields would report no rows, so it touches the row's time.
   const set = Object.keys(data).length === 0 ? { updatedAt: new Date() } : data;
-  const out = await tx.load.updateMany({ where: { id: loadId, workspaceId, deletedAt: null, status: { in: [...from] }, ...extra }, data: set });
+  const hasExtra = Object.keys(extra).length > 0;
+  const out = await tx.load.updateMany({ where: { id: loadId, workspaceId, deletedAt: null, status: { in: [...from] }, ...(hasExtra ? { AND: [extra] } : {}) }, data: set });
   if (out.count !== 1) throw new LoadMoved();
 }
 

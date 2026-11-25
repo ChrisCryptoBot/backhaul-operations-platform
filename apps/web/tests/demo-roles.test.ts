@@ -68,6 +68,7 @@ describe("the demo desk holds each person to the real role matrix", () => {
   it("a driver manager sets the roster and cannot dispatch, quote, bill or administer", async () => {
     expect(await ask("driver_manager", "roster")).toMatchObject({ ok: true, identity: { role: "driver_manager", name: "Driver manager" } });
     expect(await ask("driver_manager", "documents")).toMatchObject({ ok: true });
+    expect(await ask("driver_manager", "documents_remove")).toEqual({ ok: false, reason: "forbidden" });
     for (const cap of ["dispatch", "quote", "figures", "bill", "payout", "writeoff", "admin"] as const) expect(await ask("driver_manager", cap), cap).toEqual({ ok: false, reason: "forbidden" });
     // Nobody else may set shifts, codes or home terminals; a dispatcher and a viewer read them.
     for (const who of ["dispatcher", "accounting", "viewer"]) expect(await ask(who, "roster"), who).toEqual({ ok: false, reason: "forbidden" });
@@ -80,7 +81,7 @@ describe("the demo desk holds each person to the real role matrix", () => {
 
   it("what the demo refuses is exactly what the matrix refuses", async () => {
     for (const u of DEMO_USERS) {
-      for (const cap of ["read", "quote", "dispatch", "roster", "documents", "figures", "billing_details", "bill", "payout", "writeoff", "admin"] as const) {
+      for (const cap of ["read", "quote", "dispatch", "roster", "documents", "documents_remove", "figures", "billing_details", "bill", "payout", "writeoff", "admin"] as const) {
         expect((await ask(u.key, cap)).ok, `${u.key} ${cap}`).toBe(can(u.role, [], cap));
       }
     }

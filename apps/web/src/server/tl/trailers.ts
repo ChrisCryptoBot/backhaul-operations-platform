@@ -16,6 +16,8 @@ import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { currentActor } from "./identity";
 import { lockWorkspace, roomFor } from "./plan";
+import { allowedFor } from "./scope";
+import { inTerminal } from "./terminal-sql";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
 
@@ -223,8 +225,9 @@ export type AssignTrailerResult = { ok: true; warnings: string[] } | { ok: false
  * Put a trailer on a load, or (with no trailer) take it off. The trailer must be able to take the load (trailer-fit.ts: the kind, the weight, the length, its state and
  * its dates) and must not already be on another open load at the same time. A load with no kind of trailer typed takes the trailer's kind.
  */
-export async function assignTrailerToLoad(loadId: string, trailerId: string | null, now = new Date(), workspaceId = currentWorkspaceId()): Promise<AssignTrailerResult> {
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, status: { in: OPEN_LOAD } }, include: { stops: true, trailer: { select: { id: true, number: true } } } });
+export async function assignTrailerToLoad(loadId: string, trailerId: string | null, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<AssignTrailerResult> {
+  const scope = await allowedFor(workspaceId, allowed);
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, status: { in: OPEN_LOAD }, ...inTerminal(scope) }, include: { stops: true, trailer: { select: { id: true, number: true } } } });
   if (!load) return { ok: false, error: "That load is not open." };
   if (trailerId == null) {
     if (!load.trailerId) return { ok: true, warnings: [] };
@@ -235,7 +238,7 @@ export async function assignTrailerToLoad(loadId: string, trailerId: string | nu
     });
     return { ok: true, warnings: [] };
   }
-  const trailer = await prisma.trailer.findFirst({ where: { id: trailerId, workspaceId, archivedAt: null } });
+  const trailer = await prisma.trailer.findFirst({ where: { id: trailerId, workspaceId, archivedAt: null, ...(scope != null ? { terminal: terminalFilter(scope) } : {}) } });
   if (!trailer) return { ok: false, error: "That trailer is not available." };
   if (load.trailerId === trailer.id) return { ok: true, warnings: [] };
   const soon = alertThresholds(await getThresholds(workspaceId)).clearanceDays;

@@ -12,7 +12,10 @@ import { payEstimate, type PayKind } from "./projector";
 import { rateConTotal } from "@/lib/pay";
 import { currentWorkspaceId } from "./workspace";
 import { stopClocksOf } from "./stop-clock";
+import type { Terminals } from "@/lib/scope";
 import { enqueueForLoad } from "@/server/bridge/outbox";
+import { allowedFor } from "./scope";
+import { inTerminal } from "./terminal-sql";
 
 /** Who entered a trip step: the dispatcher on the desk, or the driver's phone through the driver link (server/bridge/service.ts). The audit says which. */
 export type TripVia = "desk" | "phone";
@@ -111,18 +114,19 @@ export function extrasPatch(load: ExtrasLoad, v: ExpenseInput) {
   return { data, before, after, changed };
 }
 
-async function loadFor(loadId: string, workspaceId: string) {
-  return prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null }, include: { stops: { orderBy: { stopSequence: "asc" } }, assignment: { include: { driver: true } } } });
+async function loadFor(loadId: string, workspaceId: string, allowed: Terminals) {
+  return prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(allowed) }, include: { stops: { orderBy: { stopSequence: "asc" } }, assignment: { include: { driver: true } } } });
 }
 
 /** The driver picked up: they arrived at the first stop, waited, and sealed the trailer. The load is on the road. */
-export async function startTrip(loadId: string, values: StartValues, now = new Date(), workspaceId = currentWorkspaceId(), via: TripVia = "desk"): Promise<TripResult> {
+export async function startTrip(loadId: string, values: StartValues, now = new Date(), workspaceId = currentWorkspaceId(), via: TripVia = "desk", allowed?: Terminals): Promise<TripResult> {
+  const scope = await allowedFor(workspaceId, allowed);
   // A time typed for a stop is the dock's time: read on the clock where the stop is (the zone the browser sent is not trusted).
   const clocks = await stopClocksOf(loadId, workspaceId);
   const check = validateStart({ ...values, zone: clocks[0]?.zone }, now.getTime());
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
-  const load = await loadFor(loadId, workspaceId);
+  const load = await loadFor(loadId, workspaceId, scope);
   if (!load || load.status === "quote") return { ok: false, error: "That load does not exist." };
   const a = load.assignment;
   if (load.status !== "accepted" || !a || a.status !== "accepted") return { ok: false, error: "The driver has to have accepted the load first. Send it, then record their answer." };
@@ -132,7 +136,7 @@ export async function startTrip(loadId: string, values: StartValues, now = new D
   try {
   await prisma.$transaction(async (tx) => {
     // From the state it was read in: a second press, or another tab, finds the load already on the road and changes nothing.
-    await claimLoad(tx, load.id, workspaceId, ["accepted"], { status: "in_progress" });
+    await claimLoad(tx, load.id, workspaceId, ["accepted"], { status: "in_progress" }, inTerminal(scope) as Prisma.LoadWhereInput);
     await claimAssignment(tx, load.id, ["accepted"], { status: "in_progress" });
     // The desk's entry is the desk's. The phone's start only fills blanks: a real arrival the phone already reported at the pickup (a stop event read first) is kept, and the
     // start time stands in for the arrival until one comes (server/bridge/stops.ts replaces the phone's own values).
@@ -168,10 +172,11 @@ export async function startTrip(loadId: string, values: StartValues, now = new D
  * Take the pickup back: it was entered against the wrong load, or before it happened. The load goes back to accepted (the driver still has it), and the pickup's arrival, wait and
  * seal are cleared. Only while nothing has been entered after the pickup. The reason is kept.
  */
-export async function undoStartTrip(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult> {
+export async function undoStartTrip(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<TripResult> {
+  const scope = await allowedFor(workspaceId, allowed);
   const why = reason.trim();
   if (why.length < 3) return { ok: false, error: "Say why the pickup is being taken back." };
-  const load = await loadFor(loadId, workspaceId);
+  const load = await loadFor(loadId, workspaceId, scope);
   if (!load || load.status === "quote") return { ok: false, error: "That load does not exist." };
   if (load.status !== "in_progress") return { ok: false, error: "Only a load that is on the road can have its pickup taken back." };
   if (load.stops.slice(1).some((s) => s.arrivedAt != null)) return { ok: false, error: "A later stop has arrival times entered. Take those back first, or finish the trip." };
@@ -179,7 +184,7 @@ export async function undoStartTrip(loadId: string, reason: string, now = new Da
   if (!pickup || !load.assignment) return { ok: false, error: "This load has no pickup to take back." };
   try {
   await prisma.$transaction(async (tx) => {
-    await claimLoad(tx, load.id, workspaceId, ["in_progress"], { status: loadStatusFor("accepted") });
+    await claimLoad(tx, load.id, workspaceId, ["in_progress"], { status: loadStatusFor("accepted") }, inTerminal(scope) as Prisma.LoadWhereInput);
     await claimAssignment(tx, load.id, ["in_progress"], { status: "accepted" });
     await tx.stop.update({ where: { id: pickup.id }, data: { arrivedAt: null, waitMinutes: null, sealNumber: null, arrivedSource: null } });
     await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "update", now });
@@ -197,10 +202,11 @@ export async function undoStartTrip(loadId: string, reason: string, now = new Da
  * revenue are cleared; the stops' arrival and wait times and the expenses stay, to be corrected). Not once the load has been invoiced or is on a driver statement: those carry what
  * was delivered. The reason is kept.
  */
-export async function reopenDelivered(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult> {
+export async function reopenDelivered(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<TripResult> {
+  const scope = await allowedFor(workspaceId, allowed);
   const why = reason.trim();
   if (why.length < 3) return { ok: false, error: "Say why the delivery is being taken back." };
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null }, include: { assignment: { include: { driver: true } }, settlement: true } });
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) }, include: { assignment: { include: { driver: true } }, settlement: true } });
   if (!load || load.status === "quote") return { ok: false, error: "That load does not exist." };
   if (load.status !== "completed") return { ok: false, error: "Only a delivered load can have its delivery taken back." };
   if (load.paymentStatus) return { ok: false, error: "This load has been invoiced. Take the invoice back first." };
@@ -209,7 +215,7 @@ export async function reopenDelivered(loadId: string, reason: string, now = new 
   try {
   await prisma.$transaction(async (tx) => {
     // Not once an invoice or a statement has been made from it, even if that happened since this was read.
-    await claimLoad(tx, load.id, workspaceId, ["completed"], { status: loadStatusFor("in_progress"), completedAt: null, actualRevenue: null, closedWithoutPod: null, podNote: null }, { paymentStatus: null, settlement: { is: null } });
+    await claimLoad(tx, load.id, workspaceId, ["completed"], { status: loadStatusFor("in_progress"), completedAt: null, actualRevenue: null, closedWithoutPod: null, podNote: null }, { paymentStatus: null, settlement: { is: null }, ...inTerminal(scope) });
     await tx.assignment.updateMany({ where: { loadId: load.id }, data: { status: "in_progress" } });
     await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "update", now });
     await recordAudit({ entity: "load", action: "trip_reopened", loadId: load.id, loadNumber: load.loadNumber, summary: `Delivery taken back: ${load.assignment!.driver.name} is on the road again`, reason: why, before: { Status: "Delivered", Delivered: load.completedAt ? dateTime(load.completedAt) : null, ...(load.actualRevenue != null ? { "Linehaul paid": money(num(load.actualRevenue)) } : {}) }, after: { Status: "On the road", Delivered: null }, at: now, workspaceId }, tx);
@@ -226,12 +232,13 @@ export async function reopenDelivered(loadId: string, reason: string, now = new 
  * either there (with a note on what and where) or its absence is explained; and what the trip cost is recorded. The rate confirmation's
  * rate becomes the load's actual revenue, as the phone does, and the waits add up to the dock wait the verdict reads.
  */
-export async function completeTrip(loadId: string, values: CompleteValues, now = new Date(), workspaceId = currentWorkspaceId(), via: TripVia = "desk"): Promise<TripResult> {
+export async function completeTrip(loadId: string, values: CompleteValues, now = new Date(), workspaceId = currentWorkspaceId(), via: TripVia = "desk", allowed?: Terminals): Promise<TripResult> {
+  const scope = await allowedFor(workspaceId, allowed);
   const clocks = await stopClocksOf(loadId, workspaceId);
   const check = validateComplete({ ...values, deliveredZone: clocks[clocks.length - 1]?.zone, stops: values.stops.map((s) => ({ ...s, zone: clocks.find((c) => c.id === s.id)?.zone })) }, now.getTime());
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
-  const load = await loadFor(loadId, workspaceId);
+  const load = await loadFor(loadId, workspaceId, scope);
   if (!load || load.status === "quote") return { ok: false, error: "That load does not exist." };
   if (load.status !== "in_progress") return { ok: false, error: load.status === "completed" ? "This load is already delivered." : "A load has to be picked up before it can be delivered." };
   if (v.stops.some((s) => !load.stops.some((x) => x.id === s.id))) return { ok: false, error: "The stops on this load changed. Reload it and try again." };
@@ -308,11 +315,12 @@ export async function completeTrip(loadId: string, values: CompleteValues, now =
  * What the trip cost and drove, entered or corrected: fuel, tolls, the itemised costs, layover pay, the rider, the revenue note, the miles actually driven and the way home. A load that is
  * on the road, delivered, or a TONU can be changed (a TONU still cost the truck a trip); a cancelled one has no trip.
  */
-export async function saveExpenses(loadId: string, values: ExpenseValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult & { changed?: boolean }> {
+export async function saveExpenses(loadId: string, values: ExpenseValues, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<TripResult & { changed?: boolean }> {
+  const scope = await allowedFor(workspaceId, allowed);
   const check = validateExpenses(values);
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
-  const load = await loadFor(loadId, workspaceId);
+  const load = await loadFor(loadId, workspaceId, scope);
   if (!load || load.status === "quote") return { ok: false, error: "That load does not exist." };
   if (!["in_progress", "completed", "tonu"].includes(load.status)) return { ok: false, error: "A load has to be on the road, delivered or a TONU to have expenses." };
   const patch = extrasPatch(load, v);
@@ -328,7 +336,7 @@ export async function saveExpenses(loadId: string, values: ExpenseValues, now = 
   try {
   await prisma.$transaction(async (tx) => {
     // Written only if the load is still as it was read: two people correcting the same trip do not overwrite each other.
-    const claimed = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: null, status: load.status, updatedAt: load.updatedAt }, data: patch.data as Prisma.LoadUncheckedUpdateManyInput });
+    const claimed = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: null, status: load.status, updatedAt: load.updatedAt, ...inTerminal(scope) }, data: patch.data as Prisma.LoadUncheckedUpdateManyInput });
     if (claimed.count !== 1) throw new LoadMoved("This load was just changed by someone else. Reload it and try again.");
     // The driver's pay estimate follows the miles actually driven: a per-mile estimate on the loaded miles, an hourly one on the trip's hours.
     const a = load.assignment;
@@ -364,12 +372,13 @@ type Tx = Prisma.TransactionClient;
  * Correct what was entered at the stops inside an existing transaction: arrival (`undefined` keeps what is on the stop; `null` clears it), wait and seal,
  * plus this load's own detention terms. Used by both `correctTrip` and atomic detention-evidence confirmation.
  */
-export async function applyCorrection(tx: Tx, loadId: string, values: CorrectValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult & { changed?: boolean }> {
+export async function applyCorrection(tx: Tx, loadId: string, values: CorrectValues, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<TripResult & { changed?: boolean }> {
+  const scope = await allowedFor(workspaceId, allowed);
   const clocks = await stopClocksOf(loadId, workspaceId);
   const check = validateCorrection({ ...values, stops: values.stops.map((s) => ({ ...s, zone: s.zone ?? clocks.find((c) => c.id === s.id)?.zone })) }, now.getTime());
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
-  const load = await tx.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null }, include: { stops: { orderBy: { stopSequence: "asc" } }, assignment: { include: { driver: true } } } });
+  const load = await tx.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) }, include: { stops: { orderBy: { stopSequence: "asc" } }, assignment: { include: { driver: true } } } });
   if (!load || load.status === "quote") return { ok: false, error: "That load does not exist." };
   if (!["in_progress", "completed"].includes(load.status)) return { ok: false, error: "Only a load that is on the road, or delivered, has a trip to correct." };
   if (v.stops.some((s) => !load.stops.some((x) => x.id === s.id))) return { ok: false, error: "The stops on this load changed. Reload it and try again." };
@@ -419,7 +428,7 @@ export async function applyCorrection(tx: Tx, loadId: string, values: CorrectVal
 
   const waits = load.stops.map((s) => edits.find((e) => e.id === s.id)?.data.waitMinutes ?? s.waitMinutes ?? 0);
   loadData.dockWaitMinutes = waits.reduce<number>((sum, w) => sum + num(w as never), 0);
-  const claimed = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: null, status: load.status, updatedAt: load.updatedAt, ...(timesChanged ? { paymentStatus: null } : {}) }, data: loadData as Prisma.LoadUncheckedUpdateManyInput });
+  const claimed = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: null, status: load.status, updatedAt: load.updatedAt, ...(timesChanged ? { paymentStatus: null } : {}), ...inTerminal(scope) }, data: loadData as Prisma.LoadUncheckedUpdateManyInput });
   if (claimed.count !== 1) throw new LoadMoved("This load was just changed by someone else. Reload it and try again.");
   // A correction is the desk's: the driver's phone never overwrites it after this.
   for (const e of edits) await tx.stop.update({ where: { id: e.id }, data: { ...e.data, arrivedSource: "desk" } });
@@ -432,9 +441,9 @@ export async function applyCorrection(tx: Tx, loadId: string, values: CorrectVal
  * load's own detention rate and free time. The dock wait the verdict and the detention read is the sum of the stops' waits, so it is worked out again. A load that is on the road or
  * delivered can be corrected; not once an invoice is made from it (it carries what was billed), unless only a seal changed. The reason is kept.
  */
-export async function correctTrip(loadId: string, values: CorrectValues, now = new Date(), workspaceId = currentWorkspaceId()): Promise<TripResult & { changed?: boolean }> {
+export async function correctTrip(loadId: string, values: CorrectValues, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<TripResult & { changed?: boolean }> {
   try {
-    return await prisma.$transaction((tx) => applyCorrection(tx, loadId, values, now, workspaceId));
+    return await prisma.$transaction((tx) => applyCorrection(tx, loadId, values, now, workspaceId, allowed));
   } catch (e) {
     if (e instanceof LoadMoved) return { ok: false, error: e.message };
     throw e;

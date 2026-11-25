@@ -4,6 +4,9 @@ import { parseCentralLocal } from "@/lib/zoned";
 import { recordAudit } from "./audit";
 import { currentActor } from "./identity";
 import { workspaceTimezone } from "./zone";
+import { termList, terminalFilter, type Terminals } from "@/lib/scope";
+import { allowedFor, loadInScope } from "./scope";
+import { inTerminal } from "./terminal-sql";
 import { currentWorkspaceId } from "./workspace";
 
 /**
@@ -39,11 +42,14 @@ const clean = (v: unknown, max: number): string | null => {
 };
 const blank = (v: unknown) => v == null || (typeof v === "string" && v.trim() === "");
 
-export async function logCheckCall(input: CheckCallInput, now = new Date(), workspaceId = currentWorkspaceId()): Promise<CheckCallResult> {
+export async function logCheckCall(input: CheckCallInput, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<CheckCallResult> {
+  const scope = await allowedFor(workspaceId, allowed);
   const kind = input?.unit?.kind;
   const unitId = String(input?.unit?.id ?? "");
   if ((kind !== "truck" && kind !== "trailer") || !unitId) return { ok: false, error: "Pick the truck or trailer the call is about." };
-  const unit = kind === "truck" ? await prisma.vehicle.findFirst({ where: { id: unitId, workspaceId }, select: { id: true, name: true } }) : await prisma.trailer.findFirst({ where: { id: unitId, workspaceId }, select: { id: true, number: true } });
+  const unit = kind === "truck"
+    ? await prisma.vehicle.findFirst({ where: { id: unitId, workspaceId, ...(scope != null ? { terminal: terminalFilter(scope) } : {}) }, select: { id: true, name: true } })
+    : await prisma.trailer.findFirst({ where: { id: unitId, workspaceId, ...(scope != null ? { terminal: terminalFilter(scope) } : {}) }, select: { id: true, number: true } });
   if (!unit) return { ok: false, error: "That unit is not in this fleet." };
   const label = kind === "truck" ? ((unit as { name: string | null }).name ?? "the truck") : (unit as { number: string }).number;
 
@@ -65,7 +71,7 @@ export async function logCheckCall(input: CheckCallInput, now = new Date(), work
   let loadNumber: string | null = null;
   const loadId = blank(input.loadId) ? null : String(input.loadId);
   if (loadId) {
-    const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...(kind === "truck" ? { vehicleId: unitId } : { trailerId: unitId }) }, select: { loadNumber: true } });
+    const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...(kind === "truck" ? { vehicleId: unitId } : { trailerId: unitId }), ...inTerminal(scope) }, select: { loadNumber: true } });
     if (!load) return { ok: false, error: `That load is not on ${label}.` };
     loadNumber = load.loadNumber;
   }
@@ -83,9 +89,13 @@ export async function logCheckCall(input: CheckCallInput, now = new Date(), work
 }
 
 /** Remove a call that was logged by mistake. The audit trail keeps what it said. */
-export async function removeCheckCall(id: string, workspaceId = currentWorkspaceId()): Promise<{ ok: true } | { ok: false; error: string }> {
-  const c = await prisma.checkCall.findFirst({ where: { id: String(id), workspaceId }, include: { vehicle: { select: { name: true } }, trailer: { select: { number: true } }, load: { select: { loadNumber: true } } } });
+export async function removeCheckCall(id: string, workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<{ ok: true } | { ok: false; error: string }> {
+  const scope = await allowedFor(workspaceId, allowed);
+  const c = await prisma.checkCall.findFirst({ where: { id: String(id), workspaceId }, include: { vehicle: { select: { name: true, terminal: true } }, trailer: { select: { number: true, terminal: true } }, load: { select: { loadNumber: true } } } });
   if (!c) return { ok: false, error: "That check call is already gone." };
+  if (c.loadId && !(await loadInScope(c.loadId, workspaceId, scope))) return { ok: false, error: "That check call is already gone." };
+  const terms = termList(scope);
+  if (!c.loadId && terms != null && !terms.includes((c.vehicle ?? c.trailer)?.terminal ?? "")) return { ok: false, error: "That check call is already gone." };
   const label = c.vehicle?.name ?? c.trailer?.number ?? "a unit";
   await prisma.$transaction(async (tx) => {
     await tx.checkCall.delete({ where: { id: c.id } });
