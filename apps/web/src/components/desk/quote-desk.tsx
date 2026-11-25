@@ -28,6 +28,8 @@ import { Modal } from "./kit/modal";
 import { useToast } from "./kit/toast";
 import { DateInput } from "./date-input";
 import { parseBrokerSnippet } from "@/lib/quote-parser";
+import { PACKING_GROUPS, REEFER_MODES } from "@/lib/load-edit";
+import { lumperFlag, type LumperFlag } from "@/lib/lumper";
 import "./quote-terminal.css";
 import { clockName } from "@/lib/tz";
 
@@ -106,11 +108,20 @@ export function QuoteDesk({
   const [entryWidth, setEntryWidth] = React.useState<number>(540);
   const [isResizing, setIsResizing] = React.useState(false);
 
-  // Quick-Paste modal state
+  // Quick-Paste modal state & Rate-Con ingestion state
   const [pasteOpen, setPasteOpen] = React.useState(false);
   const [readingRateCon, setReadingRateCon] = React.useState(false);
   const [draggingFile, setDraggingFile] = React.useState(false);
   const rateConInputRef = React.useRef<HTMLInputElement>(null);
+  const rateConFileRef = React.useRef<File | null>(null);
+  const [rateConMeta, setRateConMeta] = React.useState<{
+    fileName: string;
+    isRealFile: boolean;
+    warnings: string[];
+    lumper: LumperFlag | null;
+    tonuOnly: boolean;
+    fuelSurchargeIncluded: number | null;
+  } | null>(null);
 
   // Keyboard shortcuts modal state
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
@@ -235,12 +246,12 @@ export function QuoteDesk({
   }, [isResizing, entryWidth]);
 
   // Collapsible groups
-  const paperFilled = (v: QuoteValues) => [v.brokerMc, v.loadNumber, v.poNumber, v.brokerPhone, v.brokerEmail].some((x) => (x ?? "").trim() !== "");
+  const paperFilled = (v: QuoteValues) => [v.brokerMc, v.loadNumber, v.rateConNumber, v.proNumber, v.bolNumber, v.poNumber, v.brokerPhone, v.brokerEmail].some((x) => (x ?? "").trim() !== "");
   const [paperOpen, setPaperOpen] = React.useState(() => !!initial && paperFilled(initial.values));
   React.useEffect(() => {
     if (paperFilled(values)) setPaperOpen(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [values.brokerMc, values.loadNumber, values.poNumber, values.brokerPhone, values.brokerEmail]);
+  }, [values.brokerMc, values.loadNumber, values.rateConNumber, values.proNumber, values.bolNumber, values.poNumber, values.brokerPhone, values.brokerEmail]);
 
   const advancedFilled = (v: QuoteValues) => [v.dockWaitMinutes, v.towingPerMile, v.permitEscort, v.insuranceRider, v.marketBand].some((x) => (x ?? "").trim() !== "") || ((v.loadedHours ?? "").trim() !== "" && manual.current.has("loadedHours"));
   const [advancedOpen, setAdvancedOpen] = React.useState(() => !!initial && advancedFilled(initial.values));
@@ -249,12 +260,14 @@ export function QuoteDesk({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [values.dockWaitMinutes, values.towingPerMile, values.permitEscort, values.insuranceRider, values.marketBand]);
 
-  const specFilled = (v: QuoteValues) => [v.weightLbs, v.lengthFt, v.widthFt, v.heightIn, v.hazmatClass, v.trailer].some((x) => (x ?? "").trim() !== "") || !!(v.requiresLiftgate || v.requiresRamp || v.requiresPalletJack);
+  const specFilled = (v: QuoteValues) =>
+    [v.commodity, v.pieceCount, v.palletCount, v.weightLbs, v.lengthFt, v.widthFt, v.heightIn, v.reeferSetTempF, v.reeferMinF, v.reeferMaxF, v.reeferMode, v.hazmatClass, v.hazmatUnNumber, v.hazmatPackingGroup, v.hazmatEmergencyPhone, v.detentionFreeMinutes, v.detentionHourlyRate, v.paymentTerms, v.notes, v.trailer].some((x) => (x ?? "").trim() !== "") ||
+    !!(v.requiresLiftgate || v.requiresRamp || v.requiresPalletJack);
   const [specOpen, setSpecOpen] = React.useState(() => !!initial && specFilled(initial.values));
   React.useEffect(() => {
     if (specFilled(values)) setSpecOpen(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [values.weightLbs, values.lengthFt, values.widthFt, values.heightIn, values.hazmatClass, values.trailer, values.requiresLiftgate, values.requiresRamp, values.requiresPalletJack]);
+  }, [values.commodity, values.pieceCount, values.palletCount, values.weightLbs, values.lengthFt, values.widthFt, values.heightIn, values.reeferSetTempF, values.reeferMinF, values.reeferMaxF, values.reeferMode, values.hazmatClass, values.hazmatUnNumber, values.hazmatPackingGroup, values.hazmatEmergencyPhone, values.detentionFreeMinutes, values.detentionHourlyRate, values.paymentTerms, values.notes, values.trailer, values.requiresLiftgate, values.requiresRamp, values.requiresPalletJack]);
 
   // Backhaul discovery: detect open pickups near the delivery destination
   const lastStop = values.stops[values.stops.length - 1];
@@ -417,15 +430,6 @@ export function QuoteDesk({
       .slice(0, UNPRICED_SHOWN);
   }, [fleet, values.emptyByTruck, values.emptyToPickup]);
 
-  // The ten nearest trucks to the pickup for the strip under the route: from what was priced when there is a price, else from the trucks the page brought.
-  const nearestTen = React.useMemo(() => {
-    if (rows.length > 0) {
-      const seen = new Map<string, { id: string; name: string; homeBaseAddress: string | null; miles: number }>();
-      for (const r of rows) if (!seen.has(r.truckId)) seen.set(r.truckId, { id: r.truckId, name: r.truckName, homeBaseAddress: r.homeBase, miles: r.emptyToPickup });
-      return [...seen.values()].sort((a, b) => a.miles - b.miles).slice(0, 10);
-    }
-    return unpricedFleet.slice(0, 10).map((t) => ({ id: t.id, name: t.name, homeBaseAddress: t.homeBaseAddress, miles: Number(values.emptyByTruck[t.id] ?? (values.emptyToPickup || NaN)) }));
-  }, [rows, unpricedFleet, values.emptyByTruck, values.emptyToPickup]);
   const termsPriced = React.useMemo(() => [...new Set(rows.map((r) => r.terminal).filter((t): t is string => !!t))].sort(), [rows]);
 
   const row =
@@ -446,6 +450,8 @@ export function QuoteDesk({
     draft.discard();
     setValues(BLANK_QUOTE);
     askDraft.discard();
+    rateConFileRef.current = null;
+    setRateConMeta(null);
     setQuoteId(null);
     setTried(false);
     setServerErrors({});
@@ -525,10 +531,30 @@ export function QuoteDesk({
     if (!out) return;
     setBusy(false);
     if (out.ok) {
+      const file = rateConFileRef.current;
+      let attachNote: string | null = null;
+      if (file) {
+        const keep = new FormData();
+        keep.set("loadId", out.loadId);
+        keep.set("kind", "rate_con");
+        keep.set("file", file);
+        try {
+          const res = await fetch("/documents/upload", { method: "POST", body: keep });
+          const kept = (await res.json().catch(() => null)) as { ok: boolean; error?: string } | null;
+          attachNote = kept?.ok
+            ? "Rate confirmation PDF attached to load documents."
+            : `Load booked, but rate con file was not attached (${kept?.error ?? "upload it under Paperwork"}).`;
+        } catch {
+          attachNote = "Load booked, but rate con file could not be attached. Upload it under Paperwork.";
+        }
+      }
+      rateConFileRef.current = null;
+      setRateConMeta(null);
       setAsking(false);
       draft.saved();
       askDraft.saved();
-      setDone({ loadId: out.loadId, loadNumber: out.loadNumber, note: out.note, assigned: out.assigned, truck: row.truckName });
+      const combinedNote = [out.note, attachNote].filter(Boolean).join(" ") || null;
+      setDone({ loadId: out.loadId, loadNumber: out.loadNumber, note: combinedNote, assigned: out.assigned, truck: row.truckName });
       router.refresh();
       return;
     }
@@ -688,13 +714,44 @@ export function QuoteDesk({
     }
   };
 
-  // Rate Confirmation File Ingestion (L1)
+  // Rate Confirmation File Ingestion (unified Quote entry)
+  const applyExtractedRateCon = (res: Extract<ReadResult, { ok: true }>, fileName: string, file: File | null, snap: Snap) => {
+    const mapped = rateConDraftToQuote(res.draft, values, { fileName });
+    setValues(mapped.values);
+    manual.current = new Set(mapped.values.manual);
+    measureSeq.current += 1;
+    rateConFileRef.current = file;
+    const lumper = lumperFlag({
+      commodity: res.draft.load.commodity ?? res.draft.printed.commodity,
+      text: [res.draft.printed.notes ?? "", res.draft.printed.dockTerms ?? "", ...res.draft.printed.accessorials, ...res.draft.stops.map((s) => s.stopNotes ?? "")],
+      stops: res.draft.stops.map((s) => ({ stopType: s.stopType, facilityName: s.facilityName }))
+    });
+    setRateConMeta({
+      fileName,
+      isRealFile: file !== null,
+      warnings: res.draft.warnings,
+      lumper,
+      tonuOnly: res.draft.printed.tonuOnly,
+      fuelSurchargeIncluded: res.draft.printed.fuelSurchargeIncluded
+    });
+    if (res.draft.printed.tonuOnly) {
+      toast({ text: "This rate confirmation appears to be a TONU notice.", tone: "bad" });
+    } else {
+      toast({
+        text: `Loaded ${fileName} (${mapped.filledCount} fields filled).`,
+        ms: 8000,
+        action: { label: "Undo", run: () => { restore(snap); rateConFileRef.current = null; setRateConMeta(null); } }
+      });
+    }
+  };
+
   const handleRateConFile = async (file: File) => {
     setReadingRateCon(true);
     try {
       const snap = snapshot();
+      const isSample = /RC-[A-Z]+-\d+/i.test(file.name);
       let res: ReadResult;
-      if (/RC-[A-Z]+-\d+/i.test(file.name)) {
+      if (isSample) {
         res = await readSampleRateConAction(file.name);
       } else {
         const form = new FormData();
@@ -702,15 +759,7 @@ export function QuoteDesk({
         res = await readUploadedRateConAction(form);
       }
       if (res.ok) {
-        const mapped = rateConDraftToQuote(res.draft, values);
-        setValues(mapped.values);
-        manual.current = new Set(mapped.values.manual);
-        measureSeq.current += 1;
-        toast({
-          text: `Loaded ${file.name} (${mapped.filledCount} fields filled).`,
-          ms: 8000,
-          action: { label: "Undo", run: () => { restore(snap); } }
-        });
+        applyExtractedRateCon(res, file.name, isSample ? null : file, snap);
       } else {
         const msg = res.reason === "no_key"
           ? "No Anthropic API key configured for live extraction. You can test with sample files like RC-AFB-482913.pdf."
@@ -730,15 +779,7 @@ export function QuoteDesk({
       const snap = snapshot();
       const res = await readSampleRateConAction(sampleName);
       if (res.ok) {
-        const mapped = rateConDraftToQuote(res.draft, values);
-        setValues(mapped.values);
-        manual.current = new Set(mapped.values.manual);
-        measureSeq.current += 1;
-        toast({
-          text: `Loaded sample ${sampleName} (${mapped.filledCount} fields filled).`,
-          ms: 8000,
-          action: { label: "Undo", run: () => { restore(snap); } }
-        });
+        applyExtractedRateCon(res, sampleName, null, snap);
       } else {
         toast({ text: `Could not read sample (${res.reason}).`, tone: "bad" });
       }
@@ -1121,6 +1162,80 @@ export function QuoteDesk({
 
             {isQuoteDirty(values, initial?.values ?? BLANK_QUOTE) ? <DraftNote draft={draft} what="this quote" /> : null}
 
+            {/* Rate confirmation quick intake */}
+            <section className="tl-card" aria-label="Rate confirmation intake" style={{ padding: "10px 14px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span className="tl-sub">
+                  <b>Have a rate confirmation?</b> Drop a PDF/image anywhere here, upload, or load a sample:
+                </span>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    className="tl-btn sm"
+                    disabled={readingRateCon || locked}
+                    onClick={() => rateConInputRef.current?.click()}>
+                    {readingRateCon ? "Reading…" : "Upload rate con"}
+                  </button>
+                  <button
+                    type="button"
+                    className="tl-btn ghost sm"
+                    disabled={readingRateCon || locked}
+                    onClick={() => void handleSampleRateCon("RC-AFB-482913_dallas-to-houston_cargo-van.pdf")}>
+                    Sample: Acme ($800)
+                  </button>
+                  <button
+                    type="button"
+                    className="tl-btn ghost sm"
+                    disabled={readingRateCon || locked}
+                    onClick={() => void handleSampleRateCon("RC-RDL-77315_fort-worth-waco-austin_box-truck.pdf")}>
+                    Sample: Redline ($640, 3 stops)
+                  </button>
+                </div>
+              </div>
+              {rateConMeta ? (
+                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span className="tl-chip ok">
+                      {rateConMeta.fileName}
+                      {rateConMeta.isRealFile ? " · PDF will attach to load when booked" : " · Sample rate con"}
+                    </span>
+                    <button
+                      type="button"
+                      className="tl-btn ghost sm"
+                      onClick={() => {
+                        rateConFileRef.current = null;
+                        setRateConMeta(null);
+                        set({ rateConPath: "" });
+                      }}>
+                      Dismiss
+                    </button>
+                  </div>
+                  {rateConMeta.tonuOnly ? (
+                    <p className="tl-note warn" role="alert">
+                      This document reads as a TONU notice, not an active haul.
+                    </p>
+                  ) : null}
+                  {rateConMeta.lumper ? (
+                    <p className="tl-note warn" role="note" data-testid="lumper-flag">
+                      <strong>{rateConMeta.lumper.kind === "stated" ? "Lumper" : "Lumper likely"}.</strong> {rateConMeta.lumper.text}
+                    </p>
+                  ) : null}
+                  {rateConMeta.fuelSurchargeIncluded ? (
+                    <p className="tl-sub">Printed rate includes {usd(rateConMeta.fuelSurchargeIncluded, 2)} fuel surcharge.</p>
+                  ) : null}
+                  {rateConMeta.warnings.length > 0 ? (
+                    <ul style={{ margin: 0, paddingLeft: 18 }}>
+                      {rateConMeta.warnings.map((w, idx) => (
+                        <li key={idx} className="tl-sub">
+                          {w}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
+
             {/* 1. Route Section */}
             <section className="tl-card">
               <h2>Route</h2>
@@ -1166,9 +1281,19 @@ export function QuoteDesk({
                         )}
                       </li>
                       <li style={{ listStyle: "none", marginTop: 2, marginBottom: 4 }}>
-                        <details className="qt-more" open={Boolean(s.facility || s.contactName || s.contactPhone || s.notes) || undefined}>
-                          <summary className="tl-sub">Stop {i + 1} facility, contact &amp; notes</summary>
+                        <details className="qt-more" open={Boolean(s.facility || s.contactName || s.contactPhone || s.notes || s.appointmentEnd || s.refs) || undefined}>
+                          <summary className="tl-sub">Stop {i + 1} details (facility, closes, refs, contact &amp; notes)</summary>
                           <div className="qt-grid" style={{ marginTop: 6 }}>
+                            <label className="tl-field">
+                              Closes ({clockName()})
+                              <DateInput type="datetime-local" value={s.appointmentEnd ?? ""} onChange={(e) => setStop(i, { appointmentEnd: e.target.value })} aria-invalid={err(`stop${i}TimeEnd`) ? true : undefined} />
+                              {err(`stop${i}TimeEnd`) ? <span className="th-err">{err(`stop${i}TimeEnd`)}</span> : null}
+                            </label>
+                            <label className="tl-field">
+                              Reference numbers
+                              <input value={s.refs ?? ""} placeholder="Comma-separated" onChange={(e) => setStop(i, { refs: e.target.value })} autoComplete="off" aria-invalid={err(`stop${i}Refs`) ? true : undefined} />
+                              {err(`stop${i}Refs`) ? <span className="th-err">{err(`stop${i}Refs`)}</span> : null}
+                            </label>
                             <label className="tl-field">
                               Facility
                               <input value={s.facility ?? ""} onChange={(e) => setStop(i, { facility: e.target.value })} autoComplete="off" />
@@ -1298,6 +1423,10 @@ export function QuoteDesk({
                     <input value={values.proNumber ?? ""} onChange={(e) => set({ proNumber: e.target.value })} autoComplete="off" />
                   </label>
                   <label className="tl-field">
+                    BOL #
+                    <input value={values.bolNumber ?? ""} onChange={(e) => set({ bolNumber: e.target.value })} autoComplete="off" />
+                  </label>
+                  <label className="tl-field">
                     PO number
                     <input value={values.poNumber} onChange={(e) => set({ poNumber: e.target.value })} autoComplete="off" />
                   </label>
@@ -1381,47 +1510,6 @@ export function QuoteDesk({
                   })}
                 </div>
               </div>
-
-              {/* Quick Deadhead by Base chips */}
-              {nearestTen.length > 0 ? (
-                <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--db-border-soft)" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--db-fg-dim)" }}>
-                      Nearest to the pickup
-                    </span>
-                    <span style={{ fontSize: 11, color: "var(--db-accent-fg)", fontWeight: 500 }}>
-                      {values.stops[0]?.address ? `Pickup: ${values.stops[0].address}` : "Enter pickup address"}
-                    </span>
-                  </div>
-                  <div className="qt-near-list">
-                    {nearestTen.map((t) => {
-                      const deadhead = values.emptyByTruck[t.id] ?? (values.emptyToPickup || null);
-                      const isSelected = row?.truckId === t.id || (selected ? selected.startsWith(t.id) : initial?.vehicleId === t.id);
-                      return (
-                        // A tile sized to its three lines (unit, base, miles): a fixed-height button let them spill onto the next row (terminal.css .qt-near).
-                        <button
-                          key={t.id}
-                          type="button"
-                          className="tl-btn ghost sm qt-near"
-                          aria-pressed={isSelected}
-                          onClick={() => {
-                            if (priced?.ok) {
-                              const match = rows.find((r) => r.truckId === t.id);
-                              if (match) setSelected(match.key);
-                              else setSelected(`${t.id}:none`);
-                            } else {
-                              setSelected(`${t.id}:none`);
-                            }
-                          }}>
-                          <b>{t.name}</b>
-                          <span className="qt-near-base">{t.homeBaseAddress || "Base"}</span>
-                          <b className="qt-near-mi">{deadhead != null && deadhead !== "" ? `${deadhead} mi` : "unmeasured"}</b>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
             </section>
 
             {/* 4. Equipment Specs & Advanced Section */}
@@ -1435,6 +1523,16 @@ export function QuoteDesk({
                     Commodity
                     <input value={values.commodity ?? ""} onChange={(e) => set({ commodity: e.target.value })} autoComplete="off" />
                   </label>
+                  <label className="tl-field">
+                    Pieces
+                    <input inputMode="numeric" value={values.pieceCount ?? ""} onChange={(e) => set({ pieceCount: e.target.value })} autoComplete="off" aria-invalid={err("pieceCount") ? true : undefined} />
+                    {err("pieceCount") ? <span className="th-err">{err("pieceCount")}</span> : null}
+                  </label>
+                  <label className="tl-field">
+                    Pallets
+                    <input inputMode="numeric" value={values.palletCount ?? ""} onChange={(e) => set({ palletCount: e.target.value })} autoComplete="off" aria-invalid={err("palletCount") ? true : undefined} />
+                    {err("palletCount") ? <span className="th-err">{err("palletCount")}</span> : null}
+                  </label>
                   <Money label="Weight" unit="lb" value={values.weightLbs} error={err("weightLbs")} onChange={(v) => set({ weightLbs: v })} />
                   <Money label="Length" unit="ft" value={values.lengthFt} error={err("lengthFt")} onChange={(v) => set({ lengthFt: v })} />
                   <Money label="Width" unit="ft" value={values.widthFt} error={err("widthFt")} onChange={(v) => set({ widthFt: v })} />
@@ -1446,6 +1544,33 @@ export function QuoteDesk({
                       {TRAILER_TYPES.map((t) => (
                         <option key={t.value} value={t.value}>
                           {t.label}
+                        </option>
+                      ))}
+                      {values.trailer && !TRAILER_TYPES.some((t) => t.value === values.trailer) ? <option value={values.trailer}>{values.trailer}</option> : null}
+                    </select>
+                  </label>
+                  <label className="tl-field">
+                    Reefer set temp (°F)
+                    <input inputMode="decimal" value={values.reeferSetTempF ?? ""} onChange={(e) => set({ reeferSetTempF: e.target.value })} autoComplete="off" aria-invalid={err("reeferSetTempF") ? true : undefined} />
+                    {err("reeferSetTempF") ? <span className="th-err">{err("reeferSetTempF")}</span> : null}
+                  </label>
+                  <label className="tl-field">
+                    Reefer min (°F)
+                    <input inputMode="decimal" value={values.reeferMinF ?? ""} onChange={(e) => set({ reeferMinF: e.target.value })} autoComplete="off" aria-invalid={err("reeferMinF") ? true : undefined} />
+                    {err("reeferMinF") ? <span className="th-err">{err("reeferMinF")}</span> : null}
+                  </label>
+                  <label className="tl-field">
+                    Reefer max (°F)
+                    <input inputMode="decimal" value={values.reeferMaxF ?? ""} onChange={(e) => set({ reeferMaxF: e.target.value })} autoComplete="off" aria-invalid={err("reeferMaxF") ? true : undefined} />
+                    {err("reeferMaxF") ? <span className="th-err">{err("reeferMaxF")}</span> : null}
+                  </label>
+                  <label className="tl-field">
+                    Reefer mode
+                    <select value={values.reeferMode ?? ""} onChange={(e) => set({ reeferMode: e.target.value })}>
+                      <option value="">Not set</option>
+                      {REEFER_MODES.map((m) => (
+                        <option key={m} value={m}>
+                          {m === "continuous" ? "Continuous" : "Cycle"}
                         </option>
                       ))}
                     </select>
@@ -1462,7 +1587,42 @@ export function QuoteDesk({
                       {values.hazmatClass !== "" && !HAZMAT_CLASSES.some((c) => c.value === values.hazmatClass) ? <option value={values.hazmatClass}>{values.hazmatClass}</option> : null}
                     </select>
                   </label>
+                  <label className="tl-field">
+                    Hazmat UN #
+                    <input value={values.hazmatUnNumber ?? ""} onChange={(e) => set({ hazmatUnNumber: e.target.value })} autoComplete="off" />
+                  </label>
+                  <label className="tl-field">
+                    Hazmat packing group
+                    <select value={values.hazmatPackingGroup ?? ""} onChange={(e) => set({ hazmatPackingGroup: e.target.value })}>
+                      <option value="">Not set</option>
+                      {PACKING_GROUPS.map((g) => (
+                        <option key={g} value={g}>
+                          {g}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="tl-field">
+                    Hazmat emergency phone
+                    <input inputMode="tel" value={values.hazmatEmergencyPhone ?? ""} onChange={(e) => set({ hazmatEmergencyPhone: e.target.value })} autoComplete="off" aria-invalid={err("hazmatEmergencyPhone") ? true : undefined} />
+                    {err("hazmatEmergencyPhone") ? <span className="th-err">{err("hazmatEmergencyPhone")}</span> : null}
+                  </label>
+                  <label className="tl-field">
+                    Detention free (min)
+                    <input inputMode="numeric" value={values.detentionFreeMinutes ?? ""} onChange={(e) => set({ detentionFreeMinutes: e.target.value })} autoComplete="off" aria-invalid={err("detentionFreeMinutes") ? true : undefined} />
+                    {err("detentionFreeMinutes") ? <span className="th-err">{err("detentionFreeMinutes")}</span> : null}
+                  </label>
+                  <label className="tl-field">
+                    Detention rate ($/hr)
+                    <input inputMode="decimal" value={values.detentionHourlyRate ?? ""} onChange={(e) => set({ detentionHourlyRate: e.target.value })} autoComplete="off" aria-invalid={err("detentionHourlyRate") ? true : undefined} />
+                    {err("detentionHourlyRate") ? <span className="th-err">{err("detentionHourlyRate")}</span> : null}
+                  </label>
                 </div>
+                {values.hazmatClass || values.hazmatUnNumber || values.hazmatPackingGroup ? (
+                  <p className="tl-note warn" style={{ marginTop: 8 }}>
+                    Check the driver&apos;s H endorsement (49 CFR 383.93)
+                  </p>
+                ) : null}
                 <div className="qt-needs">
                   <label className="tl-check">
                     <input type="checkbox" checked={values.requiresLiftgate} onChange={(e) => set({ requiresLiftgate: e.target.checked })} /> Liftgate needed
@@ -1474,6 +1634,10 @@ export function QuoteDesk({
                     <input type="checkbox" checked={values.requiresPalletJack} onChange={(e) => set({ requiresPalletJack: e.target.checked })} /> Pallet jack needed
                   </label>
                 </div>
+                <label className="tl-field" style={{ marginTop: 8 }}>
+                  Load &amp; dock notes
+                  <textarea rows={2} value={values.notes ?? ""} onChange={(e) => set({ notes: e.target.value })} placeholder="Dock terms, instructions, or notes saved on the load" />
+                </label>
               </details>
 
               <details className="qt-more qt-advanced" open={advancedOpen || undefined} onToggle={(e) => setAdvancedOpen((e.currentTarget as HTMLDetailsElement).open)} style={{ marginTop: 12 }}>

@@ -5,7 +5,8 @@ import { fuelSurchargeDollars, type FuelSurchargeUnit } from "@/truelane/lib/fue
 import { isUnusualValue } from "@/truelane/lib/formatNumbers";
 import { parseCentralLocal } from "./zoned";
 import type { LoadSpecs } from "./load-fit";
-import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
+import { isOtherTrailer, OTHER_TRAILER_MAX, OTHER_TRAILER_PREFIX, TRAILER_TYPES } from "@/truelane/constants/trailerData";
+import { PACKING_GROUPS, REEFER_MODES, type PackingGroup, type ReeferMode } from "./load-edit";
 
 /**
  * A quote is the phone's Calculate screen as a dispatcher uses it: an offer on a load that is not booked yet, priced against a truck's cost
@@ -19,10 +20,12 @@ export type QuoteStop = {
   address: string;
   /** "2026-10-30T08:00" on the Dallas clock, or blank. */
   appointment: string;
+  appointmentEnd?: string;
   facility?: string;
   contactName?: string;
   contactPhone?: string;
   notes?: string;
+  refs?: string;
 };
 
 export type QuoteValues = {
@@ -33,20 +36,35 @@ export type QuoteValues = {
   loadNumber: string;
   rateConNumber?: string;
   proNumber?: string;
+  bolNumber?: string;
   poNumber: string;
   brokerPhone: string;
   brokerEmail: string;
   trailer: string;
   commodity?: string;
+  pieceCount?: string;
+  palletCount?: string;
   /** What the load is, so a truck that cannot carry it is not offered. All optional; blank checks nothing. */
   weightLbs: string;
   lengthFt: string;
   widthFt: string;
   heightIn: string;
+  reeferSetTempF?: string;
+  reeferMinF?: string;
+  reeferMaxF?: string;
+  reeferMode?: string;
   hazmatClass: string;
+  hazmatUnNumber?: string;
+  hazmatPackingGroup?: string;
+  hazmatEmergencyPhone?: string;
   requiresLiftgate: boolean;
   requiresRamp: boolean;
   requiresPalletJack: boolean;
+  notes?: string;
+  paymentTerms?: string;
+  detentionFreeMinutes?: string;
+  detentionHourlyRate?: string;
+  rateConPath?: string;
   offer: string;
   fsc: string;
   fscUnit: FuelSurchargeUnit;
@@ -97,19 +115,34 @@ export const BLANK_QUOTE: QuoteValues = {
   loadNumber: "",
   rateConNumber: "",
   proNumber: "",
+  bolNumber: "",
   poNumber: "",
   brokerPhone: "",
   brokerEmail: "",
   trailer: "",
   commodity: "",
+  pieceCount: "",
+  palletCount: "",
   weightLbs: "",
   lengthFt: "",
   widthFt: "",
   heightIn: "",
+  reeferSetTempF: "",
+  reeferMinF: "",
+  reeferMaxF: "",
+  reeferMode: "",
   hazmatClass: "",
+  hazmatUnNumber: "",
+  hazmatPackingGroup: "",
+  hazmatEmergencyPhone: "",
   requiresLiftgate: false,
   requiresRamp: false,
   requiresPalletJack: false,
+  notes: "",
+  paymentTerms: "",
+  detentionFreeMinutes: "",
+  detentionHourlyRate: "",
+  rateConPath: "",
   offer: "",
   fsc: "",
   fscUnit: "percent",
@@ -135,17 +168,42 @@ export const BLANK_QUOTE: QuoteValues = {
 };
 
 export type QuoteInput = {
-  stops: Array<{ role: QuoteStopRole; address: string; appointment: number | null; facility: string | null; contactName: string | null; contactPhone: string | null; notes: string | null }>;
+  stops: Array<{
+    role: QuoteStopRole;
+    address: string;
+    appointment: number | null;
+    appointmentEnd: number | null;
+    facility: string | null;
+    contactName: string | null;
+    contactPhone: string | null;
+    notes: string | null;
+    refs: string[];
+  }>;
   broker: string | null;
   brokerMc: string | null;
   loadNumber: string | null;
   rateConNumber: string | null;
   proNumber: string | null;
+  bolNumber: string | null;
   poNumber: string | null;
   brokerPhone: string | null;
   brokerEmail: string | null;
   trailer: string | null;
   commodity: string | null;
+  pieceCount: number | null;
+  palletCount: number | null;
+  reeferSetTempF: number | null;
+  reeferMinF: number | null;
+  reeferMaxF: number | null;
+  reeferMode: ReeferMode | null;
+  hazmatUnNumber: string | null;
+  hazmatPackingGroup: PackingGroup | null;
+  hazmatEmergencyPhone: string | null;
+  notes: string | null;
+  paymentTerms: string | null;
+  detentionFreeMinutes: number | null;
+  detentionHourlyRate: number | null;
+  rateConPath: string | null;
   specs: LoadSpecs;
   offer: number;
   fsc: number;
@@ -235,10 +293,12 @@ export function reverseStops(stops: QuoteStop[]): QuoteStop[] {
     return {
       ...s,
       address: f?.address ?? "",
+      ...(f?.appointmentEnd !== undefined ? { appointmentEnd: f.appointmentEnd } : s.appointmentEnd !== undefined ? { appointmentEnd: "" } : {}),
       ...(f?.facility !== undefined ? { facility: f.facility } : s.facility !== undefined ? { facility: "" } : {}),
       ...(f?.contactName !== undefined ? { contactName: f.contactName } : s.contactName !== undefined ? { contactName: "" } : {}),
       ...(f?.contactPhone !== undefined ? { contactPhone: f.contactPhone } : s.contactPhone !== undefined ? { contactPhone: "" } : {}),
-      ...(f?.notes !== undefined ? { notes: f.notes } : s.notes !== undefined ? { notes: "" } : {})
+      ...(f?.notes !== undefined ? { notes: f.notes } : s.notes !== undefined ? { notes: "" } : {}),
+      ...(f?.refs !== undefined ? { refs: f.refs } : s.refs !== undefined ? { refs: "" } : {})
     };
   });
 }
@@ -290,26 +350,61 @@ export function readQuote(values: QuoteValues): QuoteInput | null {
   const fsc = nonNeg(values.fsc);
   const market = positive(values.marketRate);
   const factoring = num(str(values.factoringPct));
+  const splitStopRefs = (raw?: string): string[] =>
+    str(raw)
+      .split(/[,;\n]+/)
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .slice(0, 10);
+  const reeferModeRaw = str(values.reeferMode ?? "").toLowerCase();
+  const reeferMode = (REEFER_MODES as readonly string[]).includes(reeferModeRaw) ? (reeferModeRaw as ReeferMode) : null;
+  const pgRaw = str(values.hazmatPackingGroup ?? "").toUpperCase();
+  const hazmatPackingGroup = (PACKING_GROUPS as readonly string[]).includes(pgRaw) ? (pgRaw as PackingGroup) : null;
+  const wholeNonNeg = (s: string): number | null => {
+    const n = num(str(s));
+    return n != null && Number.isInteger(n) && n >= 0 ? n : null;
+  };
+  const decNonNeg = (s: string): number | null => {
+    const n = num(str(s));
+    return n != null && n >= 0 ? n : null;
+  };
   return {
     stops: values.stops.map((s) => ({
       role: s.role,
       address: str(s.address),
       appointment: s.appointment ? parseCentralLocal(s.appointment) : null,
+      appointmentEnd: s.appointmentEnd ? parseCentralLocal(s.appointmentEnd) : null,
       facility: str(s.facility) || null,
       contactName: str(s.contactName) || null,
       contactPhone: str(s.contactPhone) || null,
-      notes: str(s.notes) || null
+      notes: str(s.notes) || null,
+      refs: splitStopRefs(s.refs)
     })),
     broker: str(values.broker) || null,
     brokerMc: str(values.brokerMc).replace(/^mc[\s-]*/i, "") || null,
     loadNumber: str(values.loadNumber) || null,
     rateConNumber: str(values.rateConNumber ?? "") || null,
     proNumber: str(values.proNumber ?? "") || null,
+    bolNumber: str(values.bolNumber ?? "") || null,
     poNumber: str(values.poNumber) || null,
     brokerPhone: str(values.brokerPhone) || null,
     brokerEmail: str(values.brokerEmail) || null,
     trailer: str(values.trailer) || null,
     commodity: str(values.commodity ?? "") || null,
+    pieceCount: positive(values.pieceCount ?? ""),
+    palletCount: positive(values.palletCount ?? ""),
+    reeferSetTempF: num(str(values.reeferSetTempF ?? "")),
+    reeferMinF: num(str(values.reeferMinF ?? "")),
+    reeferMaxF: num(str(values.reeferMaxF ?? "")),
+    reeferMode,
+    hazmatUnNumber: str(values.hazmatUnNumber ?? "") || null,
+    hazmatPackingGroup,
+    hazmatEmergencyPhone: str(values.hazmatEmergencyPhone ?? "") || null,
+    notes: str(values.notes ?? "").slice(0, 1000) || null,
+    paymentTerms: str(values.paymentTerms ?? "").slice(0, 120) || null,
+    detentionFreeMinutes: wholeNonNeg(values.detentionFreeMinutes ?? ""),
+    detentionHourlyRate: decNonNeg(values.detentionHourlyRate ?? ""),
+    rateConPath: str(values.rateConPath ?? "") || null,
     specs: {
       weightLbs: positive(values.weightLbs ?? ""),
       lengthFt: positive(values.lengthFt ?? ""),
@@ -358,12 +453,22 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
   stops.forEach((s, i) => {
     if (str(s.address).length < 2) errors[`stop${i}`] = "Where is this stop? A city and state is enough.";
     else if (str(s.address).length > 200) errors[`stop${i}`] = "At most 200 characters.";
-    if (s.appointment && parseCentralLocal(s.appointment) == null) errors[`stop${i}Time`] = "A real date and time.";
+    const openMs = s.appointment ? parseCentralLocal(s.appointment) : null;
+    if (s.appointment && openMs == null) errors[`stop${i}Time`] = "A real date and time.";
+    const closeMs = s.appointmentEnd ? parseCentralLocal(s.appointmentEnd) : null;
+    if (s.appointmentEnd && closeMs == null) errors[`stop${i}TimeEnd`] = "A real date and time.";
+    else if (openMs != null && closeMs != null && closeMs < openMs) errors[`stop${i}TimeEnd`] = "The window cannot close before it opens.";
     if (str(s.facility).length > 80) errors[`stop${i}Facility`] = "At most 80 characters.";
     if (str(s.contactName).length > 60) errors[`stop${i}ContactName`] = "At most 60 characters.";
     const sp = str(s.contactPhone);
     if (sp !== "" && (sp.replace(/\D/g, "").length < 7 || sp.replace(/\D/g, "").length > 15 || /[^\d\s()+.\-x]/i.test(sp))) errors[`stop${i}ContactPhone`] = "A phone number, for example 555-0142.";
     if (str(s.notes).length > 300) errors[`stop${i}Notes`] = "At most 300 characters.";
+    const refsList = str(s.refs)
+      .split(/[,;\n]+/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+    if (refsList.length > 10) errors[`stop${i}Refs`] = "Ten reference numbers at most.";
+    else if (refsList.some((r) => r.length > 40)) errors[`stop${i}Refs`] = "A reference number is too long.";
   });
   // Stops in order: a stop cannot be due before the one ahead of it.
   let earlier: number | null = null;
@@ -375,25 +480,71 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
   });
   if (str(values.broker).length > 120) errors.broker = "At most 120 characters.";
   const trailerRaw = str(values.trailer ?? "");
-  if (trailerRaw !== "" && !TRAILER_TYPES.some((t) => t.value === trailerRaw)) errors.trailer = "Pick a trailer from the list.";
+  if (trailerRaw !== "" && !TRAILER_TYPES.some((t) => t.value === trailerRaw) && !isOtherTrailer(trailerRaw) && trailerRaw !== "hopper") errors.trailer = "Pick a trailer from the list.";
+  if (isOtherTrailer(trailerRaw) && trailerRaw.length > OTHER_TRAILER_PREFIX.length + OTHER_TRAILER_MAX) errors.trailer = "That equipment name is too long.";
   const mc = str(values.brokerMc).replace(/^mc[\s-]*/i, "");
   if (mc !== "" && !/^\d{3,8}$/.test(mc)) errors.brokerMc = "Digits only, for example 123456.";
   if (str(values.loadNumber).length > 40) errors.loadNumber = "At most 40 characters.";
   if (str(values.rateConNumber ?? "").length > 40) errors.rateConNumber = "At most 40 characters.";
   if (str(values.proNumber ?? "").length > 40) errors.proNumber = "At most 40 characters.";
+  if (str(values.bolNumber ?? "").length > 60) errors.bolNumber = "At most 60 characters.";
   if (str(values.poNumber).length > 40) errors.poNumber = "At most 40 characters.";
   if (str(values.commodity ?? "").length > 120) errors.commodity = "At most 120 characters.";
   const phone = str(values.brokerPhone);
   if (phone !== "" && (phone.replace(/\D/g, "").length < 7 || phone.replace(/\D/g, "").length > 15 || /[^\d\s()+.\-x]/i.test(phone))) errors.brokerPhone = "A phone number, for example 555-0142.";
   const email = str(values.brokerEmail);
   if (email !== "" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.brokerEmail = "An email address, for example name@example.com.";
-  for (const [key, label, max, whole] of [["weightLbs", "Weight in pounds", LOAD_LIMITS.weightLbs, true], ["lengthFt", "Length in feet", LOAD_LIMITS.lengthFt, false], ["widthFt", "Width in feet", LOAD_LIMITS.widthFt, false], ["heightIn", "Height in inches", LOAD_LIMITS.heightIn, false]] as const) {
+  for (const [key, label, max, whole] of [
+    ["pieceCount", "Pieces", 100_000, true],
+    ["palletCount", "Pallets", 10_000, true],
+    ["weightLbs", "Weight in pounds", LOAD_LIMITS.weightLbs, true],
+    ["lengthFt", "Length in feet", LOAD_LIMITS.lengthFt, false],
+    ["widthFt", "Width in feet", LOAD_LIMITS.widthFt, false],
+    ["heightIn", "Height in inches", LOAD_LIMITS.heightIn, false]
+  ] as const) {
     const raw = str(values[key] ?? "");
     if (raw === "") continue;
     const n = num(raw);
     if (n == null || !(n > 0) || n > max || (whole && !Number.isInteger(n))) errors[key] = `${label}: ${whole ? "a whole number" : "a number"} above 0 and up to ${max.toLocaleString("en-US")}.`;
   }
+  const tempCheck = (key: "reeferSetTempF" | "reeferMinF" | "reeferMaxF", label: string): number | null => {
+    const raw = str(values[key] ?? "");
+    if (raw === "") return null;
+    const n = num(raw);
+    if (n == null || n < -60 || n > 150) {
+      errors[key] = `${label}: a number from -60 to 150.`;
+      return null;
+    }
+    return n;
+  };
+  tempCheck("reeferSetTempF", "Set temperature");
+  const rMin = tempCheck("reeferMinF", "Minimum temperature");
+  const rMax = tempCheck("reeferMaxF", "Maximum temperature");
+  if (rMin != null && rMax != null && rMin > rMax && !errors.reeferMaxF) {
+    errors.reeferMaxF = "Maximum temperature cannot be below minimum temperature.";
+  }
+  const rMode = str(values.reeferMode ?? "").toLowerCase();
+  if (rMode !== "" && !(REEFER_MODES as readonly string[]).includes(rMode)) errors.reeferMode = "Pick continuous or cycle.";
   if (str(values.hazmatClass ?? "").length > 20) errors.hazmatClass = "At most 20 characters.";
+  if (str(values.hazmatUnNumber ?? "").length > 20) errors.hazmatUnNumber = "At most 20 characters.";
+  const pgCheck = str(values.hazmatPackingGroup ?? "").toUpperCase();
+  if (pgCheck !== "" && !(PACKING_GROUPS as readonly string[]).includes(pgCheck)) errors.hazmatPackingGroup = "Pick I, II, or III.";
+  const hPhone = str(values.hazmatEmergencyPhone ?? "");
+  if (hPhone !== "" && (hPhone.replace(/\D/g, "").length < 7 || hPhone.replace(/\D/g, "").length > 15 || /[^\d\s()+.\-x]/i.test(hPhone))) {
+    errors.hazmatEmergencyPhone = "A phone number, for example 800-424-9300.";
+  }
+  if (str(values.notes ?? "").length > 1000) errors.notes = "At most 1,000 characters.";
+  if (str(values.paymentTerms ?? "").length > 120) errors.paymentTerms = "At most 120 characters.";
+  const detFree = str(values.detentionFreeMinutes ?? "");
+  if (detFree !== "") {
+    const n = num(detFree);
+    if (n == null || !Number.isInteger(n) || n < 0 || n > 1440) errors.detentionFreeMinutes = "Whole minutes, 0 to 1,440.";
+  }
+  const detRate = str(values.detentionHourlyRate ?? "");
+  if (detRate !== "") {
+    const n = num(detRate);
+    if (n == null || n < 0 || n > 1000) errors.detentionHourlyRate = "Hourly rate from $0 to $1,000.";
+  }
   const offer = num(str(values.offer));
   if (offer == null || !(offer > 0)) errors.offer = "Type what the load pays.";
   else if (offer > 100000) errors.offer = "That is a lot for one load. Check it.";

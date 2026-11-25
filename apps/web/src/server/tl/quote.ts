@@ -477,8 +477,8 @@ function stopRows(input: QuoteInput) {
     contactPhone: s.contactPhone,
     stopNotes: s.notes,
     timeWindowEarliest: s.appointment != null ? new Date(s.appointment) : null,
-    timeWindowLatest: s.appointment != null ? new Date(s.appointment) : null,
-    referenceNumbers: [] as string[]
+    timeWindowLatest: s.appointmentEnd != null ? new Date(s.appointmentEnd) : s.appointment != null ? new Date(s.appointment) : null,
+    referenceNumbers: s.refs
   }));
 }
 
@@ -505,18 +505,35 @@ function loadFields(input: QuoteInput, truckId: string | null, firstOffer: numbe
     ...(input.loadNumber ? { loadNumber: input.loadNumber } : {}),
     rateConNumber: input.rateConNumber,
     proNumber: input.proNumber,
+    bolNumber: input.bolNumber,
     originAddress: cityState(input.stops[0]!.address) ?? input.stops[0]!.address,
     destinationAddress: cityState(input.stops[input.stops.length - 1]!.address) ?? input.stops[input.stops.length - 1]!.address,
     trailerType: input.trailer,
     commodity: input.commodity,
+    pieceCount: input.pieceCount != null ? new Prisma.Decimal(input.pieceCount).toDecimalPlaces(0).toNumber() : null,
+    palletCount: input.palletCount != null ? new Prisma.Decimal(input.palletCount).toDecimalPlaces(0).toNumber() : null,
     weightLbs: input.specs.weightLbs,
     lengthFt: input.specs.lengthFt,
     widthFt: input.specs.widthFt,
     loadHeightIn: input.specs.heightIn,
+    reeferSetTempF: input.reeferSetTempF != null ? new Prisma.Decimal(input.reeferSetTempF).toDecimalPlaces(1) : null,
+    reeferMinF: input.reeferMinF != null ? new Prisma.Decimal(input.reeferMinF).toDecimalPlaces(1) : null,
+    reeferMaxF: input.reeferMaxF != null ? new Prisma.Decimal(input.reeferMaxF).toDecimalPlaces(1) : null,
+    reeferMode: input.reeferMode,
     hazmatClass: input.specs.hazmatClass,
+    hazmatUnNumber: input.hazmatUnNumber,
+    hazmatPackingGroup: input.hazmatPackingGroup,
+    hazmatEmergencyPhone: input.hazmatEmergencyPhone,
     requiresLiftgate: input.specs.requiresLiftgate || null,
     requiresRamp: input.specs.requiresRamp || null,
     requiresPalletJack: input.specs.requiresPalletJack || null,
+    notes: input.notes,
+    paymentTerms: input.paymentTerms,
+    rateConPath: input.rateConPath,
+    pickupNumbers: input.stops.filter((s) => s.role === "pickup").flatMap((s) => s.refs),
+    deliveryNumbers: input.stops.filter((s) => s.role === "delivery").flatMap((s) => s.refs),
+    snapshotFreeGraceMinutes: input.detentionFreeMinutes,
+    snapshotDetentionRate: input.detentionHourlyRate != null ? new Prisma.Decimal(input.detentionHourlyRate).toDecimalPlaces(2) : null,
     quotedRevenue: input.offer,
     fuelSurcharge: surchargeDollars(input),
     fuelSurchargeUnit: input.fscUnit,
@@ -759,34 +776,56 @@ export function quoteValuesFromLoad(l: LoadWithStops): QuoteValues {
   const asText = (m: Record<string, number> | undefined) => Object.fromEntries(Object.entries(m ?? {}).map(([k, v]) => [k, dec(v)]));
   const stops = [...l.stops].sort((a, b) => a.stopSequence - b.stopSequence);
   return {
-    stops: stops.map((s) => ({
-      role: (s.stopRole ?? s.stopType) === "delivery" ? "delivery" : "pickup",
-      address: s.addressString,
-      appointment: s.timeWindowEarliest ? toCentralLocal(s.timeWindowEarliest.getTime()) : "",
-      facility: s.facilityName ?? "",
-      contactName: s.contactName ?? "",
-      contactPhone: s.contactPhone ?? "",
-      notes: s.stopNotes ?? ""
-    })),
+    stops: stops.map((s) => {
+      const open = s.timeWindowEarliest ? toCentralLocal(s.timeWindowEarliest.getTime()) : "";
+      const close = s.timeWindowLatest ? toCentralLocal(s.timeWindowLatest.getTime()) : "";
+      const refs = Array.isArray(s.referenceNumbers) ? (s.referenceNumbers as unknown[]).map(String).join(", ") : "";
+      return {
+        role: (s.stopRole ?? s.stopType) === "delivery" ? "delivery" : "pickup",
+        address: s.addressString,
+        appointment: open,
+        appointmentEnd: close && close !== open ? close : "",
+        facility: s.facilityName ?? "",
+        contactName: s.contactName ?? "",
+        contactPhone: s.contactPhone ?? "",
+        notes: s.stopNotes ?? "",
+        refs
+      };
+    }),
     broker: l.brokerName ?? "",
     brokerMc: l.brokerMcNumber ?? "",
     // A QT- number is the desk's own, not the broker's: it is not offered back as one to type over.
     loadNumber: l.loadNumber && !/^QT-/.test(l.loadNumber) ? l.loadNumber : "",
     rateConNumber: l.rateConNumber ?? "",
     proNumber: l.proNumber ?? "",
+    bolNumber: l.bolNumber ?? "",
     poNumber: l.poNumber ?? "",
     brokerPhone: l.brokerPhone ?? "",
     brokerEmail: l.brokerEmail ?? "",
     trailer: l.trailerType ?? "",
     commodity: l.commodity ?? "",
+    pieceCount: l.pieceCount == null ? "" : String(l.pieceCount),
+    palletCount: l.palletCount == null ? "" : String(l.palletCount),
     weightLbs: l.weightLbs == null ? "" : String(l.weightLbs),
     lengthFt: dec(numOrNull(l.lengthFt), 2),
     widthFt: dec(numOrNull(l.widthFt), 2),
     heightIn: dec(numOrNull(l.loadHeightIn), 2),
+    reeferSetTempF: dec(numOrNull(l.reeferSetTempF), 1),
+    reeferMinF: dec(numOrNull(l.reeferMinF), 1),
+    reeferMaxF: dec(numOrNull(l.reeferMaxF), 1),
+    reeferMode: l.reeferMode ?? "",
     hazmatClass: l.hazmatClass ?? "",
+    hazmatUnNumber: l.hazmatUnNumber ?? "",
+    hazmatPackingGroup: l.hazmatPackingGroup ?? "",
+    hazmatEmergencyPhone: l.hazmatEmergencyPhone ?? "",
     requiresLiftgate: l.requiresLiftgate === true,
     requiresRamp: l.requiresRamp === true,
     requiresPalletJack: l.requiresPalletJack === true,
+    notes: l.notes ?? "",
+    paymentTerms: l.paymentTerms ?? "",
+    detentionFreeMinutes: l.snapshotFreeGraceMinutes == null ? "" : String(l.snapshotFreeGraceMinutes),
+    detentionHourlyRate: dec(numOrNull(l.snapshotDetentionRate), 2),
+    rateConPath: l.rateConPath ?? "",
     offer: dec(num(l.quotedRevenue), 2),
     fsc: dec(fsc, 4),
     fscUnit: unit,
@@ -831,7 +870,7 @@ export async function getQuoteLike(id: string, workspaceId = currentWorkspaceId(
   const l = await prisma.load.findFirst({ where: { id, workspaceId, deletedAt: null, AND: [inTerminal(await currentAllowed(workspaceId))] }, include: { stops: { orderBy: { stopSequence: "asc" } } } });
   if (!l || l.stops.length < 2) return null;
   const v = quoteValuesFromLoad(l);
-  return { ...v, loadNumber: "", poNumber: "", rateConNumber: "", proNumber: "", stops: v.stops.map((st) => ({ ...st, appointment: "" })) };
+  return { ...v, loadNumber: "", poNumber: "", rateConNumber: "", proNumber: "", bolNumber: "", rateConPath: "", stops: v.stops.map((st) => ({ ...st, appointment: "", appointmentEnd: "", refs: "" })) };
 }
 
 // -- Passing on a quote ---------------------------------------------------------------------------
@@ -1005,7 +1044,8 @@ export async function bookQuote(
   const firstOffer = prior ? (extrasOf(prior.quoteExtras).firstOffer ?? num(prior.quotedRevenue)) : null;
   const fields = loadFields(input, truck.id, firstOffer);
   // What the load was priced on: the miles the verdict used, so what happens on the road can be compared with it later.
-  const data = { ...fields, vehicleId: truck.id, status: "draft", channel: "dispatch", quotedPickupDhMiles: fields.pickupDeadheadMiles, quotedLoadedMiles: fields.loadedMiles, quotedReturnDhMiles: input.loadBack ? 0 : fields.returnDeadheadMiles };
+  const channel = input.rateConPath ? "rate_con" : "dispatch";
+  const data = { ...fields, vehicleId: truck.id, status: "draft", channel, quotedPickupDhMiles: fields.pickupDeadheadMiles, quotedLoadedMiles: fields.loadedMiles, quotedReturnDhMiles: input.loadBack ? 0 : fields.returnDeadheadMiles };
   const lane = `${cityState(input.stops[0]!.address)} to ${cityState(input.stops[last]!.address)}`;
   let saved: { loadId: string; loadNumber: string | null; same?: true };
   try {
@@ -1028,7 +1068,7 @@ export async function bookQuote(
       if (twin) throw new DispatchError("load_not_assignable", `${duplicateMessage(twin)} Open it, or type another number.`);
       // Booked twice in a moment (a double click, a retry) with nothing to tell the two apart: the load that was just made is the answer, not a second one.
       if (!quoteId && !input.loadNumber) {
-        const just = await prisma.load.findFirst({ where: { workspaceId, deletedAt: null, vehicleId: truck.id, channel: "dispatch", status: "draft", createdAt: { gte: new Date(now.getTime() - 30_000) }, scheduledDate: input.stops[0]?.appointment != null ? new Date(input.stops[0].appointment) : null, originAddress: cityState(input.stops[0]!.address) ?? input.stops[0]!.address, destinationAddress: cityState(input.stops[last]!.address) ?? input.stops[last]!.address, quotedRevenue: input.offer } });
+        const just = await prisma.load.findFirst({ where: { workspaceId, deletedAt: null, vehicleId: truck.id, channel: { in: ["dispatch", "rate_con"] }, status: "draft", createdAt: { gte: new Date(now.getTime() - 30_000) }, scheduledDate: input.stops[0]?.appointment != null ? new Date(input.stops[0].appointment) : null, originAddress: cityState(input.stops[0]!.address) ?? input.stops[0]!.address, destinationAddress: cityState(input.stops[last]!.address) ?? input.stops[last]!.address, quotedRevenue: input.offer } });
         if (just) return { loadId: just.id, loadNumber: just.loadNumber, same: true as const };
       }
       // A truck is on one load at a time.

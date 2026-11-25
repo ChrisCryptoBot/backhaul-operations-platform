@@ -20,7 +20,7 @@ const opt = (name, fallback) => {
   return i >= 0 ? args[i + 1] : fallback;
 };
 const BASE = opt("base", "http://localhost:3100");
-const ALL = ["quote", "loads", "dispatch", "messages", "planner", "alerts", "signals", "rate-cons", "drivers", "schedules", "fleet/map", "fleet", "trailers", "customers", "lanes", "invoices", "settlements", "payroll", "fuel", "ifta", "leaks", "data-health", "kpi/moved", "kpi", "audit", "partners/issues", "settings"];
+const ALL = ["quote", "loads", "dispatch", "messages", "planner", "alerts", "signals", "drivers", "schedules", "fleet/map", "fleet", "trailers", "customers", "lanes", "invoices", "settlements", "payroll", "fuel", "ifta", "leaks", "data-health", "kpi/moved", "kpi", "audit", "partners/issues", "settings"];
 // The second screens: other views of a list, reports, imports, and one of each thing with a page of its own (found from its list: "list>selector").
 const MORE = ["loads?view=history", "loads?view=deleted", "signals?status=resolved", "signals?status=sent", "payroll?show=all", "payroll/1099", "invoices/factoring", "kpi/quotes", "kpi/report", "signals/report", "data-health/report", "ifta/rates", "leaks/intake", "partners/showcase", "settings/rules", "settings?tab=integrations", "settings?tab=team", "drivers/import", "fleet/import", "trailers/import", "loads/import", "fuel/import", "customers/new",
   "loads>#loads-table a[href^='/loads/']", "drivers>a[href^='/drivers/']:not([href$=import])", "fleet>table a[href^='/fleet/']", "trailers>table a[href^='/trailers/']", "customers>table a[href^='/customers/']", "lanes>table a[href^='/lanes/detail']", "invoices>table a[href^='/invoices/']", "settlements>table a[href^='/settlements/']"];

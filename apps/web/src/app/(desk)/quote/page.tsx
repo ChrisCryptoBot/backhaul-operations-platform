@@ -9,7 +9,7 @@ import { brokerNames, getQuote, getQuoteLike, listOpenPickups, listQuotes } from
 import { prisma } from "@/lib/db";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 
-export const metadata = { title: "Quote a load · TrueLane" };
+export const metadata = { title: "Quote · TrueLane" };
 
 /** A query value that may arrive as a list (`?quote=a&quote=b`): the first. */
 const first = (v: string | string[] | undefined): string | null => (Array.isArray(v) ? (v[0] ?? null) : (v ?? null));
@@ -57,7 +57,7 @@ export default async function QuotePage({ searchParams }: { searchParams: { quot
   const draftId = id ?? (likeId ? `like-${likeId}` : "new");
   return (
     <>
-      <PageHead title="Quote a load" sub="Price an offer against every truck and driver before you accept it." />
+      <PageHead title="Quote" sub="Price an offer or drop a rate confirmation, pick the truck and driver, and book it." />
       {id && !saved ? (
         <p className="tl-note warn" role="status">
           That quote is not here any more: it was booked, thrown away, or the link is old. Look for a booked one on the board.

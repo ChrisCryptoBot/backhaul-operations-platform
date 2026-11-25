@@ -25,7 +25,6 @@ const GATED: Array<{ page: string; uses: string[]; caps: Capability[] }> = [
   { page: "src/app/(desk)/fleet/map/page.tsx", uses: ["<SyncEldButton"], caps: ["dispatch"] },
   { page: "src/app/(desk)/trailers/[id]/page.tsx", uses: ["<TrailerRowActions", "<HookTrailer", "<TrailerForm"], caps: ["dispatch"] },
   { page: "src/app/(desk)/trailers/import/page.tsx", uses: ["<ImportPanel"], caps: ["dispatch"] },
-  { page: "src/app/(desk)/rate-cons/page.tsx", uses: ["<RateConIntake"], caps: ["dispatch"] },
   { page: "src/app/(desk)/messages/page.tsx", uses: ["<Composer"], caps: ["dispatch", "bill"] },
   { page: "src/app/(desk)/customers/[id]/page.tsx", uses: ["<CustomerForm"], caps: ["dispatch", "billing_details"] },
   { page: "src/app/(desk)/loads/page.tsx", uses: ["<RestoreLoadButton"], caps: ["dispatch"] },

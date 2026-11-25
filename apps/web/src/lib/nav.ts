@@ -22,14 +22,13 @@ export const NAV: Array<{ label: string; items: NavItem[] }> = [
   {
     label: "Dispatch",
     items: [
-      { href: "/quote", label: "Quote a load", code: "QT", roles: ["admin", "dispatcher"] },
+      { href: "/quote", label: "Quote", code: "QT", roles: ["admin", "dispatcher"] },
       { href: "/loads", label: "Loads", code: "LD" },
       { href: "/dispatch", label: "Dispatch queue", code: "DQ", pill: "needsDriver", roles: ["admin", "dispatcher"] },
       { href: "/messages", label: "Messages", code: "MS", pill: "unread", roles: ["admin", "dispatcher", "driver_manager", "accounting"] },
       { href: "/planner", label: "Planner", code: "PL", roles: ["admin", "dispatcher", "driver_manager", "viewer"] },
       { href: "/alerts", label: "Alerts", code: "AL", pill: "alerts" },
-      { href: "/signals", label: "Signals", code: "SG" },
-      { href: "/rate-cons", label: "Rate confirmations", code: "RC", roles: ["admin", "dispatcher"] }
+      { href: "/signals", label: "Signals", code: "SG" }
     ]
   },
   {
