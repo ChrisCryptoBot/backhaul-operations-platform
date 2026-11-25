@@ -378,7 +378,23 @@ textarea.t-ta{width:100%;min-height:56px;border:1px solid var(--line-hi);backgro
 .lv-tabs button:hover{color:var(--ink)}
 .lv-tabs button[aria-selected=true]{color:var(--ink);border-bottom-color:var(--label)}
 .lv-tabs .lv-count{color:var(--dim);font-weight:500}
-.dr-nav-strip:has(>.lv-tabs){padding:0;border-top:0}
+.dr-pinned-top{background:transparent;border-bottom:1px solid var(--line)}
+.dr-pinned-top:has(>.dr-split-bar){border-bottom:0}
+.dr-deck-strip{padding:0;background:transparent;overflow:hidden}
+.dr-deck-strip[hidden]{display:none}
+.dr-deck-strip[data-sized=true]{overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable}
+.dr-pinned-top[data-deck-dragging=true]{user-select:none}
+.dr-pinned-top[data-deck-dragging=true]~.dr-body{pointer-events:none;user-select:none}
+.dr-nav-strip:has(>.lv-tabs){display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 var(--pad,10px) 0 0;border-top:0;border-bottom:1px solid var(--line);background:transparent}
+.dr-nav-strip:has(>.lv-tabs)>.lv-tabs{flex:1 1 auto;min-width:0;border-bottom:0}
+.dr-deck-toggle{flex:none;display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 8px;border:1px solid var(--line);background:transparent;color:var(--mid);font:600 10px/14px var(--mono);letter-spacing:.08em;text-transform:uppercase;white-space:nowrap;cursor:pointer}
+.dr-deck-toggle:hover{border-color:var(--line-hi);color:var(--ink);background:var(--hover)}
+.dr-deck-toggle:focus-visible{outline:2px solid var(--label-hi);outline-offset:-2px}
+.dr-split-bar{flex:none;display:flex;align-items:center;justify-content:center;height:12px;border-bottom:1px solid var(--line);background:transparent;cursor:row-resize;touch-action:none;user-select:none}
+.dr-split-bar:hover,.dr-pinned-top[data-deck-dragging=true] .dr-split-bar{background:var(--hover);border-bottom-color:var(--line-hi)}
+.dr-split-bar:focus-visible{outline:2px solid var(--label-hi);outline-offset:-2px}
+.dr-split-grip{width:40px;height:3px;background:var(--line-hi);opacity:.7;transition:background-color 120ms ease,width 120ms ease,opacity 120ms ease}
+.dr-split-bar:hover .dr-split-grip,.dr-pinned-top[data-deck-dragging=true] .dr-split-grip{width:56px;background:var(--label);opacity:1}
 /* ---- The drawer's tab bodies (Trip / Money / Paperwork; load-view.tsx drawerStops, drawerDetails, drawerMoney, drawerPaper): short ruled lists under a small grey
         label, no cards. The form sections that stay (driver, trailer, relay, cancel / reschedule, invoice) take the same quiet head and lose their boxes. ---- */
 .dr .cp-panel{gap:18px}
@@ -1294,7 +1310,7 @@ html{zoom:var(--ui-zoom)}
 }
 
 /* ---- Press: buttons, icon buttons, menu items, keycaps. ---- */
-[data-ui="app"] :is(.t-btn,.tl-btn,.t-go,.t-collapse,.t-linkbtn,.dr .dr-btn-icon,.dr .dr-close,.dp-nav,.dp-open,.dp-link,.t-scope-all,.fm-pick,.t-pop-hit,.gs-hit,.t-scope-menu>.t-scope,.rd-region,kbd,.st-kbd,.dr .cp-kbd) { border-radius:var(--r-press) !important; }
+[data-ui="app"] :is(.t-btn,.tl-btn,.t-go,.t-collapse,.t-linkbtn,.dr .dr-btn-icon,.dr .dr-close,.dr-deck-toggle,.dp-nav,.dp-open,.dp-link,.t-scope-all,.fm-pick,.t-pop-hit,.gs-hit,.t-scope-menu>.t-scope,.rd-region,kbd,.st-kbd,.dr .cp-kbd) { border-radius:var(--r-press) !important; }
 
 /* ---- Field: every typed or chosen value. ---- */
 [data-ui="app"] :is(.t-in,textarea.t-ta,.kn-form textarea,.tl-field input,.tl-field select,.tl-field textarea,.dt-search input,.gs-input,.kfilters select,.tl-scope select,.audit-filters select,input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=hidden]),select,textarea) { border-radius:var(--r-field) !important; }
@@ -1316,7 +1332,7 @@ html{zoom:var(--ui-zoom)}
 [data-ui="app"] .t-switch i::after { border-radius:50%; }
 
 /* ---- Chips and codes: fully round. ---- */
-[data-ui="app"] :is(.t-scope-chip,.rd-x-chip,.pl-code,.eq-key,.t-pager,.spl-grip,.t-pagehead h1 i,.t-ph i) { border-radius:var(--r-pill) !important; }
+[data-ui="app"] :is(.t-scope-chip,.rd-x-chip,.pl-code,.eq-key,.t-pager,.spl-grip,.dr-split-grip,.t-pagehead h1 i,.t-ph i) { border-radius:var(--r-pill) !important; }
 
 /* ---- The count beside a module, the clear cross in a search box. ---- */
 [data-ui="app"] :is(.t-rail a em[data-tone=bad],.dt-clear) { border-radius:var(--r-press) !important; }

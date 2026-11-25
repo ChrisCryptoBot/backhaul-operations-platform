@@ -56,3 +56,25 @@ describe("what only the page could do is in the drawer", () => {
     for (const part of ["whereSec", "activitySec", "holderSec", "cabSheet", "trackingSec", "shelfSec"]) expect(more, part).toContain(part);
   });
 });
+
+describe("the pinned summary deck can be collapsed or dragged to reveal more below", () => {
+  const frame = read("components/desk/drawer-frame.tsx");
+
+  test("the divider is an interactive horizontal separator that accounts for UI zoom", () => {
+    for (const token of ['role="separator"', 'aria-orientation="horizontal"', "setPointerCapture", "onDoubleClick", "onKeyDown", "uiZoom()"]) {
+      expect(frame, token).toContain(token);
+    }
+  });
+
+  test("the tab strip includes a one-click collapse/expand summary toggle", () => {
+    for (const token of ['aria-controls="dr-deck-panel"', "aria-expanded", "Collapse", "Show summary"]) {
+      expect(frame, token).toContain(token);
+    }
+  });
+
+  test("summary size and collapsed state persist safely in localStorage", () => {
+    expect(frame).toContain('"drawer-deck"');
+    expect(frame).toContain("splitStorageKey(");
+    expect(frame).toMatch(/try \{[\s\S]*localStorage[\s\S]*\} catch/);
+  });
+});
