@@ -89,7 +89,8 @@ import { deleteLoad, restoreLoad, type RemoveResult } from "@/server/tl/remove";
 import { saveBillingDetails, type BillingResult } from "@/server/tl/billing-details";
 import type { BillingDetailsValues } from "@/lib/billing-details";
 import { completeTrip, correctTrip, reopenDelivered, saveExpenses, startTrip, undoStartTrip, type TripResult } from "@/server/tl/execution";
-import { undoPaid, recordChase, voidInvoice, invoiceLoads, issueCreditMemo, voidCreditMemo, type CreditOut, type InvoiceOut, type MultiInvoiceOut, type PaidOut } from "@/server/tl/invoicing";
+import type { SupplementalLineInput } from "@/lib/invoicing";
+import { issueSupplemental, payInvoiceRecord, undoPaid, undoSupplementalPayment, voidSupplemental, recordChase, voidInvoice, invoiceLoads, issueCreditMemo, voidCreditMemo, type CreditOut, type InvoiceOut, type MultiInvoiceOut, type PaidOut, type SupplementalOut } from "@/server/tl/invoicing";
 import { unwaiveDetention, waiveDetention } from "@/server/tl/detention";
 import { saveFactoringTerms, type SaveTermsResult } from "@/server/partners/factoring-terms";
 import { setMoneyMoving, type SwitchResult } from "@/server/partners/gates";
@@ -1054,6 +1055,67 @@ export async function voidCreditMemoAction(memoId: string, reason: string): Prom
   await requireCan("writeoff");
   const out = await voidCreditMemo(memoId, reason.slice(0, 200));
   if (out.ok) refreshLoads();
+  return out;
+}
+
+export async function issueSupplementalAction(invoiceId: string, lines: SupplementalLineInput[], reason = ""): Promise<SupplementalOut> {
+  await requireCan("bill");
+  const out = await issueSupplemental(invoiceId, lines, { reason: reason.slice(0, 200) });
+  if (out.ok) {
+    refreshLoads();
+    revalidatePath(`/invoices/${invoiceId}`);
+    revalidatePath(`/invoices/${out.id}`);
+  }
+  return out;
+}
+
+export async function paySupplementalAction(
+  invoiceId: string,
+  amount: string,
+  paidOn = "",
+  method = "",
+  shortAction: "balance" | "writeoff" = "balance",
+  shortReason = "",
+  extra: { reference?: string; payer?: string; shortCode?: string } = {}
+): Promise<PaidOut> {
+  await requireCan("bill");
+  if (shortAction === "writeoff") await requireCan("writeoff");
+  const text = amount.trim().replace(/,/g, "");
+  const typed = text === "" ? undefined : Number(text);
+  const out = await payInvoiceRecord(invoiceId, new Date(), {
+    amount: typed,
+    paidOn,
+    method,
+    shortAction: shortAction === "writeoff" ? "writeoff" : "balance",
+    shortReason,
+    reference: (extra.reference ?? "").slice(0, 80),
+    payer: (extra.payer ?? "").slice(0, 120),
+    shortCode: extra.shortCode
+  });
+  if (out.ok) {
+    refreshLoads();
+    revalidatePath(`/invoices/${invoiceId}`);
+  }
+  return out;
+}
+
+export async function undoSupplementalPaymentAction(formData: FormData) {
+  await requireCan("admin");
+  const invoiceId = String(formData.get("invoiceId"));
+  const out = await undoSupplementalPayment(invoiceId, String(formData.get("reason") ?? ""));
+  if (!out.ok) redirect(`/invoices/${invoiceId}?error=${encodeURIComponent(out.error ?? "That payment cannot be taken back.")}`, RedirectType.replace);
+  refreshLoads();
+  revalidatePath(`/invoices/${invoiceId}`);
+  redirect(`/invoices/${invoiceId}?note=${encodeURIComponent("Payment taken back. The supplemental invoice is out again.")}`, RedirectType.replace);
+}
+
+export async function voidSupplementalAction(invoiceId: string, reason: string): Promise<{ ok: boolean; error?: string; number?: string }> {
+  await requireCan("admin");
+  const out = await voidSupplemental(invoiceId, reason.slice(0, 200));
+  if (out.ok) {
+    refreshLoads();
+    revalidatePath(`/invoices/${invoiceId}`);
+  }
   return out;
 }
 

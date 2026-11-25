@@ -47,10 +47,23 @@ export async function agingSummary(now = Date.now(), workspaceId = currentWorksp
         -- An invoice of several loads is one invoice: its lead load (the first in line order, the same as server/tl/queries.ts sharedInvoices) stands for it with the invoice's own money, and the others are not counted again.
         left join lateral (
           select i.total, i.paid_total, (select count(*) from invoice_loads x where x.invoice_id = i.id) as n, (select x.load_id from invoice_loads x where x.invoice_id = i.id order by (select min(y.sort) from invoice_lines y where y.invoice_id = i.id and y.load_id = x.load_id) nulls last, x.load_id limit 1) as lead
-          from invoice_loads il join invoices i on i.id = il.invoice_id and i.kind = 'invoice' and i.status <> 'void'
+          from invoice_loads il join invoices i on i.id = il.invoice_id and i.kind = 'invoice' and i.supplement_of_id is null and i.status <> 'void'
           where il.load_id = l.id limit 1
         ) r on true
         where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status <> 'quote' and l.payment_status = 'invoiced' and (r.n is null or r.n = 1 or r.lead = l.id) ${terminalSql(terminal, workspaceId)}
+        union all
+        select greatest(s.total - s.paid_total, 0)::float8 as owing,
+          ((s.issued_at at time zone 'UTC') at time zone ${tz})::date + s.terms_days as due,
+          (${new Date(now)}::timestamp at time zone 'UTC' at time zone ${tz})::date as today
+        from invoices s
+        where s.workspace_id = ${workspaceId} and s.kind = 'invoice' and s.supplement_of_id is not null and s.status = 'open'
+          and (
+            exists (
+              select 1 from invoice_loads il join loads l on l.id = il.load_id
+              where il.invoice_id = s.supplement_of_id and l.deleted_at is null ${terminalSql(terminal, workspaceId)}
+            )
+            or ${terminal == null ? Prisma.sql`not exists (select 1 from invoice_loads il where il.invoice_id = s.supplement_of_id)` : Prisma.sql`false`}
+          )
       ), d as (select owing, due, today, (today - due) as late from o)
       select count(*)::int as n, coalesce(sum(owing), 0)::float8 as total,
         (count(*) filter (where late > 0))::int as overdue_n, coalesce(sum(owing) filter (where late > 0), 0)::float8 as overdue_amount,

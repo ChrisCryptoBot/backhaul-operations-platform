@@ -2,7 +2,7 @@ import type { Terminals } from "@/lib/scope";
 import { prisma } from "@/lib/db";
 import { alertsByLoad, countAlerts, deriveAlerts, type AlertLoad } from "@/lib/alerts";
 import { alertThresholds } from "@/lib/thresholds";
-import { detentionOfLoad, waivedDetentionLoads } from "./detention";
+import { detentionOfLoad, supplementalDetentionByLoad, waivedDetentionLoads } from "./detention";
 import { evaluateTlLoad } from "./evaluate";
 import { notQuote } from "@/lib/quote-status";
 import { getThresholds } from "./thresholds";
@@ -72,7 +72,11 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
 
   // Whether each delivered load has its proof of delivery on file, for every delivered load read (one query for all of them).
   const completedIds = [...new Set([...delivered, ...uninvoiced, ...extra.filter((l) => l.status === "completed")].map((l) => l.id))];
-  const [podMissing, waivedDetention] = await Promise.all([podStopsMissing(completedIds, workspaceId), waivedDetentionLoads(completedIds, workspaceId)]);
+  const [podMissing, waivedDetention, suppDetention] = await Promise.all([
+    podStopsMissing(completedIds, workspaceId),
+    waivedDetentionLoads(completedIds, workspaceId),
+    supplementalDetentionByLoad(completedIds, workspaceId)
+  ]);
   // The batons waiting for a next driver, for the loads read (one query): a load on the road with nobody holding it, which the rules would otherwise not see.
   const handoffRows = await prisma.handoff.findMany({ where: { workspaceId, state: { in: ["dropped", "disputed"] }, loadId: { in: [...open, ...extra].map((l) => l.id) } }, select: { loadId: true, type: true, state: true, locationName: true, droppedAt: true, discrepancyFlagged: true, ackAt: true, outDriverName: true } });
   const handoffByLoad = new Map(handoffRows.map((r) => [r.loadId, r]));
@@ -91,7 +95,7 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
       invoiceNumber: l.invoiceNumber,
       invoicedAt: l.invoicedAt,
       payTermsDays: l.payTermsDays,
-      detentionUnbilled: l.status === "completed" && !waivedDetention.has(l.id) ? detentionOfLoad(l, t.detentionGraceMinutes).unbilled : 0,
+      detentionUnbilled: l.status === "completed" && !waivedDetention.has(l.id) ? detentionOfLoad(l, t.detentionGraceMinutes, suppDetention.get(l.id) ?? 0).unbilled : 0,
       hasTruck: l.vehicleId != null,
       handoff: handoffByLoad.get(l.id) ?? null,
       vehicle: l.vehicleId != null && l.vehicle ? { id: l.vehicleId, name: l.vehicle.name } : null,

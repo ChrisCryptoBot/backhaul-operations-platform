@@ -237,6 +237,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
           <>
             {usd(r.balance, 2)}
             {r.paidAmount != null && r.paidAmount > 0 ? <span className="sub">{moneyState({ paymentStatus: "invoiced", billed: r.amount, received: r.paidAmount, overdueDays: null }).detail}</span> : null}
+            {r.supplementalOpen > 0 ? <span className="sub">includes {usd(r.supplementalOpen, 2)} supplemental</span> : null}
           </>
         ),
         // The payment, and for a late one the chase: an email already written, or a call, remembered on the invoice. The invoice and its reminder open from its number.
@@ -289,6 +290,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
             const m = moneyState({ paymentStatus: "paid", billed: r.amount, received: r.paidAmount ?? r.amount, writeOffAmount: r.writeOffAmount, writeOffReason: r.writeOffReason });
             return m.detail ? <span className={`sub${m.tone === "bad" ? " tone-neg" : ""}`} title={`${m.label}: ${m.detail}`}>{m.label}: {m.detail}</span> : null;
           })()}
+          {r.supplementalOpen > 0 ? <span className="sub tone-neg">Supplemental open: {usd(r.supplementalOpen, 2)}</span> : null}
         </>
       )
     }

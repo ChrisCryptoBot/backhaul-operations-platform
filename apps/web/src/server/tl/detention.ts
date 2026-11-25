@@ -35,8 +35,54 @@ type LoadForDetention = {
   vehicle: { costProfile: { detentionHourlyRate: unknown; freeGraceMinutes: number | null } | null } | null;
 };
 
+/** Sum of detention charges billed on non-void supplemental invoices, grouped by load id. */
+export async function supplementalDetentionByLoad(loadIds: string[], workspaceId = currentWorkspaceId()): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (loadIds.length === 0) return out;
+  const rows = await prisma.invoice.findMany({
+    where: {
+      workspaceId,
+      kind: "invoice",
+      status: { not: "void" },
+      supplementOfId: { not: null },
+      OR: [{ lines: { some: { loadId: { in: loadIds } } } }, { supplementOf: { loads: { some: { loadId: { in: loadIds } } } } }]
+    },
+    select: {
+      lines: { where: { kind: "detention" }, select: { loadId: true, amount: true } },
+      supplementOf: { select: { loads: { select: { loadId: true } }, lines: { orderBy: { sort: "asc" }, select: { loadId: true } } } }
+    }
+  });
+  const allowed = new Set(loadIds);
+  const totals = new Map<string, Prisma.Decimal>();
+  for (const s of rows) {
+    const lead = s.supplementOf?.lines.find((l) => l.loadId != null)?.loadId ?? s.supplementOf?.loads[0]?.loadId ?? null;
+    for (const line of s.lines) {
+      const target = line.loadId ?? lead;
+      if (!target || !allowed.has(target)) continue;
+      totals.set(target, (totals.get(target) ?? new Prisma.Decimal(0)).plus(line.amount));
+    }
+  }
+  for (const [lid, val] of totals) {
+    const rounded = val.toDecimalPlaces(2);
+    if (rounded.gt(0)) out.set(lid, rounded.toNumber());
+  }
+  return out;
+}
+
+/** Unbilled detention dollars on a single load (0 for TONU, unwaived check, accounting for supplemental detention already billed). */
+export async function unbilledDetentionOfLoad(loadId: string, workspaceId = currentWorkspaceId()): Promise<number> {
+  const [load, thresholds, waived, suppDet] = await Promise.all([
+    prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null }, include: { stops: true, vehicle: { include: { costProfile: true } } } }),
+    getThresholds(workspaceId),
+    waivedDetentionLoads([loadId], workspaceId),
+    supplementalDetentionByLoad([loadId], workspaceId)
+  ]);
+  if (!load || load.status !== "completed" || waived.has(loadId)) return 0;
+  return detentionOfLoad(load, thresholds.detentionGraceMinutes, suppDet.get(loadId) ?? 0).unbilled;
+}
+
 /** One load's detention, given the workspace's free time. `rate` is null when the truck has no detention rate on its cost profile. */
-export function detentionOfLoad(l: LoadForDetention, workspaceGraceMinutes: number): DetentionSummary {
+export function detentionOfLoad(l: LoadForDetention, workspaceGraceMinutes: number, supplementalDetention = 0): DetentionSummary {
   const profile = l.vehicle?.costProfile ?? null;
   return summarizeDetention({
     stops: l.stops.map((s) => ({ stopSequence: s.stopSequence, stopType: s.stopType, waitMinutes: s.waitMinutes })),
@@ -44,7 +90,14 @@ export function detentionOfLoad(l: LoadForDetention, workspaceGraceMinutes: numb
     rate: numOrNull(l.snapshotDetentionRate as never) ?? numOrNull(profile?.detentionHourlyRate as never),
     graceMinutes: l.snapshotFreeGraceMinutes ?? profile?.freeGraceMinutes ?? null,
     workspaceGraceMinutes,
-    invoice: { invoiced: l.paymentStatus === "invoiced" || l.paymentStatus === "paid", invoicedAmount: numOrNull(l.invoicedAmount as never), quotedRevenue: num(l.quotedRevenue as never), fuelSurcharge: numOrNull(l.fuelSurcharge as never), lines: Array.isArray(l.invoiceLines) ? (l.invoiceLines as Array<{ label: string; amount: number }>) : null }
+    invoice: {
+      invoiced: l.paymentStatus === "invoiced" || l.paymentStatus === "paid",
+      invoicedAmount: numOrNull(l.invoicedAmount as never),
+      quotedRevenue: num(l.quotedRevenue as never),
+      fuelSurcharge: numOrNull(l.fuelSurcharge as never),
+      lines: Array.isArray(l.invoiceLines) ? (l.invoiceLines as Array<{ label: string; amount: number }>) : null,
+      supplementalDetention
+    }
   });
 }
 
@@ -76,13 +129,14 @@ export async function waiveDetention(loadId: string, reason: string, now = new D
   const scope = await allowedFor(workspaceId, allowed);
   const why = reason.trim();
   if (why.length < 3) return { ok: false, error: "Say why the detention is not being billed." };
-  const [load, thresholds] = await Promise.all([
+  const [load, thresholds, suppDet] = await Promise.all([
     prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) }, include: { stops: true, vehicle: { include: { costProfile: true } } } }),
-    getThresholds(workspaceId)
+    getThresholds(workspaceId),
+    supplementalDetentionByLoad([loadId], workspaceId)
   ]);
   if (!load || load.status !== "completed") return { ok: false, error: "Only a delivered load has detention to waive." };
   if (load.detentionWaivedAt != null) return { ok: false, error: "Detention on this load was already marked as waived." };
-  const dt = detentionOfLoad(load, thresholds.detentionGraceMinutes);
+  const dt = detentionOfLoad(load, thresholds.detentionGraceMinutes, suppDet.get(loadId) ?? 0);
   if (!(dt.unbilled > 0)) return { ok: false, error: "There is no unbilled detention on this load." };
   const actor = currentActor();
   const nextUpdatedAt = bumpUpdatedAt(now, load.updatedAt);
@@ -163,7 +217,7 @@ export async function getDetentionRecovery(workspaceId = currentWorkspaceId(), n
     where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status = 'completed' and l.completed_at >= ${since}
       and (l.dock_wait_minutes > 0 or exists (select 1 from stops s where s.load_id = l.id and s.wait_minutes > 0))${terminalSql(terminal, workspaceId)}`;
   const ids = waited.map((w) => w.id);
-  const [loads, thresholds, waived] = await Promise.all([
+  const [loads, thresholds, waived, suppDet] = await Promise.all([
     ids.length === 0
       ? Promise.resolve([])
       : prisma.load.findMany({
@@ -189,11 +243,12 @@ export async function getDetentionRecovery(workspaceId = currentWorkspaceId(), n
           orderBy: { completedAt: "desc" }
         }),
     getThresholds(workspaceId),
-    waivedDetentionLoads(ids, workspaceId)
+    waivedDetentionLoads(ids, workspaceId),
+    supplementalDetentionByLoad(ids, workspaceId)
   ]);
   const rows: DetentionRow[] = loads
     .map((l) => {
-      const dt = detentionOfLoad(l, thresholds.detentionGraceMinutes);
+      const dt = detentionOfLoad(l, thresholds.detentionGraceMinutes, suppDet.get(l.id) ?? 0);
       const waivedReason = waived.get(l.id) ?? null;
       return {
         ...dt,

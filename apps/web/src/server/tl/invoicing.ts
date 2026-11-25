@@ -2,14 +2,13 @@ import type { Terminals } from "@/lib/scope";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { billedOf } from "@/lib/billed";
-import { termsLabel, canInvoiceStatus, defaultInvoiceNumber, invoiceBasis, invoiceReadiness, revisedInvoiceNumber, validateInvoice, type InvoiceForm } from "@/lib/invoicing";
+import { termsLabel, canInvoiceStatus, defaultInvoiceNumber, invoiceBasis, invoiceReadiness, revisedInvoiceNumber, validateInvoice, validateSupplementalLines, type InvoiceForm, type SupplementalLineInput } from "@/lib/invoicing";
 import { isPaidMethod, paidMethodLabel } from "@/lib/pay-method";
 import { parseCentralLocal, toCentralLocal } from "@/lib/zoned";
 import { customerTermsMap } from "./customers";
 import { recordAudit } from "./audit";
 import { toCompany } from "./company";
 import { num, numOrNull } from "./convert";
-import { detentionOfLoad } from "./detention";
 import { dueAt } from "@/lib/overdue";
 import { podStopsMissing } from "./documents";
 import { getThresholds } from "./thresholds";
@@ -17,6 +16,7 @@ import { currentWorkspaceId } from "./workspace";
 import { allowedFor } from "./scope";
 import { inTerminal } from "./terminal-sql";
 import { balanceOf, isShortCode } from "@/lib/invoice-records";
+import { detentionOfLoad, supplementalDetentionByLoad } from "./detention";
 import { customerKey, MAX_LOADS_PER_INVOICE } from "@/lib/customer-key";
 import { addInvoicePayment, closeInvoiceRecord, createInvoiceRecord, openInvoiceOf, projectionOf, removeLastInvoicePayment, voidInvoiceRecord } from "./invoice-records";
 import { emitInvoice, emitPayment } from "@/server/webhooks/emit";
@@ -59,11 +59,12 @@ export async function suggestedInvoiceNumber(load: { id: string; loadNumber: str
  */
 async function invoiceInScope(invoiceId: string, workspaceId: string, scope: Terminals): Promise<boolean> {
   if (scope == null) return true;
-  const rec = await prisma.invoice.findFirst({ where: { id: invoiceId, workspaceId }, select: { creditOfId: true, loads: { select: { loadId: true } } } });
+  const rec = await prisma.invoice.findFirst({ where: { id: invoiceId, workspaceId }, select: { creditOfId: true, supplementOfId: true, loads: { select: { loadId: true } } } });
   if (!rec) return false;
   let loadIds = rec.loads.map((l) => l.loadId);
-  if (loadIds.length === 0 && rec.creditOfId) {
-    const parent = await prisma.invoice.findFirst({ where: { id: rec.creditOfId, workspaceId }, select: { loads: { select: { loadId: true } } } });
+  const parentId = rec.creditOfId ?? rec.supplementOfId;
+  if (loadIds.length === 0 && parentId) {
+    const parent = await prisma.invoice.findFirst({ where: { id: parentId, workspaceId }, select: { loads: { select: { loadId: true } } } });
     loadIds = parent?.loads.map((l) => l.loadId) ?? [];
   }
   if (loadIds.length === 0) return true;
@@ -538,16 +539,17 @@ export async function voidCreditMemo(memoId: string, reason: string, now = new D
   });
 }
 
-/** The invoice as billed, for printing: its lines, who it is for, and the load it came from. */
+/** The invoice as billed, for printing: its lines, who it is for, and the load it came from. Accepts either a load id or a supplemental invoice record id. */
 export async function getInvoice(loadId: string, workspaceId = currentWorkspaceId(), terminal: Terminals = null) {
+  const scope = await allowedFor(workspaceId, terminal);
   const [l, lastChase] = await Promise.all([
-    prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, paymentStatus: { not: null }, ...inTerminal(terminal) }, include: { stops: { orderBy: { stopSequence: "asc" } }, workspace: true, payments: { orderBy: [{ paidAt: "asc" }, { id: "asc" }] } } }),
+    prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, paymentStatus: { not: null }, ...inTerminal(scope) }, include: { stops: { orderBy: { stopSequence: "asc" } }, workspace: true, payments: { orderBy: [{ paidAt: "asc" }, { id: "asc" }] } } }),
     prisma.auditEvent.findFirst({ where: { workspaceId, loadId, action: "invoice_chased" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { createdAt: true, actor: true } })
   ]);
-  if (!l || !l.invoicedAt) return null;
+  if (!l || !l.invoicedAt) return getSupplementalInvoiceView(loadId, workspaceId, scope);
   // The invoice as its own record, when the load has one (rule I): its lines, loads, payments and credits. An imported invoice with no record keeps reading the load (gap 16).
   const rec = await prisma.invoice.findFirst({
-    where: { workspaceId, kind: "invoice", status: { not: "void" }, loads: { some: { loadId } } },
+    where: { workspaceId, kind: "invoice", supplementOfId: null, status: { not: "void" }, loads: { some: { loadId } } },
     orderBy: [{ issuedAt: "desc" }, { id: "desc" }],
     include: { lines: { orderBy: { sort: "asc" } }, loads: true, payments: { orderBy: [{ paidAt: "asc" }, { id: "asc" }] } }
   });
@@ -569,7 +571,8 @@ export async function getInvoice(loadId: string, workspaceId = currentWorkspaceI
     // An invoice sent before lines were kept shows its total as one line.
     lines: lines ?? [{ label: "Line haul and fuel surcharge", amount: total }],
     total,
-    status: l.paymentStatus,
+    status: l.paymentStatus as "invoiced" | "paid" | "void",
+    voidReason: null as string | null,
     paidAt: l.paidAt,
     paidAmount: numOrNull(l.paidAmount),
     writeOffAmount: numOrNull(l.writeOffAmount),
@@ -584,6 +587,8 @@ export async function getInvoice(loadId: string, workspaceId = currentWorkspaceI
     recordId: null as string | null,
     shared: false,
     credits: [] as CreditView[],
+    supplementOf: null as { id: string; number: string; loadId: string | null } | null,
+    supplementals: [] as SupplementalSummary[],
     loads: [{ id: l.id, number: l.loadNumber, po: l.poNumber, origin: l.originAddress, destination: l.destinationAddress, miles: num(l.loadedMiles), delivered: l.completedAt, stops: l.stops.map((s) => ({ sequence: s.stopSequence, role: s.stopRole ?? s.stopType, name: s.facilityName, address: s.addressString, arrived: s.arrivedAt, refs: Array.isArray(s.referenceNumbers) ? (s.referenceNumbers as unknown[]).map(String) : [] })) }] as InvoiceLoadView[]
   };
   if (!recordView) return fromLoad;
@@ -592,6 +597,144 @@ export async function getInvoice(loadId: string, workspaceId = currentWorkspaceI
 
 export type CreditView = { id: string; number: string; amount: number; label: string; reason: string | null; issuedAt: Date; status: "paid" | "void"; voidReason: string | null };
 export type InvoiceLoadView = { id: string; number: string | null; po: string | null; origin: string | null; destination: string | null; miles: number; delivered: Date | null; stops: Array<{ sequence: number; role: string; name: string | null; address: string; arrived: Date | null; refs: string[] }> };
+export type SupplementalLineSummary = { id: string; kind: string; label: string; amount: number; loadId: string | null };
+export type SupplementalSummary = {
+  id: string;
+  parentId: string;
+  parentNumber: string;
+  tag: string;
+  number: string;
+  status: "open" | "paid" | "void";
+  total: number;
+  paidTotal: number;
+  balance: number;
+  issuedAt: Date;
+  dueAt: Date;
+  termsDays: number;
+  factoringStatus: string;
+  voidReason: string | null;
+  lines: SupplementalLineSummary[];
+};
+
+const tagOfSupplemental = (number: string, parentNumber: string) => (number.startsWith(`${parentNumber}-`) ? number.slice(parentNumber.length + 1) : number);
+
+function toSupplementalSummary(
+  s: { id: string; number: string; status: string; total: Prisma.Decimal; paidTotal: Prisma.Decimal; issuedAt: Date; termsDays: number; factoringStatus: string; voidReason: string | null; lines: Array<{ id: string; kind: string; label: string; amount: Prisma.Decimal; loadId: string | null }> },
+  parentId: string,
+  parentNumber: string
+): SupplementalSummary {
+  const status = (s.status === "void" ? "void" : s.status === "paid" ? "paid" : "open") as "open" | "paid" | "void";
+  return {
+    id: s.id,
+    parentId,
+    parentNumber,
+    tag: tagOfSupplemental(s.number, parentNumber),
+    number: s.number,
+    status,
+    total: s.total.toNumber(),
+    paidTotal: s.paidTotal.toNumber(),
+    balance: balanceOf({ total: s.total, paidTotal: s.paidTotal, status }),
+    issuedAt: s.issuedAt,
+    dueAt: dueAt(s.issuedAt, s.termsDays) ?? s.issuedAt,
+    termsDays: s.termsDays,
+    factoringStatus: s.factoringStatus,
+    voidReason: s.voidReason,
+    lines: s.lines.map((l) => ({ id: l.id, kind: l.kind, label: l.label, amount: l.amount.toNumber(), loadId: l.loadId }))
+  };
+}
+
+/** View for `/invoices/[id]` when `id` is a supplemental invoice record id rather than a load id. */
+async function getSupplementalInvoiceView(invoiceId: string, workspaceId: string, scope: Terminals) {
+  const supp = await prisma.invoice.findFirst({
+    where: { id: invoiceId, workspaceId, kind: "invoice", supplementOfId: { not: null } },
+    include: {
+      lines: { orderBy: { sort: "asc" } },
+      payments: { orderBy: [{ paidAt: "asc" }, { id: "asc" }] },
+      supplementOf: { select: { id: true, number: true, loads: { select: { loadId: true } }, lines: { orderBy: { sort: "asc" }, select: { loadId: true } } } }
+    }
+  });
+  if (!supp || !supp.supplementOf) return null;
+  if (!(await invoiceInScope(supp.id, workspaceId, scope))) return null;
+  const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+  if (!ws) return null;
+  const order: string[] = [];
+  for (const x of supp.lines) if (x.loadId && !order.includes(x.loadId)) order.push(x.loadId);
+  for (const x of supp.supplementOf.lines) if (x.loadId && !order.includes(x.loadId)) order.push(x.loadId);
+  for (const x of supp.supplementOf.loads) if (!order.includes(x.loadId)) order.push(x.loadId);
+  const [loadRows, memos] = await Promise.all([
+    order.length > 0 ? prisma.load.findMany({ where: { id: { in: order }, workspaceId }, include: { stops: { orderBy: { stopSequence: "asc" } } } }) : Promise.resolve([]),
+    prisma.invoice.findMany({ where: { workspaceId, kind: "credit_memo", creditOfId: supp.id }, include: { lines: true }, orderBy: [{ issuedAt: "asc" }, { id: "asc" }] })
+  ]);
+  const byId = new Map(loadRows.map((x) => [x.id, x]));
+  const loads: InvoiceLoadView[] = order
+    .map((id) => byId.get(id))
+    .filter((x): x is NonNullable<typeof x> => !!x)
+    .map((x) => ({
+      id: x.id,
+      number: x.loadNumber,
+      po: x.poNumber,
+      origin: x.originAddress,
+      destination: x.destinationAddress,
+      miles: num(x.loadedMiles),
+      delivered: x.completedAt,
+      stops: x.stops.map((st) => ({ sequence: st.stopSequence, role: st.stopRole ?? st.stopType, name: st.facilityName, address: st.addressString, arrived: st.arrivedAt, refs: Array.isArray(st.referenceNumbers) ? (st.referenceNumbers as unknown[]).map(String) : [] }))
+    }));
+  const first = loadRows[0] ?? null;
+  const status = supp.status as "open" | "paid" | "void";
+  const paidTotal = supp.paidTotal.toNumber();
+  const total = supp.total.toNumber();
+  const paidMethod = [...supp.payments].reverse().find((p) => p.method)?.method ?? null;
+  return {
+    id: supp.id,
+    issuer: ws.name,
+    company: toCompany(ws),
+    invoiceNumber: supp.number,
+    sent: supp.issuedAt,
+    due: dueAt(supp.issuedAt, supp.termsDays) ?? supp.issuedAt,
+    terms: supp.termsDays,
+    billTo: { name: supp.billToName, mc: supp.billToMc, email: supp.billToEmail, phone: supp.billToPhone },
+    load: {
+      number: first?.loadNumber ?? null,
+      po: first?.poNumber ?? null,
+      origin: first?.originAddress ?? null,
+      destination: first?.destinationAddress ?? null,
+      miles: first ? num(first.loadedMiles) : 0,
+      delivered: first?.completedAt ?? null,
+      podNote: first?.podNote ?? null,
+      closedWithoutPod: first?.closedWithoutPod ?? null
+    },
+    stops: loads[0]?.stops ?? [],
+    lines: supp.lines.map((x) => ({ label: x.label, amount: x.amount.toNumber() })),
+    total,
+    status: (status === "void" ? "void" : status === "paid" ? "paid" : "invoiced") as "invoiced" | "paid" | "void",
+    voidReason: supp.voidReason,
+    paidAt: supp.paidAt,
+    paidAmount: paidTotal > 0 ? paidTotal : null,
+    writeOffAmount: supp.writeOffAmount ? supp.writeOffAmount.toNumber() : null,
+    writeOffReason: supp.writeOffReason,
+    balance: balanceOf({ total: supp.total, paidTotal: supp.paidTotal, status }),
+    payments: supp.payments.map((p) => ({ amount: p.amount.toNumber(), paidAt: p.paidAt, method: p.method, reference: p.reference, payer: p.payer, source: p.source as string, note: p.note })),
+    paidMethod,
+    poNumber: first?.poNumber ?? null,
+    lastChasedAt: null as Date | null,
+    lastChasedBy: null as string | null,
+    recordId: supp.id,
+    shared: loads.length > 1,
+    credits: memos.map((m) => ({
+      id: m.id,
+      number: m.number,
+      amount: m.total.negated().toNumber(),
+      label: m.lines[0]?.label ?? "Credit",
+      reason: supp.payments.find((p) => p.source === "credit" && p.externalId === m.id)?.note ?? null,
+      issuedAt: m.issuedAt,
+      status: (m.status === "void" ? "void" : "paid") as "void" | "paid",
+      voidReason: m.voidReason
+    })),
+    supplementOf: { id: supp.supplementOf.id, number: supp.supplementOf.number, loadId: order[0] ?? null },
+    supplementals: [] as SupplementalSummary[],
+    loads
+  };
+}
 
 /** What the sheet takes from the invoice record instead of from one load: the number, the money, every load and line on it, the payments with their references, and the credit memos. */
 async function recordViewOf(
@@ -601,9 +744,10 @@ async function recordViewOf(
   const order: string[] = [];
   for (const x of rec.lines) if (x.loadId && !order.includes(x.loadId)) order.push(x.loadId);
   for (const x of rec.loads) if (!order.includes(x.loadId)) order.push(x.loadId);
-  const [loadRows, memos] = await Promise.all([
+  const [loadRows, memos, supps] = await Promise.all([
     prisma.load.findMany({ where: { id: { in: order }, workspaceId }, include: { stops: { orderBy: { stopSequence: "asc" } } } }),
-    prisma.invoice.findMany({ where: { workspaceId, kind: "credit_memo", creditOfId: rec.id }, include: { lines: true }, orderBy: [{ issuedAt: "asc" }, { id: "asc" }] })
+    prisma.invoice.findMany({ where: { workspaceId, kind: "credit_memo", creditOfId: rec.id }, include: { lines: true }, orderBy: [{ issuedAt: "asc" }, { id: "asc" }] }),
+    prisma.invoice.findMany({ where: { workspaceId, kind: "invoice", supplementOfId: rec.id }, include: { lines: { orderBy: { sort: "asc" } } }, orderBy: [{ issuedAt: "asc" }, { id: "asc" }] })
   ]);
   const byId = new Map(loadRows.map((x) => [x.id, x]));
   const shared = rec.loads.length > 1;
@@ -644,7 +788,8 @@ async function recordViewOf(
       // Several loads: each line says which load it is for. One load: the lines read as they were billed.
       lines: rec.lines.map((x) => ({ label: shared && x.loadId ? `${numberOf.get(x.loadId) ?? "Load"} · ${x.label}` : x.label, amount: x.amount.toNumber() })),
       total,
-      status: (status === "paid" ? "paid" : "invoiced") as "paid" | "invoiced",
+      status: (status === "paid" ? "paid" : "invoiced") as "paid" | "invoiced" | "void",
+      voidReason: rec.voidReason,
       paidAt: rec.paidAt,
       paidAmount: paidTotal > 0 ? paidTotal : null,
       writeOffAmount: rec.writeOffAmount ? rec.writeOffAmount.toNumber() : null,
@@ -653,7 +798,9 @@ async function recordViewOf(
       payments: rec.payments.map((p) => ({ amount: p.amount.toNumber(), paidAt: p.paidAt, method: p.method, reference: p.reference, payer: p.payer, source: p.source as string, note: p.note })),
       recordId: rec.id,
       shared,
-      credits
+      credits,
+      supplementOf: null as { id: string; number: string; loadId: string | null } | null,
+      supplementals: supps.map((s) => toSupplementalSummary(s, rec.id, rec.number))
     }
   };
 }
@@ -662,7 +809,7 @@ async function recordViewOf(
 
 /** The record of the invoice this load shares with other loads, or null when its invoice is its own (or it has none). */
 async function sharedInvoiceOf(loadId: string, workspaceId: string): Promise<string | null> {
-  const r = await prisma.invoice.findFirst({ where: { workspaceId, kind: "invoice", status: { not: "void" }, loads: { some: { loadId } } }, select: { id: true, _count: { select: { loads: true } } }, orderBy: [{ issuedAt: "desc" }, { id: "desc" }] });
+  const r = await prisma.invoice.findFirst({ where: { workspaceId, kind: "invoice", supplementOfId: null, status: { not: "void" }, loads: { some: { loadId } } }, select: { id: true, _count: { select: { loads: true } } }, orderBy: [{ issuedAt: "desc" }, { id: "desc" }] });
   return r && r._count.loads > 1 ? r.id : null;
 }
 
@@ -762,7 +909,7 @@ async function reproject(tx: Prisma.TransactionClient, invoiceId: string, extra:
   }
 }
 
-/** A payment against an invoice of several loads: it is the invoice that is paid, and what came in is shared across its loads (rule A). Same rules as markLoadPaid. */
+/** A payment against an invoice of several loads, or a supplemental invoice: it is the invoice that is paid, and for primary invoices what came in is shared across its loads (rule A). */
 export async function payInvoiceRecord(
   invoiceId: string,
   now: Date,
@@ -771,7 +918,14 @@ export async function payInvoiceRecord(
   allowed?: Terminals
 ): Promise<PaidOut> {
   const scope = await allowedFor(workspaceId, allowed);
-  const rec = await prisma.invoice.findFirst({ where: { id: invoiceId, workspaceId, kind: "invoice" }, include: { loads: true } });
+  const rec = await prisma.invoice.findFirst({
+    where: { id: invoiceId, workspaceId, kind: "invoice" },
+    include: {
+      loads: true,
+      lines: { select: { loadId: true }, orderBy: { sort: "asc" } },
+      supplementOf: { select: { loads: { select: { loadId: true } } } }
+    }
+  });
   if (!rec || !(await invoiceInScope(rec.id, workspaceId, scope))) return { ok: false, error: "That invoice does not exist." };
   if (rec.status !== "open") return { ok: false, error: rec.status === "paid" ? `${rec.number} is already paid. Reload the page.` : `${rec.number} was taken back.` };
   const owing = dec(rec.total.toNumber()).minus(dec(rec.paidTotal.toNumber())).toNumber();
@@ -795,13 +949,19 @@ export async function payInvoiceRecord(
   const shortWhy = (opts.shortReason ?? "").trim();
   if (writeoff && shortWhy.length < 3) return { ok: false, needsShortReason: true, error: `Closing the invoice $${shortBy.toFixed(2)} short writes the $${shortBy.toFixed(2)} off, so say why.` };
   const partial = short && !writeoff;
-  const firstLoad = rec.loads[0]?.loadId ?? null;
+  const firstLoad = rec.loads[0]?.loadId ?? rec.lines.find((l) => l.loadId != null)?.loadId ?? rec.supplementOf?.loads[0]?.loadId ?? null;
+  const touchIds = [...new Set([...rec.loads.map((x) => x.loadId), ...rec.lines.map((x) => x.loadId).filter((x): x is string => !!x), ...(rec.supplementOf?.loads.map((x) => x.loadId) ?? [])])];
+  const scopeNote = rec.loads.length > 1 ? ` across ${rec.loads.length} loads` : rec.supplementOfId ? " (supplemental)" : "";
   const done = await prisma.$transaction(async (tx) => {
     const claimed = await tx.invoice.updateMany({ where: { id: invoiceId, status: "open", paidTotal: rec.paidTotal }, data: { updatedAt: now } });
     if (claimed.count !== 1) return false;
     await addInvoicePayment(tx, { workspaceId, invoiceId, amount, paidAt, method: method || null, reference: opts.reference, payer: opts.payer, source: opts.source ?? "desk", externalId: opts.externalId });
     if (!partial) await closeInvoiceRecord(tx, invoiceId, { paidAt, writeOff: writeoff ? { amount: shortBy, reason: shortWhy, code: isShortCode(opts.shortCode) ? opts.shortCode : null } : null, factoringPaid: FACTORED_OPEN.includes(rec.factoringStatus), now });
-    await reproject(tx, invoiceId, () => ({ paidMethod: method || null }));
+    if (rec.supplementOfId == null && rec.loads.length > 0) {
+      await reproject(tx, invoiceId, () => ({ paidMethod: method || null }));
+    } else if (touchIds.length > 0) {
+      await bumpLoads(tx, touchIds, now);
+    }
     await recordAudit(
       {
         entity: "invoice",
@@ -809,8 +969,8 @@ export async function payInvoiceRecord(
         loadId: firstLoad,
         loadNumber: null,
         summary: partial
-          ? `${rec.number}: $${amount.toFixed(2)} received across ${rec.loads.length} loads; $${shortBy.toFixed(2)} still owed`
-          : `${rec.number} paid, $${after.toNumber().toFixed(2)} across ${rec.loads.length} loads${short ? `, $${shortBy.toFixed(2)} short, written off` : diff > 0 ? `, $${diff.toFixed(2)} over` : ""}`,
+          ? `${rec.number}: $${amount.toFixed(2)} received${scopeNote}; $${shortBy.toFixed(2)} still owed`
+          : `${rec.number} paid, $${after.toNumber().toFixed(2)}${scopeNote}${short ? `, $${shortBy.toFixed(2)} short, written off` : diff > 0 ? `, $${diff.toFixed(2)} over` : ""}`,
         reason: short && writeoff ? shortWhy : null,
         before: { Status: rec.paidTotal.gt(0) ? "Invoiced, part paid" : "Invoiced", Billed: `$${rec.total.toNumber().toFixed(2)}` },
         after: { Status: partial ? "Invoiced, part paid" : "Paid", Received: `$${after.toNumber().toFixed(2)}`, ...(opts.reference ? { Reference: opts.reference } : {}) },
@@ -947,3 +1107,261 @@ async function undoSharedPayment(invoiceId: string, why: string, now: Date, work
   });
   return ok ? { ok: true } : { ok: false, error: "That payment was already taken back, or the invoice changed. Reload the page." };
 }
+
+// ── Supplemental invoices (Phase 5) ───────────────────────────────────────────────────────────────
+
+async function bumpLoads(tx: Prisma.TransactionClient, loadIds: string[], now: Date): Promise<void> {
+  if (loadIds.length === 0) return;
+  const rows = await tx.load.findMany({ where: { id: { in: loadIds } }, select: { id: true, updatedAt: true } });
+  const wall = Date.now();
+  const base = now.getTime() > wall ? now.getTime() : wall + 1;
+  for (const row of rows) {
+    const min = row.updatedAt.getTime() + 1;
+    await tx.load.update({ where: { id: row.id }, data: { updatedAt: new Date(base >= min ? base : min) } });
+  }
+}
+
+export type SupplementalOut = { ok: true; id: string; number: string; total: number } | { ok: false; error: string };
+
+/**
+ * Issue a supplemental invoice (`<parent>-S1`, `-S2`, ...) for new post-invoice charges such as detention approved late, layover, lumper, a rate correction, or other charges.
+ * Keeps `InvoiceLoad` empty so primary invoice lookups never see it and `Load.paymentStatus` stays the parent invoice's state.
+ */
+export async function issueSupplemental(
+  invoiceId: string,
+  linesInput: readonly SupplementalLineInput[],
+  opts: { termsDays?: number; reason?: string } = {},
+  now = new Date(),
+  workspaceId = currentWorkspaceId(),
+  allowed?: Terminals
+): Promise<SupplementalOut> {
+  const scope = await allowedFor(workspaceId, allowed);
+  const checked = validateSupplementalLines(linesInput);
+  if (!checked.ok) return { ok: false, error: checked.error };
+  const parent = await prisma.invoice.findFirst({
+    where: { id: invoiceId, workspaceId, kind: "invoice", supplementOfId: null },
+    include: { loads: { select: { loadId: true, load: { select: { id: true, loadNumber: true } } } }, lines: { orderBy: { sort: "asc" }, select: { loadId: true } } }
+  });
+  if (!parent || !(await invoiceInScope(parent.id, workspaceId, scope))) return { ok: false, error: "That invoice does not exist." };
+  if (parent.status === "void") return { ok: false, error: "A void invoice cannot have a supplemental invoice." };
+  const termsDays = opts.termsDays ?? parent.termsDays;
+  if (!Number.isInteger(termsDays) || termsDays < 0 || termsDays > 120) return { ok: false, error: "Pay terms must be whole days, 0 to 120." };
+  const why = (opts.reason ?? "").trim().slice(0, 200);
+  const parentLoadIds = parent.loads.map((x) => x.loadId);
+  const leadLoadId = parent.lines.find((x) => x.loadId != null)?.loadId ?? parentLoadIds[0] ?? null;
+  const defaultLoadId = parentLoadIds.length === 1 ? parentLoadIds[0]! : leadLoadId;
+  for (const l of checked.lines) {
+    if (l.loadId != null && !parentLoadIds.includes(l.loadId)) return { ok: false, error: "Each line must belong to a load on the parent invoice." };
+  }
+  const totalDec = checked.lines.reduce((s, l) => s.plus(dec(l.amount)), new Prisma.Decimal(0));
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const existingSupps = await tx.invoice.findMany({ where: { workspaceId, supplementOfId: parent.id }, select: { number: true } });
+      const usedRows = await tx.invoice.findMany({ where: { workspaceId, number: { startsWith: `${parent.number}-S` } }, select: { number: true } });
+      const used = new Set(usedRows.map((r) => r.number));
+      let n = existingSupps.length + 1;
+      while (used.has(`${parent.number}-S${n}`)) n += 1;
+      const number = `${parent.number}-S${n}`;
+      const created = await tx.invoice.create({
+        data: {
+          workspaceId,
+          number,
+          kind: "invoice",
+          status: "open",
+          supplementOfId: parent.id,
+          billToName: parent.billToName,
+          billToMc: parent.billToMc,
+          billToEmail: parent.billToEmail,
+          billToPhone: parent.billToPhone,
+          issuedAt: now,
+          termsDays,
+          total: totalDec,
+          paidTotal: new Prisma.Decimal(0),
+          lines: {
+            create: checked.lines.map((l, idx) => ({
+              loadId: l.loadId ?? defaultLoadId,
+              kind: l.kind,
+              label: l.label,
+              amount: dec(l.amount),
+              sort: idx + 1
+            }))
+          }
+        },
+        select: { id: true }
+      });
+      await emitInvoice(tx, workspaceId, created.id, "created", now);
+      await bumpLoads(tx, parentLoadIds, now);
+      await recordAudit(
+        {
+          entity: "invoice",
+          action: "supplemental_issued",
+          loadId: leadLoadId,
+          loadNumber: parent.loads.find((x) => x.loadId === leadLoadId)?.load.loadNumber ?? null,
+          summary: `${number}: $${totalDec.toNumber().toFixed(2)} supplemental to ${parent.number}`,
+          reason: why || null,
+          before: { Invoice: parent.number },
+          after: { Supplemental: number, Amount: `$${totalDec.toNumber().toFixed(2)}` },
+          at: now,
+          workspaceId
+        },
+        tx
+      );
+      return { ok: true, id: created.id, number, total: totalDec.toNumber() };
+    });
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return { ok: false, error: "Another supplemental invoice was just issued for this invoice. Reload and try again." };
+    throw e;
+  }
+}
+
+/** Take the newest payment back on a supplemental invoice so it is open again with whatever remains owed. */
+export async function undoSupplementalPayment(invoiceId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<PaidOut> {
+  const scope = await allowedFor(workspaceId, allowed);
+  const why = reason.trim();
+  if (why.length < 3) return { ok: false, error: "Say why the payment is being taken back." };
+  const rec = await prisma.invoice.findFirst({
+    where: { id: invoiceId, workspaceId, kind: "invoice", supplementOfId: { not: null } },
+    include: { lines: { select: { loadId: true } }, supplementOf: { select: { loads: { select: { loadId: true, load: { select: { loadNumber: true } } } } } } }
+  });
+  if (!rec || !(await invoiceInScope(rec.id, workspaceId, scope))) return { ok: false, error: "That supplemental invoice does not exist." };
+  if (rec.status === "void") return { ok: false, error: "That supplemental invoice was voided." };
+  const last = await prisma.invoicePayment.findFirst({ where: { invoiceId }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
+  if (!last) return { ok: false, error: "No payment has been recorded on this supplemental invoice." };
+  if (last.source === "credit") return { ok: false, error: "The last amount on this invoice is a credit memo. Void the credit memo instead." };
+  const taken = last.amount.toNumber();
+  const touchIds = [...new Set([...rec.lines.map((x) => x.loadId).filter((x): x is string => !!x), ...(rec.supplementOf?.loads.map((x) => x.loadId) ?? [])])];
+  const firstLoad = rec.supplementOf?.loads[0];
+  const ok = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.invoice.updateMany({ where: { id: invoiceId, status: rec.status, paidTotal: rec.paidTotal }, data: { updatedAt: now } });
+    if (claimed.count !== 1) return false;
+    await removeLastInvoicePayment(tx, invoiceId, { factoringBackToFunded: rec.factoringStatus === "paid", now });
+    await bumpLoads(tx, touchIds, now);
+    await recordAudit(
+      {
+        entity: "invoice",
+        action: "payment_undone",
+        loadId: firstLoad?.loadId ?? touchIds[0] ?? null,
+        loadNumber: firstLoad?.load.loadNumber ?? null,
+        summary: `${rec.number} payment of $${taken.toFixed(2)} taken back`,
+        reason: why,
+        before: { Status: rec.status === "paid" ? "Paid" : "Invoiced, part paid", Amount: `$${rec.paidTotal.toNumber().toFixed(2)}` },
+        after: { Status: "Open" },
+        at: now,
+        workspaceId
+      },
+      tx
+    );
+    return true;
+  });
+  return ok ? { ok: true } : { ok: false, error: "That payment was already taken back, or the supplemental invoice changed. Reload the page." };
+}
+
+/** Void an open, unpaid supplemental invoice (its number stays used; detention, aging, cash and balance return to before it was issued). */
+export async function voidSupplemental(invoiceId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<{ ok: boolean; error?: string; number?: string }> {
+  const scope = await allowedFor(workspaceId, allowed);
+  const why = reason.trim();
+  if (why.length < 3) return { ok: false, error: "Say why the supplemental invoice is being voided." };
+  const rec = await prisma.invoice.findFirst({
+    where: { id: invoiceId, workspaceId, kind: "invoice", supplementOfId: { not: null } },
+    include: { lines: { select: { loadId: true } }, supplementOf: { select: { number: true, loads: { select: { loadId: true, load: { select: { loadNumber: true } } } } } } }
+  });
+  if (!rec || !(await invoiceInScope(rec.id, workspaceId, scope))) return { ok: false, error: "That supplemental invoice does not exist." };
+  if (rec.status === "void") return { ok: false, error: "That supplemental invoice was already voided." };
+  if (rec.status === "paid" || rec.paidTotal.gt(0)) return { ok: false, error: "Money has been recorded on this supplemental invoice. Take the payment back first." };
+  if (rec.factoringStatus !== "none" && rec.factoringStatus !== "rejected") return { ok: false, error: "This invoice has gone to a factoring company. It cannot be voided here." };
+  const touchIds = [...new Set([...rec.lines.map((x) => x.loadId).filter((x): x is string => !!x), ...(rec.supplementOf?.loads.map((x) => x.loadId) ?? [])])];
+  const firstLoad = rec.supplementOf?.loads[0];
+  const ok = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.invoice.updateMany({ where: { id: invoiceId, supplementOfId: { not: null }, status: "open", paidTotal: 0 }, data: { status: "void", voidedAt: now, voidReason: why } });
+    if (claimed.count !== 1) return false;
+    await emitInvoice(tx, workspaceId, invoiceId, "voided", now);
+    await bumpLoads(tx, touchIds, now);
+    await recordAudit(
+      {
+        entity: "invoice",
+        action: "supplemental_voided",
+        loadId: firstLoad?.loadId ?? touchIds[0] ?? null,
+        loadNumber: firstLoad?.load.loadNumber ?? null,
+        summary: `${rec.number} ($${rec.total.toNumber().toFixed(2)}) voided`,
+        reason: why,
+        before: { Supplemental: rec.number, Status: "Open", Amount: `$${rec.total.toNumber().toFixed(2)}` },
+        after: { Supplemental: rec.number, Status: "Void" },
+        at: now,
+        workspaceId
+      },
+      tx
+    );
+    return true;
+  });
+  return ok ? { ok: true, number: rec.number } : { ok: false, error: "That supplemental invoice changed while you were looking at it. Reload the page." };
+}
+
+/** The active primary invoice record (never a supplemental) for one load, or null for uninvoiced / legacy imported invoices. */
+export async function primaryInvoiceOfLoad(loadId: string, workspaceId = currentWorkspaceId()): Promise<{ id: string; number: string; factoringStatus: string } | null> {
+  return prisma.invoice.findFirst({
+    where: { workspaceId, kind: "invoice", supplementOfId: null, status: { not: "void" }, loads: { some: { loadId } } },
+    orderBy: [{ issuedAt: "desc" }, { id: "desc" }],
+    select: { id: true, number: true, factoringStatus: true }
+  });
+}
+
+async function fetchSupplementalsForLoads(loadIds: string[], workspaceId: string) {
+  if (loadIds.length === 0) return [];
+  return prisma.invoice.findMany({
+    where: {
+      workspaceId,
+      kind: "invoice",
+      supplementOfId: { not: null },
+      OR: [{ lines: { some: { loadId: { in: loadIds } } } }, { supplementOf: { loads: { some: { loadId: { in: loadIds } } } } }]
+    },
+    include: {
+      lines: { orderBy: { sort: "asc" } },
+      supplementOf: { select: { id: true, number: true, loads: { select: { loadId: true } }, lines: { orderBy: { sort: "asc" }, select: { loadId: true } } } }
+    },
+    orderBy: [{ issuedAt: "asc" }, { id: "asc" }]
+  });
+}
+
+function attributableLoads(s: Awaited<ReturnType<typeof fetchSupplementalsForLoads>>[number], allowedSet: Set<string>): string[] {
+  const leadParentLoadId = s.supplementOf?.lines.find((l) => l.loadId != null)?.loadId ?? s.supplementOf?.loads[0]?.loadId ?? null;
+  const targets = new Set<string>();
+  for (const line of s.lines) {
+    const id = line.loadId ?? leadParentLoadId;
+    if (id && allowedSet.has(id)) targets.add(id);
+  }
+  if (s.lines.length === 0 && leadParentLoadId && allowedSet.has(leadParentLoadId)) targets.add(leadParentLoadId);
+  return [...targets];
+}
+
+/** All supplemental invoices (including voided ones for drawer auditability) grouped by load id. */
+export async function supplementalsByLoad(loadIds: string[], workspaceId = currentWorkspaceId()): Promise<Map<string, SupplementalSummary[]>> {
+  const out = new Map<string, SupplementalSummary[]>();
+  if (loadIds.length === 0) return out;
+  const rows = await fetchSupplementalsForLoads(loadIds, workspaceId);
+  const allowedSet = new Set(loadIds);
+  for (const s of rows) {
+    if (!s.supplementOf) continue;
+    const summary = toSupplementalSummary(s, s.supplementOf.id, s.supplementOf.number);
+    for (const lid of attributableLoads(s, allowedSet)) {
+      const list = out.get(lid) ?? [];
+      if (!list.some((x) => x.id === summary.id)) out.set(lid, [...list, summary]);
+    }
+  }
+  return out;
+}
+
+/** Sum of unpaid balances across open supplemental invoices, grouped by load id. */
+export async function openSupplementalBalanceByLoad(loadIds: string[], workspaceId = currentWorkspaceId()): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (loadIds.length === 0) return out;
+  const byLoad = await supplementalsByLoad(loadIds, workspaceId);
+  for (const [lid, list] of byLoad) {
+    let sum = new Prisma.Decimal(0);
+    for (const s of list) if (s.status === "open" && s.balance > 0) sum = sum.plus(new Prisma.Decimal(s.balance));
+    if (sum.gt(0)) out.set(lid, sum.toDecimalPlaces(2).toNumber());
+  }
+  return out;
+}
+
+/** Sum of detention charges billed on non-void supplemental invoices, grouped by load id. */
+export { supplementalDetentionByLoad };

@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 import { weekBuckets } from "@/lib/kpi-periods";
 import { bridgeOf, changeOf, moveRows, totalsOf, withoutCosts, type Bridge, type MoveBy, type MoveLoad, type MoveRow, type WeekTotals } from "@/lib/moves";
 import { answerCache, clockBucket } from "./answer-cache";
-import { detentionOfLoad } from "./detention";
+import { detentionOfLoad, supplementalDetentionByLoad } from "./detention";
 import { getKpiRows, moveLoadOf } from "./kpi";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
@@ -69,8 +69,9 @@ export async function getMoves(q: MovesQuery = {}, now = new Date(), workspaceId
           vehicle: { select: { costProfile: { select: { detentionHourlyRate: true, freeGraceMinutes: true } } } }
         }
       });
+      const suppDet = await supplementalDetentionByLoad(part, workspaceId);
       for (const l of found) {
-        const d = detentionOfLoad(l, thresholds.detentionGraceMinutes).billedExtra;
+        const d = detentionOfLoad(l, thresholds.detentionGraceMinutes, suppDet.get(l.id) ?? 0).billedExtra;
         if (d > 0) billed.set(l.id, d);
       }
     }

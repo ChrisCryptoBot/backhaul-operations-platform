@@ -45,6 +45,8 @@ export type LoadRow = {
   invoicedAmount: Dec;
   /** What has come in against the invoice so far (the sum of its payments); null when nothing has. */
   paidAmount?: Dec;
+  /** Open balance across supplemental invoices attached to this load's invoice. */
+  supplementalOpen?: Dec;
 };
 
 export function toAnalyticsInput(l: LoadRow): AnalyticsLoadInput {
@@ -76,14 +78,17 @@ export function toAnalyticsInput(l: LoadRow): AnalyticsLoadInput {
 }
 
 export function toAgingView(l: LoadRow): AgingLoadView {
+  const extra = numOrNull(l.supplementalOpen) ?? 0;
+  const parentPaid = l.paymentStatus === "paid";
+  const open = l.paymentStatus === "invoiced" || (parentPaid && extra > 0);
   return {
-    paymentStatus: l.paymentStatus,
+    paymentStatus: open ? "invoiced" : l.paymentStatus,
     invoicedAt: ms(l.invoicedAt),
     payTermsDays: l.payTermsDays,
     quotedRevenue: num(l.quotedRevenue),
     fuelSurcharge: numOrNull(l.fuelSurcharge),
-    // What is OWED: an invoice paid in part is counted for its balance (src/lib/invoicing.ts owedOf).
-    invoicedAmount: l.paymentStatus === "invoiced" ? owedOf(numOrNull(l.invoicedAmount), numOrNull(l.paidAmount)) : numOrNull(l.invoicedAmount)
+    // What is OWED: parent balance plus open supplemental balances (even when the parent invoice is already paid).
+    invoicedAmount: open ? owedOf(numOrNull(l.invoicedAmount), numOrNull(l.paidAmount), { supplementalOpen: extra, parentPaid }) : numOrNull(l.invoicedAmount)
   };
 }
 

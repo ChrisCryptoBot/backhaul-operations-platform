@@ -25,7 +25,7 @@ type Doc = { id: string; name: string; mime: string; storageKey: string; kind: s
 export async function buildPacket(loadId: string, workspaceId = currentWorkspaceId(), terminal: Terminals = null): Promise<PacketOut> {
   const invoice = await invoicePdf(loadId, workspaceId, terminal);
   if (!invoice) return { ok: false, error: "That load has no invoice." };
-  const rec = await prisma.invoice.findFirst({ where: { workspaceId, kind: "invoice", status: { not: "void" }, loads: { some: { loadId } } }, include: { loads: true }, orderBy: [{ issuedAt: "desc" }, { id: "desc" }] });
+  const rec = await prisma.invoice.findFirst({ where: { workspaceId, kind: "invoice", supplementOfId: null, status: { not: "void" }, loads: { some: { loadId } } }, include: { loads: true }, orderBy: [{ issuedAt: "desc" }, { id: "desc" }] });
   const loadIds = rec ? rec.loads.map((l) => l.loadId) : [loadId];
   const loads = await prisma.load.findMany({ where: { id: { in: loadIds }, workspaceId, deletedAt: null }, select: { id: true, loadNumber: true } });
   const number = new Map(loads.map((l) => [l.id, l.loadNumber ?? "a load"]));

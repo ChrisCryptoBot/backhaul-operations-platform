@@ -82,6 +82,8 @@ export type AuditAction =
   | "invoice_chased"
   | "credit_memo_issued"
   | "credit_memo_voided"
+  | "supplemental_issued"
+  | "supplemental_voided"
   | "detention_waived"
   | "detention_unwaived"
   | "detention_evidence_confirmed"
@@ -246,6 +248,8 @@ export const ACTION_LABEL: Record<string, string> = {
   invoice_chased: "Customer chased",
   credit_memo_issued: "Credit memo",
   credit_memo_voided: "Credit memo taken back",
+  supplemental_issued: "Supplemental invoice issued",
+  supplemental_voided: "Supplemental invoice voided",
   detention_waived: "Detention waived",
   detention_unwaived: "Detention waiver taken back",
   detention_evidence_confirmed: "Detention evidence confirmed",

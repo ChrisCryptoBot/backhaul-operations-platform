@@ -32,6 +32,7 @@ export type InvoicePdfData = {
   credited: number;
   balance: number;
   creditOf: string | null;
+  supplementOf?: string | null;
   /** Set when the invoice has gone to a factor: the notice of assignment prints and the remit-to is the factor's (rule C). */
   factoring: { factor: string; reference: string | null; remitTo: string | null; /** The notice wording the fleet saved with its factoring terms; the plain wording prints when it is blank. */ noaText?: string | null } | null;
 };
@@ -78,7 +79,9 @@ export function wrap(text: string, font: PDFFont, size: number, width: number): 
 
 export async function buildInvoicePdf(d: InvoicePdfData): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  doc.setTitle(pdfSafe(`${d.kind === "credit_memo" ? "Credit memo" : "Invoice"} ${d.number}`));
+  const docNoun = d.kind === "credit_memo" ? "Credit memo" : d.supplementOf ? "Supplemental invoice" : "Invoice";
+  const docHeading = d.kind === "credit_memo" ? "CREDIT MEMO" : d.supplementOf ? "SUPPLEMENTAL INVOICE" : "INVOICE";
+  doc.setTitle(pdfSafe(`${docNoun} ${d.number}`));
   doc.setAuthor(pdfSafe(d.issuer.name));
   doc.setCreator("TrueLane Desk");
   doc.setProducer("TrueLane Desk");
@@ -97,17 +100,24 @@ export async function buildInvoicePdf(d: InvoicePdfData): Promise<Uint8Array> {
     if (y - needed < M + 40) {
       page = doc.addPage([PAGE_W, PAGE_H]);
       y = PAGE_H - M;
-      text(`${d.kind === "credit_memo" ? "Credit memo" : "Invoice"} ${d.number} (continued)`, M, 9, font, DIM);
+      text(`${docNoun} ${d.number} (continued)`, M, 9, font, DIM);
       y -= 20;
     }
   };
 
   // Header: who it is from (left), what it is (right).
   text(d.issuer.name, M, 16, bold);
-  right(d.kind === "credit_memo" ? "CREDIT MEMO" : "INVOICE", PAGE_W - M, 18, bold);
+  right(docHeading, PAGE_W - M, 18, bold);
   y -= 18;
   const fromLines = [d.issuer.address, [d.issuer.mc ? `MC ${d.issuer.mc}` : null, d.issuer.dot ? `DOT ${d.issuer.dot}` : null].filter(Boolean).join(" | "), [d.issuer.phone, d.issuer.email].filter(Boolean).join(" | ")].filter((s): s is string => !!s);
-  const metaLines: Array<[string, string]> = [["Number", d.number], ["Issued", d.issued], ["Terms", d.termsLabel], ...(d.due ? ([["Due", d.due]] as Array<[string, string]>) : []), ...(d.creditOf ? ([["Credits invoice", d.creditOf]] as Array<[string, string]>) : [])];
+  const metaLines: Array<[string, string]> = [
+    ["Number", d.number],
+    ["Issued", d.issued],
+    ["Terms", d.termsLabel],
+    ...(d.due ? ([["Due", d.due]] as Array<[string, string]>) : []),
+    ...(d.creditOf ? ([["Credits invoice", d.creditOf]] as Array<[string, string]>) : []),
+    ...(d.supplementOf ? ([["Supplemental to", d.supplementOf]] as Array<[string, string]>) : [])
+  ];
   const rows = Math.max(fromLines.length, metaLines.length);
   for (let i = 0; i < rows; i++) {
     if (fromLines[i]) text(fromLines[i]!, M, 9, font, DIM);

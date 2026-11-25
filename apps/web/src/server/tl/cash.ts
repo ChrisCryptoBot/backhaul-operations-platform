@@ -44,7 +44,8 @@ export async function readCashInvoices(workspaceId: string, since: Date, termina
       id: true, number: true, status: true, issuedAt: true, total: true, paidTotal: true, paidAt: true, writeOffAmount: true, writeOffCode: true, billToName: true,
       factoringStatus: true, factoringFundedAt: true, factoringAdvance: true, factoringFee: true, factoringReserveReleased: true, factoringChargeback: true, factoringReserveReleasedAt: true, factoringChargedBackAt: true, factoringUpdatedAt: true,
       payments: { select: { id: true, amount: true, paidAt: true, source: true }, orderBy: [{ paidAt: "asc" }, { id: "asc" }] },
-      loads: { select: { load: { select: { id: true, originAddress: true, destinationAddress: true, brokerName: true, vehicle: { select: { name: true } }, assignment: { select: { driver: { select: { name: true } } } } } } } }
+      loads: { select: { load: { select: { id: true, originAddress: true, destinationAddress: true, brokerName: true, vehicle: { select: { name: true } }, assignment: { select: { driver: { select: { name: true } } } } } } } },
+      supplementOf: { select: { loads: { select: { load: { select: { id: true, originAddress: true, destinationAddress: true, brokerName: true, vehicle: { select: { name: true } }, assignment: { select: { driver: { select: { name: true } } } } } } } } } }
     },
     orderBy: [{ issuedAt: "desc" }, { id: "asc" }],
     take: MAX_CASH_INVOICES + 1
@@ -53,9 +54,10 @@ export async function readCashInvoices(workspaceId: string, since: Date, termina
   const kept = rows.slice(0, MAX_CASH_INVOICES);
   const scoped = terminals != null;
   const filtered = hasFilters(filters);
+  const loadsOfInvoice = (i: (typeof kept)[number]) => (i.loads.length > 0 ? i.loads : (i.supplementOf?.loads ?? [])).map((x) => x.load);
   let inScope: Set<string> | null = null;
   if (scoped) {
-    const ids = [...new Set(kept.flatMap((i) => i.loads.map((l) => l.load.id)))];
+    const ids = [...new Set(kept.flatMap((i) => loadsOfInvoice(i).map((l) => l.id)))];
     inScope = ids.length === 0 ? new Set() : new Set((await prisma.$queryRaw<Array<{ id: string }>>`select l.id from loads l where l.workspace_id = ${workspaceId} and l.id = any(${ids})${terminalSetSql(terminals, workspaceId)}`).map((r) => r.id));
   }
   type L = (typeof kept)[number]["loads"][number]["load"];
@@ -69,7 +71,7 @@ export async function readCashInvoices(workspaceId: string, since: Date, termina
   let leftOut = 0;
   const invoices: CashInvoice[] = [];
   for (const i of kept) {
-    const loads = i.loads.map((x) => x.load);
+    const loads = loadsOfInvoice(i);
     if (scoped || filtered) {
       if (loads.length === 0) {
         leftOut += 1;

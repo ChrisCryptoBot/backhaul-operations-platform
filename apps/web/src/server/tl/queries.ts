@@ -12,7 +12,7 @@ import { notQuote } from "@/lib/quote-status";
 import { toAnalyticsInput, num, numOrNull } from "./convert";
 import { detentionOfLoad } from "./detention";
 import { podStopsMissing } from "./documents";
-import { voidedInvoiceNumbers } from "./invoicing";
+import { openSupplementalBalanceByLoad, voidedInvoiceNumbers } from "./invoicing";
 import { getThresholds } from "./thresholds";
 import { currentWorkspaceId } from "./workspace";
 import { workspaceTimezone } from "./zone";
@@ -250,7 +250,7 @@ export async function sharedInvoices(workspaceId: string): Promise<{ lead: Map<s
   const rows = await prisma.$queryRaw<Array<{ id: string; number: string; total: string; paid_total: string; status: string; paid_at: Date | null; load_ids: string[] }>>`
     select i.id, i.number, i.total::text as total, i.paid_total::text as paid_total, i.status, i.paid_at, array_agg(il.load_id order by (select min(x.sort) from invoice_lines x where x.invoice_id = i.id and x.load_id = il.load_id) nulls last, il.load_id) as load_ids
     from invoices i join invoice_loads il on il.invoice_id = i.id
-    where i.workspace_id = ${workspaceId} and i.kind = 'invoice' and i.status <> 'void'
+    where i.workspace_id = ${workspaceId} and i.kind = 'invoice' and i.supplement_of_id is null and i.status <> 'void'
     group by i.id having count(*) > 1`;
   const lead = new Map<string, SharedInvoice>();
   const others = new Map<string, string>();
@@ -425,9 +425,10 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
     if (need.length > 0) for (const x of await prisma.load.findMany({ where: { id: { in: need } }, select: { id: true, loadNumber: true } })) otherNumbers.set(x.id, x.loadNumber ?? "");
   }
   const withRecord = new Set<string>();
+  const suppOpen = scope === "ready" || loads.length === 0 ? new Map<string, number>() : await openSupplementalBalanceByLoad(loads.map((l) => l.id), workspaceId);
   if (scope !== "ready" && loads.length > 0) {
     const ids = loads.filter((l) => l.paymentStatus !== null).map((l) => l.id);
-    if (ids.length > 0) for (const r of await prisma.invoiceLoad.findMany({ where: { loadId: { in: ids }, invoice: { kind: "invoice", status: { not: "void" } } }, select: { loadId: true } })) withRecord.add(r.loadId);
+    if (ids.length > 0) for (const r of await prisma.invoiceLoad.findMany({ where: { loadId: { in: ids }, invoice: { kind: "invoice", supplementOfId: null, status: { not: "void" } } }, select: { loadId: true } })) withRecord.add(r.loadId);
   }
   return loads.map((l) => {
     const basis = invoiceBasis({ status: l.status, quotedRevenue: num(l.quotedRevenue), fuelSurcharge: num(l.fuelSurcharge), tonuRevenue: numOrNull(l.tonuRevenue) });
@@ -436,6 +437,8 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
     const billable = light || basis.tonu ? 0 : detentionOfLoad(l, thresholds.detentionGraceMinutes).billable;
     const billed = billedOf({ invoicedAmount: numOrNull(l.invoicedAmount), status: l.status, quotedRevenue: num(l.quotedRevenue), fuelSurcharge: numOrNull(l.fuelSurcharge), tonuRevenue: numOrNull(l.tonuRevenue) });
     const paidAmount = numOrNull(l.paidAmount);
+    const extraOpen = suppOpen.get(l.id) ?? 0;
+    const parentPaid = l.paymentStatus === "paid";
     const row = {
       id: l.id,
       loadNumber: l.loadNumber,
@@ -463,8 +466,9 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
       writeOffAmount: numOrNull(l.writeOffAmount),
       writeOffReason: l.writeOffReason,
       paidAmount,
-      /** What is still owed on an invoice that is out: the invoice less what has come in (0 once it is paid). */
-      balance: l.paymentStatus === "invoiced" ? (owedOf(billed, paidAmount) ?? billed) : 0,
+      supplementalOpen: extraOpen,
+      /** What is still owed on an invoice that is out (plus open supplemental balances even if parent is paid). */
+      balance: l.paymentStatus === "invoiced" || extraOpen > 0 ? (owedOf(billed, paidAmount, { supplementalOpen: extraOpen, parentPaid }) ?? billed) : 0,
       /** Negative when the broker paid less than the invoice. */
       paidDifference: l.paymentStatus === "paid" && paidAmount != null ? new Prisma.Decimal(paidAmount).minus(billed).toDecimalPlaces(2).toNumber() : null,
       invoiceContext: { rate, surcharge: basis.surcharge, detention: billable, rateLabel: basis.label, defaultTerms: l.payTermsDays ?? customerTerms.get((l.brokerName ?? "").trim().toLowerCase()) ?? thresholds.defaultPayTermsDays },
@@ -480,7 +484,9 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
     const inv = sharedAll?.lead.get(l.id);
     if (!inv) return row;
     // The lead load of an invoice of several loads: the invoice's own number and money, and every load number on it.
-    const owing = new Prisma.Decimal(inv.total).minus(inv.paidTotal);
+    const parentOwing = parentPaid ? new Prisma.Decimal(0) : new Prisma.Decimal(inv.total).minus(inv.paidTotal);
+    const parentPositive = parentOwing.isNegative() ? new Prisma.Decimal(0) : parentOwing;
+    const totalOwing = parentPositive.plus(extraOpen);
     return {
       ...row,
       loadNumber: [l.loadNumber ?? "", ...inv.loadIds.slice(1).map((id) => otherNumbers.get(id) ?? "")].filter(Boolean).join(", "),
@@ -488,7 +494,7 @@ export async function listInvoiceRows(workspaceId = currentWorkspaceId(), opts: 
       amount: inv.total,
       readyAmount: inv.total,
       paidAmount: inv.paidTotal > 0 ? inv.paidTotal : null,
-      balance: l.paymentStatus === "invoiced" ? (owing.isNegative() ? 0 : owing.toNumber()) : 0,
+      balance: l.paymentStatus === "invoiced" || extraOpen > 0 ? totalOwing.toDecimalPlaces(2).toNumber() : 0,
       paidDifference: l.paymentStatus === "paid" && inv.paidTotal > 0 ? new Prisma.Decimal(inv.paidTotal).minus(inv.total).toDecimalPlaces(2).toNumber() : null,
       loadsOnInvoice: inv.loadIds.length,
       invoiceId: inv.id,

@@ -7,7 +7,7 @@ import { decimalCents } from "@/lib/money-integrity";
 import { iftaReturn } from "@/server/partners/ifta-return";
 import { batchOfChannel } from "@/lib/load-import";
 import { dwell } from "@/lib/telematics";
-import { detentionOfLoad, waivedDetentionLoads } from "./detention";
+import { detentionOfLoad, supplementalDetentionByLoad, waivedDetentionLoads } from "./detention";
 import { numOrNull } from "./convert";
 import { ALL_TIME_DAYS, getKpiRows, leakLoadOf } from "./kpi";
 import { answerCache, clockBucket } from "./answer-cache";
@@ -44,7 +44,7 @@ async function detentionItems(workspaceId: string, since: Date, terminals: reado
       and (l.dock_wait_minutes > 0 or exists (select 1 from stops s where s.load_id = l.id and s.wait_minutes > 0))${terminalSetSql(terminals, workspaceId)}`;
   const ids = waited.map((w) => w.id);
   if (ids.length === 0) return [];
-  const [loads, thresholds, waived] = await Promise.all([
+  const [loads, thresholds, waived, suppDet] = await Promise.all([
     prisma.load.findMany({
       where: { id: { in: ids } },
       select: {
@@ -68,14 +68,15 @@ async function detentionItems(workspaceId: string, since: Date, terminals: reado
       }
     }),
     getThresholds(workspaceId),
-    waivedDetentionLoads(ids, workspaceId)
+    waivedDetentionLoads(ids, workspaceId),
+    supplementalDetentionByLoad(ids, workspaceId)
   ]);
   const out: LeakItem[] = [];
   for (const l of loads) {
     const imported = batchOfChannel(l.channel) != null;
     const terms = imported ? termsFor(intake, l.brokerName, thresholds.detentionGraceMinutes) : null;
     // An imported load's terms are the intake's alone: frozen terms and the truck's profile are cleared, so nothing but the carrier's own figure can price it.
-    const dt = detentionOfLoad(terms ? { ...l, snapshotDetentionRate: terms.rate, snapshotFreeGraceMinutes: terms.freeMinutes, vehicle: null } : l, thresholds.detentionGraceMinutes);
+    const dt = detentionOfLoad(terms ? { ...l, snapshotDetentionRate: terms.rate, snapshotFreeGraceMinutes: terms.freeMinutes, vehicle: null } : l, thresholds.detentionGraceMinutes, suppDet.get(l.id) ?? 0);
     const base = { at: l.completedAt?.getTime() ?? 0, miles: 0, loadId: l.id, label: l.loadNumber ?? "A load", lane: `${l.originAddress ?? "?"} → ${l.destinationAddress ?? "?"}`, customer: l.brokerName, truck: l.vehicle?.name ?? null, basisNote: terms?.note ?? null };
     if (waived.has(l.id)) {
       if (dt.unbilled > 0) out.push({ ...base, key: imported ? "detention_waived_intake" : "detention_waived", dollars: dt.unbilled });

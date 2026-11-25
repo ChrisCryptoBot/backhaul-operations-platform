@@ -2179,6 +2179,7 @@ model Invoice {
   /// Why it closed short, as a code a report can count: quick_pay_fee | factor_fee | customer_deduction | damage_claim | negotiated | other.
   writeOffCode             String?   @map("write_off_code")
   creditOfId               String?   @map("credit_of_id")
+  supplementOfId           String?   @map("supplement_of_id")
   voidedAt                 DateTime? @map("voided_at")
   voidReason               String?   @map("void_reason")
   /// Where it stands with a factor: none | requested | submitted | funded | rejected | paid (the same words as the load's factoring_status).
@@ -2202,17 +2203,20 @@ model Invoice {
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @updatedAt @map("updated_at")
 
-  workspace Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  creditOf  Invoice?                @relation("CreditMemo", fields: [creditOfId], references: [id], onDelete: SetNull)
-  credits   Invoice[]               @relation("CreditMemo")
-  lines     InvoiceLine[]
-  loads     InvoiceLoad[]
-  payments  InvoicePayment[]
-  batches   FactoringBatchInvoice[]
+  workspace     Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creditOf      Invoice?                @relation("CreditMemo", fields: [creditOfId], references: [id], onDelete: SetNull)
+  credits       Invoice[]               @relation("CreditMemo")
+  supplementOf  Invoice?                @relation("SupplementalInvoice", fields: [supplementOfId], references: [id], onDelete: SetNull)
+  supplementals Invoice[]               @relation("SupplementalInvoice")
+  lines         InvoiceLine[]
+  loads         InvoiceLoad[]
+  payments      InvoicePayment[]
+  batches       FactoringBatchInvoice[]
 
   @@unique([workspaceId, number])
   @@index([workspaceId, status, issuedAt])
   @@index([workspaceId, kind])
+  @@index([workspaceId, supplementOfId])
   @@map("invoices")
 }
 

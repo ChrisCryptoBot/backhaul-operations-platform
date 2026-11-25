@@ -22,6 +22,8 @@ export type DetentionInput = {
     fuelSurcharge: number | null;
     /** The invoice's own lines, when it kept them: only the "Detention" line is detention (a lumper or a layover charge is not). */
     lines?: Array<{ label: string; amount: number }> | null;
+    /** Detention billed on non-void supplemental invoices for this load. */
+    supplementalDetention?: number;
   };
 };
 
@@ -49,13 +51,14 @@ export function summarizeDetention(i: DetentionInput): DetentionSummary {
   const base = invoiceRateTotal({ quotedRevenue: i.invoice.quotedRevenue, fuelSurcharge: i.invoice.fuelSurcharge });
   // What the invoice carried as detention: its Detention line when it kept lines (a lumper or layover charge on the same invoice is not detention); an invoice made before lines
   // were kept has only a total, and whatever it carries above the rate and the fuel surcharge is read as detention, as before.
-  const billedExtra = !i.invoice.invoiced
+  const primaryBilled = !i.invoice.invoiced
     ? 0
     : i.invoice.lines && i.invoice.lines.length > 0
       ? cents(i.invoice.lines.filter((l) => l.label === "Detention").reduce((s, l) => s + l.amount, 0))
       : i.invoice.invoicedAmount != null
         ? Math.max(0, cents(i.invoice.invoicedAmount - base))
         : 0;
+  const billedExtra = !i.invoice.invoiced ? 0 : cents(primaryBilled + Math.max(0, cents(i.invoice.supplementalDetention ?? 0)));
   // With no rate there is nothing to bill, but the minutes past the free time are still the load's own fact.
   const noRate = terms.detentionHourlyRate <= 0 && waitedPastGrace(i, terms.freeGraceMinutes);
   return {

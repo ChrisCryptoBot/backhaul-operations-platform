@@ -87,7 +87,8 @@ $migrations = @(
   "20270110000000_driver_receipts",
   "20270111000000_load_detention_waive",
   "20270111010000_assignment_events_kinds",
-  "20270112000000_relay_settlement_and_pay_arrangement"
+  "20270112000000_relay_settlement_and_pay_arrangement",
+  "20270113000000_supplemental_invoices"
 )
 foreach ($m in $migrations) {
   npx prisma migrate resolve --applied $m --schema=./prisma/schema.prisma

@@ -9,9 +9,10 @@ import { ReadOnlyBanner } from "@/components/desk/kit/read-only";
 import { PrintButton } from "@/components/desk/kpi/print-button";
 import { FactorPanel } from "@/components/desk/partner-actions";
 import { CreditMemoDialog, VoidCreditButton } from "@/components/desk/credit-memo";
+import { SupplementalDialog, VoidSupplementalButton } from "@/components/desk/supplemental-invoice";
 import { ConfirmForm } from "@/components/desk/kit/confirm-form";
 import { PaidDialog } from "@/components/desk/load-actions";
-import { undoPaidAction } from "@/app/(desk)/actions";
+import { undoPaidAction, undoSupplementalPaymentAction } from "@/app/(desk)/actions";
 import { dateTime, dayYear, miles, shortDate, usd } from "@/lib/desk-format";
 import { reminderText, termsLabel } from "@/lib/invoicing";
 import { moneyState } from "@/lib/money-state";
@@ -20,6 +21,7 @@ import { paidMethodLabel } from "@/lib/pay-method";
 import { can, whoCan } from "@/lib/roles";
 import { factoringLabel, getFactoringView } from "@/server/partners/factoring";
 import { checkAccess } from "@/server/tl/access";
+import { unbilledDetentionOfLoad } from "@/server/tl/detention";
 import { getInvoice } from "@/server/tl/invoicing";
 import { currentTerminal } from "@/server/tl/terminal";
 
@@ -47,6 +49,10 @@ export default async function InvoicePage({ params }: { params: { id: string } }
   const me = access.ok ? access.identity : null;
   const canBill = !!me && can(me.role, me.grants, "bill");
   const canWriteOff = !!me && can(me.role, me.grants, "writeoff");
+  const canAdmin = !!me && can(me.role, me.grants, "admin");
+  const isSupplemental = !!inv.supplementOf;
+  const loadTargetId = inv.supplementOf?.loadId ?? inv.loads[0]?.id ?? null;
+  const parentUnbilledDetention = !isSupplemental && canBill && inv.recordId && inv.loads.length === 1 ? await unbilledDetentionOfLoad(inv.loads[0]!.id) : 0;
   const now = new Date();
   const lastPayment = inv.payments[inv.payments.length - 1] ?? null;
   const loadWord = inv.loads.length > 1 ? `${inv.loads.length} loads` : "the load";
@@ -54,11 +60,13 @@ export default async function InvoicePage({ params }: { params: { id: string } }
   const pastDue = daysPastDue(inv.sent, inv.terms, now) ?? 0;
   const daysLeft = Math.max(0, -pastDue);
   const stamp =
-    inv.status === "paid"
-      ? { text: `Paid ${inv.paidAt ? shortDate(inv.paidAt) : ""}`.trim(), tone: "good" as const }
-      : overdue
-        ? { text: `Overdue ${Math.max(1, pastDue)} ${Math.max(1, pastDue) === 1 ? "day" : "days"}`, tone: "bad" as const }
-        : { text: daysLeft === 0 ? "Due today" : `Due in ${daysLeft} ${daysLeft === 1 ? "day" : "days"}`, tone: "plain" as const };
+    inv.status === "void"
+      ? { text: inv.voidReason ? `Void · ${inv.voidReason}` : "Void", tone: "bad" as const }
+      : inv.status === "paid"
+        ? { text: `Paid ${inv.paidAt ? shortDate(inv.paidAt) : ""}`.trim(), tone: "good" as const }
+        : overdue
+          ? { text: `Overdue ${Math.max(1, pastDue)} ${Math.max(1, pastDue) === 1 ? "day" : "days"}`, tone: "bad" as const }
+          : { text: daysLeft === 0 ? "Due today" : `Due in ${daysLeft} ${daysLeft === 1 ? "day" : "days"}`, tone: "plain" as const };
   const reminder = reminderText({
     broker: inv.billTo.name,
     invoiceNumber: inv.invoiceNumber,
@@ -78,27 +86,65 @@ export default async function InvoicePage({ params }: { params: { id: string } }
         <Link href="/invoices" className="tl-btn">
           All invoices
         </Link>
-        <Link href={`/loads/${inv.id}`} className="tl-btn">
-          Open the load
-        </Link>
+        {inv.supplementOf ? (
+          <Link href={`/invoices/${inv.supplementOf.loadId ?? inv.supplementOf.id}`} className="tl-btn">
+            Parent {inv.supplementOf.number}
+          </Link>
+        ) : null}
+        {loadTargetId ? (
+          <Link href={`/loads/${loadTargetId}`} className="tl-btn">
+            Open the load
+          </Link>
+        ) : null}
         <PrintButton documentTitle={inv.invoiceNumber} />
         {/* The PDF made on the server: the same file a factoring packet will carry (docs/MONEY_PLAN.md, rule H). */}
-        <a href={`/invoices/${inv.id}/pdf`} className="tl-btn" target="_blank" rel="noopener">
+        <a href={`/invoices/${isSupplemental ? inv.recordId : inv.id}/pdf`} className="tl-btn" target="_blank" rel="noopener">
           PDF
         </a>
-        {canBill && inv.status === "invoiced" ? <PaidDialog loadId={inv.id} invoiceNumber={inv.invoiceNumber} billed={inv.total} owing={inv.balance} canWriteOff={canWriteOff} size="sm" /> : null}
+        {canBill && !isSupplemental && inv.recordId ? (
+          <SupplementalDialog
+            invoiceId={inv.recordId}
+            invoiceNumber={inv.invoiceNumber}
+            loadId={inv.loads[0]?.id ?? inv.id}
+            unbilledDetention={parentUnbilledDetention}
+            factored={!!factoring && factoring.status !== "none" && factoring.status !== "rejected"}
+            size="sm"
+          />
+        ) : null}
+        {canBill && inv.status === "invoiced" ? (
+          <PaidDialog
+            loadId={loadTargetId ?? inv.id}
+            invoiceId={isSupplemental ? (inv.recordId ?? inv.id) : undefined}
+            invoiceNumber={inv.invoiceNumber}
+            billed={inv.total}
+            owing={inv.balance}
+            canWriteOff={canWriteOff}
+            size="sm"
+          />
+        ) : null}
         {/* A credit on an invoice a factor has is the factor's to settle (server/tl/invoicing.ts refuses it), so it is not offered. */}
-        {canBill && inv.status === "invoiced" && inv.recordId && inv.balance > 0 && !(factoring && ["requested", "submitted", "funded"].includes(factoring.status)) ? <CreditMemoDialog loadId={inv.id} invoiceNumber={inv.invoiceNumber} owingCents={new Prisma.Decimal(inv.balance).times(100).toDecimalPlaces(0).toNumber()} /> : null}
-        {canBill && lastPayment && lastPayment.source !== "credit" ? (
-          <ConfirmForm action={undoPaidAction} fields={{ loadId: inv.id }} label="Undo last payment" title={`Take back the latest payment on ${inv.invoiceNumber ?? "this invoice"}?`} eyebrow="Payment" confirmLabel="Take it back" destructive askReason>
+        {canBill && !isSupplemental && inv.status === "invoiced" && inv.recordId && inv.balance > 0 && !(factoring && ["requested", "submitted", "funded"].includes(factoring.status)) ? <CreditMemoDialog loadId={inv.id} invoiceNumber={inv.invoiceNumber} owingCents={new Prisma.Decimal(inv.balance).times(100).toDecimalPlaces(0).toNumber()} /> : null}
+        {canAdmin && lastPayment && lastPayment.source !== "credit" ? (
+          <ConfirmForm
+            action={isSupplemental ? undoSupplementalPaymentAction : undoPaidAction}
+            fields={isSupplemental ? { invoiceId: inv.id } : { loadId: inv.id }}
+            label="Undo last payment"
+            title={`Take back the latest payment on ${inv.invoiceNumber ?? "this invoice"}?`}
+            eyebrow="Payment"
+            confirmLabel="Take it back"
+            destructive
+            askReason>
             <p>The invoice goes back to owing what it did before that payment.</p>
           </ConfirmForm>
+        ) : null}
+        {canAdmin && isSupplemental && inv.status === "invoiced" && !(inv.paidAmount && inv.paidAmount > 0) ? (
+          <VoidSupplementalButton invoiceId={inv.id} number={inv.invoiceNumber ?? ""} amount={inv.total} />
         ) : null}
         {overdue ? (
           <>
             <CopyText size="md" label="Copy reminder" text={reminder} />
             <ChaseActions
-              loadId={inv.id}
+              loadId={loadTargetId ?? inv.id}
               email={inv.billTo.email}
               phone={inv.billTo.phone}
               subject={`Invoice ${inv.invoiceNumber ?? ""} — past due`}
@@ -133,12 +179,12 @@ export default async function InvoicePage({ params }: { params: { id: string } }
       ) : null}
       <article className="rp">
         <DocHead
-          kicker="Invoice"
+          kicker={isSupplemental ? "Supplemental invoice" : "Invoice"}
           number={inv.invoiceNumber}
           company={inv.company}
-          heroLabel={inv.status === "paid" ? "Invoiced" : inv.paidAmount != null && inv.paidAmount > 0 ? "Balance due" : "Total due"}
-          hero={usd(inv.status === "paid" ? inv.total : inv.balance, 2)}
-          sub={`${inv.status !== "paid" && inv.paidAmount != null && inv.paidAmount > 0 ? `of ${usd(inv.total, 2)}, ${usd(inv.paidAmount, 2)} ${inv.credits.some((c) => c.status === "paid") ? "received or credited" : "received"} · ` : ""}Due ${shortDate(inv.due)} · ${termsLabel(inv.terms)}`}
+          heroLabel={inv.status === "void" ? "Void" : inv.status === "paid" ? "Invoiced" : inv.paidAmount != null && inv.paidAmount > 0 ? "Balance due" : "Total due"}
+          hero={usd(inv.status === "paid" || inv.status === "void" ? inv.total : inv.balance, 2)}
+          sub={`${inv.supplementOf ? `Supplemental to ${inv.supplementOf.number} · ` : ""}${inv.status !== "paid" && inv.status !== "void" && inv.paidAmount != null && inv.paidAmount > 0 ? `of ${usd(inv.total, 2)}, ${usd(inv.paidAmount, 2)} ${inv.credits.some((c) => c.status === "paid") ? "received or credited" : "received"} · ` : ""}Due ${shortDate(inv.due)} · ${termsLabel(inv.terms)}`}
           stamp={stamp}
         />
 
@@ -292,6 +338,35 @@ export default async function InvoicePage({ params }: { params: { id: string } }
                     </td>
                     <td className="num">{c.status === "void" ? <s>{usd(-c.amount, 2)}</s> : usd(-c.amount, 2)}</td>
                     <td className="num no-print">{canWriteOff && c.status !== "void" ? <VoidCreditButton memoId={c.id} number={c.number} amount={c.amount} /> : null}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        ) : null}
+
+        {inv.supplementals.length > 0 ? (
+          <>
+            <h2>Supplemental invoices</h2>
+            <table className="rp-table" aria-label="Supplemental invoices">
+              <tbody>
+                {inv.supplementals.map((s) => (
+                  <tr key={s.id} className={s.status === "void" ? "rp-dim" : undefined}>
+                    <td>
+                      <Link href={`/invoices/${s.id}`}>
+                        <b>{s.number}</b>
+                      </Link>
+                      {" · "}
+                      {dayYear(s.issuedAt)} · {s.lines.map((l) => l.label).join(", ")}
+                      {s.status === "void" ? ` · void${s.voidReason ? `: ${s.voidReason}` : ""}` : s.status === "paid" ? " · paid" : ` · open ${usd(s.balance, 2)}`}
+                    </td>
+                    <td className="num">{s.status === "void" ? <s>{usd(s.total, 2)}</s> : usd(s.total, 2)}</td>
+                    <td className="num no-print">
+                      <a href={`/invoices/${s.id}/pdf`} className="tl-btn sm" target="_blank" rel="noopener">
+                        PDF
+                      </a>{" "}
+                      {canAdmin && s.status === "open" && s.paidTotal === 0 ? <VoidSupplementalButton invoiceId={s.id} number={s.number} amount={s.total} /> : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>

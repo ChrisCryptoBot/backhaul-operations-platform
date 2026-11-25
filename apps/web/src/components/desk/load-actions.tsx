@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { TruckPicker } from "./truck-picker";
 import React from "react";
-import { completeTripAction, correctTripAction, invoiceLoadAction, paidAction, saveExpensesAction, saveLoadDetailsAction, startTripAction } from "@/app/(desk)/actions";
+import { completeTripAction, correctTripAction, invoiceLoadAction, paidAction, paySupplementalAction, saveExpensesAction, saveLoadDetailsAction, startTripAction } from "@/app/(desk)/actions";
 import { shortDate, usd } from "@/lib/desk-format";
 import { termsLabel, validateInvoice, type InvoiceContext, type InvoiceForm } from "@/lib/invoicing";
 import { dueAt } from "@/lib/overdue";
@@ -872,7 +872,29 @@ export function InvoiceDialog({
 // ── Payment ────────────────────────────────────────────────────────────────────────────────────
 
 /** Mark an invoice paid with what came in. A payment that is not the invoice total is recorded as it came, and says by how much it differs. */
-export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff = true, tz, size = "primary" }: { loadId: string; invoiceNumber: string | null; billed: number; owing?: number; /** Writing a shortfall off is an admin's: without it the dialog only offers to keep the balance open. */ canWriteOff?: boolean; tz?: string; size?: "primary" | "sm" }) {
+export function PaidDialog({
+  loadId,
+  invoiceId,
+  invoiceNumber,
+  billed,
+  owing,
+  canWriteOff = true,
+  tz,
+  size = "primary",
+  buttonLabel
+}: {
+  loadId: string;
+  /** Set when paying a supplemental invoice record directly instead of updating the parent load. */
+  invoiceId?: string;
+  invoiceNumber: string | null;
+  billed: number;
+  owing?: number;
+  /** Writing a shortfall off is an admin's: without it the dialog only offers to keep the balance open. */
+  canWriteOff?: boolean;
+  tz?: string;
+  size?: "primary" | "sm";
+  buttonLabel?: string;
+}) {
   const router = useRouter();
   const toast = useToast();
   const zone = tz ?? activeTz();
@@ -881,7 +903,7 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff =
   const received = Math.round((billed - due) * 100) / 100;
   const [open, setOpen] = React.useState(false);
   // What is typed is kept until the payment is recorded.
-  const [{ amount, paidOn, method, shortAction, shortReason, overAck, reference, payer, shortCode }, setPaid, draft] = useDraft<{ amount: string; paidOn: string; method: string; shortAction: "balance" | "writeoff"; shortReason: string; overAck: boolean; reference: string; payer: string; shortCode: ShortCode | "" }>(`paid:${loadId}`, {
+  const [{ amount, paidOn, method, shortAction, shortReason, overAck, reference, payer, shortCode }, setPaid, draft] = useDraft<{ amount: string; paidOn: string; method: string; shortAction: "balance" | "writeoff"; shortReason: string; overAck: boolean; reference: string; payer: string; shortCode: ShortCode | "" }>(`paid:${invoiceId ?? loadId}`, {
     amount: due.toFixed(2),
     paidOn: nowLocal(zone).slice(0, 10),
     method: "",
@@ -911,7 +933,11 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff =
   async function pay() {
     setMessage(null);
     setBusy(true);
-    const got = await tried(() => paidAction(loadId, amount, paidOn, method, shortAction, shortReason, { reference, payer, shortCode }));
+    const got = await tried(() =>
+      invoiceId
+        ? paySupplementalAction(invoiceId, amount, paidOn, method, shortAction, shortReason, { reference, payer, shortCode })
+        : paidAction(loadId, amount, paidOn, method, shortAction, shortReason, { reference, payer, shortCode })
+    );
     setBusy(false);
     if (!got.ok) return setMessage(got.message);
     const out = got.value;
@@ -936,7 +962,7 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff =
           setMessage(null);
           setOpen(true);
         }}>
-        {received > 0 ? "Record a payment" : "Mark paid"}
+        {buttonLabel ?? (received > 0 ? "Record a payment" : "Mark paid")}
       </button>
       <Modal
         open={open}

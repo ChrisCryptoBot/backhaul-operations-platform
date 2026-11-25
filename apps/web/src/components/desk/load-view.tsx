@@ -10,7 +10,7 @@ import { checkAccess } from "@/server/tl/access";
 import { canAny, type Capability } from "@/lib/roles";
 import { listLoadAudit } from "@/server/tl/audit";
 import { num, numOrNull } from "@/server/tl/convert";
-import { detentionOfLoad, waivedDetentionLoads } from "@/server/tl/detention";
+import { detentionOfLoad, supplementalDetentionByLoad, waivedDetentionLoads } from "@/server/tl/detention";
 import { evidenceSummary } from "@/server/tl/detention-evidence";
 import { ReadOnlyGate } from "./kit/read-only";
 import { UnwaiveDetentionButton, WaiveDetentionButton } from "./waive-detention";
@@ -23,6 +23,7 @@ import { AssignTrailer } from "./trailer-forms";
 import { trailerBlocker } from "@/lib/trailer-clearance";
 import { acknowledgeDiscrepancyAction, assignAction, discrepancyRelayAction, dropRelayAction, recallAction, receiveRelayAction, reopenCancelledAction, reopenDeliveredAction, respondAction, retryBridgeAction, sendAction, unassignAction, undoPaidAction, undoStartAction, voidInvoiceAction } from "@/app/(desk)/actions";
 import { InvoiceDialog, LoadEditDialog, PaidDialog, TripEntry } from "./load-actions";
+import { SupplementalDialog } from "./supplemental-invoice";
 import { loadLedger } from "@/lib/load-ledger";
 import { roleOfStop } from "@/lib/stop-role";
 import { RecallForm } from "./recall-form";
@@ -37,7 +38,7 @@ import { daysPastDue } from "@/lib/overdue";
 import { canInvoiceStatus, invoiceBasis, invoiceReadiness, owedOf, termsLabel } from "@/lib/invoicing";
 import { toEditValues } from "@/lib/load-edit";
 import { customerTermsMap } from "@/server/tl/customers";
-import { suggestedInvoiceNumber } from "@/server/tl/invoicing";
+import { primaryInvoiceOfLoad, suggestedInvoiceNumber, supplementalsByLoad } from "@/server/tl/invoicing";
 import { DeleteLoadButton } from "./delete-load";
 import { deriveTimeline } from "@/lib/desk-timeline";
 import { CAN_CANCEL, CAN_RESCHEDULE, CAN_TONU, reasonLabel } from "@/lib/disruptions";
@@ -93,7 +94,7 @@ export async function LoadView({ id }: { id: string }) {
     <p className="tl-note" role="note">You can read this load but not change it. A dispatcher or the accounting office can.</p>
   );
 
-  const [{ byLoad }, feed, loadSettlements, waivedMap, tracking, evidence, holders, legs, batons] = await Promise.all([
+  const [{ byLoad }, feed, loadSettlements, waivedMap, tracking, evidence, holders, legs, batons, primaryInv, loadSupplementals, suppDetention] = await Promise.all([
     getAlerts(new Date(), currentWorkspaceId(), "open", id),
     listLoadAudit(id),
     settlementsOfLoad(id),
@@ -105,7 +106,10 @@ export async function LoadView({ id }: { id: string }) {
     holderTrail(id),
     // The legs and batons of a relay (docs/RELAY_DESIGN.md): none for a load that never changed hands.
     legsOfLoad(id),
-    handoffsOfLoad(id)
+    handoffsOfLoad(id),
+    detail.load.paymentStatus ? primaryInvoiceOfLoad(id) : Promise.resolve(null),
+    detail.load.paymentStatus ? supplementalsByLoad([id]).then((m) => m.get(id) ?? []) : Promise.resolve([]),
+    detail.load.status === "completed" ? supplementalDetentionByLoad([id]).then((m) => m.get(id) ?? 0) : Promise.resolve(0)
   ]);
   const waivedReason = waivedMap.get(id) ?? null;
   const openBaton = batons.find((b) => b.state === "dropped" || b.state === "disputed") ?? null;
@@ -143,7 +147,7 @@ export async function LoadView({ id }: { id: string }) {
   const arrived = load.stops.map((s) => s.arrivedAt).filter((d): d is Date => d != null).sort((x, y) => x.getTime() - y.getTime())[0] ?? null;
 
   const thresholds = await getThresholds();
-  const dt = detentionOfLoad(load, thresholds.detentionGraceMinutes);
+  const dt = detentionOfLoad(load, thresholds.detentionGraceMinutes, suppDetention);
   const fellThrough = load.status === "cancelled" || load.status === "tonu";
   const firstPickup = load.stops.map((s) => s.timeWindowEarliest).find((d): d is Date => d != null) ?? null;
 
@@ -185,7 +189,8 @@ export async function LoadView({ id }: { id: string }) {
   const invoiceLines = Array.isArray(load.invoiceLines) ? (load.invoiceLines as Array<{ label: string; amount: number }>) : null;
   const dueAt = dueAtOf(load.invoicedAt, load.payTermsDays);
   const paidAmount = load.paidAmount != null ? num(load.paidAmount) : null;
-  const owing = load.paymentStatus === "invoiced" ? (owedOf(billed, paidAmount) ?? billed) : 0;
+  const suppOpen = loadSupplementals.filter((s) => s.status === "open").reduce((sum, s) => sum + s.balance, 0);
+  const owing = load.paymentStatus === "invoiced" || suppOpen > 0 ? (owedOf(billed, paidAmount, { supplementalOpen: suppOpen, parentPaid: load.paymentStatus === "paid" }) ?? billed) : 0;
   const needs = [load.requiresLiftgate ? "liftgate" : null, load.requiresRamp ? "ramp" : null, load.requiresPalletJack ? "pallet jack" : null].filter((x): x is string => x != null);
   const size = [load.lengthFt, load.widthFt].every((x) => x == null) && load.loadHeightIn == null ? null : [load.lengthFt != null ? `${num(load.lengthFt)} ft long` : null, load.widthFt != null ? `${num(load.widthFt)} ft wide` : null, load.loadHeightIn != null ? `${num(load.loadHeightIn)} in high` : null].filter(Boolean).join(", ");
 
@@ -683,6 +688,29 @@ export async function LoadView({ id }: { id: string }) {
               </tr>
             </tbody>
           </table>
+          {loadSupplementals.length > 0 ? (
+            <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+              {loadSupplementals.map((s) => (
+                <div key={s.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                  <span>
+                    <Link href={`/invoices/${s.id}`}>
+                      <b>Supplemental {s.tag}</b>
+                    </Link>
+                    {" · "}
+                    {s.status === "open" ? `open ${usd(s.balance, 2)}` : s.status === "paid" ? `paid ${usd(s.total, 2)}` : "void"}
+                  </span>
+                  <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                    <a href={`/invoices/${s.id}/pdf`} className="tl-btn sm" target="_blank" rel="noopener">
+                      PDF
+                    </a>
+                    {s.status === "open" && may("bill") ? (
+                      <PaidDialog loadId={load.id} invoiceId={s.id} invoiceNumber={s.number} billed={s.total} owing={s.balance} canWriteOff={may("writeoff")} tz={workspaceZone} size="sm" buttonLabel="Mark paid" />
+                    ) : null}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       </section>
     ) : null;
@@ -927,6 +955,15 @@ export async function LoadView({ id }: { id: string }) {
               View invoice
             </Link>
           ) : null}
+          {load.paymentStatus && primaryInv ? (
+            <SupplementalDialog
+              invoiceId={primaryInv.id}
+              invoiceNumber={primaryInv.number}
+              loadId={load.id}
+              unbilledDetention={basis.tonu || waivedReason ? 0 : dt.unbilled}
+              factored={primaryInv.factoringStatus !== "none" && primaryInv.factoringStatus !== "rejected"}
+            />
+          ) : null}
         </>,
         "bill"
       )}
@@ -1012,7 +1049,9 @@ export async function LoadView({ id }: { id: string }) {
   const nextText: string | null = fellThrough
     ? null
     : load.paymentStatus === "paid"
-      ? "Paid. Nothing left to do on this load."
+      ? suppOpen > 0
+        ? `Paid on ${load.invoiceNumber ?? "original invoice"}. Waiting on ${usd(suppOpen, 2)} supplemental from ${load.brokerName ?? "the customer"}.`
+        : "Paid. Nothing left to do on this load."
       : load.paymentStatus === "invoiced"
         ? `Invoiced${load.invoiceNumber ? ` ${load.invoiceNumber}` : ""}. Waiting on ${usd(owing, 2)} from ${load.brokerName ?? "the customer"}.`
         : delivered

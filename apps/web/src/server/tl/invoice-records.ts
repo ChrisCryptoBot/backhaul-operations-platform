@@ -12,7 +12,7 @@ const cents = (n: Prisma.Decimal.Value) => new Prisma.Decimal(n).toDecimalPlaces
 /** The invoice a load is on now (not void), newest first. */
 export async function openInvoiceOf(tx: Tx, workspaceId: string, loadId: string) {
   return tx.invoice.findFirst({
-    where: { workspaceId, kind: "invoice", status: { not: "void" }, loads: { some: { loadId } } },
+    where: { workspaceId, kind: "invoice", supplementOfId: null, status: { not: "void" }, loads: { some: { loadId } } },
     orderBy: [{ issuedAt: "desc" }, { id: "desc" }],
     include: { lines: { orderBy: { sort: "asc" } }, loads: true }
   });
@@ -185,7 +185,7 @@ async function refreshPaidTotal(tx: Tx, invoiceId: string): Promise<void> {
  */
 export async function projectionOf(tx: Tx | Prisma.DefaultPrismaClient, invoiceId: string) {
   const inv = await tx.invoice.findUnique({ where: { id: invoiceId }, include: { lines: { orderBy: { sort: "asc" } }, loads: true } });
-  if (!inv) return [];
+  if (!inv || inv.supplementOfId != null || inv.loads.length === 0) return [];
   const order: string[] = [];
   for (const l of inv.lines) if (l.loadId && !order.includes(l.loadId)) order.push(l.loadId);
   for (const l of inv.loads) if (!order.includes(l.loadId)) order.push(l.loadId);

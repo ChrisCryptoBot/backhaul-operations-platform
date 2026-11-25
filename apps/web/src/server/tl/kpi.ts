@@ -20,6 +20,7 @@ import { currentWorkspaceId } from "./workspace";
 import { workspaceTimezone } from "./zone";
 import { answerCache, clockBucket } from "./answer-cache";
 import { getKpiExtras, kpiExtrasStamp } from "./kpi-extras";
+import { openSupplementalBalanceByLoad } from "./invoicing";
 import { terminalSetSql } from "./terminal-sql";
 import type { LeakLoad } from "@/lib/leaks";
 import { batchOfChannel } from "@/lib/load-import";
@@ -611,7 +612,7 @@ export function buildDeskKpi(rows: KpiLoadRow[], opts: KpiOptions, thresholds: T
   const verdictMix: Record<Verdict, number> = { accept: 0, caution: 0, reject: 0, needs_fuel: 0 };
   for (const l of open) if (l.verdict) verdictMix[l.verdict] += 1;
 
-  const invoiced = kept.filter((l) => l.paymentStatus === "invoiced");
+  const invoiced = kept.filter((l) => l.paymentStatus === "invoiced" || (l.paymentStatus === "paid" && (numOrNull(l.supplementalOpen) ?? 0) > 0));
   const aging = computeAgingSummary(invoiced.map(toAgingView), nowMs);
   const outstanding: OutstandingInvoice[] = invoiced
     .map((l) => {
@@ -743,7 +744,7 @@ export async function getKpiRows(workspaceId = currentWorkspaceId(), opts: { sin
   const sinceSql = since && opts.finishedOnly
     ? Prisma.sql` and (l.completed_at >= ${since} or l.cancelled_at >= ${since} or (l.completed_at is null and l.cancelled_at is null))`
     : since
-    ? Prisma.sql` and (l.status in ('draft', 'accepted', 'in_progress') or l.payment_status = 'invoiced' or l.completed_at >= ${since} or l.cancelled_at >= ${since} or (l.completed_at is null and l.cancelled_at is null))`
+    ? Prisma.sql` and (l.status in ('draft', 'accepted', 'in_progress') or l.payment_status = 'invoiced' or exists (select 1 from invoice_loads il join invoices s on s.supplement_of_id = il.invoice_id where il.load_id = l.id and s.kind = 'invoice' and s.status = 'open') or l.completed_at >= ${since} or l.cancelled_at >= ${since} or (l.completed_at is null and l.cancelled_at is null))`
     : Prisma.empty;
   // One query for the rows, with plain numbers (no Decimal objects) and the truck and driver names joined in. The truck's cost profile is read only for open loads below
   // (it prices their verdict); reading one for every finished load is what made this slow.
@@ -778,8 +779,10 @@ export async function getKpiRows(workspaceId = currentWorkspaceId(), opts: { sin
     const profile = l.vehicle?.costProfile ?? null;
     verdictOf.set(l.id, profile ? evaluateTlLoad(l, profile, l.vehicle).finalDecision : null);
   }
+  const suppOpen = opts.finishedOnly ? new Map<string, number>() : await openSupplementalBalanceByLoad(loads.filter((l) => l.paymentStatus != null).map((l) => l.id), workspaceId);
   return loads.map((l) => ({
     ...l,
+    supplementalOpen: suppOpen.get(l.id) ?? 0,
     verdict: verdictOf.get(l.id) ?? null,
     stops: stopsOf.get(l.id) ?? [],
     assignment: l.asStatus ? { driverName: l.asDriver ?? "", payKind: l.asPayKind ?? "", payEstimate: l.asPayEstimate, status: l.asStatus } : null

@@ -28,6 +28,7 @@ export function lineKindOf(label: string): LineKind {
   switch (label.trim().toLowerCase()) {
     case "line haul":
     case "linehaul":
+    case "rate correction":
       return "linehaul";
     case "fuel surcharge":
       return "fuel_surcharge";

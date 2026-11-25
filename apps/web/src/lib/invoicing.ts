@@ -105,12 +105,62 @@ export function validateInvoice(form: InvoiceForm, ctx: InvoiceContext): Invoice
 
 /**
  * What is still owed on an invoice that is out: the invoice less what has come in so far, in whole cents. An invoice with no amount (billed before amounts were kept) has none to
- * subtract from and is returned as it is, for the caller to fall back on the load's rate. Ageing, the KPI and the lists all count this, so a part-paid invoice is owed its balance.
+ * subtract from and is returned as it is, for the caller to fall back on the load's rate. When supplemental balances or credits are passed, the owed balance includes open
+ * supplemental invoices even when the parent invoice is already paid in full.
  */
-export function owedOf(invoiced: number | null, received: number | null): number | null {
-  if (invoiced == null) return null;
+export function owedOf(
+  invoiced: number | null,
+  received: number | null,
+  opts?: { supplementalOpen?: number; credits?: number; parentPaid?: boolean }
+): number | null {
   const cents = (n: number) => Number((n * 100).toFixed(0));
-  return Math.max(0, cents(invoiced) - cents(received ?? 0)) / 100;
+  if (!opts) {
+    if (invoiced == null) return null;
+    return Math.max(0, cents(invoiced) - cents(received ?? 0)) / 100;
+  }
+  const parentCents = opts.parentPaid || invoiced == null ? 0 : Math.max(0, cents(invoiced) - cents(received ?? 0));
+  const suppCents = Math.max(0, cents(opts.supplementalOpen ?? 0));
+  const creditCents = Math.max(0, cents(opts.credits ?? 0));
+  if (invoiced == null && suppCents === 0) return null;
+  return Math.max(0, parentCents + suppCents - creditCents) / 100;
+}
+
+export const SUPPLEMENTAL_KINDS = ["detention", "layover", "lumper", "linehaul", "other"] as const;
+export type SupplementalKind = (typeof SUPPLEMENTAL_KINDS)[number];
+export const SUPPLEMENTAL_KIND_LABEL: Record<SupplementalKind, string> = {
+  detention: "Detention",
+  layover: "Layover",
+  lumper: "Lumper",
+  linehaul: "Rate correction",
+  other: "Other"
+};
+
+export type SupplementalLineInput = { kind: string; label?: string | null; amount: string | number; loadId?: string | null };
+export type CheckedSupplementalLine = { kind: SupplementalKind; label: string; amount: number; loadId: string | null };
+
+export function validateSupplementalLines(
+  raw: readonly SupplementalLineInput[]
+): { ok: true; lines: CheckedSupplementalLine[]; total: number } | { ok: false; error: string } {
+  if (!Array.isArray(raw) || raw.length === 0) return { ok: false, error: "Add at least one charge to the supplemental invoice." };
+  if (raw.length > 20) return { ok: false, error: "At most 20 lines on one supplemental invoice." };
+  const lines: CheckedSupplementalLine[] = [];
+  let totalCents = 0;
+  for (const item of raw) {
+    const kind = (item.kind ?? "").trim() as SupplementalKind;
+    if (!(SUPPLEMENTAL_KINDS as readonly string[]).includes(kind)) return { ok: false, error: "Pick a valid charge type." };
+    const amtStr = typeof item.amount === "number" ? (Number.isFinite(item.amount) ? item.amount.toFixed(2) : "") : String(item.amount ?? "");
+    if (typeof item.amount === "number" && Number(item.amount.toFixed(2)) !== item.amount) {
+      return { ok: false, error: "Dollars and cents, up to two decimal places." };
+    }
+    const parsed = dollars(amtStr);
+    if (parsed.bad || !(parsed.n > 0)) return { ok: false, error: "Each charge must be a dollar amount above zero (up to $100,000)." };
+    const typedLabel = (item.label ?? "").trim();
+    if (kind === "other" && typedLabel === "") return { ok: false, error: "Describe what an Other charge is for." };
+    const label = (typedLabel || SUPPLEMENTAL_KIND_LABEL[kind]).slice(0, 80);
+    totalCents += Number((parsed.n * 100).toFixed(0));
+    lines.push({ kind, label, amount: parsed.n, loadId: item.loadId ?? null });
+  }
+  return { ok: true, lines, total: totalCents / 100 };
 }
 
 /** Terms in words: "Net 30", or "Due on receipt" for 0 days. */

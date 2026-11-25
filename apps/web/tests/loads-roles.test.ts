@@ -34,7 +34,7 @@ const TABLE: Record<string, Capability[]> = {
   saveBillingDetailsAction: ["billing_details"], saveCustomerAction: ["dispatch", "billing_details"], sendMessageAction: ["dispatch", "bill"], markThreadReadAction: ["dispatch", "bill"], pullMessagesNowAction: ["dispatch", "bill"],
   correctTripAction: ["figures"], confirmStopEvidenceAction: ["figures"], dismissStopEvidenceAction: ["figures"], saveExpensesAction: ["figures"], importFuelAction: ["figures"], removeDocumentAction: ["documents_remove"], setDocumentToDriverAction: ["documents"], decideReceiptAction: ["bill"],
   // billing and payroll
-  invoiceLoadAction: ["bill"], invoiceLoadsAction: ["bill"], saveFactoringTermsAction: ["admin"], setMoneyMovingAction: ["admin"], createApiKeyAction: ["admin"], revokeApiKeyAction: ["admin"], createWebhookAction: ["admin"], rotateWebhookSecretAction: ["admin"], setWebhookActiveAction: ["admin"], sendWebhookTestAction: ["admin"], replayPartnerEventAction: ["admin"], retryWebhookDeliveryAction: ["admin"], retryPartnerSyncAction: ["admin"], resolvePartnerIssueAction: ["admin"], resetShowcaseAction: ["admin"], runShowcaseStepAction: ["admin"], factoringChargebackAction: ["bill"], sendFactoringBatchAction: ["bill"], retryFactoringBatchAction: ["bill"], cancelFactoringBatchAction: ["bill"], checkFactorStatusAction: ["bill"], applyFactorStatusAction: ["bill"], creditMemoAction: ["bill"], voidCreditMemoAction: ["writeoff"], paidAction: ["bill"], voidInvoiceAction: ["admin"], undoPaidAction: ["admin"], chasedAction: ["bill"], waiveDetentionAction: ["bill"], unwaiveDetentionAction: ["bill"], factorInvoiceAction: ["bill"], factoringUpdateAction: ["bill"],
+  invoiceLoadAction: ["bill"], invoiceLoadsAction: ["bill"], saveFactoringTermsAction: ["admin"], setMoneyMovingAction: ["admin"], createApiKeyAction: ["admin"], revokeApiKeyAction: ["admin"], createWebhookAction: ["admin"], rotateWebhookSecretAction: ["admin"], setWebhookActiveAction: ["admin"], sendWebhookTestAction: ["admin"], replayPartnerEventAction: ["admin"], retryWebhookDeliveryAction: ["admin"], retryPartnerSyncAction: ["admin"], resolvePartnerIssueAction: ["admin"], resetShowcaseAction: ["admin"], runShowcaseStepAction: ["admin"], factoringChargebackAction: ["bill"], sendFactoringBatchAction: ["bill"], retryFactoringBatchAction: ["bill"], cancelFactoringBatchAction: ["bill"], checkFactorStatusAction: ["bill"], applyFactorStatusAction: ["bill"], creditMemoAction: ["bill"], voidCreditMemoAction: ["writeoff"], issueSupplementalAction: ["bill"], paySupplementalAction: ["bill"], undoSupplementalPaymentAction: ["admin"], voidSupplementalAction: ["admin"], paidAction: ["bill"], voidInvoiceAction: ["admin"], undoPaidAction: ["admin"], chasedAction: ["bill"], waiveDetentionAction: ["bill"], unwaiveDetentionAction: ["bill"], factorInvoiceAction: ["bill"], factoringUpdateAction: ["bill"],
   startSettlementAction: ["bill"], saveSettlementAction: ["bill"], finalizeSettlementAction: ["bill"], discardSettlementAction: ["bill"], sendToPayrollAction: ["payout"], markSettlementPaidAction: ["payout"], saveDriverTaxAction: ["payout"], saveDeductionAction: ["bill"], setDeductionActiveAction: ["bill"], recordAdvanceAction: ["payout"], setAdvanceActiveAction: ["bill"],
   // money that is gone
   voidSettlementAction: ["writeoff"],
@@ -96,9 +96,11 @@ describe("what each office may press", () => {
 });
 
 describe("the write-off is checked where the money moves, not only on the button", () => {
-  it("makes paidAction ask for write-off when it is asked to write something off", () => {
-    const at = text.indexOf("export async function paidAction(");
-    expect(text.slice(at, at + 700)).toMatch(/shortAction === "writeoff"\) await requireCan\("writeoff"\)/);
+  it("makes paidAction and paySupplementalAction ask for write-off when asked to write something off", () => {
+    for (const fn of ["paidAction", "paySupplementalAction"]) {
+      const at = text.indexOf(`export async function ${fn}(`);
+      expect(text.slice(at, at + 700), fn).toMatch(/shortAction === "writeoff"\) await requireCan\("writeoff"\)/);
+    }
   });
 });
 

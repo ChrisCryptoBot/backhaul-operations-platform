@@ -58,7 +58,7 @@ const isSendable = (l: { factoringStatus: string; factoringReferenceId: string |
 /** The invoice a load is on: every load it carries (the load asked about first), its number and total, and its record id. A load with no record is its own invoice (imported history). */
 async function scopeOf(loadId: string, workspaceId: string) {
   const rec = await prisma.invoice.findFirst({
-    where: { workspaceId, kind: "invoice", status: { not: "void" }, loads: { some: { loadId } } },
+    where: { workspaceId, kind: "invoice", supplementOfId: null, status: { not: "void" }, loads: { some: { loadId } } },
     orderBy: [{ issuedAt: "desc" }, { id: "desc" }],
     include: { loads: true }
   });
