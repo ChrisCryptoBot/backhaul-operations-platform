@@ -78,6 +78,25 @@ describe("validateLoadEdit", () => {
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.errors.trailer).toBeDefined();
   });
+
+  it("refuses a stop opening earlier than a previous stop, even across time zones", () => {
+    const v = base();
+    v.stops[0] = { ...v.stops[0]!, earliest: "2026-10-30T10:00", latest: "2026-10-30T12:00", zone: "America/Chicago" };
+    // 10:30 AM Eastern is 9:30 AM Central: earlier than Stop 1's 10:00 AM Central.
+    v.stops[1] = { ...v.stops[1]!, earliest: "2026-10-30T10:30", latest: "", zone: "America/New_York" };
+    const out = validateLoadEdit(v);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.errors["stop1.earliest"]).toMatch(/before an earlier stop/);
+  });
+
+  it("uses the passed fallback zone instead of implicitly reading another clock", () => {
+    const v = base();
+    v.stops[0] = { ...v.stops[0]!, earliest: "2026-10-30T08:00", latest: "", zone: undefined };
+    v.stops[1] = { ...v.stops[1]!, earliest: "2026-10-30T10:00", latest: "", zone: undefined };
+    const out = validateLoadEdit(v, "America/New_York");
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.value.stops[0]!.earliest!.toISOString()).toBe("2026-10-30T12:00:00.000Z");
+  });
 });
 
 describe("toEditValues", () => {

@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import React from "react";
-import { waiveDetentionAction } from "@/app/(desk)/actions";
+import { unwaiveDetentionAction, waiveDetentionAction } from "@/app/(desk)/actions";
 import { usd } from "@/lib/desk-format";
 import { ConfirmDialog } from "./kit/modal";
 import { useToast } from "./kit/toast";
@@ -64,6 +64,70 @@ export function WaiveDetentionButton({ loadId, loadNumber, amount }: { loadId: s
         askReason>
         <p className="tl-note">
           Use this when the detention will not be billed (for example, the customer refused it or it was forgiven). The reason stays in the audit trail, and the load leaves the unbilled detention list.
+        </p>
+        {message ? (
+          <p className="tl-note warn" role="alert">
+            {message}
+          </p>
+        ) : null}
+      </ConfirmDialog>
+    </>
+  );
+}
+
+/** Put waived detention back on the unbilled list, with a reason kept in the audit trail. */
+export function UnwaiveDetentionButton({ loadId, loadNumber }: { loadId: string; loadNumber: string | null }) {
+  const router = useRouter();
+  const toast = useToast();
+  const [open, setOpen] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const [message, setMessage] = React.useState<string | null>(null);
+
+  async function run(reason: string) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const got = await tried(() => unwaiveDetentionAction(loadId, reason));
+      if (!got.ok) {
+        setMessage(got.message);
+        return;
+      }
+      const out = got.value;
+      if (!out.ok) {
+        setMessage(out.error ?? "That detention waiver could not be taken back.");
+        return;
+      }
+      setOpen(false);
+      toast({ text: `Detention waiver taken back on ${loadNumber ?? "the load"}.`, tone: "ok" });
+      router.refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="tl-btn sm"
+        disabled={busy}
+        aria-busy={busy || undefined}
+        onClick={() => {
+          setMessage(null);
+          setOpen(true);
+        }}>
+        {busy ? "Updating…" : "Unwaive detention"}
+      </button>
+      <ConfirmDialog
+        open={open}
+        onClose={() => !busy && setOpen(false)}
+        onConfirm={(reason) => void run(reason)}
+        eyebrow={loadNumber ?? "Detention"}
+        title="Take back detention waiver?"
+        confirmLabel={busy ? "Updating…" : "Unwaive detention"}
+        askReason>
+        <p className="tl-note">
+          Use this when the customer agrees to pay detention or it was waived by mistake. The load returns to the unbilled detention list.
         </p>
         {message ? (
           <p className="tl-note warn" role="alert">

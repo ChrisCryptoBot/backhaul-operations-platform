@@ -5,7 +5,7 @@ import { moneyState } from "@/lib/money-state";
 import { factorInvoice } from "@/server/partners/factoring";
 import { listPayroll, sendToPayroll } from "@/server/partners/payroll";
 import { getAlerts } from "@/server/tl/alerts";
-import { getDetentionRecovery, waiveDetention } from "@/server/tl/detention";
+import { getDetentionRecovery, unwaiveDetention, waiveDetention } from "@/server/tl/detention";
 import { buildExport } from "@/server/tl/exports";
 import { getInvoice, invoiceLoad, markLoadPaid, recordChase } from "@/server/tl/invoicing";
 import { countInvoices, listInvoiceRows } from "@/server/tl/queries";
@@ -135,13 +135,20 @@ describe.skipIf(!run)("invoices, settlements and payroll readiness on the demo d
     const alertsBefore = await getAlerts(NOW, W, "open", dallasLoad.id);
     expect(alertsBefore.alerts.some((a) => a.loadId === dallasLoad.id && a.code === "DETENTION_UNBILLED")).toBe(true);
 
-    // Short reason refused; real reason recorded once and clears both recovery list and alert cache immediately.
+    // Short reason refused; concurrent double-click waives once; real reason recorded on the load and clears both recovery list and alert cache immediately.
     expect(await waiveDetention(dallasLoad.id, "no", NOW, W)).toMatchObject({ ok: false });
-    expect(await waiveDetention(dallasLoad.id, "Forgiven under quarterly lane agreement", new Date(NOW.getTime() + 1000), W)).toEqual({ ok: true });
-    expect(await waiveDetention(dallasLoad.id, "Second click", new Date(NOW.getTime() + 2000), W)).toMatchObject({ ok: false, error: expect.stringContaining("already") });
+    const [w1, w2] = await Promise.all([
+      waiveDetention(dallasLoad.id, "Forgiven under quarterly lane agreement", new Date(NOW.getTime() + 1000), W),
+      waiveDetention(dallasLoad.id, "Second click", new Date(NOW.getTime() + 2000), W)
+    ]);
+    expect([w1, w2].filter((r) => r.ok)).toHaveLength(1);
+    expect([w1, w2].find((r) => !r.ok)).toMatchObject({ ok: false, error: expect.stringContaining("already") });
 
-    const audit = await prisma.auditEvent.findFirstOrThrow({ where: { workspaceId: W, loadId: dallasLoad.id, action: "detention_waived" } });
-    expect(audit.reason).toBe("Forgiven under quarterly lane agreement");
+    const waivedRow = await prisma.load.findUniqueOrThrow({ where: { id: dallasLoad.id }, select: { detentionWaivedAt: true, detentionWaivedBy: true, detentionWaivedReason: true } });
+    expect(waivedRow.detentionWaivedAt).not.toBeNull();
+    expect(waivedRow.detentionWaivedReason).toBeTruthy();
+
+    expect(await prisma.auditEvent.count({ where: { workspaceId: W, loadId: dallasLoad.id, action: "detention_waived" } })).toBe(1);
 
     const dallasAfter = await getDetentionRecovery(W, NOW, "Dallas");
     expect(dallasAfter.unbilledLoads).toBe(0);
@@ -149,6 +156,22 @@ describe.skipIf(!run)("invoices, settlements and payroll readiness on the demo d
 
     const alertsAfter = await getAlerts(new Date(NOW.getTime() + 3000), W, "open", dallasLoad.id);
     expect(alertsAfter.alerts.some((a) => a.loadId === dallasLoad.id && a.code === "DETENTION_UNBILLED")).toBe(false);
+
+    // Unwaive restores unbilled detention to recovery list and alerts, and writes an audit trail entry.
+    expect(await unwaiveDetention(dallasLoad.id, "no", new Date(NOW.getTime() + 4000), W)).toMatchObject({ ok: false });
+    expect(await unwaiveDetention(dallasLoad.id, "Customer agreed to pay detention", new Date(NOW.getTime() + 5000), W)).toEqual({ ok: true });
+    expect(await unwaiveDetention(dallasLoad.id, "Repeat unwaive", new Date(NOW.getTime() + 6000), W)).toMatchObject({ ok: false });
+
+    const unwaivedRow = await prisma.load.findUniqueOrThrow({ where: { id: dallasLoad.id }, select: { detentionWaivedAt: true, detentionWaivedBy: true, detentionWaivedReason: true } });
+    expect(unwaivedRow).toEqual({ detentionWaivedAt: null, detentionWaivedBy: null, detentionWaivedReason: null });
+    expect(await prisma.auditEvent.count({ where: { workspaceId: W, loadId: dallasLoad.id, action: "detention_unwaived" } })).toBe(1);
+
+    const dallasRestored = await getDetentionRecovery(W, NOW, "Dallas");
+    expect(dallasRestored.unbilledLoads).toBe(1);
+    expect(dallasRestored.totalUnbilled).toBe(120);
+
+    const alertsRestored = await getAlerts(new Date(NOW.getTime() + 7000), W, "open", dallasLoad.id);
+    expect(alertsRestored.alerts.some((a) => a.loadId === dallasLoad.id && a.code === "DETENTION_UNBILLED")).toBe(true);
 
     await prisma.load.deleteMany({ where: { id: { in: [dallasLoad.id, houstonLoad.id] } } });
   });

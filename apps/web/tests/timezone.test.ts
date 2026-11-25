@@ -69,6 +69,9 @@ describe("carrier base time: where a day, a week and a month begin", () => {
       }
     }
     expect(parseCentralLocal("2026-02-31T10:00", NY)).toBeNull();
+    expect(parseCentralLocal("2026-03-08T02:30", CHI)).toBeNull();
+    expect(parseCentralLocal("2026-03-08T02:30", NY)).toBeNull();
+    expect(parseCentralLocal("2026-03-08T03:30", CHI)).not.toBeNull();
     // Spring forward: 02:30 on March 8 does not exist in New York; it is read as the next real moment, never a different day.
     const gap = centralInstant(2026, 2, 8, 2, 30, NY);
     expect(centralParts(gap, NY).d).toBe(8);

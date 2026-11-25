@@ -33,7 +33,7 @@ describe("the places that send an assignment back to the driver keep the load in
 
   test("every write that asks a driver again (back to dispatched with the answer cleared) sets the load's status from the table too", () => {
     const asking = files(SRC).filter((f) => /status: "dispatched", dispatchedAt: now,(?: dispatchedBy: [^,]+,)? respondedAt: null/.test(readFileSync(f, "utf8")));
-    expect(asking.map((f) => path.basename(f)).sort()).toEqual(["disruptions.ts", "edit.ts"]);
+    expect(asking.map((f) => path.basename(f)).sort()).toEqual(["disruptions.ts", "edit.ts", "remove.ts"]);
     for (const f of asking) expect(readFileSync(f, "utf8"), path.basename(f)).toContain("loadStatusFor(");
   });
 

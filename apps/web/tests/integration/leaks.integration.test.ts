@@ -239,6 +239,7 @@ describe.skipIf(!run)("the leak ledger on imported history", () => {
   });
 
   test("detention an imported load's owner marked as waived is its own line at the intake terms, and the unbilled line shrinks by the same dollars", async () => {
+    await prisma.load.update({ where: { id: ids["IM-1"]! }, data: { detentionWaivedAt: NOW, detentionWaivedBy: "test", detentionWaivedReason: "Customer relationship" } });
     await prisma.auditEvent.create({ data: { workspaceId: IM, loadId: ids["IM-1"], loadNumber: "IM-1", entity: "invoice", action: "detention_waived", summary: "$360.00 of detention waived", reason: "Customer relationship", actor: "test", createdAt: NOW } });
     clearLeakCache(); // a waiver made through the desk bumps the load; this one is written straight to the audit log
     const l = await read();

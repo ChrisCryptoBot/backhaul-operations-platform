@@ -381,6 +381,9 @@ model Load {
   trackingShareUrl              String?   @map("tracking_share_url")
   trackingProvider              String?   @map("tracking_provider")
   trackingSharedAt              DateTime? @map("tracking_shared_at")
+  detentionWaivedAt             DateTime? @map("detention_waived_at")
+  detentionWaivedBy             String?   @map("detention_waived_by")
+  detentionWaivedReason         String?   @map("detention_waived_reason")
 
   workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   vehicle          Vehicle?          @relation(fields: [vehicleId], references: [id], onDelete: SetNull)

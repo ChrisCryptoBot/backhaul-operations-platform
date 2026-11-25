@@ -78,18 +78,18 @@ export function historyRows<T extends HistoryRow>(rows: T[], f: { filter?: strin
   return sorted;
 }
 
-const monthKey = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: activeTz(), year: "numeric", month: "2-digit" }).format(d);
-const monthLabel = (d: Date) => d.toLocaleDateString("en-US", { timeZone: activeTz(), month: "long", year: "numeric" });
+const monthKey = (d: Date, tz: string) => new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit" }).format(d);
+const monthLabel = (d: Date, tz: string) => d.toLocaleDateString("en-US", { timeZone: tz, month: "long", year: "numeric" });
 
-/** Consecutive rows that fall in the same month on the Dallas calendar, in the order given. A row without a date goes under "Undated". */
-export function monthGroups<T extends HistoryRow>(rows: T[]): Array<{ key: string; label: string; rows: T[] }> {
+/** Consecutive rows that fall in the same month in the carrier's zone, in the order given. A row without a date goes under "Undated". */
+export function monthGroups<T extends HistoryRow>(rows: T[], tz = activeTz()): Array<{ key: string; label: string; rows: T[] }> {
   const groups: Array<{ key: string; label: string; rows: T[] }> = [];
   for (const r of rows) {
     const d = historyDate(r);
-    const key = d ? monthKey(d) : "undated";
+    const key = d ? monthKey(d, tz) : "undated";
     const last = groups[groups.length - 1];
     if (last && last.key === key) last.rows.push(r);
-    else groups.push({ key, label: d ? monthLabel(d) : "Undated", rows: [r] });
+    else groups.push({ key, label: d ? monthLabel(d, tz) : "Undated", rows: [r] });
   }
   return groups;
 }

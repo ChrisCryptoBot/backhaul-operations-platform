@@ -872,9 +872,10 @@ export function InvoiceDialog({
 // ── Payment ────────────────────────────────────────────────────────────────────────────────────
 
 /** Mark an invoice paid with what came in. A payment that is not the invoice total is recorded as it came, and says by how much it differs. */
-export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff = true, size = "primary" }: { loadId: string; invoiceNumber: string | null; billed: number; owing?: number; /** Writing a shortfall off is an admin's: without it the dialog only offers to keep the balance open. */ canWriteOff?: boolean; size?: "primary" | "sm" }) {
+export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff = true, tz, size = "primary" }: { loadId: string; invoiceNumber: string | null; billed: number; owing?: number; /** Writing a shortfall off is an admin's: without it the dialog only offers to keep the balance open. */ canWriteOff?: boolean; tz?: string; size?: "primary" | "sm" }) {
   const router = useRouter();
   const toast = useToast();
+  const zone = tz ?? activeTz();
   // What is still owed: the whole invoice, or what is left of it after part payments.
   const due = owing ?? billed;
   const received = Math.round((billed - due) * 100) / 100;
@@ -882,7 +883,7 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff =
   // What is typed is kept until the payment is recorded.
   const [{ amount, paidOn, method, shortAction, shortReason, overAck, reference, payer, shortCode }, setPaid, draft] = useDraft<{ amount: string; paidOn: string; method: string; shortAction: "balance" | "writeoff"; shortReason: string; overAck: boolean; reference: string; payer: string; shortCode: ShortCode | "" }>(`paid:${loadId}`, {
     amount: due.toFixed(2),
-    paidOn: nowLocal().slice(0, 10),
+    paidOn: nowLocal(zone).slice(0, 10),
     method: "",
     shortAction: "balance",
     shortReason: "",
@@ -963,8 +964,8 @@ export function PaidDialog({ loadId, invoiceNumber, billed, owing, canWriteOff =
             <input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus />
           </Fld>
           <div className="dlg-two">
-            <Fld label="Paid on" hint="Dallas date. Change it to enter an earlier payment.">
-              <DateInput type="date" value={paidOn} max={nowLocal().slice(0, 10)} onChange={(e) => setPaidOn(e.target.value)} />
+            <Fld label="Paid on" hint={`Date in ${clockName(zone)}. Change it to enter an earlier payment.`}>
+              <DateInput type="date" value={paidOn} max={nowLocal(zone).slice(0, 10)} onChange={(e) => setPaidOn(e.target.value)} />
             </Fld>
             <Fld label="How" hint="Optional.">
               <select value={method} onChange={(e) => setMethod(e.target.value)}>

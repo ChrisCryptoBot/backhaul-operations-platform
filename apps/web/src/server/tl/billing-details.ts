@@ -3,6 +3,7 @@ import { termsLabel } from "@/lib/invoicing";
 import { validateBillingDetails, type BillingDetailsValues } from "@/lib/billing-details";
 import type { Terminals } from "@/lib/scope";
 import { recordAudit } from "./audit";
+import { lockWorkspace } from "./plan";
 import { allowedFor } from "./scope";
 import { inTerminal } from "./terminal-sql";
 import { findTwinLoad, duplicateMessage } from "./twins";
@@ -20,39 +21,48 @@ export async function saveBillingDetails(loadId: string, values: BillingDetailsV
   const check = validateBillingDetails(values);
   if (!check.ok) return { ok: false, errors: check.errors };
   const v = check.value;
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, status: { not: "quote" }, ...inTerminal(scope) } });
-  if (!load) return { ok: false, error: "That load does not exist." };
-  if (load.paymentStatus) {
-    const held: string[] = [];
-    if (v.brokerName !== (load.brokerName ?? "")) held.push("customer");
-    if ((v.poNumber ?? null) !== (load.poNumber ?? null)) held.push("PO number");
-    if ((v.payTermsDays ?? null) !== (load.payTermsDays ?? null)) held.push("pay terms");
-    if (held.length > 0) return { ok: false, error: `This load has been invoiced, so its ${held.join(", ")} ${held.length === 1 ? "is" : "are"} what the invoice carries. Take the invoice back first to change ${held.length === 1 ? "it" : "them"}.` };
-  }
-  if (v.brokerName !== (load.brokerName ?? "") && load.loadNumber) {
-    const twin = await findTwinLoad(workspaceId, load.loadNumber, v.brokerName, load.id);
-    if (twin) return { ok: false, errors: { brokerName: `${duplicateMessage(twin)} Use another customer or number.` } };
-  }
-  const changes: Array<[string, string | null, string | null]> = [];
-  const note = (label: string, was: string | number | null | undefined, next: string | number | null) => {
-    const a = was == null || was === "" ? null : String(was);
-    const b = next == null || next === "" ? null : String(next);
-    if (a !== b) changes.push([label, a, b]);
-  };
-  note("Customer", load.brokerName, v.brokerName);
-  note("MC", load.brokerMcNumber, v.brokerMcNumber);
-  note("Phone", load.brokerPhone, v.brokerPhone);
-  note("Email", load.brokerEmail, v.brokerEmail);
-  note("PO", load.poNumber, v.poNumber);
-  note("Terms", load.payTermsDays == null ? null : termsLabel(load.payTermsDays), v.payTermsDays == null ? null : termsLabel(v.payTermsDays));
-  note("Revenue note", load.revenueNote, v.revenueNote);
-  if (changes.length === 0) return { ok: true, changed: false };
-  const done = await prisma.$transaction(async (tx) => {
+  return prisma.$transaction(async (tx) => {
+    await lockWorkspace(tx, workspaceId);
+    const load = await tx.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, status: { not: "quote" }, ...inTerminal(scope) } });
+    if (!load) return { ok: false, error: "That load does not exist." };
+    if (load.paymentStatus) {
+      const held: string[] = [];
+      if (v.brokerName !== (load.brokerName ?? "")) held.push("customer");
+      if ((v.poNumber ?? null) !== (load.poNumber ?? null)) held.push("PO number");
+      if ((v.payTermsDays ?? null) !== (load.payTermsDays ?? null)) held.push("pay terms");
+      if (held.length > 0) return { ok: false, error: `This load has been invoiced, so its ${held.join(", ")} ${held.length === 1 ? "is" : "are"} what the invoice carries. Take the invoice back first to change ${held.length === 1 ? "it" : "them"}.` };
+    }
+    if (v.brokerName !== (load.brokerName ?? "") && load.loadNumber) {
+      const twin = await findTwinLoad(workspaceId, load.loadNumber, v.brokerName, load.id, tx);
+      if (twin) return { ok: false, errors: { brokerName: `${duplicateMessage(twin)} Use another customer or number.` } };
+    }
+    const changes: Array<[string, string | null, string | null]> = [];
+    const note = (label: string, was: string | number | null | undefined, next: string | number | null) => {
+      const a = was == null || was === "" ? null : String(was);
+      const b = next == null || next === "" ? null : String(next);
+      if (a !== b) changes.push([label, a, b]);
+    };
+    note("Customer", load.brokerName, v.brokerName);
+    note("MC", load.brokerMcNumber, v.brokerMcNumber);
+    note("Phone", load.brokerPhone, v.brokerPhone);
+    note("Email", load.brokerEmail, v.brokerEmail);
+    note("PO", load.poNumber, v.poNumber);
+    note("Terms", load.payTermsDays == null ? null : termsLabel(load.payTermsDays), v.payTermsDays == null ? null : termsLabel(v.payTermsDays));
+    note("Revenue note", load.revenueNote, v.revenueNote);
+    if (changes.length === 0) return { ok: true, changed: false };
+    const baseMs = now.getTime();
+    const nextUpdatedAt = new Date(baseMs > load.updatedAt.getTime() ? baseMs : load.updatedAt.getTime() + 1);
     const out = await tx.load.updateMany({
       where: { id: load.id, workspaceId, deletedAt: null, updatedAt: load.updatedAt, paymentStatus: load.paymentStatus, ...inTerminal(scope) },
-      data: { brokerName: v.brokerName, brokerMcNumber: v.brokerMcNumber, brokerPhone: v.brokerPhone, brokerEmail: v.brokerEmail, poNumber: v.poNumber, payTermsDays: v.payTermsDays, revenueNote: v.revenueNote }
+      data: { brokerName: v.brokerName, brokerMcNumber: v.brokerMcNumber, brokerPhone: v.brokerPhone, brokerEmail: v.brokerEmail, poNumber: v.poNumber, payTermsDays: v.payTermsDays, revenueNote: v.revenueNote, updatedAt: nextUpdatedAt }
     });
-    if (out.count !== 1) return false;
+    if (out.count !== 1) return { ok: false, error: "This load was just changed by someone else. Reload it and try again." };
+    if ((v.brokerEmail ?? null) !== (load.brokerEmail ?? null) || (v.brokerPhone ?? null) !== (load.brokerPhone ?? null)) {
+      await tx.invoice.updateMany({
+        where: { workspaceId, kind: "invoice", status: "open", paidTotal: 0, loads: { some: { loadId: load.id } } },
+        data: { billToEmail: v.brokerEmail, billToPhone: v.brokerPhone }
+      });
+    }
     await recordAudit(
       {
         entity: "load",
@@ -62,12 +72,11 @@ export async function saveBillingDetails(loadId: string, values: BillingDetailsV
         summary: `Billing details changed: ${changes.map(([l]) => l.toLowerCase()).join(", ")}`,
         before: Object.fromEntries(changes.map(([l, a]) => [l, a])),
         after: Object.fromEntries(changes.map(([l, , b]) => [l, b])),
-        at: now, workspaceId
+        at: now,
+        workspaceId
       },
       tx
     );
-    return true;
+    return { ok: true, changed: true };
   });
-  if (!done) return { ok: false, error: "This load was just changed by someone else. Reload it and try again." };
-  return { ok: true, changed: true };
 }

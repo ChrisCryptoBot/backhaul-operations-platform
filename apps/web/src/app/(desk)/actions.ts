@@ -89,7 +89,7 @@ import { saveBillingDetails, type BillingResult } from "@/server/tl/billing-deta
 import type { BillingDetailsValues } from "@/lib/billing-details";
 import { completeTrip, correctTrip, reopenDelivered, saveExpenses, startTrip, undoStartTrip, type TripResult } from "@/server/tl/execution";
 import { undoPaid, recordChase, voidInvoice, invoiceLoads, issueCreditMemo, voidCreditMemo, type CreditOut, type InvoiceOut, type MultiInvoiceOut, type PaidOut } from "@/server/tl/invoicing";
-import { waiveDetention } from "@/server/tl/detention";
+import { unwaiveDetention, waiveDetention } from "@/server/tl/detention";
 import { saveFactoringTerms, type SaveTermsResult } from "@/server/partners/factoring-terms";
 import { setMoneyMoving, type SwitchResult } from "@/server/partners/gates";
 import { createApiKey, revokeApiKey, type CreatedKey, type RevokeResult } from "@/server/api/keys";
@@ -1298,6 +1298,16 @@ export async function dismissStopEvidenceAction(evidenceId: string, reason: stri
 export async function waiveDetentionAction(loadId: string, reason: string): Promise<{ ok: boolean; error?: string }> {
   await requireCan("bill");
   const out = await waiveDetention(loadId, reason);
+  if (out.ok) {
+    refreshLoads();
+    revalidatePath("/invoices");
+  }
+  return out;
+}
+
+export async function unwaiveDetentionAction(loadId: string, reason: string): Promise<{ ok: boolean; error?: string }> {
+  await requireCan("bill");
+  const out = await unwaiveDetention(loadId, reason);
   if (out.ok) {
     refreshLoads();
     revalidatePath("/invoices");

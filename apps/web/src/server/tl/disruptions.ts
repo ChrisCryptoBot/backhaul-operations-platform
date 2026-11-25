@@ -7,8 +7,10 @@ import { CAN_CANCEL, CAN_RESCHEDULE, CAN_TONU, isCancelReason, isRescheduleReaso
 import { loadWindow } from "@/lib/schedule";
 import { DispatchError, findDriverClash } from "./dispatch";
 import { recordAudit } from "./audit";
+import { recordAssignmentEvent } from "./assignment-events";
 import { claimAssignment, claimLoad, dropAssignment, LoadMoved } from "./claim";
 import { num } from "./convert";
+import { lockWorkspace } from "./plan";
 import { findTwinLoad, duplicateMessage } from "./twins";
 import type { Terminals } from "@/lib/scope";
 import { enqueueForLoad } from "@/server/bridge/outbox";
@@ -62,6 +64,17 @@ export async function cancelLoad(input: Why & { loadId: string }, now = new Date
     await claimLoad(tx, load.id, workspaceId, CAN_CANCEL, { status: "cancelled", cancelledAt: now, cancelReason: input.reason, cancelNote: input.note?.trim() || null }, inTerminal(scope) as Prisma.LoadWhereInput);
     if (a) await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "cancel", now });
     if (a) await dropAssignment(tx, load.id);
+    await recordAssignmentEvent(tx, {
+      workspaceId,
+      loadId: load.id,
+      loadNumber: load.loadNumber,
+      kind: "cancelled",
+      driverId: a?.driverId ?? null,
+      driverName: a?.driver.name ?? null,
+      reasonNote: input.note?.trim() ? `${label}: ${input.note.trim()}` : label,
+      assignmentVersion: a?.assignmentVersion ?? null,
+      at: now
+    });
     await recordAudit(
       {
         entity: "load",
@@ -95,6 +108,17 @@ export async function recordTonu(input: Why & { loadId: string; fee: number }, n
     await claimLoad(tx, load.id, workspaceId, CAN_TONU, { status: "tonu", tonuRevenue: input.fee, cancelledAt: now, cancelReason: input.reason, cancelNote: input.note?.trim() || null }, inTerminal(scope) as Prisma.LoadWhereInput);
     if (a) await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "cancel", now });
     if (a) await tx.assignment.updateMany({ where: { loadId: load.id }, data: { status: "completed", respondedAt: a.respondedAt ?? now } });
+    await recordAssignmentEvent(tx, {
+      workspaceId,
+      loadId: load.id,
+      loadNumber: load.loadNumber,
+      kind: "tonu",
+      driverId: a?.driverId ?? null,
+      driverName: a?.driver.name ?? null,
+      reasonNote: input.note?.trim() ? `${label}: ${input.note.trim()}` : label,
+      assignmentVersion: a?.assignmentVersion ?? null,
+      at: now
+    });
     await recordAudit(
       {
         entity: "load",
@@ -132,13 +156,14 @@ export async function rescheduleLoad(input: Why & { loadId: string; newPickup: D
   const shifted = shiftStops(load.stops, delta);
   const newWindow = loadWindow(shifted)!;
   const a = load.assignment && load.assignment.status !== "declined" ? load.assignment : null;
-  if (a) {
-    const clash = await findDriverClash(a.driverId, load.id, newWindow);
-    if (clash) throw new DispatchError("double_booked", `${a.driver.name} would be on ${clash.loadNumber ?? "another load"} at the new time. Pick another time, or take the driver off this load first.`);
-  }
   const reconfirm = a != null && (a.status === "dispatched" || a.status === "accepted");
 
   await movedBy(() => prisma.$transaction(async (tx) => {
+    await lockWorkspace(tx, workspaceId);
+    if (a) {
+      const clash = await findDriverClash(a.driverId, load.id, newWindow, tx);
+      if (clash) throw new DispatchError("double_booked", `${a.driver.name} would be on ${clash.loadNumber ?? "another load"} at the new time. Pick another time, or take the driver off this load first.`);
+    }
     // From the state it was read in: a load that started, was cancelled or was moved since is not moved again.
     await claimLoad(tx, load.id, workspaceId, CAN_RESCHEDULE, {
       ...(load.scheduledDate ? { scheduledDate: new Date(load.scheduledDate.getTime() + delta) } : {}),
@@ -149,6 +174,17 @@ export async function rescheduleLoad(input: Why & { loadId: string; newPickup: D
       // The driver has to say yes again, so the load is no longer accepted (src/lib/load-state.ts: a sent assignment goes with a draft load).
       await claimAssignment(tx, load.id, ["dispatched", "accepted"], { status: "dispatched", dispatchedAt: now, dispatchedBy: senderNameOf(currentActor()), respondedAt: null, driverResponse: Prisma.JsonNull, assignmentVersion: { increment: 1 } });
       await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "dispatch", now });
+      await recordAssignmentEvent(tx, {
+        workspaceId,
+        loadId: load.id,
+        loadNumber: load.loadNumber,
+        kind: "reoffered",
+        driverId: a!.driverId,
+        driverName: a!.driver.name,
+        reasonNote: input.note?.trim() ? `${label}: ${input.note.trim()}` : label,
+        assignmentVersion: a!.assignmentVersion + 1,
+        at: now
+      });
     }
     await recordAudit(
       {
@@ -175,16 +211,30 @@ export async function reopenCancelled(input: { loadId: string; reason: string },
   const scope = await allowedFor(workspaceId, allowed);
   const why = input.reason.trim();
   if (why.length < 3) throw new DispatchError("bad_reason", "Say why the load is being reopened.");
-  const load = await loadWithDriver(input.loadId, workspaceId, scope);
-  if (load.status !== "cancelled" && load.status !== "tonu") throw new DispatchError("not_allowed", "Only a cancelled load, or a TONU, can be reopened.");
-  if (load.paymentStatus) throw new DispatchError("not_allowed", "The TONU has been invoiced. Take the invoice back first.");
-  const twin = await findTwinLoad(workspaceId, load.loadNumber, load.brokerName, load.id);
-  if (twin) throw new DispatchError("not_allowed", `${duplicateMessage(twin)} Delete or change that one first.`);
-  const was = load.status;
   await movedBy(() =>
     prisma.$transaction(async (tx) => {
-      await claimLoad(tx, load.id, workspaceId, [was], { status: loadStatusFor("draft"), cancelledAt: null, cancelReason: null, cancelNote: null, tonuRevenue: null, tonuMiles: null }, { paymentStatus: null, ...inTerminal(scope) });
+      await lockWorkspace(tx, workspaceId);
+      const load = await tx.load.findFirst({ where: { id: input.loadId, workspaceId, ...inTerminal(scope) }, include: { assignment: { include: { driver: true } } } });
+      if (!load || load.deletedAt) throw new DispatchError("load_not_found", "That load does not exist.");
+      if (load.status !== "cancelled" && load.status !== "tonu") throw new DispatchError("not_allowed", "Only a cancelled load, or a TONU, can be reopened.");
+      if (load.paymentStatus) throw new DispatchError("not_allowed", "The TONU has been invoiced. Take the invoice back first.");
+      const twin = await findTwinLoad(workspaceId, load.loadNumber, load.brokerName, load.id, tx);
+      if (twin) throw new DispatchError("not_allowed", `${duplicateMessage(twin)} Delete or change that one first.`);
+      const was = load.status;
+      await claimLoad(tx, load.id, workspaceId, [was], { status: loadStatusFor("draft"), cancelledAt: null, cancelReason: null, cancelNote: null, tonuRevenue: null, tonuMiles: null, dockWaitMinutes: null }, { paymentStatus: null, ...inTerminal(scope) });
+      await tx.stop.updateMany({ where: { loadId: load.id }, data: { arrivedAt: null, waitMinutes: null, sealNumber: null, arrivedSource: null } });
       if (load.assignment) await dropAssignment(tx, load.id);
+      await recordAssignmentEvent(tx, {
+        workspaceId,
+        loadId: load.id,
+        loadNumber: load.loadNumber,
+        kind: "reopened",
+        driverId: load.assignment?.driverId ?? null,
+        driverName: load.assignment?.driver.name ?? null,
+        reasonNote: why,
+        assignmentVersion: load.assignment?.assignmentVersion ?? null,
+        at: now
+      });
       await recordAudit(
         {
           entity: "load",

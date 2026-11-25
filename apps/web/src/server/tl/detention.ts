@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { summarizeDetention, type DetentionSummary } from "@/lib/detention";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
+import { currentActor } from "./identity";
 import { inTerminal, terminalSql } from "./terminal-sql";
 import { allowedFor } from "./scope";
 import { getThresholds } from "./thresholds";
@@ -47,38 +48,50 @@ export function detentionOfLoad(l: LoadForDetention, workspaceGraceMinutes: numb
   });
 }
 
-/** Which of these loads have had their unbilled detention waived on purpose, with the latest reason given. */
+/** Which of these loads have had their unbilled detention waived on purpose, with the reason given. */
 export async function waivedDetentionLoads(loadIds: string[], workspaceId = currentWorkspaceId()): Promise<Map<string, string>> {
   const out = new Map<string, string>();
   if (loadIds.length === 0) return out;
-  const events = await prisma.auditEvent.findMany({
-    where: { workspaceId, action: "detention_waived", loadId: { in: loadIds } },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: { loadId: true, reason: true }
+  const rows = await prisma.load.findMany({
+    where: { workspaceId, id: { in: loadIds }, deletedAt: null, detentionWaivedAt: { not: null } },
+    select: { id: true, detentionWaivedReason: true }
   });
-  for (const e of events) if (e.loadId && !out.has(e.loadId)) out.set(e.loadId, e.reason ?? "Waived");
+  for (const r of rows) out.set(r.id, r.detentionWaivedReason ?? "Waived");
   return out;
 }
 
+/** Advance `loads.updated_at` past the prior watermark so `answerCache`'s `dataMark` invalidates immediately even when callers pass an earlier `now`. */
+function bumpUpdatedAt(now: Date, prev: Date): Date {
+  const wall = Date.now();
+  const base = now.getTime() > wall ? now.getTime() : wall + 1;
+  const min = prev.getTime() + 1;
+  return new Date(base >= min ? base : min);
+}
+
 /**
- * Mark a load's unbilled detention as waived (for example, the customer refused it or it was forgiven for the relationship), with a reason kept in the audit trail. Once waived, it no
- * longer raises the unbilled-detention alert or sits on the Invoices recovery card. Bumps the load's timestamp so kept answers (alerts) refresh immediately.
+ * Mark a load's unbilled detention as waived (for example, the customer refused it or it was forgiven for the relationship), with a reason kept on the load and in the audit trail. Once
+ * waived, it no longer raises the unbilled-detention alert or sits on the Invoices recovery card. Bumps the load's timestamp so kept answers (alerts) refresh immediately.
  */
 export async function waiveDetention(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<{ ok: boolean; error?: string }> {
   const scope = await allowedFor(workspaceId, allowed);
   const why = reason.trim();
   if (why.length < 3) return { ok: false, error: "Say why the detention is not being billed." };
-  const [load, thresholds, already] = await Promise.all([
+  const [load, thresholds] = await Promise.all([
     prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) }, include: { stops: true, vehicle: { include: { costProfile: true } } } }),
-    getThresholds(workspaceId),
-    waivedDetentionLoads([loadId], workspaceId)
+    getThresholds(workspaceId)
   ]);
   if (!load || load.status !== "completed") return { ok: false, error: "Only a delivered load has detention to waive." };
-  if (already.has(loadId)) return { ok: false, error: "Detention on this load was already marked as waived." };
+  if (load.detentionWaivedAt != null) return { ok: false, error: "Detention on this load was already marked as waived." };
   const dt = detentionOfLoad(load, thresholds.detentionGraceMinutes);
   if (!(dt.unbilled > 0)) return { ok: false, error: "There is no unbilled detention on this load." };
-  await prisma.$transaction(async (tx) => {
-    await tx.load.updateMany({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) }, data: { updatedAt: now } });
+  const actor = currentActor();
+  const nextUpdatedAt = bumpUpdatedAt(now, load.updatedAt);
+  const claimed = await prisma.$transaction(async (tx) => {
+    const out = await tx.load.updateMany({
+      where: { id: loadId, workspaceId, deletedAt: null, status: "completed", detentionWaivedAt: null, ...inTerminal(scope) },
+      data: { detentionWaivedAt: now, detentionWaivedBy: actor, detentionWaivedReason: why, updatedAt: nextUpdatedAt }
+    });
+    if (out.count !== 1) return false;
     await recordAudit(
       {
         entity: "invoice",
@@ -94,7 +107,47 @@ export async function waiveDetention(loadId: string, reason: string, now = new D
       },
       tx
     );
+    return true;
   });
+  if (!claimed) return { ok: false, error: "Detention on this load was already marked as waived." };
+  return { ok: true };
+}
+
+/** Put a waived detention load back on the unbilled list when the customer agreed to pay it or it was waived by mistake. */
+export async function unwaiveDetention(loadId: string, reason: string, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<{ ok: boolean; error?: string }> {
+  const scope = await allowedFor(workspaceId, allowed);
+  const why = reason.trim();
+  if (why.length < 3) return { ok: false, error: "Say why the detention waiver is being taken back." };
+  const load = await prisma.load.findFirst({
+    where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) },
+    select: { id: true, loadNumber: true, updatedAt: true, detentionWaivedAt: true, detentionWaivedReason: true }
+  });
+  if (!load || load.detentionWaivedAt == null) return { ok: false, error: "Detention on this load is not marked as waived." };
+  const nextUpdatedAt = bumpUpdatedAt(now, load.updatedAt);
+  const claimed = await prisma.$transaction(async (tx) => {
+    const out = await tx.load.updateMany({
+      where: { id: loadId, workspaceId, deletedAt: null, detentionWaivedAt: { not: null }, ...inTerminal(scope) },
+      data: { detentionWaivedAt: null, detentionWaivedBy: null, detentionWaivedReason: null, updatedAt: nextUpdatedAt }
+    });
+    if (out.count !== 1) return false;
+    await recordAudit(
+      {
+        entity: "invoice",
+        action: "detention_unwaived",
+        loadId,
+        loadNumber: load.loadNumber,
+        summary: "Detention waiver taken back",
+        reason: why,
+        before: { "Unbilled detention": `Waived (${load.detentionWaivedReason ?? "Waived"})` },
+        after: { "Unbilled detention": "Unbilled again" },
+        at: now,
+        workspaceId
+      },
+      tx
+    );
+    return true;
+  });
+  if (!claimed) return { ok: false, error: "Detention on this load is not marked as waived." };
   return { ok: true };
 }
 

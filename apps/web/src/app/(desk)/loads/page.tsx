@@ -8,6 +8,7 @@ import { listBoardRows, type BoardRow } from "@/server/tl/queries";
 import { getAlerts } from "@/server/tl/alerts";
 import { countHistory, listHistory } from "@/server/tl/history";
 import { currentWorkspaceId } from "@/server/tl/workspace";
+import { workspaceTimezone } from "@/server/tl/zone";
 import { Pager } from "@/components/desk/pager";
 import { AssignmentChip, PageHead, StatusChip, Tabs, VerdictChip } from "@/components/desk/ui";
 import { AlertDot } from "@/components/desk/alert-bits";
@@ -220,7 +221,7 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
     const counts: Record<string, number> = hist.counts;
     const shown = hist.rows;
     const grouped = sort === "newest" || sort === "oldest";
-    const groups = grouped ? monthGroups(shown) : [{ key: "sorted", label: `By ${HISTORY_SORTS.find((s) => s.key === sort)?.label.toLowerCase()}`, rows: shown }];
+    const groups = grouped ? monthGroups(shown, await workspaceTimezone(currentWorkspaceId())) : [{ key: "sorted", label: `By ${HISTORY_SORTS.find((s) => s.key === sort)?.label.toLowerCase()}`, rows: shown }];
     const record = hist.record;
 
     // A figure the cost profile's math could not work (no truck, no fuel price, a TONU) is a dash that says why, never a zero.

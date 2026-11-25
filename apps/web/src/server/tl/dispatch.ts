@@ -105,9 +105,9 @@ export async function findDriverClash(driverId: string, exceptLoadId: string, wi
  * Another open load this TRUCK is on whose window overlaps `win`, or null. A truck is on one load at a time, whoever drives it; the driver check above does not see a truck two
  * dispatchers have put on two loads at once.
  */
-export async function findTruckClash(vehicleId: string, exceptLoadId: string, win: Window | null, workspaceId = currentWorkspaceId()): Promise<{ loadNumber: string | null; window: Window } | null> {
+export async function findTruckClash(vehicleId: string, exceptLoadId: string, win: Window | null, workspaceId = currentWorkspaceId(), db: Pick<typeof prisma, "load"> = prisma): Promise<{ loadNumber: string | null; window: Window } | null> {
   if (!win) return null;
-  const others = await prisma.load.findMany({ where: { workspaceId, vehicleId, ...(exceptLoadId ? { id: { not: exceptLoadId } } : {}), deletedAt: null, status: { in: OPEN_LOAD }, ...LEFT_ITS_TRUCK }, include: { stops: true } });
+  const others = await db.load.findMany({ where: { workspaceId, vehicleId, ...(exceptLoadId ? { id: { not: exceptLoadId } } : {}), deletedAt: null, status: { in: OPEN_LOAD }, ...LEFT_ITS_TRUCK }, include: { stops: true } });
   for (const o of others) {
     const w = loadWindow(o.stops);
     if (w && windowsOverlap(win, w)) return { loadNumber: o.loadNumber, window: w };

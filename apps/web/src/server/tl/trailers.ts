@@ -227,41 +227,45 @@ export type AssignTrailerResult = { ok: true; warnings: string[] } | { ok: false
  */
 export async function assignTrailerToLoad(loadId: string, trailerId: string | null, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<AssignTrailerResult> {
   const scope = await allowedFor(workspaceId, allowed);
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, status: { in: OPEN_LOAD }, ...inTerminal(scope) }, include: { stops: true, trailer: { select: { id: true, number: true } } } });
-  if (!load) return { ok: false, error: "That load is not open." };
-  if (trailerId == null) {
-    if (!load.trailerId) return { ok: true, warnings: [] };
-    const was = load.trailer?.number ?? "the trailer";
-    await prisma.$transaction(async (tx) => {
-      await tx.load.update({ where: { id: loadId }, data: { trailerId: null } });
+  const soon = trailerId == null ? 0 : alertThresholds(await getThresholds(workspaceId)).clearanceDays;
+  return prisma.$transaction(async (tx) => {
+    await lockWorkspace(tx, workspaceId);
+    const load = await tx.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, status: { in: OPEN_LOAD }, ...inTerminal(scope) }, include: { stops: true, trailer: { select: { id: true, number: true } } } });
+    if (!load) return { ok: false, error: "That load is not open." };
+    if (trailerId == null) {
+      if (!load.trailerId) return { ok: true, warnings: [] };
+      const was = load.trailer?.number ?? "the trailer";
+      const out = await tx.load.updateMany({ where: { id: loadId, workspaceId, deletedAt: null, status: { in: OPEN_LOAD }, trailerId: load.trailerId, ...inTerminal(scope) }, data: { trailerId: null, updatedAt: now } });
+      if (out.count !== 1) return { ok: false, error: "That load changed while you were taking the trailer off. Reload it." };
       await recordAudit({ entity: "trailer", entityId: load.trailerId, action: "trailer_assigned", loadId, loadNumber: load.loadNumber, summary: `${was} taken off ${load.loadNumber ?? "a load"}`, before: { Trailer: was }, after: { Trailer: null }, at: now, workspaceId }, tx);
-    });
-    return { ok: true, warnings: [] };
-  }
-  const trailer = await prisma.trailer.findFirst({ where: { id: trailerId, workspaceId, archivedAt: null, ...(scope != null ? { terminal: terminalFilter(scope) } : {}) } });
-  if (!trailer) return { ok: false, error: "That trailer is not available." };
-  if (load.trailerId === trailer.id) return { ok: true, warnings: [] };
-  const soon = alertThresholds(await getThresholds(workspaceId)).clearanceDays;
-  const fit: TrailerFit = trailerFit(
-    { trailerType: load.trailerType, weightLbs: load.weightLbs, lengthFt: numOrNull(load.lengthFt), vehicleId: load.vehicleId },
-    { number: trailer.number, type: trailer.type, maxPayloadLbs: trailer.maxPayloadLbs, lengthFt: numOrNull(trailer.lengthFt), currentVehicleId: trailer.currentVehicleId, status: trailer.status, registrationExpiry: trailer.registrationExpiry, inspectionExpiry: trailer.inspectionExpiry },
-    now,
-    soon
-  );
-  if (fit.blocker) return { ok: false, error: fit.blocker };
-  const window = loadWindow(load.stops);
-  if (window) {
-    const others = await prisma.load.findMany({ where: { trailerId: trailer.id, id: { not: loadId }, deletedAt: null, status: { in: OPEN_LOAD } }, select: { loadNumber: true, stops: { select: { timeWindowEarliest: true, timeWindowLatest: true } } } });
-    for (const o of others) {
-      const w = loadWindow(o.stops);
-      if (w && windowsOverlap(window, w)) return { ok: false, error: `${trailer.number} is already on ${o.loadNumber ?? "another load"} at that time.` };
+      return { ok: true, warnings: [] };
     }
-  }
-  await prisma.$transaction(async (tx) => {
-    await tx.load.update({ where: { id: loadId }, data: { trailerId: trailer.id, ...(load.trailerType ? {} : trailer.type ? { trailerType: trailer.type } : {}) } });
+    const trailer = await tx.trailer.findFirst({ where: { id: trailerId, workspaceId, archivedAt: null, ...(scope != null ? { terminal: terminalFilter(scope) } : {}) } });
+    if (!trailer) return { ok: false, error: "That trailer is not available." };
+    if (load.trailerId === trailer.id) return { ok: true, warnings: [] };
+    const fit: TrailerFit = trailerFit(
+      { trailerType: load.trailerType, weightLbs: load.weightLbs, lengthFt: numOrNull(load.lengthFt), vehicleId: load.vehicleId },
+      { number: trailer.number, type: trailer.type, maxPayloadLbs: trailer.maxPayloadLbs, lengthFt: numOrNull(trailer.lengthFt), currentVehicleId: trailer.currentVehicleId, status: trailer.status, registrationExpiry: trailer.registrationExpiry, inspectionExpiry: trailer.inspectionExpiry },
+      now,
+      soon
+    );
+    if (fit.blocker) return { ok: false, error: fit.blocker };
+    const window = loadWindow(load.stops);
+    if (window) {
+      const others = await tx.load.findMany({ where: { workspaceId, trailerId: trailer.id, id: { not: loadId }, deletedAt: null, status: { in: OPEN_LOAD } }, select: { loadNumber: true, stops: { select: { timeWindowEarliest: true, timeWindowLatest: true } } } });
+      for (const o of others) {
+        const w = loadWindow(o.stops);
+        if (w && windowsOverlap(window, w)) return { ok: false, error: `${trailer.number} is already on ${o.loadNumber ?? "another load"} at that time.` };
+      }
+    }
+    const out = await tx.load.updateMany({
+      where: { id: loadId, workspaceId, deletedAt: null, status: { in: OPEN_LOAD }, trailerId: load.trailerId, ...inTerminal(scope) },
+      data: { trailerId: trailer.id, updatedAt: now, ...(load.trailerType ? {} : trailer.type ? { trailerType: trailer.type } : {}) }
+    });
+    if (out.count !== 1) return { ok: false, error: "That load changed while you were updating its trailer. Reload it." };
     await recordAudit({ entity: "trailer", entityId: trailer.id, action: "trailer_assigned", loadId, loadNumber: load.loadNumber, summary: `${trailer.number} put on ${load.loadNumber ?? "a load"}`, before: { Trailer: load.trailer?.number ?? null }, after: { Trailer: trailer.number }, at: now, workspaceId }, tx);
+    return { ok: true, warnings: fit.warnings };
   });
-  return { ok: true, warnings: fit.warnings };
 }
 
 // ── Reading ────────────────────────────────────────────────────────────────────────────────────

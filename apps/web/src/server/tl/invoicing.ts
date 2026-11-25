@@ -20,6 +20,7 @@ import { balanceOf, isShortCode } from "@/lib/invoice-records";
 import { customerKey, MAX_LOADS_PER_INVOICE } from "@/lib/customer-key";
 import { addInvoicePayment, closeInvoiceRecord, createInvoiceRecord, openInvoiceOf, projectionOf, removeLastInvoicePayment, voidInvoiceRecord } from "./invoice-records";
 import { emitInvoice, emitPayment } from "@/server/webhooks/emit";
+import { workspaceTimezone } from "./zone";
 
 /**
  * Invoice a delivered load, mark an invoice paid (in full or short), and take a payment back. Each writes its audit event with the change.
@@ -169,7 +170,7 @@ export type ShortAction = "balance" | "writeoff";
 
 /** Factoring states of an invoice the factor has not yet been paid on: a customer paying it in full closes them all. */
 const FACTORED_OPEN = ["requested", "submitted", "funded"];
-const dayOf = (d: Date) => toCentralLocal(d.getTime()).slice(0, 10);
+const dayOf = (d: Date, tz: string) => toCentralLocal(d.getTime(), tz).slice(0, 10);
 const dec = (n: number) => new Prisma.Decimal(n).toDecimalPlaces(2);
 
 /**
@@ -210,12 +211,13 @@ export async function markLoadPaid(
   const method = (opts.method ?? "").trim();
   if (method !== "" && !isPaidMethod(method)) return { ok: false, error: "Pick how it was paid from the list." };
   // A payment can be entered late: the day it actually came in, never before the invoice and never in the future. Days-to-pay counts from it.
-  const today = dayOf(now);
+  const tz = await workspaceTimezone(workspaceId);
+  const today = dayOf(now, tz);
   const paidOn = (opts.paidOn ?? "").trim() || today;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn) || parseCentralLocal(`${paidOn}T12:00`) == null) return { ok: false, error: "Type the day it was paid, like 2026-10-29." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn) || parseCentralLocal(`${paidOn}T12:00`, tz) == null) return { ok: false, error: "Type the day it was paid, like 2026-10-29." };
   if (paidOn > today) return { ok: false, error: "A payment cannot come in on a day that has not happened." };
-  if (load.invoicedAt && paidOn < dayOf(load.invoicedAt)) return { ok: false, error: `The invoice went out on ${dayOf(load.invoicedAt)}, so it cannot be paid before that.` };
-  const paidAt = paidOn === today ? now : new Date(parseCentralLocal(`${paidOn}T12:00`)!);
+  if (load.invoicedAt && paidOn < dayOf(load.invoicedAt, tz)) return { ok: false, error: `The invoice went out on ${dayOf(load.invoicedAt, tz)}, so it cannot be paid before that.` };
+  const paidAt = paidOn === today ? now : new Date(parseCentralLocal(`${paidOn}T12:00`, tz)!);
 
   const after = dec(before).plus(dec(amount));
   const diff = after.minus(dec(billed)).toNumber(); // < 0 short, > 0 over
@@ -778,12 +780,13 @@ export async function payInvoiceRecord(
   if (dec(amount).toNumber() !== amount) return { ok: false, error: "Dollars and cents, like 1,250.50." };
   const method = (opts.method ?? "").trim();
   if (method !== "" && !isPaidMethod(method)) return { ok: false, error: "Pick how it was paid from the list." };
-  const today = dayOf(now);
+  const tz = await workspaceTimezone(workspaceId);
+  const today = dayOf(now, tz);
   const paidOn = (opts.paidOn ?? "").trim() || today;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn) || parseCentralLocal(`${paidOn}T12:00`) == null) return { ok: false, error: "Type the day it was paid, like 2026-10-29." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(paidOn) || parseCentralLocal(`${paidOn}T12:00`, tz) == null) return { ok: false, error: "Type the day it was paid, like 2026-10-29." };
   if (paidOn > today) return { ok: false, error: "A payment cannot come in on a day that has not happened." };
-  if (paidOn < dayOf(rec.issuedAt)) return { ok: false, error: `The invoice went out on ${dayOf(rec.issuedAt)}, so it cannot be paid before that.` };
-  const paidAt = paidOn === today ? now : new Date(parseCentralLocal(`${paidOn}T12:00`)!);
+  if (paidOn < dayOf(rec.issuedAt, tz)) return { ok: false, error: `The invoice went out on ${dayOf(rec.issuedAt, tz)}, so it cannot be paid before that.` };
+  const paidAt = paidOn === today ? now : new Date(parseCentralLocal(`${paidOn}T12:00`, tz)!);
   const after = dec(rec.paidTotal.toNumber()).plus(dec(amount));
   const diff = after.minus(dec(rec.total.toNumber())).toNumber();
   const short = diff < 0;

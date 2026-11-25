@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { DOC_LABEL } from "@/lib/documents";
 import { sizeLabel } from "@/lib/attachments";
 import { driverPayText } from "@/lib/desk-format";
+import { activeTz, zoneAbbr } from "@/lib/tz";
 import { DrawerFrame } from "./drawer-frame";
 import { Icon } from "./kit/icons";
 import type { DocItem, DeliveryStopOption } from "./load-documents";
@@ -552,11 +553,23 @@ export function SplitDocViewer({
   );
 }
 
+function cabWindowText(iso: string | undefined, zone?: string): string {
+  if (!iso) return "Window open";
+  const z = zone ?? activeTz();
+  const text = new Date(iso).toLocaleString("en-US", { timeZone: z, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const abbr = zoneAbbr(z);
+  return abbr ? `${text} ${abbr}` : text;
+}
+
 export function DriverCabSheet({
   driverView,
   driverName,
   equipmentType,
-  showPay = false
+  showPay = false,
+  stopZones,
+  originZone,
+  destinationZone,
+  fallbackZone
 }: {
   driverView: {
     origin: { address?: string; window_earliest?: string; window_latest?: string } | null;
@@ -578,6 +591,10 @@ export function DriverCabSheet({
   driverName: string | null;
   equipmentType: string | null;
   showPay?: boolean;
+  stopZones?: Record<number, string>;
+  originZone?: string;
+  destinationZone?: string;
+  fallbackZone?: string;
 }) {
   if (!driverView) return null;
 
@@ -607,7 +624,7 @@ export function DriverCabSheet({
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
               <strong style={{ color: "var(--db-pos)", textTransform: "uppercase", fontSize: 11 }}>Origin / Pickup</strong>
               <span style={{ color: "var(--db-fg-dim)", fontSize: 11 }}>
-                {driverView.origin.window_earliest ? new Date(driverView.origin.window_earliest).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Window open"}
+                {cabWindowText(driverView.origin.window_earliest, originZone ?? fallbackZone)}
               </span>
             </div>
             <div>{driverView.origin.address}</div>
@@ -619,7 +636,7 @@ export function DriverCabSheet({
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
               <strong style={{ color: "var(--db-accent-fg)", textTransform: "uppercase", fontSize: 11 }}>Stop {st.seq} ({st.type})</strong>
               <span style={{ color: "var(--db-fg-dim)", fontSize: 11 }}>
-                {st.window_earliest ? new Date(st.window_earliest).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Window open"}
+                {cabWindowText(st.window_earliest, stopZones?.[st.seq] ?? fallbackZone)}
               </span>
             </div>
             <div>{st.address}</div>
@@ -633,7 +650,7 @@ export function DriverCabSheet({
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 2 }}>
               <strong style={{ color: "var(--db-accent-fg)", textTransform: "uppercase", fontSize: 11 }}>Destination / Delivery</strong>
               <span style={{ color: "var(--db-fg-dim)", fontSize: 11 }}>
-                {driverView.destination.window_earliest ? new Date(driverView.destination.window_earliest).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Window open"}
+                {cabWindowText(driverView.destination.window_earliest, destinationZone ?? fallbackZone)}
               </span>
             </div>
             <div>{driverView.destination.address}</div>

@@ -1,8 +1,14 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { DELETE_REASONS, isDeleteReason, reasonLabel } from "@/lib/disruptions";
 import { LOAD_STATUS } from "@/lib/desk-format";
+import { loadStatusFor } from "@/lib/load-state";
+import { senderNameOf } from "@/lib/driver-messages";
 import { recordAudit } from "./audit";
+import { recordAssignmentEvent } from "./assignment-events";
 import { enqueueForLoad } from "@/server/bridge/outbox";
+import { currentActor } from "./identity";
+import { lockWorkspace } from "./plan";
 import { findDriverClash, findTruckClash } from "./dispatch";
 import { findTwinLoad, duplicateMessage } from "./twins";
 import type { Terminals } from "@/lib/scope";
@@ -40,6 +46,17 @@ export async function deleteLoad(input: { loadId: string; reason: string; note?:
     if (out.count !== 1) return false;
     // A load sent to a bridged driver's phone comes off it (the cancel closes the row; the phone evicts its copy).
     if (a) await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "cancel", now });
+    await recordAssignmentEvent(tx, {
+      workspaceId,
+      loadId: load.id,
+      loadNumber: load.loadNumber,
+      kind: "deleted",
+      driverId: a?.driverId ?? null,
+      driverName: a?.driver.name ?? null,
+      reasonNote: input.note?.trim() ? `${label}: ${input.note.trim()}` : label,
+      assignmentVersion: a?.assignmentVersion ?? null,
+      at: now
+    });
     await recordAudit(
       {
         entity: "load",
@@ -63,42 +80,75 @@ export async function deleteLoad(input: { loadId: string; reason: string; note?:
 /** Put a deleted load back as it was. */
 export async function restoreLoad(loadId: string, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<RemoveResult> {
   const scope = await allowedFor(workspaceId, allowed);
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: { not: null }, ...inTerminal(scope) }, include: { stops: true, assignment: true } });
-  if (!load) return { ok: false, error: "That load is not deleted." };
-  // A thrown-away quote is not a load: it is not brought back here.
-  if (load.status === "quote") return { ok: false, error: "A quote that was thrown away stays thrown away. Quote it again from Quote a load." };
-  // What was true when it was deleted may not be now: the same load number may have been entered again, and the truck or driver may be on another load at that time.
-  const twin = await findTwinLoad(workspaceId, load.loadNumber, load.brokerName, load.id);
-  if (twin) return { ok: false, error: `${duplicateMessage(twin)} Delete or change that one first.` };
-  if (["draft", "accepted", "in_progress"].includes(load.status)) {
-    const win = loadWindow(load.stops);
-    if (load.vehicleId && win) {
-      const busy = await findTruckClash(load.vehicleId, load.id, win, workspaceId);
-      if (busy) return { ok: false, error: `Its truck is on ${busy.loadNumber ?? "another load"} at that time now. Move that load first.` };
+  return prisma.$transaction(async (tx) => {
+    await lockWorkspace(tx, workspaceId);
+    const load = await tx.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: { not: null }, ...inTerminal(scope) }, include: { stops: true, assignment: { include: { driver: true } } } });
+    if (!load) return { ok: false, error: "That load is not deleted." };
+    // A thrown-away quote is not a load: it is not brought back here.
+    if (load.status === "quote") return { ok: false, error: "A quote that was thrown away stays thrown away. Quote it again from Quote a load." };
+    // What was true when it was deleted may not be now: the same load number may have been entered again, and the truck or driver may be on another load at that time.
+    const twin = await findTwinLoad(workspaceId, load.loadNumber, load.brokerName, load.id, tx);
+    if (twin) return { ok: false, error: `${duplicateMessage(twin)} Delete or change that one first.` };
+    if (["draft", "accepted", "in_progress"].includes(load.status)) {
+      const win = loadWindow(load.stops);
+      if (load.vehicleId && win) {
+        const busy = await findTruckClash(load.vehicleId, load.id, win, workspaceId, tx);
+        if (busy) return { ok: false, error: `Its truck is on ${busy.loadNumber ?? "another load"} at that time now. Move that load first.` };
+      }
+      if (load.assignment && win) {
+        const clash = await findDriverClash(load.assignment.driverId, load.id, win, tx);
+        if (clash) return { ok: false, error: `Its driver is on ${clash.loadNumber ?? "another load"} at that time now. Move that load first.` };
+      }
     }
-    if (load.assignment && win) {
-      const clash = await findDriverClash(load.assignment.driverId, load.id, win);
-      if (clash) return { ok: false, error: `Its driver is on ${clash.loadNumber ?? "another load"} at that time now. Move that load first.` };
+    const a = load.assignment;
+    const reoffer = a != null && (a.status === "dispatched" || a.status === "accepted");
+    const nextStatus = reoffer ? loadStatusFor("dispatched") : load.status;
+    const out = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: { not: null }, ...inTerminal(scope) }, data: { deletedAt: null, ...(reoffer ? { status: nextStatus } : {}) } });
+    if (out.count !== 1) return { ok: false, error: "That load was already restored." };
+    if (reoffer) {
+      await tx.assignment.update({
+        where: { loadId: load.id },
+        data: { status: "dispatched", dispatchedAt: now, dispatchedBy: senderNameOf(currentActor()), respondedAt: null, driverResponse: Prisma.JsonNull, assignmentVersion: { increment: 1 } }
+      });
+      await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "dispatch", now });
     }
-  }
-  const back = await prisma.$transaction(async (tx) => {
-    const out = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: { not: null }, ...inTerminal(scope) }, data: { deletedAt: null } });
-    if (out.count !== 1) return false;
+    await recordAssignmentEvent(tx, {
+      workspaceId,
+      loadId: load.id,
+      loadNumber: load.loadNumber,
+      kind: "restored",
+      driverId: a?.driverId ?? null,
+      driverName: a?.driver.name ?? null,
+      assignmentVersion: a?.assignmentVersion ?? null,
+      at: now
+    });
+    if (reoffer) {
+      await recordAssignmentEvent(tx, {
+        workspaceId,
+        loadId: load.id,
+        loadNumber: load.loadNumber,
+        kind: "reoffered",
+        driverId: a!.driverId,
+        driverName: a!.driver.name,
+        reasonNote: "Restored after deletion",
+        assignmentVersion: a!.assignmentVersion + 1,
+        at: now
+      });
+    }
     await recordAudit(
       {
         entity: "load",
         action: "restored",
         loadId: load.id,
         loadNumber: load.loadNumber,
-        summary: "Restored after being deleted",
+        summary: reoffer ? `Restored after being deleted. ${a!.driver.name} has to confirm again` : "Restored after being deleted",
         before: { Load: "Deleted" },
-        after: { Load: LOAD_STATUS[load.status]?.label ?? load.status },
-        at: now, workspaceId
+        after: { Load: LOAD_STATUS[nextStatus]?.label ?? nextStatus },
+        at: now,
+        workspaceId
       },
       tx
     );
-    return true;
+    return { ok: true };
   });
-  if (!back) return { ok: false, error: "That load was already restored." };
-  return { ok: true };
 }

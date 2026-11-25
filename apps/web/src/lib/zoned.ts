@@ -56,7 +56,7 @@ export function parseCentralLocal(text: string, tz: string = activeTz()): number
   if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) return null;
   const t = centralInstant(y, mo - 1, d, h, mi, tz);
   const back = centralParts(t, tz);
-  return back.y === y && back.m0 === mo - 1 && back.d === d ? t : null; // rejects 31 Feb and the like
+  return back.y === y && back.m0 === mo - 1 && back.d === d && back.h === h && back.min === mi ? t : null; // rejects 31 Feb, DST spring-forward gaps and the like
 }
 
 /** An instant as the "2026-10-30T08:00" a datetime-local field takes, on the clock in `tz`. */

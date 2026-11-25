@@ -1,4 +1,6 @@
 import { currentTerminal } from "@/server/tl/terminal";
+import { currentWorkspaceId } from "@/server/tl/workspace";
+import { workspaceTimezone } from "@/server/tl/zone";
 import { dueAt, isOverdue, daysPastDue } from "@/lib/overdue";
 import Link from "next/link";
 import React from "react";
@@ -107,7 +109,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
   const readyPage = pageOf(searchParams?.ready, readyTotal, READY_PAGE);
   const outPage = pageOf(searchParams?.out, outTotal, OUT_PAGE);
   const paidPage = pageOf(searchParams?.paid, paidTotal, PAID_PAGE);
-  const [toInvoice, open, paid, aging, detention, proposed, history] = await Promise.all([
+  const [toInvoice, open, paid, aging, detention, proposed, history, tz] = await Promise.all([
     listInvoiceRows(undefined, { scope: "ready", q, terminal, sort: readySort, skip: (readyPage - 1) * READY_PAGE, take: READY_PAGE }),
     listInvoiceRows(undefined, { scope: "out", q, terminal, show, sort: outSort, skip: (outPage - 1) * OUT_PAGE, take: OUT_PAGE }),
     listInvoiceRows(undefined, { scope: "paid", q, terminal, sort: paidSort, skip: (paidPage - 1) * PAID_PAGE, take: PAID_PAGE }),
@@ -116,7 +118,8 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
     // What the trucks' own tracks show at a stop that nobody has recorded or confirmed (docs/DETENTION_EVIDENCE.md): not counted anywhere until a person confirms it.
     listProposed(terminal),
     // How this customer has treated the desk, when the search narrows to one (the Loads History computes it from the loads' own money columns).
-    q ? listHistory({ q, pageSize: 1, terminal }) : Promise.resolve(null)
+    q ? listHistory({ q, pageSize: 1, terminal }) : Promise.resolve(null),
+    workspaceTimezone(currentWorkspaceId())
   ]);
   // Factoring by batch: only when this fleet's factor takes invoices as files (Settings, Factoring terms).
   const factoringTerms = await getFactoringTerms();
@@ -239,7 +242,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams?: Pa
         // The payment, and for a late one the chase: an email already written, or a call, remembered on the invoice. The invoice and its reminder open from its number.
         act: canBill ? (
           <>
-            <PaidDialog loadId={r.id} invoiceNumber={r.invoiceNumber} billed={r.amount} owing={r.balance} canWriteOff={canWriteOff} size="sm" />
+            <PaidDialog loadId={r.id} invoiceNumber={r.invoiceNumber} billed={r.amount} owing={r.balance} canWriteOff={canWriteOff} tz={tz} size="sm" />
             {late && due ? (
               <ChaseActions
                 loadId={r.id}

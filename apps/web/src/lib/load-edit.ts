@@ -100,7 +100,7 @@ export const splitRefs = (s: string): string[] =>
     .map((x) => x.trim())
     .filter(Boolean);
 
-export function validateLoadEdit(v: LoadEditValues): LoadEditCheck {
+export function validateLoadEdit(v: LoadEditValues, fallbackZone?: string): LoadEditCheck {
   const errors: Record<string, string> = {};
   const num = (key: string, raw: string, label: string, min: number, max: number, whole = false): number | null => {
     const s = t(raw).replace(/,/g, "");
@@ -149,6 +149,7 @@ export function validateLoadEdit(v: LoadEditValues): LoadEditCheck {
     deal = { vehicleId: orNull(t(d.vehicleId)), rate: rate ?? 0, fuelSurcharge, loadedMiles: loadedMiles ?? 0, emptyToPickup: emptyToPickup ?? 0, emptyHome: emptyHome ?? 0 };
   }
 
+  let maxPrevEarliest: number | null = null;
   const stops = v.stops.map((s, i) => {
     const key = (f: string) => `stop${i}.${f}`;
     if (t(s.address).length < 2) errors[key("address")] = "Where is this stop? A city and state is enough.";
@@ -159,12 +160,17 @@ export function validateLoadEdit(v: LoadEditValues): LoadEditCheck {
     const refs = splitRefs(s.refs);
     if (refs.length > 10) errors[key("refs")] = "Ten reference numbers at most.";
     else if (refs.some((r) => r.length > 40)) errors[key("refs")] = "A reference number is too long.";
-    const earliest = t(s.earliest) ? parseCentralLocal(t(s.earliest), s.zone ?? undefined) : null;
-    const latest = t(s.latest) ? parseCentralLocal(t(s.latest), s.zone ?? undefined) : null;
+    const zone = s.zone ?? fallbackZone;
+    const earliest = t(s.earliest) ? parseCentralLocal(t(s.earliest), zone) : null;
+    const latest = t(s.latest) ? parseCentralLocal(t(s.latest), zone) : null;
     if (t(s.earliest) && earliest == null) errors[key("earliest")] = "A real date and time.";
     if (t(s.latest) && latest == null) errors[key("latest")] = "A real date and time.";
     if (latest != null && earliest == null && !errors[key("latest")]) errors[key("earliest")] = "Add when the window opens.";
     if (earliest != null && latest != null && latest < earliest) errors[key("latest")] = "The window cannot close before it opens.";
+    if (earliest != null && maxPrevEarliest != null && earliest < maxPrevEarliest && !errors[key("earliest")]) {
+      errors[key("earliest")] = "This stop cannot open before an earlier stop.";
+    }
+    if (earliest != null && (maxPrevEarliest == null || earliest > maxPrevEarliest)) maxPrevEarliest = earliest;
     return {
       id: s.id,
       address: t(s.address),

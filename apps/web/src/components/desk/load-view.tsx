@@ -13,7 +13,7 @@ import { num, numOrNull } from "@/server/tl/convert";
 import { detentionOfLoad, waivedDetentionLoads } from "@/server/tl/detention";
 import { evidenceSummary } from "@/server/tl/detention-evidence";
 import { ReadOnlyGate } from "./kit/read-only";
-import { WaiveDetentionButton } from "./waive-detention";
+import { UnwaiveDetentionButton, WaiveDetentionButton } from "./waive-detention";
 import { getThresholds } from "@/server/tl/thresholds";
 import { settlementOfLoad } from "@/server/tl/settlement";
 import { AssignFields } from "./assign-fields";
@@ -544,9 +544,12 @@ export async function LoadView({ id }: { id: string }) {
             </tbody>
           </table>
           {waivedReason != null ? (
-            <p className="tl-note" style={{ marginTop: 6 }}>
-              Detention waived: &ldquo;{waivedReason}&rdquo;.
-            </p>
+            <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+              <p className="tl-note" style={{ margin: 0 }}>
+                Detention waived: &ldquo;{waivedReason}&rdquo;.
+              </p>
+              {may("bill") ? <UnwaiveDetentionButton loadId={load.id} loadNumber={load.loadNumber} /> : null}
+            </div>
           ) : load.status === "completed" && dt.unbilled > 0 && may("bill") ? (
             <div style={{ marginTop: 8 }}>
               <WaiveDetentionButton loadId={load.id} loadNumber={load.loadNumber} amount={dt.unbilled} />
@@ -685,7 +688,24 @@ export async function LoadView({ id }: { id: string }) {
     </section>
   );
 
-  const HOLDER_VERB: Record<string, string> = { assigned: "Assigned to", reassigned: "Changed to", sent: "Sent to", accepted: "Accepted by", declined: "Declined by", recalled: "Recalled from", removed: "Taken off" };
+  const HOLDER_VERB: Record<string, string> = {
+    assigned: "Assigned to",
+    reassigned: "Changed to",
+    sent: "Sent to",
+    accepted: "Accepted by",
+    declined: "Declined by",
+    recalled: "Recalled from",
+    removed: "Taken off",
+    dropped: "Dropped by",
+    received: "Received by",
+    reoffered: "Re-offered to",
+    cancelled: "Load cancelled",
+    tonu: "Closed as TONU",
+    reopened: "Load reopened",
+    deleted: "Load deleted",
+    restored: "Load restored"
+  };
+  const HOLDER_NO_DRIVER = new Set(["cancelled", "tonu", "reopened", "deleted", "restored"]);
   const holderSec = holders.length === 0 ? null : (
     <section className="sec">
       <h3>Who Held It · {holders.length}</h3>
@@ -694,7 +714,8 @@ export async function LoadView({ id }: { id: string }) {
           {holders.map((h) => (
             <li key={h.id}>
               <div>
-                <b>{HOLDER_VERB[h.kind] ?? h.kind}</b> {h.driverName ?? "a driver"}
+                <b>{HOLDER_VERB[h.kind] ?? h.kind}</b>
+                {h.driverName ? ` ${HOLDER_NO_DRIVER.has(h.kind) ? `(${h.driverName})` : h.driverName}` : HOLDER_NO_DRIVER.has(h.kind) ? "" : " a driver"}
                 {h.reasonCode ? ` · ${RECALL_LABELS[h.reasonCode]}` : ""}
               </div>
               {h.reasonNote ? <div className="r">“{h.reasonNote}”</div> : null}
@@ -874,7 +895,7 @@ export async function LoadView({ id }: { id: string }) {
       )}
       {gate(
         <>
-          {load.paymentStatus === "invoiced" ? <PaidDialog loadId={load.id} invoiceNumber={load.invoiceNumber} billed={billed} owing={owing} canWriteOff={may("writeoff")} /> : null}
+          {load.paymentStatus === "invoiced" ? <PaidDialog loadId={load.id} invoiceNumber={load.invoiceNumber} billed={billed} owing={owing} canWriteOff={may("writeoff")} tz={workspaceZone} /> : null}
         </>,
         "bill"
       )}
@@ -1198,7 +1219,18 @@ export async function LoadView({ id }: { id: string }) {
     </>
   );
   // More: the record of the load and what is reached for now and then.
-  const cabSheet = <DriverCabSheet driverView={driverView} driverName={a?.driver.name ?? null} equipmentType={load.trailer?.number ? `Trailer ${load.trailer.number}` : (load.trailerType ?? null)} showPay={may("billing_details")} />;
+  const cabSheet = (
+    <DriverCabSheet
+      driverView={driverView}
+      driverName={a?.driver.name ?? null}
+      equipmentType={load.trailer?.number ? `Trailer ${load.trailer.number}` : (load.trailerType ?? null)}
+      showPay={may("billing_details")}
+      stopZones={Object.fromEntries(load.stops.map((s) => [s.stopSequence, stopZones[s.id]]))}
+      originZone={load.stops[0] ? stopZones[load.stops[0].id] : workspaceZone}
+      destinationZone={lastStopZone ?? workspaceZone}
+      fallbackZone={workspaceZone}
+    />
+  );
   const drawerMore = (
     <>
       {whereSec}
