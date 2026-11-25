@@ -31,7 +31,11 @@ Legend: **Required** = the desk does not work without it. **Secret** = never pri
 | `FMCSA_WEBKEY` | for authority lookups | yes | Carrier and broker authority by MC or DOT. |
 | `DESK_SERVICES_OFF` | no | no | The kill switch: `mapbox_geocode,anthropic_desk` (or `all`) switches those services off whatever the keys say. |
 | `DESK_SPEND_METER` | no | no | `off` turns the spend ledger off (unit tests, which have no database). |
-| `DESK_UPLOAD_DIR` | no | no | Where attachments are kept on disk when the host has a writable folder for them. |
+| `DESK_UPLOAD_DIR` | no | no | Where attachments are kept on disk when `DESK_FILE_STORE` is `disk` and the host has a writable folder for them. |
+| `DESK_FILE_STORE` | no | no | `supabase` stores load documents, message attachments and driver receipts in a private Supabase Storage bucket; `disk` (the default) stores them in `.uploads/messages`. |
+| `DESK_FILES_SUPABASE_URL` | with `DESK_FILE_STORE=supabase` | no | The Supabase project URL (`https://...`) hosting the private files bucket. Separate from `BRIDGE_SUPABASE_URL`. |
+| `DESK_FILES_SUPABASE_SERVICE_KEY` | with `DESK_FILE_STORE=supabase` | yes | Service-role key for reading, writing and removing objects in the private files bucket. Separate from `BRIDGE_SUPABASE_SERVICE_KEY`. |
+| `DESK_FILES_SUPABASE_BUCKET` | no | no | Private Storage bucket name when `DESK_FILE_STORE=supabase` (defaults to `desk-files`). |
 
 ## The driver link (docs/DRIVER_LINK_DESIGN.md; dark until all three are set)
 | Name | Required | Secret | What it does |

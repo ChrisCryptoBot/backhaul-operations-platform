@@ -9,6 +9,8 @@ import { createApiKey } from "@/server/api/keys";
 import { invoiceLoad } from "@/server/tl/invoicing";
 import { finalizeSettlement, startSettlement } from "@/server/tl/settlement";
 import { lockWorkspace, roomFor } from "@/server/tl/plan";
+import { removeFiles } from "@/server/tl/message-files";
+import { collectWorkspaceFileKeys } from "@/server/tl/storage";
 import { explicitTenancy } from "@/server/tl/workspace";
 import { workspaceTimezone } from "@/server/tl/zone";
 import { deliverDue } from "@/server/webhooks/deliver";
@@ -169,12 +171,14 @@ export async function resetShowcase(now = new Date()): Promise<ShowcaseResult> {
   return { ok: true, cards: await showcaseSnapshot() };
 }
 
-async function wipeShowcase() {
+export async function wipeShowcase() {
+  const fileKeys = await collectWorkspaceFileKeys(W);
   await prisma.auditEvent.deleteMany({ where: { workspaceId: W } });
   await prisma.driverLedgerEntry.deleteMany({ where: { workspaceId: W } });
   await prisma.settlement.deleteMany({ where: { workspaceId: W } });
   await prisma.assignment.deleteMany({ where: { load: { workspaceId: W } } });
   await prisma.workspace.deleteMany({ where: { id: W } });
+  await removeFiles(fileKeys);
 }
 
 const ids = async () => {
