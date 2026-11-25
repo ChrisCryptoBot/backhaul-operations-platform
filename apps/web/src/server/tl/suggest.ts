@@ -11,6 +11,8 @@ import { loadInclude } from "./queries";
 import { currentTerminal } from "./terminal";
 import { currentAllowed } from "./scope";
 import { currentWorkspaceId } from "./workspace";
+import { inTerminal } from "./terminal-sql";
+import type { Terminals } from "@/lib/scope";
 
 /**
  * Who could take a load, for the Assign window on the dispatch queue and the planner. Every active driver is listed with what stops them
@@ -30,10 +32,12 @@ export type AssignOptions = {
 
 const MAX_SUGGESTIONS = 3;
 
-export async function assignOptions(loadId: string, workspaceId = currentWorkspaceId(), opts: { limit?: number } = {}): Promise<AssignOptions | null> {
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...notQuote }, include: loadInclude });
+export async function assignOptions(loadId: string, workspaceId = currentWorkspaceId(), opts: { limit?: number; allowed?: Terminals } = {}): Promise<AssignOptions | null> {
+  // A person limited to some terminals reaches only those terminals' loads (and the loads not placed anywhere yet), whatever id arrives: another terminal's load is "gone", never read.
+  const allowed = opts.allowed !== undefined ? opts.allowed : await currentAllowed(workspaceId);
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...notQuote, ...inTerminal(allowed) }, include: loadInclude });
   if (!load) return null;
-  const { options, fits } = await rankDrivers(load, workspaceId, await currentTerminal(workspaceId), await currentAllowed(workspaceId));
+  const { options, fits } = await rankDrivers(load, workspaceId, await currentTerminal(workspaceId), allowed);
 
   return {
     loadNumber: load.loadNumber,

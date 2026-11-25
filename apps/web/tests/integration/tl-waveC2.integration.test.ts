@@ -124,6 +124,14 @@ describe.skipIf(!run)("who could take a load, on the demo database", () => {
     expect(await assignOptions("no-such-load")).toBeNull();
   });
 
+  test("a person limited to other terminals cannot read a load placed outside them; a load placed nowhere is everyone's", async () => {
+    const placed = await mkLoad("FENCE", "2027-06-10"); // on the WC2 truck, which is in no terminal the limit names
+    const loose = await mkLoad("FENCE-LOOSE", "2027-06-11", { vehicleId: null });
+    expect(await assignOptions(placed.id, undefined, { allowed: "WC2 Elsewhere" })).toBeNull();
+    expect(await assignOptions(placed.id, undefined, { allowed: null })).not.toBeNull();
+    expect(await assignOptions(loose.id, undefined, { allowed: "WC2 Elsewhere" })).not.toBeNull();
+  });
+
   test("assigning from the queue answers in place: it assigns, says what is wrong, and wants a reason to double-book", async () => {
     const day = "2027-06-14";
     const first = await mkLoad("Q1", day);

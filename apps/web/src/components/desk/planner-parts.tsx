@@ -23,7 +23,7 @@ function dueWords(i: DueItem, now: number): string {
 /** Stops shown before the rest are one press away: the list is a nudge, the week under it is the page. */
 const SHOWN = 3;
 
-function DueRow({ i, now }: { i: DueItem; now: number }) {
+function DueRow({ i, now, mayAssign }: { i: DueItem; now: number; mayAssign: boolean }) {
   return (
     <li className={`wl-row row-open ${i.state}`}>
       <RowLink href={`/loads/${i.loadId}`}>{i.loadNumber ?? "Load"}</RowLink>
@@ -37,14 +37,15 @@ function DueRow({ i, now }: { i: DueItem; now: number }) {
       <span className="t-st say" data-tone={i.state === "past_due" ? "bad" : i.state === "today" ? "warn" : i.state === "upcoming" ? "info" : i.late ? "warn" : "ok"}>
         {i.state === "past_due" ? `${lateText(i.minutesOver ?? 0)} late` : i.state === "done" ? (i.late ? "Late" : "On time") : STATE_LABEL[i.state]}
       </span>
-      {i.driverName == null && i.state !== "done" ? <AssignButton compact loadId={i.loadId} loadNumber={i.loadNumber ?? "This load"} /> : <i className="row-go" aria-hidden="true">›</i>}
+      {mayAssign && i.driverName == null && i.state !== "done" ? <AssignButton compact loadId={i.loadId} loadNumber={i.loadNumber ?? "This load"} /> : <i className="row-go" aria-hidden="true">›</i>}
     </li>
   );
 }
 
 /** The stops that need eyes now, one line each: which load, what is due where, who has it, how late. The worst first; the rest of a long list is folded so the week stays on screen. */
-export function DueNow({ items, now }: { items: DueItem[]; now: number }) {
-  const row = (i: DueItem) => <DueRow key={`${i.loadId}-${i.stopRole}-${i.due.getTime()}`} i={i} now={now} />;
+/** `mayAssign`: whether the person may dispatch (checkAccess("dispatch")); a reader sees the list without the Assign button the server would refuse. */
+export function DueNow({ items, now, mayAssign = false }: { items: DueItem[]; now: number; mayAssign?: boolean }) {
+  const row = (i: DueItem) => <DueRow key={`${i.loadId}-${i.stopRole}-${i.due.getTime()}`} i={i} now={now} mayAssign={mayAssign} />;
   return (
     <>
       <ul className="wl">{items.slice(0, SHOWN).map(row)}</ul>
@@ -104,7 +105,7 @@ function ShiftNote({ shift, tz, empty }: { shift: DayShift | undefined; tz: stri
 }
 
 /** Drivers down the side, days across the top, each load as a block in the cells it runs through. `balance` is the supply and demand for each day (loads needing a driver, drivers on shift and free). */
-export function PlannerGrid({ days, rows, tray, balance = null, tz = activeTz() }: { days: DayCol[]; rows: PlannerRow[]; tray: PlannerItem[][]; balance?: DayBalance[] | null; tz?: string }) {
+export function PlannerGrid({ days, rows, tray, balance = null, tz = activeTz(), mayAssign = false }: { days: DayCol[]; rows: PlannerRow[]; tray: PlannerItem[][]; balance?: DayBalance[] | null; tz?: string; mayAssign?: boolean }) {
   const shown = new Set<string>();
   // Whether any block's first or last stop is on another clock than the carrier's: only then does the grid explain the brackets.
   const carrier = activeTz();
@@ -155,7 +156,7 @@ export function PlannerGrid({ days, rows, tray, balance = null, tz = activeTz() 
                   return (
                     <div key={x.loadId} className="pl-tray-item">
                       <Chip i={x} />
-                      {first ? <AssignButton compact loadId={x.loadId} loadNumber={x.loadNumber ?? "This load"} /> : null}
+                      {first && mayAssign ? <AssignButton compact loadId={x.loadId} loadNumber={x.loadNumber ?? "This load"} /> : null}
                     </div>
                   );
                 })}

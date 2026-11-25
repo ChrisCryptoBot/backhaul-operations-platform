@@ -64,6 +64,17 @@ describe("screens switch off the controls a role cannot use", () => {
     expect(gate).toContain("checkAccess(");
   });
 
+  it("the Planner's Assign buttons only show to someone who may dispatch", () => {
+    const page = src("src/app/(desk)/planner/page.tsx");
+    expect(page).toContain('checkAccess("dispatch")');
+    expect(page).toMatch(/<DueNow [^>]*mayAssign=\{mayAssign\}/);
+    expect(page).toMatch(/<PlannerGrid [^>]*mayAssign=\{mayAssign\}/);
+    const parts = src("src/components/desk/planner-parts.tsx");
+    // Every Assign button in the planner sits behind the flag, which defaults to off.
+    for (const m of parts.matchAll(/\{([^{}]*)\? <AssignButton/g)) expect(m[1]).toContain("mayAssign");
+    expect(parts).toContain("mayAssign = false");
+  });
+
   it("the Dispatch queue's driver buttons only show to someone who may dispatch", () => {
     const page = src("src/app/(desk)/dispatch/page.tsx");
     expect(page).toContain('checkAccess("dispatch")');

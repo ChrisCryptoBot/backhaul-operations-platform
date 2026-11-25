@@ -11,6 +11,7 @@ import { planDays } from "@/lib/planner";
 import { Pager } from "@/components/desk/pager";
 import { asPage } from "@/lib/paging";
 import { parseCentralLocal } from "@/lib/zoned";
+import { checkAccess } from "@/server/tl/access";
 
 export const metadata = { title: "Planner · TrueLane" };
 
@@ -27,6 +28,8 @@ export default async function PlannerPage({ searchParams }: { searchParams?: { s
   const everyone = searchParams?.else === "1";
   // "Everyone" is everyone the person may see: a limited person's link stays inside their limit.
   const reach = await currentAllowed();
+  // The Assign buttons are for someone the server would let assign; a viewer or a driver manager reads the planner without them.
+  const mayAssign = (await checkAccess("dispatch")).ok;
   const terminal = everyone ? reach : scope;
   const { days, rows, tray, untimed, watchlist, balance, tz, hiddenElsewhere } = await getPlannerData(from, now, 7, undefined, terminal, reach);
   // Noon, so a day with a clock change in it cannot tip the neighbour week's key onto the wrong date.
@@ -68,7 +71,7 @@ export default async function PlannerPage({ searchParams }: { searchParams?: { s
         {watchlist.length === 0 ? (
           <EmptyState icon="check" title="Nothing is due or overdue">No stop is past its window, due today or coming up tomorrow.</EmptyState>
         ) : (
-          <DueNow items={watchlist} now={now} />
+          <DueNow items={watchlist} now={now} mayAssign={mayAssign} />
         )}
       </Card>
 
@@ -93,7 +96,7 @@ export default async function PlannerPage({ searchParams }: { searchParams?: { s
           {unscheduled > 0 ? <> · <Link href="/schedules">{unscheduled} {unscheduled === 1 ? "driver has" : "drivers have"} no schedule</Link></> : null}
         </span>
       </div>
-      <PlannerGrid days={days} rows={shownRows} tray={tray} balance={balance} tz={tz} />
+      <PlannerGrid days={days} rows={shownRows} tray={tray} balance={balance} tz={tz} mayAssign={mayAssign} />
       <Pager page={page} pageSize={ROWS_PER_PAGE} total={pool.length} hrefFor={(n) => href({ page: n })} newer="Previous drivers" older="More drivers" />
       {untimed.length > 0 ? (
         <Card title={`No times yet · ${untimed.length}`} className="tl-card">

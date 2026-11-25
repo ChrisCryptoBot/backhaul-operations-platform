@@ -159,9 +159,12 @@ export async function assignAction(formData: FormData) {
   });
 }
 
-/** Who could take a load, with the best fits first: the data behind the Assign window on the dispatch queue and the planner. Reads only. */
+/**
+ * Who could take a load, with the best fits first: the data behind the Assign window on the dispatch queue and the planner. Reads only, but only for someone who may assign: it carries the
+ * load's rate and each driver's margin, and nobody else has a use for it.
+ */
 export async function assignOptionsAction(loadId: string): Promise<AssignOptions | null> {
-  await requireCan("read");
+  await requireCan("dispatch");
   return assignOptions(loadId);
 }
 
