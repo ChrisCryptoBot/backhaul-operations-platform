@@ -205,7 +205,8 @@ export async function receiveHandoff(handoffId: string, input: ReceiveInput, now
   if (!driver || !driver.active) throw new RelayError("driver_not_found", "That driver is not available.");
   const al = allowed !== undefined ? allowed : await currentAllowed(workspaceId);
   if (!inScope(al, driver.terminal)) throw new RelayError("driver_outside_limit", `${driver.name} is based outside the terminals you work.`);
-  const blocker = driverBlocker(driver, now);
+  // The next driver has to be cleared through the end of the trip they take over.
+  const blocker = driverBlocker(driver, now, loadWindow(load.stops)?.end ?? null);
   if (blocker) throw new RelayError("driver_not_cleared", `${driver.name}: ${blocker}.`);
 
   const sameTruck = h.type === "slip_seat";

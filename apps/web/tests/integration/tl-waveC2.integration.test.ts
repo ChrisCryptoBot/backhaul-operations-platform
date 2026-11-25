@@ -132,6 +132,35 @@ describe.skipIf(!run)("who could take a load, on the demo database", () => {
     expect(await assignOptions(loose.id, undefined, { allowed: "WC2 Elsewhere" })).not.toBeNull();
   });
 
+  test("a driver has to be cleared for the whole trip: a card that lapses mid-trip, or a failed carrier check, blocks", async () => {
+    // Made here and taken out of service at the end, so they never show in the other tests' rankings.
+    const mid = await saveDriver(driverForm("WC2 Midtrip", { medicalCardExpiry: "2027-06-16", payKind: "cpm", payRate: "0.40" }), null); // good through the 16th
+    const failed = await saveDriver(driverForm("WC2 Failed", { payKind: "cpm", payRate: "0.40" }), null);
+    if (!mid.ok || !failed.ok) throw new Error("drivers");
+    await prisma.driver.update({ where: { id: failed.id }, data: { vetStatus: "failed" } });
+    try {
+      // A two-day trip: picked up on the 16th, delivered on the 17th, after the card has lapsed.
+      const lapsesDuring = await mkLoad("MID1", "2027-06-16", {
+        stops: {
+          create: [
+            { stopSequence: 1, stopType: "pickup", stopRole: "pickup", addressString: "Dallas, TX", timeWindowEarliest: at("2027-06-16T08:00"), timeWindowLatest: at("2027-06-16T09:00") },
+            { stopSequence: 2, stopType: "delivery", stopRole: "delivery", addressString: "Tulsa, OK", timeWindowEarliest: at("2027-06-17T16:00"), timeWindowLatest: at("2027-06-17T17:00") }
+          ]
+        }
+      });
+      const overBefore = await mkLoad("MID2", "2027-06-15");
+      expect(await assignFromQueue({ loadId: lapsesDuring.id, driverId: mid.id, payKind: "cpm", rate: "0.40" })).toMatchObject({ ok: false, error: expect.stringContaining("Medical card lapses") });
+      // The Assign window says the same before anyone presses Assign.
+      const out = (await assignOptions(lapsesDuring.id, undefined, { limit: 50 }))!;
+      expect(out.drivers.find((d) => d.name === "WC2 Midtrip")?.blocker).toMatch(/^Medical card lapses/);
+      expect(await assignFromQueue({ loadId: overBefore.id, driverId: mid.id, payKind: "cpm", rate: "0.40" })).toEqual({ ok: true });
+      const other = await mkLoad("MID3", "2027-06-18", { vehicleId: ids.other });
+      expect(await assignFromQueue({ loadId: other.id, driverId: failed.id, payKind: "cpm", rate: "0.40" })).toMatchObject({ ok: false, error: expect.stringContaining("Failed the carrier check") });
+    } finally {
+      await prisma.driver.updateMany({ where: { id: { in: [mid.id, failed.id] } }, data: { active: false } });
+    }
+  });
+
   test("assigning from the queue answers in place: it assigns, says what is wrong, and wants a reason to double-book", async () => {
     const day = "2027-06-14";
     const first = await mkLoad("Q1", day);

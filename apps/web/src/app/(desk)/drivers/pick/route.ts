@@ -2,6 +2,7 @@ import { terminalFilter } from "@/lib/scope";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { driverBlocker } from "@/lib/clearance";
+import { loadWindow } from "@/lib/schedule";
 import { driverClashNotes } from "@/server/tl/dispatch";
 import { checkLoad, dateKeyOf, flagWords } from "@/lib/shifts";
 import { loadSchedules } from "@/server/tl/shifts";
@@ -30,11 +31,13 @@ export async function GET(request: Request) {
   const terminal = q ? await currentAllowed() : await currentTerminal();
   const drivers = await prisma.driver.findMany({
     where: { workspaceId: currentWorkspaceId(), ...(inactive ? {} : { active: true }), ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}), ...(q ? { OR: [{ name: { contains: q, mode: "insensitive" as const } }, { code: { contains: q, mode: "insensitive" as const } }] } : {}) },
-    select: { id: true, name: true, code: true, terminal: true, cdlExpiry: true, medicalCardExpiry: true, defaultPayKind: true, defaultPayRate: true },
+    select: { id: true, name: true, code: true, terminal: true, cdlExpiry: true, medicalCardExpiry: true, coiExpiresAt: true, vetStatus: true, vetAuthorityActive: true, defaultPayKind: true, defaultPayRate: true },
     orderBy: { name: "asc" },
     take: 12
   });
   const load = loadId ? await prisma.load.findFirst({ where: { id: loadId, workspaceId: currentWorkspaceId(), deletedAt: null }, select: { id: true, stops: true } }) : null;
+  // A card has to last the whole trip: it is checked against when the load's last window closes.
+  const tripEnd = load ? (loadWindow(load.stops)?.end ?? null) : null;
   const busyBy = load ? await driverClashNotes(drivers.map((d) => d.id), load.id, load.stops) : new Map<string, string>();
   // A caution beside the clash note: does a stop of this load fall outside the driver's shift (the carrier's clock). Never a blocker.
   const tz = await workspaceTimezone(currentWorkspaceId());
@@ -47,7 +50,7 @@ export async function GET(request: Request) {
   };
   return NextResponse.json(
     {
-      drivers: drivers.map((d) => ({ id: d.id, name: d.name, code: d.code, home: d.terminal, terminal: d.terminal, blocker: driverBlocker(d), busy: busyBy.get(d.id) ?? null, shiftNote: shiftNote(d.id), payKind: d.defaultPayKind, payRate: numOrNull(d.defaultPayRate) }))
+      drivers: drivers.map((d) => ({ id: d.id, name: d.name, code: d.code, home: d.terminal, terminal: d.terminal, blocker: driverBlocker(d, new Date(), tripEnd), busy: busyBy.get(d.id) ?? null, shiftNote: shiftNote(d.id), payKind: d.defaultPayKind, payRate: numOrNull(d.defaultPayRate) }))
     },
     { headers: { "Cache-Control": "private, no-store" } }
   );

@@ -202,7 +202,7 @@ export type AlertLoad = {
   assignment: null | {
     status: string;
     dispatchedAt: Date | null;
-    driver: { id: string; name: string; cdlExpiry: Date | null; medicalCardExpiry: Date | null };
+    driver: { id: string; name: string; cdlExpiry: Date | null; medicalCardExpiry: Date | null; coiExpiresAt?: Date | null; vetStatus?: string | null; vetAuthorityActive?: boolean | null };
   };
 };
 
@@ -267,7 +267,8 @@ export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds =
     }
 
     if (open && holding) {
-      const blocker = driverBlocker(a!.driver, now);
+      // Cleared for the whole trip: a card that lapses before the last window closes is a block now, not a surprise at the dock.
+      const blocker = driverBlocker(a!.driver, now, loadWindow(l.stops)?.end ?? null);
       if (blocker) add(l, "DRIVER_CLEARANCE", "block", `${a!.driver.name}: ${blocker}.`);
       else {
         const soon = clearanceSoon(a!.driver, now, t.clearanceDays);

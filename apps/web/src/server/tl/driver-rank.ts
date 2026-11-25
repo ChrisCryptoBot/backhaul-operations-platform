@@ -8,6 +8,7 @@ import type { Prisma } from "@prisma/client";
 import { checkLoad, dateKeyOf, flagWords } from "@/lib/shifts";
 import { loadSchedules } from "./shifts";
 import { workspaceTimezone } from "./zone";
+import { loadWindow } from "@/lib/schedule";
 
 /**
  * Who could take a load, ranked: every driver in service is checked (a lapsed card, another load at the same time, what the load would leave over the cost floor
@@ -52,12 +53,14 @@ export async function rankDrivers(load: RankLoad, workspaceId: string, terminal:
   const stopTimes = load.stops.map((s) => ({ role: s.stopRole ?? s.stopType, earliest: s.timeWindowEarliest, latest: s.timeWindowLatest }));
   const first = stopTimes.map((s) => (s.earliest ?? s.latest)?.getTime()).filter((t): t is number => t != null);
   const schedules = first.length > 0 ? await loadSchedules(workspaceId, null, dateKeyOf(Math.min(...first), tz), dateKeyOf(Math.max(...first), tz)) : new Map();
+  // Every card is checked against when this load's last window closes, so a driver whose card lapses mid-trip is not offered.
+  const tripEnd = loadWindow(load.stops)?.end ?? load.scheduledDate ?? null;
   const at = (home: string | null) => (terminal != null && inScope(terminal, home) ? 0 : 1);
 
   const options: AssignDriverOption[] = [];
   const fits: Suggestion[] = [];
   for (const d of drivers) {
-    const blocker = driverBlocker(d);
+    const blocker = driverBlocker(d, new Date(), tripEnd);
     const busy = busyBy.get(d.id) ?? null;
     const payKind = d.defaultPayKind;
     const payRate = numOrNull(d.defaultPayRate);

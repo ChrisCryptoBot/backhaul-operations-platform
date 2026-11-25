@@ -6,7 +6,8 @@ import { callPartner, providerName } from "./call";
 
 /**
  * Carrier vetting: for a driver who runs under a carrier authority (an owner-operator, a leased-on company), check the authority and insurance with the vetting company and keep
- * what it found: clear, needs review, or failed, and when the certificate of insurance lapses. It is a reading kept on the driver, never a rule: it does not stop an assignment.
+ * what it found: clear, needs review, or failed, and when the certificate of insurance lapses. What it found is a rule at assignment (src/lib/clearance.ts): a failed check, an authority that is not
+ * active, or a certificate that lapses before the trip ends stops it, like a lapsed CDL. "Needs review" does not.
  */
 export const VET_LABEL: Record<string, string> = { unchecked: "Not checked", clear: "Insurance clear", review: "Needs review", failed: "Failed the check" };
 export const vetLabel = (s: string) => VET_LABEL[s] ?? s;

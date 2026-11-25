@@ -108,7 +108,7 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
       // The verdict only matters for a draft nobody has been sent (BELOW_COST_UNASSIGNED): no need to price anything else.
       verdict: l.status === "draft" && profile ? (evaluateTlLoad(l, profile, l.vehicle)?.finalDecision ?? null) : null,
       stops: l.stops.map((s) => ({ timeWindowEarliest: s.timeWindowEarliest, timeWindowLatest: s.timeWindowLatest, referenceNumbers: s.referenceNumbers })),
-      assignment: a ? { status: a.status, dispatchedAt: a.dispatchedAt, driver: { id: a.driver.id, name: a.driver.name, cdlExpiry: a.driver.cdlExpiry, medicalCardExpiry: a.driver.medicalCardExpiry } } : null
+      assignment: a ? { status: a.status, dispatchedAt: a.dispatchedAt, driver: { id: a.driver.id, name: a.driver.name, cdlExpiry: a.driver.cdlExpiry, medicalCardExpiry: a.driver.medicalCardExpiry, coiExpiresAt: a.driver.coiExpiresAt, vetStatus: a.driver.vetStatus, vetAuthorityActive: a.driver.vetAuthorityActive } } : null
     });
   }
   for (const l of outOwed) {

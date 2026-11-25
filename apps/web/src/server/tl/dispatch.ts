@@ -184,7 +184,8 @@ export async function assignDriver(input: { loadId: string; driverId: string; pa
   const driver = await prisma.driver.findFirst({ where: { id: input.driverId, workspaceId } });
   if (!driver || !driver.active) throw new DispatchError("driver_not_found", "That driver is not available.");
   if (!inScope(allowed, driver.terminal)) throw new DispatchError("driver_outside_limit", `${driver.name} is based outside the terminals you work. Ask an admin to change what you can see, or to assign them.`);
-  const blocker = driverBlocker(driver, now);
+  // Good for the whole trip, not just today: a card that lapses before the last delivery window closes blocks (src/lib/clearance.ts).
+  const blocker = driverBlocker(driver, now, loadWindow(load.stops)?.end ?? load.scheduledDate ?? null);
   if (blocker) throw new DispatchError("driver_not_cleared", `${driver.name}: ${blocker}.`);
 
   let override: string | null = null;
