@@ -179,6 +179,15 @@ describe.skipIf(!run)("who could take a load, on the demo database", () => {
     expect(audit?.reason).toBe("Double-booked: R2 is a short hop first; Driver changed: Dear called in sick");
   });
 
+  test("send checks the load again inside its own transaction: a load that moved on since it was assigned is not sent", async () => {
+    const load = await mkLoad("SEND-MOVED", "2027-06-23");
+    expect(await assignFromQueue({ loadId: load.id, driverId: ids.Dear!, payKind: "cpm", rate: "0.80" })).toEqual({ ok: true });
+    // Something else moved the load on after the assignment was saved (the same window a delete would land in).
+    await prisma.load.update({ where: { id: load.id }, data: { status: "in_progress" } });
+    await expect(dispatchLoad(load.id)).rejects.toMatchObject({ code: "load_not_assignable" });
+    expect((await prisma.assignment.findUniqueOrThrow({ where: { loadId: load.id } })).status).toBe("draft");
+  });
+
   test("assigning from the queue answers in place: it assigns, says what is wrong, and wants a reason to double-book", async () => {
     const day = "2027-06-14";
     const first = await mkLoad("Q1", day);

@@ -466,6 +466,14 @@ export async function dispatchLoad(loadId: string, now = new Date(), opts: { sen
   const a = await prisma.assignment.findFirstOrThrow({ where: { loadId, load: { workspaceId, ...inTerminal(scope) } }, include: { driver: true, load: true } });
   if (a.status !== "draft") throw new DispatchError("already_sent", "This load was already sent to the driver.");
   const updated = await prisma.$transaction(async (tx) => {
+    // The load itself is still on the desk and still sendable, checked again inside this transaction: a delete that lands between the read above and here is either waited for
+    // (the row is locked) or makes this send fail, so a phone is never offered a load that was just deleted.
+    try {
+      await claimLoad(tx, loadId, workspaceId, SENDABLE_LOAD_STATUSES, {}, inTerminal(scope) as Prisma.LoadWhereInput);
+    } catch (e) {
+      if (e instanceof LoadMoved) throw new DispatchError("load_not_assignable", "That load was deleted, started or cancelled since you opened it. Reload it.");
+      throw e;
+    }
     // Sent once: a second press (or another tab) finds it already sent.
     try {
       await claimAssignment(tx, loadId, ["draft"], { status: "dispatched", dispatchedAt: now, dispatchedBy: senderNameOf(currentActor()), assignmentVersion: { increment: 1 } });
