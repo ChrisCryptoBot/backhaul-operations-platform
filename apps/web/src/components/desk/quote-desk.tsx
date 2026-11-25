@@ -945,15 +945,39 @@ export function QuoteDesk({
             <span>Quick paste</span>
           </button>
 
-          <button
-            type="button"
-            className="tl-btn ghost sm"
-            disabled={readingRateCon}
-            onClick={() => rateConInputRef.current?.click()}
-            title="Upload or drop a rate confirmation PDF or image to fill this quote">
-            <Icon name="document" size={14} />
-            <span>{readingRateCon ? "Reading PDF…" : "Rate con PDF"}</span>
-          </button>
+          <details className="menu">
+            <summary
+              className="tl-btn ghost sm"
+              title="Upload or drop a rate confirmation PDF or image to fill this quote">
+              <Icon name="document" size={14} />
+              <span>{readingRateCon ? "Reading PDF…" : "Rate con PDF"}</span>
+            </summary>
+            <div
+              className="menu-pop"
+              onClick={(e) => {
+                const menu = e.currentTarget.closest("details");
+                if (menu) menu.open = false;
+              }}>
+              <button
+                type="button"
+                disabled={readingRateCon || locked}
+                onClick={() => rateConInputRef.current?.click()}>
+                Upload PDF or image
+              </button>
+              <button
+                type="button"
+                disabled={readingRateCon || locked}
+                onClick={() => void handleSampleRateCon("RC-AFB-482913_dallas-to-houston_cargo-van.pdf")}>
+                Sample: Acme ($800)
+              </button>
+              <button
+                type="button"
+                disabled={readingRateCon || locked}
+                onClick={() => void handleSampleRateCon("RC-RDL-77315_fort-worth-waco-austin_box-truck.pdf")}>
+                Sample: Redline ($640, 3 stops)
+              </button>
+            </div>
+          </details>
           <input
             ref={rateConInputRef}
             type="file"
@@ -1162,79 +1186,58 @@ export function QuoteDesk({
 
             {isQuoteDirty(values, initial?.values ?? BLANK_QUOTE) ? <DraftNote draft={draft} what="this quote" /> : null}
 
-            {/* Rate confirmation quick intake */}
-            <section className="tl-card" aria-label="Rate confirmation intake" style={{ padding: "10px 14px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <span className="tl-sub">
-                  <b>Have a rate confirmation?</b> Drop a PDF/image anywhere here, upload, or load a sample:
-                </span>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <button
-                    type="button"
-                    className="tl-btn sm"
-                    disabled={readingRateCon || locked}
-                    onClick={() => rateConInputRef.current?.click()}>
-                    {readingRateCon ? "Reading…" : "Upload rate con"}
-                  </button>
-                  <button
-                    type="button"
-                    className="tl-btn ghost sm"
-                    disabled={readingRateCon || locked}
-                    onClick={() => void handleSampleRateCon("RC-AFB-482913_dallas-to-houston_cargo-van.pdf")}>
-                    Sample: Acme ($800)
-                  </button>
-                  <button
-                    type="button"
-                    className="tl-btn ghost sm"
-                    disabled={readingRateCon || locked}
-                    onClick={() => void handleSampleRateCon("RC-RDL-77315_fort-worth-waco-austin_box-truck.pdf")}>
-                    Sample: Redline ($640, 3 stops)
-                  </button>
-                </div>
-              </div>
-              {rateConMeta ? (
-                <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span className="tl-chip ok">
-                      {rateConMeta.fileName}
-                      {rateConMeta.isRealFile ? " · PDF will attach to load when booked" : " · Sample rate con"}
+            {rateConMeta ? (
+              <section className="tl-card" aria-label="Loaded rate confirmation" style={{ padding: "10px 14px", overflow: "hidden" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                  <div style={{ minWidth: 0, flex: "1 1 0%" }}>
+                    <span className="tl-chip ok" style={{ maxWidth: "100%", whiteSpace: "normal", overflowWrap: "anywhere" }}>
+                      {rateConMeta.isRealFile ? "PDF attached on booking" : "Sample rate con"}
                     </span>
-                    <button
-                      type="button"
-                      className="tl-btn ghost sm"
-                      onClick={() => {
-                        rateConFileRef.current = null;
-                        setRateConMeta(null);
-                        set({ rateConPath: "" });
-                      }}>
-                      Dismiss
-                    </button>
+                    <div
+                      className="tl-sub"
+                      title={rateConMeta.fileName}
+                      style={{ marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {rateConMeta.fileName}
+                    </div>
                   </div>
-                  {rateConMeta.tonuOnly ? (
-                    <p className="tl-note warn" role="alert">
-                      This document reads as a TONU notice, not an active haul.
-                    </p>
-                  ) : null}
-                  {rateConMeta.lumper ? (
-                    <p className="tl-note warn" role="note" data-testid="lumper-flag">
-                      <strong>{rateConMeta.lumper.kind === "stated" ? "Lumper" : "Lumper likely"}.</strong> {rateConMeta.lumper.text}
-                    </p>
-                  ) : null}
-                  {rateConMeta.fuelSurchargeIncluded ? (
-                    <p className="tl-sub">Printed rate includes {usd(rateConMeta.fuelSurchargeIncluded, 2)} fuel surcharge.</p>
-                  ) : null}
-                  {rateConMeta.warnings.length > 0 ? (
-                    <ul style={{ margin: 0, paddingLeft: 18 }}>
-                      {rateConMeta.warnings.map((w, idx) => (
-                        <li key={idx} className="tl-sub">
-                          {w}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
+                  <button
+                    type="button"
+                    className="tl-btn ghost sm"
+                    style={{ flexShrink: 0 }}
+                    onClick={() => {
+                      rateConFileRef.current = null;
+                      setRateConMeta(null);
+                      set({ rateConPath: "" });
+                    }}>
+                    Dismiss
+                  </button>
                 </div>
-              ) : null}
-            </section>
+                {rateConMeta.tonuOnly ? (
+                  <p className="tl-note warn" role="alert" style={{ marginTop: 8, overflowWrap: "anywhere" }}>
+                    This document reads as a TONU notice, not an active haul.
+                  </p>
+                ) : null}
+                {rateConMeta.lumper ? (
+                  <p className="tl-note warn" role="note" data-testid="lumper-flag" style={{ marginTop: 8, overflowWrap: "anywhere" }}>
+                    <strong>{rateConMeta.lumper.kind === "stated" ? "Lumper" : "Lumper likely"}.</strong> {rateConMeta.lumper.text}
+                  </p>
+                ) : null}
+                {rateConMeta.fuelSurchargeIncluded ? (
+                  <p className="tl-sub" style={{ marginTop: 6, overflowWrap: "anywhere" }}>
+                    Printed rate includes {usd(rateConMeta.fuelSurchargeIncluded, 2)} fuel surcharge.
+                  </p>
+                ) : null}
+                {rateConMeta.warnings.length > 0 ? (
+                  <ul style={{ margin: "6px 0 0", paddingLeft: 18, overflowWrap: "anywhere" }}>
+                    {rateConMeta.warnings.map((w, idx) => (
+                      <li key={idx} className="tl-sub">
+                        {w}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </section>
+            ) : null}
 
             {/* 1. Route Section */}
             <section className="tl-card">
@@ -2235,43 +2238,6 @@ export function QuoteDesk({
               </div>
             </dl>
           ) : null}
-          <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px solid var(--db-border)" }}>
-            <span style={{ fontSize: 11, color: "var(--db-fg-dim)", display: "block", marginBottom: 6 }}>
-              Or read a rate confirmation PDF:
-            </span>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <button
-                type="button"
-                className="tl-btn sm"
-                disabled={readingRateCon}
-                onClick={() => {
-                  setPasteOpen(false);
-                  rateConInputRef.current?.click();
-                }}>
-                Upload Rate-Con PDF
-              </button>
-              <button
-                type="button"
-                className="tl-btn ghost sm"
-                disabled={readingRateCon}
-                onClick={() => {
-                  setPasteOpen(false);
-                  void handleSampleRateCon("RC-AFB-482913_dallas-to-houston_cargo-van.pdf");
-                }}>
-                Sample: Acme ($800)
-              </button>
-              <button
-                type="button"
-                className="tl-btn ghost sm"
-                disabled={readingRateCon}
-                onClick={() => {
-                  setPasteOpen(false);
-                  void handleSampleRateCon("RC-RDL-77315_fort-worth-waco-austin_box-truck.pdf");
-                }}>
-                Sample: Redline ($640, 3 stops)
-              </button>
-            </div>
-          </div>
           <div className="dlg-actions">
             <button type="button" className="tl-btn" onClick={() => setPasteOpen(false)}>
               Cancel
