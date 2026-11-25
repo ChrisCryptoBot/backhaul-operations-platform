@@ -39,7 +39,7 @@ const TABLE: Record<string, Capability[]> = {
   // money that is gone
   voidSettlementAction: ["writeoff"],
   // the company, the rules, the connections and the team
-  saveThresholdsAction: ["admin"], saveSignalSettingsAction: ["admin"], saveCompanyAction: ["admin"], connectPartnerAction: ["admin"], disconnectPartnerAction: ["admin"], addMemberAction: ["admin"], setMemberRoleAction: ["admin"],
+  saveThresholdsAction: ["admin"], savePaySettingsAction: ["admin"], saveSignalSettingsAction: ["admin"], saveCompanyAction: ["admin"], connectPartnerAction: ["admin"], disconnectPartnerAction: ["admin"], addMemberAction: ["admin"], setMemberRoleAction: ["admin"],
   setMemberGrantsAction: ["admin"], removeMemberAction: ["admin"],
   // who works when and from where (a driver manager or an admin), and the terminal list itself (an admin)
   saveScheduleAction: ["roster"], applyScheduleAction: ["roster"], clearScheduleAction: ["roster"], saveTimeOffAction: ["roster"], removeTimeOffAction: ["roster"], setDriversHomeAction: ["roster"], setDriverCodeAction: ["roster"], issueDriverInviteAction: ["roster"], checkDriverLinkAction: ["roster"], endDriverLinkAction: ["roster"],
@@ -152,9 +152,9 @@ describe("driver pay is the billing office's (billing_details)", () => {
     const weekly = src("app", "(desk)", "loads", "import", "weekly", "page.tsx");
 
     expect(drawer).toContain('may("billing_details") && l.payEstimate != null');
-    expect(drawer).toContain('may("billing_details") ? moneyRow("Driver pay"');
+    expect(drawer).toMatch(/may\("billing_details"\)\s*\?\s*moneyRow\(\s*anySettled \? "Driver pay" : "Driver pay \(estimate\)"/);
     expect(drawer).toContain('may("billing_details") ? (\n          <div className="lv-total">');
-    expect(drawer).toContain('settled && may("billing_details")');
+    expect(drawer).toContain('anySettled && may("billing_details")');
     expect(drawer).toContain('canRemove={may("documents_remove")}');
     expect(drawer).toContain('showPay={may("billing_details")}');
     expect(drawer).toContain('"admin"\n        )');

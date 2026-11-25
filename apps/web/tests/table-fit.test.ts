@@ -29,7 +29,7 @@ describe("the board folds secondary columns instead of scrolling sideways", () =
 
   test("what folds stays on the row: the truck beside its driver, and at 1024 the customer, driver and miles on the load's second line", () => {
     expect(board).toContain('className="fold-only q">{r.vehicleName}');
-    expect(board).toContain('className="sub fold-2">{[r.brokerName, r.driverName ?? "no driver", miles(r.totalMiles)]');
+    expect(board).toContain('className="sub fold-2">{[r.brokerName, r.driverName ?? (r.openHandoff ? "awaiting handoff" : "no driver"), miles(r.totalMiles)]');
     expect(css).toMatch(/@container \(max-width:960px\)\{\s*\.dt \[data-pr="2"\]\{display:none\}/);
     expect(css).toMatch(/\.dt \.fold-only\{display:none\}/);
     expect(css).toMatch(/@container \(max-width:1400px\)\{\.dt \[data-pr="3"\]\{display:none\}/);

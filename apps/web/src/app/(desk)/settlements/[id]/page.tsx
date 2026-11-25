@@ -12,7 +12,7 @@ import { paidMethodLabel } from "@/lib/pay-method";
 import { can, whoCan } from "@/lib/roles";
 import { checkAccess, requirePage } from "@/server/tl/access";
 import { getSettlement } from "@/server/tl/settlement";
-import { isNetPay, payNote } from "@/lib/settlement";
+import { isNetPay, lineKey, payNote } from "@/lib/settlement";
 import { currentTerminal } from "@/server/tl/terminal";
 
 export const dynamic = "force-dynamic";
@@ -171,13 +171,16 @@ export default async function StatementPage({ params }: { params: { id: string }
             </thead>
             <tbody>
               {st.lines.map((l) => (
-                <tr key={l.loadId}>
+                <tr key={lineKey(l)}>
                   <td>
                     {l.loadNumber ?? "—"}
                     <div className="rp-meta">{l.lane}</div>
                   </td>
                   <td>{l.deliveredAt ? dayYear(l.deliveredAt) : "—"}</td>
-                  <td>{l.basis}</td>
+                  <td>
+                    {l.basis}
+                    {l.milesGap ? <div className="rp-meta">{l.milesGap}</div> : null}
+                  </td>
                   <td className="num">{l.amount == null ? "—" : usd(l.amount, 2)}</td>
                 </tr>
               ))}

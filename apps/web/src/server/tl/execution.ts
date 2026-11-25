@@ -6,10 +6,11 @@ import { EXPENSE_ITEMS, otherExpenseTotal, validateComplete, validateCorrection,
 import { recordAudit } from "./audit";
 import { claimAssignment, claimLoad, LoadMoved } from "./claim";
 import { num, numOrNull } from "./convert";
-import { settlementOfLoad } from "./settlement";
+import { settlementsOfLoad } from "./settlement";
 import { tripHoursOf } from "./dispatch";
 import { payEstimate, type PayKind } from "./projector";
 import { rateConTotal } from "@/lib/pay";
+import { legPayEstimate } from "@/lib/relay";
 import { currentWorkspaceId } from "./workspace";
 import { stopClocksOf } from "./stop-clock";
 import type { Terminals } from "@/lib/scope";
@@ -182,8 +183,12 @@ export async function undoStartTrip(loadId: string, reason: string, now = new Da
   if (load.stops.slice(1).some((s) => s.arrivedAt != null)) return { ok: false, error: "A later stop has arrival times entered. Take those back first, or finish the trip." };
   const pickup = load.stops[0];
   if (!pickup || !load.assignment) return { ok: false, error: "This load has no pickup to take back." };
+  const [hasLegs, hasHandoffs] = await Promise.all([prisma.loadLeg.count({ where: { loadId: load.id } }), prisma.handoff.count({ where: { loadId: load.id } })]);
+  if (hasLegs > 0 || hasHandoffs > 0) return { ok: false, error: "This load already has relay legs or handoffs, so its pickup cannot be taken back." };
   try {
   await prisma.$transaction(async (tx) => {
+    const [legsInTx, handoffsInTx] = await Promise.all([tx.loadLeg.count({ where: { loadId: load.id } }), tx.handoff.count({ where: { loadId: load.id } })]);
+    if (legsInTx > 0 || handoffsInTx > 0) throw new LoadMoved("This load already has relay legs or handoffs, so its pickup cannot be taken back.");
     await claimLoad(tx, load.id, workspaceId, ["in_progress"], { status: loadStatusFor("accepted") }, inTerminal(scope) as Prisma.LoadWhereInput);
     await claimAssignment(tx, load.id, ["in_progress"], { status: "accepted" });
     await tx.stop.update({ where: { id: pickup.id }, data: { arrivedAt: null, waitMinutes: null, sealNumber: null, arrivedSource: null } });
@@ -206,17 +211,24 @@ export async function reopenDelivered(loadId: string, reason: string, now = new 
   const scope = await allowedFor(workspaceId, allowed);
   const why = reason.trim();
   if (why.length < 3) return { ok: false, error: "Say why the delivery is being taken back." };
-  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) }, include: { assignment: { include: { driver: true } }, settlement: true } });
+  const load = await prisma.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) }, include: { assignment: { include: { driver: true } }, settlement: true, settlementLegs: { select: { id: true }, take: 1 }, legs: { orderBy: { seq: "asc" } } } });
   if (!load || load.status === "quote") return { ok: false, error: "That load does not exist." };
   if (load.status !== "completed") return { ok: false, error: "Only a delivered load can have its delivery taken back." };
   if (load.paymentStatus) return { ok: false, error: "This load has been invoiced. Take the invoice back first." };
-  if (load.settlement) return { ok: false, error: "This load is on a driver statement, so what was delivered is what the driver was paid on." };
+  if (load.settlement || load.settlementLegs.length > 0) return { ok: false, error: "This load is on a driver statement, so what was delivered is what the driver was paid on." };
   if (!load.assignment) return { ok: false, error: "This load has no driver, so there is no trip to reopen." };
+  const lastClosedHaul = [...load.legs].reverse().find((l) => l.kind === "haul" && l.status === "closed");
   try {
   await prisma.$transaction(async (tx) => {
     // Not once an invoice or a statement has been made from it, even if that happened since this was read.
-    await claimLoad(tx, load.id, workspaceId, ["completed"], { status: loadStatusFor("in_progress"), completedAt: null, actualRevenue: null, closedWithoutPod: null, podNote: null }, { paymentStatus: null, settlement: { is: null }, ...inTerminal(scope) });
+    await claimLoad(tx, load.id, workspaceId, ["completed"], { status: loadStatusFor("in_progress"), completedAt: null, actualRevenue: null, closedWithoutPod: null, podNote: null }, { paymentStatus: null, settlement: { is: null }, legs: { none: { settlementLeg: { isNot: null } } }, ...inTerminal(scope) });
     await tx.assignment.updateMany({ where: { loadId: load.id }, data: { status: "in_progress" } });
+    if (lastClosedHaul) {
+      await tx.loadLeg.update({
+        where: { id: lastClosedHaul.id },
+        data: { status: "active", endedAt: null, toName: null, toLat: null, toLng: null, milesDriven: null, milesSource: null, payEstimate: lastClosedHaul.payKind === "flat" ? lastClosedHaul.payRate : null }
+      });
+    }
     await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "update", now });
     await recordAudit({ entity: "load", action: "trip_reopened", loadId: load.id, loadNumber: load.loadNumber, summary: `Delivery taken back: ${load.assignment!.driver.name} is on the road again`, reason: why, before: { Status: "Delivered", Delivered: load.completedAt ? dateTime(load.completedAt) : null, ...(load.actualRevenue != null ? { "Linehaul paid": money(num(load.actualRevenue)) } : {}) }, after: { Status: "On the road", Delivered: null }, at: now, workspaceId }, tx);
   });
@@ -242,6 +254,8 @@ export async function completeTrip(loadId: string, values: CompleteValues, now =
   if (!load || load.status === "quote") return { ok: false, error: "That load does not exist." };
   if (load.status !== "in_progress") return { ok: false, error: load.status === "completed" ? "This load is already delivered." : "A load has to be picked up before it can be delivered." };
   if (v.stops.some((s) => !load.stops.some((x) => x.id === s.id))) return { ok: false, error: "The stops on this load changed. Reload it and try again." };
+  const openHandoffs = await prisma.handoff.count({ where: { loadId: load.id, state: { in: ["dropped", "disputed"] } } });
+  if (openHandoffs > 0 || !load.assignment) return { ok: false, error: "Receive the handoff first." };
   const pickupArrived = load.stops[0]?.arrivedAt ?? null;
   if (pickupArrived && v.deliveredAt < pickupArrived) return { ok: false, errors: { deliveredAt: "That is before the pickup. Check the date." } };
 
@@ -254,12 +268,44 @@ export async function completeTrip(loadId: string, values: CompleteValues, now =
   const extras = extrasPatch(load, v.expenses);
   try {
   await prisma.$transaction(async (tx) => {
+    const waiting = await tx.handoff.count({ where: { loadId: load.id, state: { in: ["dropped", "disputed"] } } });
+    if (waiting > 0) throw new LoadMoved("Receive the handoff first.");
     // Queued while the assignment still reads on the road (the outbox looks it up in this transaction): a delivery the desk entered reaches a bridged driver's phone.
     if (via === "desk") await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "update", now });
     for (const s of v.stops) {
       const had = load.stops.find((x) => x.id === s.id)!;
       // A blank seal keeps the one already recorded; a typed one is written at that stop (the table shows a seal column for every stop, so it can be entered at every stop).
       if (s.arrivedAt != null || s.waitMinutes != null || s.seal != null) await tx.stop.update({ where: { id: s.id }, data: { arrivedAt: s.arrivedAt ?? had.arrivedAt, waitMinutes: s.waitMinutes ?? had.waitMinutes, sealNumber: s.seal ?? had.sealNumber, arrivedSource: "desk" } });
+    }
+    const legs = await tx.loadLeg.findMany({ where: { loadId: load.id }, orderBy: { seq: "asc" } });
+    const activeHaul = legs.find((l) => l.kind === "haul" && l.status === "active");
+    if (activeHaul && a) {
+      const earlierHaulMiles = legs
+        .filter((l) => l.id !== activeHaul.id && l.kind === "haul" && l.milesDriven != null)
+        .reduce((sum, l) => sum.plus(l.milesDriven!), new Prisma.Decimal(0));
+      const loadedDec = new Prisma.Decimal(extras.data.loadedMiles !== undefined ? num(extras.data.loadedMiles as never) : num(load.loadedMiles));
+      const remDec = loadedDec.minus(earlierHaulMiles);
+      const legMiles = remDec.isNegative() ? new Prisma.Decimal(0) : remDec;
+      const legPayKind = activeHaul.payKind ?? a.payKind;
+      const legPayRate = activeHaul.payRate != null ? num(activeHaul.payRate) : num(a.payRate);
+      const rcTotal = rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge));
+      const est = legPayEstimate(legPayKind, legPayRate, legMiles.toNumber(), loadedDec.toNumber(), rcTotal);
+      const lastStop = load.stops.at(-1);
+      await tx.loadLeg.update({
+        where: { id: activeHaul.id },
+        data: {
+          status: "closed",
+          endedAt: v.deliveredAt,
+          toName: lastStop?.addressString ?? load.destinationAddress ?? null,
+          toLat: lastStop?.lat ?? null,
+          toLng: lastStop?.lng ?? null,
+          milesDriven: legMiles,
+          milesSource: "remainder",
+          payKind: legPayKind,
+          payRate: new Prisma.Decimal(legPayRate),
+          payEstimate: est != null ? new Prisma.Decimal(est) : null
+        }
+      });
     }
     await claimLoad(tx, load.id, workspaceId, ["in_progress"], {
         status: "completed",
@@ -327,8 +373,9 @@ export async function saveExpenses(loadId: string, values: ExpenseValues, now = 
   if (!patch.changed) return { ok: true, changed: false };
   // The loaded miles are what a per-mile driver was paid on: once the load is on a final statement they stay as they were paid (the other figures do not change the pay).
   if (patch.data.loadedMiles !== undefined) {
-    const settled = await settlementOfLoad(load.id);
-    if (settled) return { ok: false, error: `This load is on driver statement ${settled.number}, so its loaded miles are what the driver was paid on. Void the statement first to correct them.` };
+    const settled = await settlementsOfLoad(load.id);
+    const ref = settled.whole ?? settled.legs[0];
+    if (ref) return { ok: false, error: `This load is on driver statement ${ref.number}, so its loaded miles are what the driver was paid on. Void the statement first to correct them.` };
   }
   const was = num(load.expenseFuelActual) + num(load.expenseTolls) + num(load.expenseMisc);
   const now2 = v.fuel + v.tolls + otherExpenseTotal(v);

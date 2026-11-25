@@ -17,10 +17,11 @@ export const OUTGOING_NEXT_LABEL: Record<OutgoingNext, string> = { bobtail: "Bob
 export const LOCATION_SET_BY = ["planned_yard", "emergency_pin", "dispatcher_typed"] as const;
 export type LocationSetBy = (typeof LOCATION_SET_BY)[number];
 
-export type HandoffState = "dropped" | "received" | "disputed";
-export const HANDOFF_STATE_LABEL: Record<HandoffState, string> = { dropped: "Awaiting handoff", received: "Received", disputed: "Disputed" };
+export type HandoffState = "dropped" | "received" | "disputed" | "cancelled";
+export const HANDOFF_STATE_LABEL: Record<HandoffState, string> = { dropped: "Awaiting handoff", received: "Received", disputed: "Disputed", cancelled: "Cancelled" };
 
 export type MilesSource = "eld" | "driver" | "dispatcher";
+export type LegMilesSource = MilesSource | "remainder";
 export const MILES_SOURCES: readonly MilesSource[] = ["eld", "driver", "dispatcher"];
 
 const has = <T extends string>(list: readonly T[], v: unknown): v is T => typeof v === "string" && (list as readonly string[]).includes(v);
@@ -48,6 +49,8 @@ export type DropInput = {
   /** Miles the outgoing driver covered on their leg, with where the figure came from. Neither is a guess: both or neither. */
   milesDriven?: number | null;
   milesSource?: unknown;
+  /** Required when outgoing driver's pay kind is `flat` (Phase 3): this driver's set dollar amount for their leg. */
+  flatPay?: number | null;
 };
 
 export type Problem = { field: string; message: string };
@@ -74,6 +77,7 @@ export function dropProblems(i: DropInput): Problem[] {
   } else if (i.milesSource != null) out.push({ field: "miles", message: "A source with no miles. Enter the miles or clear the source." });
   if (i.reeferFuelPct != null && (!Number.isInteger(i.reeferFuelPct) || i.reeferFuelPct < 0 || i.reeferFuelPct > 100)) out.push({ field: "reefer", message: "Reefer fuel is a whole percent from 0 to 100." });
   for (const t of [i.reeferSetTemp, i.reeferActualTemp]) if (t != null && (!finite(t) || t < -60 || t > 120)) out.push({ field: "reefer", message: "A reefer temperature must be between -60 and 120." });
+  if (i.flatPay != null && (!finite(i.flatPay) || i.flatPay <= 0 || i.flatPay > 20000)) out.push({ field: "flatPay", message: "Flat leg pay must be between $0.01 and $20,000." });
   return out;
 }
 
@@ -81,7 +85,9 @@ export function dropProblems(i: DropInput): Problem[] {
 export function receiveProblems(h: { type: string; tractorOutId: string | null; outDriverId: string | null; state: string; discrepancyFlagged: boolean; ackAt: Date | null }, i: { driverId: string; vehicleId?: string | null }): Problem[] {
   const out: Problem[] = [];
   if (h.state === "received") out.push({ field: "state", message: "This handoff was already received." });
+  if (h.state === "cancelled") out.push({ field: "state", message: "This handoff was cancelled." });
   if (h.discrepancyFlagged && !h.ackAt) out.push({ field: "state", message: "A discrepancy was reported. Dispatch has to acknowledge it before anyone takes the load." });
+  else if (h.state === "disputed") out.push({ field: "state", message: "Acknowledge the dispute on this handoff before anyone takes the load." });
   if (!i.driverId) out.push({ field: "driver", message: "Pick the driver taking the load." });
   else if (h.outDriverId && i.driverId === h.outDriverId) out.push({ field: "driver", message: "That is the driver who dropped it. Pick the next driver." });
   if (h.type === "slip_seat") {
@@ -99,6 +105,32 @@ export function positioningPayEstimate(milesDriven: number | null | undefined, r
   return Math.round(milesDriven * rateCpm * 100) / 100;
 }
 
+/**
+ * Estimate pay for one relay leg (Phase 3):
+ * - cpm -> leg miles x rate
+ * - percent -> rateConTotal x rate% x leg miles / loaded miles
+ * - hourly -> null (entered on the settlement)
+ * - flat -> flat leg rate
+ */
+export function legPayEstimate(
+  payKind: string | null | undefined,
+  payRate: number | null | undefined,
+  legMiles: number | null | undefined,
+  loadedMiles: number | null | undefined,
+  rateConTotal: number | null | undefined
+): number | null {
+  if (!finite(payRate) || payRate <= 0) return null;
+  if (payKind === "flat") return Math.round(payRate * 100) / 100;
+  if (payKind === "hourly") return null;
+  if (!finite(legMiles) || legMiles < 0) return null;
+  if (payKind === "cpm") return Math.round(legMiles * payRate * 100) / 100;
+  if (payKind === "percent") {
+    if (!finite(loadedMiles) || loadedMiles <= 0 || !finite(rateConTotal) || rateConTotal <= 0) return null;
+    return Math.round(rateConTotal * (payRate / 100) * (legMiles / loadedMiles) * 100) / 100;
+  }
+  return null;
+}
+
 /** How long a dropped baton has been waiting, in whole minutes (never negative). */
 export const waitMinutes = (droppedAt: Date, now: Date): number => Math.max(0, Math.floor((now.getTime() - droppedAt.getTime()) / 60_000));
 
@@ -106,7 +138,7 @@ export const waitMinutes = (droppedAt: Date, now: Date): number => Math.max(0, M
 export const HANDOFF_WARN_MINUTES = 60;
 export const HANDOFF_BLOCK_MINUTES = 240;
 export function handoffLevel(h: { state: string; discrepancyFlagged: boolean; ackAt: Date | null; droppedAt: Date }, now: Date): "block" | "warn" | null {
-  if (h.state === "received") return null;
+  if (h.state === "received" || h.state === "cancelled") return null;
   if (h.discrepancyFlagged && !h.ackAt) return "block";
   const m = waitMinutes(h.droppedAt, now);
   return m >= HANDOFF_BLOCK_MINUTES ? "block" : m >= HANDOFF_WARN_MINUTES ? "warn" : null;

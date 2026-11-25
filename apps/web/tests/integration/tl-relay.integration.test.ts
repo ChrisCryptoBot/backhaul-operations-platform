@@ -2,9 +2,17 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { prisma } from "@/lib/db";
 import { DispatchError, assignDriver, dispatchLoad, findTruckClash, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
 import { RelayError, acknowledgeDiscrepancy, flagDiscrepancy, handoffsOfLoad, legsOfLoad, openHandoffs, receiveHandoff, recordDrop } from "@/server/tl/relay";
+import { completeTrip, reopenDelivered, saveExpenses, startTrip, undoStartTrip } from "@/server/tl/execution";
+import { eligibleLoads, finalizeSettlement, settlementsOfLoad, startSettlement, unsettledByDriver, voidSettlement } from "@/server/tl/settlement";
+import { saveLoadDetails } from "@/server/tl/edit";
+import { deleteLoad } from "@/server/tl/remove";
+import { listBoardRows } from "@/server/tl/queries";
+import { filterBoard } from "@/lib/board-filter";
+import { toEditValues } from "@/lib/load-edit";
+import { toCentralLocal } from "@/lib/zoned";
 import { holderTrail } from "@/server/tl/assignment-events";
 import { listLoadAudit } from "@/server/tl/audit";
-import { cancelLoad } from "@/server/tl/disruptions";
+import { cancelLoad, recordTonu } from "@/server/tl/disruptions";
 import { getAlerts, clearAlertCache } from "@/server/tl/alerts";
 
 /**
@@ -76,7 +84,7 @@ describe.skipIf(!run)("relays: a baton between two drivers", () => {
     expect(leg1).toMatchObject({ seq: 1, kind: "haul", status: "closed", driverName: "RL Driver One", vehicleName: "RL Truck 1", milesSource: "eld", payKind: "cpm" });
     expect(Number(leg1!.milesDriven)).toBe(412);
     expect(Number(leg1!.payRate)).toBe(0.6);
-    expect(Number(leg1!.payEstimate)).toBe(720); // the pay as it stood
+    expect(Number(leg1!.payEstimate)).toBe(247.2); // Phase 3: 412 mi * $0.60/mi
 
     const tr = await prisma.trailer.findUniqueOrThrow({ where: { id: ids.trailer } });
     expect(tr.currentVehicleId).toBeNull();
@@ -107,6 +115,8 @@ describe.skipIf(!run)("relays: a baton between two drivers", () => {
     const legs = await legsOfLoad(load.id, W);
     expect(legs.map((x) => [x.seq, x.status, x.fromName])).toEqual([[1, "closed", "Phoenix, AZ"], [2, "active", "Albuquerque yard"]]);
     expect(legs[0]!.driverName).toBe("RL Driver One");
+    expect(legs[1]!.payKind).toBe("cpm");
+    expect(Number(legs[1]!.payRate)).toBe(0.62);
 
     const tr = await prisma.trailer.findUniqueOrThrow({ where: { id: ids.trailer } });
     expect([tr.currentVehicleId, tr.dwellWaived, tr.unhookedAt]).toEqual([nx.truck, false, null]);
@@ -340,5 +350,194 @@ describe.skipIf(!run)("a driver recalled while rolling empty keeps the miles the
     await recordDrop(load.id, GOOD, NOW, P, null);
     const legs = await legsOfLoad(load.id, P);
     expect(legs.map((l) => [l.seq, l.kind, l.status])).toEqual([[1, "positioning", "closed"], [2, "haul", "closed"]]);
+  });
+});
+
+describe.skipIf(!run)("Phase 3: relay settlement, lifecycle, and board chip", () => {
+  const W3 = "rl-p3";
+  const ids = { dA: "", dB: "", t1: "", t2: "", tSmall: "", trailer: "" };
+  const base = new Date("2026-11-10T14:00:00.000Z");
+
+  beforeAll(async () => {
+    await prisma.settlementLeg.deleteMany({ where: { workspaceId: W3 } });
+    await prisma.settlement.deleteMany({ where: { workspaceId: W3 } });
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspaceId: W3 } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspaceId: W3 } }, { driver: { workspaceId: W3 } }] } });
+    await prisma.workspace.deleteMany({ where: { id: W3 } });
+    await prisma.workspace.create({ data: { id: W3, name: "Relay Phase 3 fleet", plan: "enterprise", timezone: "America/Chicago" } });
+    ids.dA = (await prisma.driver.create({ data: { workspaceId: W3, name: "P3 Driver A", cdlExpiry: new Date(NOW.getTime() + 400 * D), medicalCardExpiry: new Date(NOW.getTime() + 400 * D), defaultPayKind: "cpm", defaultPayRate: 0.6 } })).id;
+    ids.dB = (await prisma.driver.create({ data: { workspaceId: W3, name: "P3 Driver B", cdlExpiry: new Date(NOW.getTime() + 400 * D), medicalCardExpiry: new Date(NOW.getTime() + 400 * D), defaultPayKind: "percent", defaultPayRate: 30, payArrangement: "contractor" } })).id;
+    ids.t1 = (await prisma.vehicle.create({ data: { workspaceId: W3, name: "P3 Truck 1", payloadLbs: 45000 } })).id;
+    ids.t2 = (await prisma.vehicle.create({ data: { workspaceId: W3, name: "P3 Truck 2", payloadLbs: 45000 } })).id;
+    ids.tSmall = (await prisma.vehicle.create({ data: { workspaceId: W3, name: "P3 Small Truck", payloadLbs: 10000 } })).id;
+    ids.trailer = (await prisma.trailer.create({ data: { workspaceId: W3, number: "P3-501" } })).id;
+  });
+
+  afterAll(async () => {
+    await prisma.settlementLeg.deleteMany({ where: { workspaceId: W3 } });
+    await prisma.settlement.deleteMany({ where: { workspaceId: W3 } });
+    await prisma.driverLedgerEntry.deleteMany({ where: { workspaceId: W3 } });
+    await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspaceId: W3 } }, { driver: { workspaceId: W3 } }] } });
+    await prisma.workspace.deleteMany({ where: { id: W3 } });
+  });
+
+  async function startedLoad(label: string, pay: { kind: "cpm" | "flat" | "percent" | "hourly"; rate: number }, weightLbs = 30000) {
+    const pickupAt = new Date(base.getTime() - 4 * H);
+    const load = await prisma.load.create({
+      data: {
+        workspaceId: W3,
+        loadNumber: label,
+        status: "accepted",
+        vehicleId: ids.t1,
+        trailerId: ids.trailer,
+        quotedRevenue: 1100,
+        fuelSurcharge: 100,
+        loadedMiles: 600,
+        weightLbs,
+        brokerName: "Relay Broker",
+        originAddress: "Dallas, TX",
+        destinationAddress: "Chicago, IL",
+        scheduledDate: pickupAt,
+        stops: {
+          create: [
+            { stopSequence: 1, stopType: "pickup", addressString: "Dallas, TX", timeWindowEarliest: pickupAt, timeWindowLatest: new Date(pickupAt.getTime() + H) },
+            { stopSequence: 2, stopType: "delivery", addressString: "Chicago, IL", timeWindowEarliest: new Date(base.getTime() + 10 * H), timeWindowLatest: new Date(base.getTime() + 14 * H) }
+          ]
+        }
+      }
+    });
+    await assignDriver({ loadId: load.id, driverId: ids.dA, pay }, pickupAt, W3);
+    await dispatchLoad(load.id, pickupAt, {}, W3);
+    await recordDriverResponse(load.id, "accepted", pickupAt, undefined, W3);
+    const st = await startTrip(load.id, { arrivedAt: toCentralLocal(pickupAt.getTime()), waitMinutes: "", seal: "S1" }, pickupAt, W3);
+    expect(st).toEqual({ ok: true });
+    return prisma.load.findUniqueOrThrow({ where: { id: load.id }, include: { stops: { orderBy: { stopSequence: "asc" } } } });
+  }
+
+  test("600-mi relay end-to-end: cpm drop at 250 + percent receive at 30% + deliver -> exact leg settlements, double-pay guard, locks, void", async () => {
+    const load = await startedLoad("P3-600", { kind: "cpm", rate: 0.6 });
+    const dropAt = new Date(base.getTime() + 2 * H);
+    const h = await recordDrop(load.id, { type: "drop_hook", reason: "planned", locationName: "Tulsa yard", outgoingNext: "bobtail", milesDriven: 250, milesSource: "eld" }, dropAt, W3, null);
+
+    // 3.6 Board shows Awaiting handoff and filters by status=handoff; 3.2 refuses delivery while handoff is open.
+    const board = await listBoardRows(W3, "open", null);
+    expect(board.find((r) => r.id === load.id)?.openHandoff).toEqual({ state: "dropped", locationName: "Tulsa yard" });
+    expect(filterBoard(board, { status: "handoff" }).map((r) => r.id)).toContain(load.id);
+    const delivLocal = toCentralLocal(new Date(base.getTime() + 8 * H).getTime());
+    expect(await completeTrip(load.id, { deliveredAt: delivLocal, pod: "received", podNote: "Signed", fuel: "", tolls: "", misc: "", stops: [{ id: load.stops[1]!.id, arrivedAt: delivLocal, waitMinutes: "" }] }, new Date(base.getTime() + 8 * H), W3)).toMatchObject({ ok: false, error: expect.stringMatching(/Receive the handoff first/) });
+
+    // 3.4 truckFit blocks undersized incoming truck; receive succeeds on full-size truck.
+    await expect(receiveHandoff(h.id, { driverId: ids.dB, vehicleId: ids.tSmall, pay: { kind: "percent", rate: 30 } }, new Date(base.getTime() + 3 * H), W3, null)).rejects.toMatchObject({ code: "bad_handoff" });
+    await receiveHandoff(h.id, { driverId: ids.dB, vehicleId: ids.t2, pay: { kind: "percent", rate: 30 } }, new Date(base.getTime() + 3 * H), W3, null);
+
+    const deliverAt = new Date(base.getTime() + 8 * H);
+    const delivered = await completeTrip(
+      load.id,
+      { deliveredAt: toCentralLocal(deliverAt.getTime()), pod: "received", podNote: "BOL signed", fuel: "", tolls: "", misc: "", stops: [{ id: load.stops[1]!.id, arrivedAt: toCentralLocal(deliverAt.getTime() - 1_800_000), waitMinutes: "10" }] },
+      deliverAt,
+      W3
+    );
+    expect(delivered).toEqual({ ok: true });
+
+    const legs = await legsOfLoad(load.id, W3);
+    expect(legs).toHaveLength(2);
+    expect(Number(legs[0]!.payEstimate)).toBe(150); // 250 * 0.60
+    expect(legs[1]!.milesSource).toBe("remainder");
+    expect(Number(legs[1]!.milesDriven)).toBe(350); // 600 - 250
+    expect(Number(legs[1]!.payEstimate)).toBe(210); // (1100 + 100) * 0.30 * 350 / 600
+
+    // Eligibility & unsettled summary
+    const [elA, elB, summs] = await Promise.all([
+      eligibleLoads(ids.dA, "2026-11-01", "2026-11-30", W3),
+      eligibleLoads(ids.dB, "2026-11-01", "2026-11-30", W3),
+      unsettledByDriver(W3, deliverAt)
+    ]);
+    expect(elA.find((x) => x.loadLegId === legs[0]!.id)).toMatchObject({ loadId: load.id, legMiles: 250, payKind: "cpm", payRate: 0.6 });
+    expect(elB.find((x) => x.loadLegId === legs[1]!.id)).toMatchObject({ loadId: load.id, legMiles: 350, payKind: "percent", payRate: 30 });
+    expect(summs.find((u) => u.driverId === ids.dA)?.amount).toBe(150);
+    expect(summs.find((u) => u.driverId === ids.dB)?.amount).toBe(210);
+
+    // Finalize both drivers' statements
+    const stA = await startSettlement({ driverId: ids.dA, start: "2026-11-01", end: "2026-11-30" }, deliverAt, W3);
+    const stB = await startSettlement({ driverId: ids.dB, start: "2026-11-01", end: "2026-11-30" }, deliverAt, W3);
+    expect(stA.ok && stB.ok).toBe(true);
+    if (!stA.ok || !stB.ok) return;
+    expect(await finalizeSettlement(stA.id, { hours: {}, adjustments: [] }, deliverAt, W3, 150)).toEqual({ ok: true, id: stA.id });
+    expect(await finalizeSettlement(stB.id, { hours: {}, adjustments: [] }, deliverAt, W3, 210)).toEqual({ ok: true, id: stB.id });
+
+    const info = await settlementsOfLoad(load.id);
+    expect(info.whole).toBeNull();
+    expect(info.legs.map((x) => x.amount)).toEqual([150, 210]);
+
+    // DB unique guard prevents settling a leg twice
+    await expect(
+      prisma.settlementLeg.create({ data: { workspaceId: W3, settlementId: stA.id, loadLegId: legs[0]!.id, loadId: load.id, amount: 150 } })
+    ).rejects.toMatchObject({ code: "P2002" });
+
+    // onStatement locks block edits, expenses loaded miles, reopenDelivered, and delete
+    expect(await deleteLoad({ loadId: load.id, reason: "mistake" }, deliverAt, W3, null)).toMatchObject({ ok: false });
+    expect(await reopenDelivered(load.id, "wrong time", deliverAt, W3, null)).toMatchObject({ ok: false });
+    expect(await saveExpenses(load.id, { fuel: "0", tolls: "0", misc: "0", miles: { pickup: "0", loaded: "610", home: "0" } }, deliverAt, W3, null)).toMatchObject({ ok: false });
+    const fullLoad = await prisma.load.findUniqueOrThrow({ where: { id: load.id }, include: { stops: { orderBy: { stopSequence: "asc" } } } });
+    const editInit = toEditValues(fullLoad);
+    const editRes = await saveLoadDetails(
+      load.id,
+      {
+        ...editInit,
+        deal: editInit.deal ? { ...editInit.deal, rate: "1300" } : { vehicleId: ids.t2, rate: "1300", fuelSurcharge: "100", loadedMiles: "600", emptyToPickup: "0", emptyHome: "0" }
+      },
+      deliverAt,
+      W3,
+      null
+    );
+    expect(editRes).toMatchObject({ ok: false });
+
+    // Voiding both releases both legs cleanly
+    expect(await voidSettlement(stA.id, "Fixing leg 1", deliverAt, W3)).toEqual({ ok: true, id: stA.id });
+    expect(await voidSettlement(stB.id, "Fixing leg 2", deliverAt, W3)).toEqual({ ok: true, id: stB.id });
+    expect((await eligibleLoads(ids.dA, "2026-11-01", "2026-11-30", W3)).some((x) => x.loadLegId === legs[0]!.id)).toBe(true);
+    expect((await eligibleLoads(ids.dB, "2026-11-01", "2026-11-30", W3)).some((x) => x.loadLegId === legs[1]!.id)).toBe(true);
+  });
+
+  test("flat relay requires leg flat amount on drop and records incoming flat amount on receive", async () => {
+    const load = await startedLoad("P3-FLAT", { kind: "flat", rate: 500 });
+    await expect(
+      recordDrop(load.id, { type: "drop_hook", reason: "planned", locationName: "OKC yard", outgoingNext: "bobtail", milesDriven: 200, milesSource: "driver" }, base, W3, null)
+    ).rejects.toMatchObject({ code: "bad_handoff" });
+    const h = await recordDrop(load.id, { type: "drop_hook", reason: "planned", locationName: "OKC yard", outgoingNext: "bobtail", milesDriven: 200, milesSource: "driver", flatPay: 220 }, base, W3, null);
+    await receiveHandoff(h.id, { driverId: ids.dB, vehicleId: ids.t2, pay: { kind: "flat", rate: 280 } }, new Date(base.getTime() + H), W3, null);
+    const legs = await legsOfLoad(load.id, W3);
+    expect(Number(legs[0]!.payEstimate)).toBe(220);
+    expect(Number(legs[1]!.payEstimate)).toBe(280);
+    const doneAt = new Date(base.getTime() + 6 * H);
+    const doneLocal = toCentralLocal(doneAt.getTime());
+    expect(
+      await completeTrip(
+        load.id,
+        { deliveredAt: doneLocal, pod: "received", podNote: "Signed flat", fuel: "", tolls: "", misc: "", stops: [{ id: load.stops[1]!.id, arrivedAt: doneLocal, waitMinutes: "" }] },
+        doneAt,
+        W3
+      )
+    ).toEqual({ ok: true });
+    const doneLegs = await legsOfLoad(load.id, W3);
+    expect(Number(doneLegs[1]!.payEstimate)).toBe(280);
+  });
+
+  test("3.3 & 3.4: undoStartTrip refused once legs exist; cancel & TONU mark open handoffs cancelled; disputed refused until ack", async () => {
+    const load1 = await startedLoad("P3-CANCEL", { kind: "cpm", rate: 0.6 });
+    const h1 = await recordDrop(load1.id, { type: "drop_hook", reason: "hos", locationName: "Perryton", outgoingNext: "available_at_yard", milesDriven: 180, milesSource: "eld" }, base, W3, null);
+    // Disputed cannot be received until acked
+    await flagDiscrepancy(h1.id, { notes: "Door hinge bent", raisedBy: "incoming_driver" }, base, W3, null);
+    await expect(receiveHandoff(h1.id, { driverId: ids.dB, vehicleId: ids.t2, pay: { kind: "cpm", rate: 0.65 } }, base, W3, null)).rejects.toMatchObject({ code: "not_receivable" });
+    await cancelLoad({ loadId: load1.id, reason: "broker_cancelled" } as never, base, W3, null);
+    expect((await prisma.handoff.findUniqueOrThrow({ where: { id: h1.id } })).state).toBe("cancelled");
+
+    const load2 = await startedLoad("P3-UNDO", { kind: "cpm", rate: 0.6 });
+    const h2 = await recordDrop(load2.id, { type: "slip_seat", reason: "planned", locationName: "Amarillo", outgoingNext: "available_at_yard" }, base, W3, null);
+    await receiveHandoff(h2.id, { driverId: ids.dB, pay: { kind: "cpm", rate: 0.65 } }, new Date(base.getTime() + H), W3, null);
+    expect(await undoStartTrip(load2.id, "Mistake", new Date(base.getTime() + 2 * H), W3, null)).toMatchObject({ ok: false, error: expect.stringMatching(/relay legs or handoffs/) });
+
+    await recordTonu({ loadId: load2.id, reason: "shipper_not_ready", fee: 250 } as never, new Date(base.getTime() + 2 * H), W3, null);
+    expect((await legsOfLoad(load2.id, W3)).every((l) => l.status === "closed")).toBe(true);
   });
 });

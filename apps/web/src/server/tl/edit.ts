@@ -22,6 +22,7 @@ import { enqueueForLoad } from "@/server/bridge/outbox";
 import { recordAssignmentEvent } from "./assignment-events";
 import { LoadMoved } from "./claim";
 import { lockWorkspace } from "./plan";
+import { onStatement } from "./settlement";
 import { allowedFor } from "./scope";
 import { inTerminal } from "./terminal-sql";
 import { currentWorkspaceId } from "./workspace";
@@ -54,7 +55,7 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
     try {
       return await prisma.$transaction(async (tx) => {
         await lockWorkspace(tx, workspaceId);
-        const load = await tx.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) }, include: { stops: { orderBy: { stopSequence: "asc" } }, assignment: { include: { driver: true } }, vehicle: true, settlement: true } });
+        const load = await tx.load.findFirst({ where: { id: loadId, workspaceId, deletedAt: null, ...inTerminal(scope) }, include: { stops: { orderBy: { stopSequence: "asc" } }, assignment: { include: { driver: true } }, vehicle: true, settlement: true, settlementLegs: { select: { id: true }, take: 1 } } });
         if (!load || load.status === "quote") return { ok: false, error: "That load does not exist." };
         if (CLOSED.includes(load.status)) return { ok: false, error: "A cancelled load, or one closed as a TONU, cannot be edited." };
         // The form was opened on one version of the load. If it has changed since (someone sent it, accepted it, edited it), saving this form would overwrite their change with what
@@ -109,7 +110,7 @@ export async function saveLoadDetails(loadId: string, values: LoadEditValues, no
         let truck: { id: string; name: string } | null = null;
         if (deal && (truckChanged || moneyChanged)) {
           if (load.paymentStatus) return { ok: false, error: "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." };
-          if (load.settlement) return { ok: false, error: "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." };
+          if (onStatement(load)) return { ok: false, error: "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." };
         }
         if (deal && truckChanged) {
           if (!["draft", "accepted"].includes(load.status)) return { ok: false, error: "A load that has started keeps its truck. Its rate and miles can still be corrected." };

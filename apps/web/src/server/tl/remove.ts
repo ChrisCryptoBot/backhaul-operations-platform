@@ -9,6 +9,7 @@ import { recordAssignmentEvent } from "./assignment-events";
 import { enqueueForLoad } from "@/server/bridge/outbox";
 import { currentActor } from "./identity";
 import { lockWorkspace } from "./plan";
+import { onStatement } from "./settlement";
 import { findDriverClash, findTruckClash } from "./dispatch";
 import { findTwinLoad, duplicateMessage } from "./twins";
 import type { Terminals } from "@/lib/scope";
@@ -29,20 +30,20 @@ export { DELETE_REASONS };
 
 export async function deleteLoad(input: { loadId: string; reason: string; note?: string | null }, now = new Date(), workspaceId = currentWorkspaceId(), allowed?: Terminals): Promise<RemoveResult> {
   const scope = await allowedFor(workspaceId, allowed);
-  const load = await prisma.load.findFirst({ where: { id: input.loadId, workspaceId, deletedAt: null, status: { not: "quote" }, ...inTerminal(scope) }, include: { assignment: { include: { driver: true } }, settlement: true } });
+  const load = await prisma.load.findFirst({ where: { id: input.loadId, workspaceId, deletedAt: null, status: { not: "quote" }, ...inTerminal(scope) }, include: { assignment: { include: { driver: true } }, settlement: true, settlementLegs: { select: { id: true }, take: 1 } } });
   if (!load) return { ok: false, error: "That load does not exist." };
   if (!isDeleteReason(input.reason)) return { ok: false, error: "Pick a reason from the list." };
   if (input.reason === "other" && (input.note ?? "").trim().length < 3) return { ok: false, error: "Say what happened when the reason is Other." };
   if (load.status === "in_progress") return { ok: false, error: "A load that is on the road cannot be deleted. Cancel it, or record the trip." };
   if (load.paymentStatus) return { ok: false, error: "An invoiced load cannot be deleted: the invoice exists. Take the payment back if it is paid, and keep the load as the record of it." };
-  if (load.settlement) return { ok: false, error: "A load on a driver statement cannot be deleted. Void the statement first." };
+  if (onStatement(load)) return { ok: false, error: "A load on a driver statement cannot be deleted. Void the statement first." };
 
   const label = reasonLabel(input.reason);
   const a = load.assignment;
   const status = LOAD_STATUS[load.status]?.label ?? load.status;
   const gone = await prisma.$transaction(async (tx) => {
-    // Only a load that is still what it was when this was read: not picked up, invoiced or put on a statement in the meantime.
-    const out = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: null, status: { notIn: ["in_progress", "quote"] }, paymentStatus: null, settlement: { is: null }, ...inTerminal(scope) }, data: { deletedAt: now } });
+    // Only a load that is still what it was when this was read: not picked up, invoiced or put on a statement (whole or leg) in the meantime.
+    const out = await tx.load.updateMany({ where: { id: load.id, workspaceId, deletedAt: null, status: { notIn: ["in_progress", "quote"] }, paymentStatus: null, settlement: { is: null }, legs: { none: { settlementLeg: { isNot: null } } }, ...inTerminal(scope) }, data: { deletedAt: now } });
     if (out.count !== 1) return false;
     // A load sent to a bridged driver's phone comes off it (the cancel closes the row; the phone evicts its copy).
     if (a) await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "cancel", now });

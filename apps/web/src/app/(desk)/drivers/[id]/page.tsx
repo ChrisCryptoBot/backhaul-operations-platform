@@ -14,6 +14,8 @@ import { checkAccess } from "@/server/tl/access";
 import { listAudit } from "@/server/tl/audit";
 import { numOrNull } from "@/server/tl/convert";
 import { getDriverDetail } from "@/server/tl/driver-detail";
+import { workspacePaySettings } from "@/server/tl/dispatch";
+import { PAY_ARRANGEMENT_LABEL, resolvePayArrangement } from "@/lib/pay-arrangement";
 import { listDriverSettlements } from "@/server/tl/settlement";
 import { CanGate } from "@/components/desk/kit/can-gate";
 import { DriverCodeEdit } from "@/components/desk/driver-code-edit";
@@ -65,6 +67,7 @@ export default async function DriverPage({ params }: { params: { id: string } })
     medicalCardExpiry: ymdOf(p.medicalCardExpiry),
     truckId: p.assignedVehicleId,
     truckName: p.assignedVehicle?.name ?? null,
+    payArrangement: p.payArrangement ?? "",
     payKind: p.defaultPayKind ?? "",
     payRate: p.defaultPayRate == null ? "" : String(numOrNull(p.defaultPayRate)),
     terminal: p.terminal ?? "",
@@ -150,7 +153,7 @@ export default async function DriverPage({ params }: { params: { id: string } })
           title="Details"
           action={
             <CanGate caps={["dispatch"]}>
-              <DriverRowActions driver={row} />
+              <DriverRowActions driver={row} defaultArrangement={(await workspacePaySettings()).defaultPayArrangement} />
             </CanGate>
           }>
           <dl className="tl-kv">
@@ -162,6 +165,11 @@ export default async function DriverPage({ params }: { params: { id: string } })
             <dd>{p.cdlClass || p.cdlExpiry ? [p.cdlClass ? `Class ${p.cdlClass}` : null, p.cdlExpiry ? `to ${shortDate(p.cdlExpiry)}` : null].filter(Boolean).join(" · ") : <span className="dim">Not on file</span>}</dd>
             <dt>Medical card</dt>
             <dd>{p.medicalCardExpiry ? `to ${shortDate(p.medicalCardExpiry)}` : <span className="dim">Not on file</span>}</dd>
+            <dt>Pay arrangement</dt>
+            <dd>
+              {PAY_ARRANGEMENT_LABEL[resolvePayArrangement({ driverArrangement: p.payArrangement, inviteRole: link.role, workspaceDefault: (await workspacePaySettings()).defaultPayArrangement })]}
+              {p.payArrangement ? null : <span className="dim"> (default)</span>}
+            </dd>
             <dt>Usual pay</dt>
             <dd>{payLabel(p.defaultPayKind, numOrNull(p.defaultPayRate))}</dd>
             <dt>Driver code</dt>

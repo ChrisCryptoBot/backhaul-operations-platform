@@ -87,7 +87,8 @@ export function boardRowOf(l: BoardLoad) {
     payTermsDays: l.payTermsDays,
     paidAt: l.paidAt,
     invoicedAmount: numOrNull(l.invoicedAmount),
-    paidAmount: numOrNull(l.paidAmount)
+    paidAmount: numOrNull(l.paidAmount),
+    openHandoff: null as { state: string; locationName: string | null } | null
   };
 }
 
@@ -119,7 +120,11 @@ export async function listBoardRows(workspaceId = currentWorkspaceId(), scope: "
     include: loadInclude,
     orderBy: [{ scheduledDate: "desc" }, { createdAt: "desc" }]
   });
-  return loads.map(boardRowOf);
+  const openHandoffsMap = await openHandoffByLoad(loads.map((l) => l.id), workspaceId);
+  return loads.map((l) => {
+    const h = openHandoffsMap.get(l.id);
+    return { ...boardRowOf(l), openHandoff: h ? { state: h.state, locationName: h.locationName } : null };
+  });
 }
 
 export async function analyticsFor(period: AnalyticsPeriod, now = new Date(), workspaceId = currentWorkspaceId()) {
@@ -137,7 +142,9 @@ import { allowedFor, currentAllowed } from "./scope";
 import { inTerminal } from "./terminal-sql";
 import { agingSummary } from "./aging";
 import { rateConTotal } from "@/lib/pay";
-import { driverFacingPay, projectLoadToSummary, type LoadSummary, type PayKind } from "./projector";
+import { openHandoffByLoad } from "./relay";
+import { driverIsContractor, workspacePaySettings } from "./dispatch";
+import { contractorMoney, driverFacingPay, projectLoadToSummary, type LoadSummary, type PayKind } from "./projector";
 
 export async function getLoadDetail(id: string, workspaceId = currentWorkspaceId(), allowed?: Terminals) {
   const scope = await allowedFor(workspaceId, allowed);
@@ -152,9 +159,15 @@ export async function getLoadDetail(id: string, workspaceId = currentWorkspaceId
   // Only a load that can still take a driver shows the form that needs them; ranking every driver for a delivered or cancelled load's page is work nobody sees.
   const assignable = l.status === "draft" || l.status === "accepted";
   const ranked = assignable ? await rankDrivers(l, workspaceId, await currentTerminal(workspaceId), scope) : { options: [], fits: [] };
-  const driverOptions = pickerOptions(ranked.options, l.assignment?.driverId);
+  const [driverOptions, isContractor, paySettings] = [
+    pickerOptions(ranked.options, l.assignment?.driverId),
+    l.assignment ? await driverIsContractor(l.assignment.driverId, workspaceId) : false,
+    await workspacePaySettings(workspaceId)
+  ];
   let driverView: LoadSummary | null = null;
   if (l.assignment) {
+    const rcTotal = rateConTotal(num(l.quotedRevenue), num(l.fuelSurcharge));
+    const assignmentPay = { kind: l.assignment.payKind as PayKind, rate: num(l.assignment.payRate) };
     driverView = projectLoadToSummary(
       {
         loadNumber: l.loadNumber,
@@ -176,8 +189,9 @@ export async function getLoadDetail(id: string, workspaceId = currentWorkspaceId
           stopNotes: s.stopNotes
         }))
       },
-      driverFacingPay({ kind: l.assignment.payKind as PayKind, rate: num(l.assignment.payRate) }, rateConTotal(num(l.quotedRevenue), num(l.fuelSurcharge)))
+      driverFacingPay(assignmentPay, rcTotal)
     );
+    if (isContractor) driverView.contractor = contractorMoney(assignmentPay, rcTotal, driverView.driver_pay.estimate);
   }
   return {
     load: l,
@@ -186,6 +200,8 @@ export async function getLoadDetail(id: string, workspaceId = currentWorkspaceId
     /** Where the driver pay in the verdict came from (this assignment, or the truck's profile), in a sentence. */
     labourNote: profile && evaluation ? resolveLabour(profile, l.assignment, evaluation.totalMiles, rateConTotal(num(l.quotedRevenue), num(l.fuelSurcharge))).note : null,
     driverView,
+    driverIsContractor: isContractor,
+    paySettings,
     // Who can take this load: a lapsed card blocks outright; being on another load at the same time is a note the dispatcher can override with a reason.
     drivers: driverOptions
   };

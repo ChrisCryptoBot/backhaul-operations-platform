@@ -144,6 +144,7 @@ export async function listDriversPage(query: DriverPageQuery = {}, workspaceId =
       current: mine.filter((a) => a.status !== "draft").map((a) => ({ loadId: a.loadId, loadNumber: a.load.loadNumber, status: a.status })),
       delivered: delivered.find((x) => x.driverId === d.id)?._count._all ?? 0,
       truckId: d.assignedVehicleId,
+      payArrangement: d.payArrangement,
       payKind: d.defaultPayKind,
       payRate: numOrNull(d.defaultPayRate),
       terminal: d.terminal,

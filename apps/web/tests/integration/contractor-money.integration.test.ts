@@ -55,4 +55,17 @@ describe.skipIf(!run)("contractor money in the driver summary", () => {
     expect(s.contractor).toEqual({ gross: 2150, fee_pct: 25 });
     expect(s.driver_pay).toMatchObject({ kind: "flat", rate: 1612.5 });
   });
+
+  test("Addendum P.1: explicit desk payArrangement overrides the phone link role", async () => {
+    await prisma.driver.update({ where: { id: driverId }, data: { payArrangement: "company" } });
+    expect(await driverIsContractor(driverId, ws)).toBe(false);
+    expect((await driverSummaryFor(loadId, ws)).contractor).toBeUndefined();
+
+    await prisma.driverLinkInvite.updateMany({ where: { driverId }, data: { revokedAt: new Date() } });
+    await prisma.driver.update({ where: { id: driverId }, data: { payArrangement: "contractor" } });
+    expect(await driverIsContractor(driverId, ws)).toBe(true);
+    expect((await driverSummaryFor(loadId, ws)).contractor).toEqual({ gross: 2150, fee_pct: 25 });
+
+    await prisma.driver.update({ where: { id: driverId }, data: { payArrangement: null } });
+  });
 });

@@ -206,6 +206,7 @@ describe.skipIf(!run)("detention evidence", () => {
   test("delivering a load freezes its evidence; a stop with no coordinates is counted, not given a row", async () => {
     await prisma.vehiclePing.deleteMany({ where: { vehicleId: ids.dallas } });
     await track(ids.dallas, 60); // the delivery is entered an hour later than the first test's
+    const drv = await prisma.driver.create({ data: { workspaceId: W, name: "DV Driver" } });
     const l7 = await prisma.load.create({
       data: {
         workspaceId: W,
@@ -216,6 +217,7 @@ describe.skipIf(!run)("detention evidence", () => {
         scheduledDate: at(-1700),
         snapshotDetentionRate: 75,
         snapshotFreeGraceMinutes: 120,
+        assignment: { create: { driverId: drv.id, payKind: "cpm", payRate: 0.6, status: "in_progress" } },
         stops: {
           create: [
             { stopSequence: 1, stopType: "pickup", addressString: "Dallas, TX", lat: PU.lat, lng: PU.lng, timeWindowEarliest: at(-1740), timeWindowLatest: at(-1680) },

@@ -1,5 +1,6 @@
 import { usd } from "./desk-format";
 import { percentOf, percentText, type PayKind } from "./pay";
+import { milesGapSummary, type PayMilesBasis } from "./pay-arrangement";
 import { parseCentralLocal, toCentralLocal } from "./zoned";
 import { DEDUCTION_ROW_LABEL, needsNegativeConfirm, type DeductionLine } from "./deductions";
 
@@ -12,10 +13,17 @@ import { DEDUCTION_ROW_LABEL, needsNegativeConfirm, type DeductionLine } from ".
  */
 export type SettlementLoad = {
   loadId: string;
+  /** Present when settling an individual relay/positioning leg rather than the whole load. */
+  loadLegId?: string | null;
+  legLabel?: string | null;
+  legMiles?: number | null;
+  /** Logged / ELD driven miles when distinct from billable `loadedMiles` (Addendum P.2). */
+  loggedMiles?: number | null;
+  payMilesBasis?: PayMilesBasis;
   loadNumber: string | null;
   origin: string | null;
   destination: string | null;
-  /** When it was delivered, as an ISO time. */
+  /** When it was delivered (or leg ended), as an ISO time. */
   deliveredAt: string | null;
   loadedMiles: number;
   payKind: PayKind;
@@ -31,6 +39,9 @@ export type SettlementLoad = {
 
 export type StatementLine = {
   loadId: string;
+  loadLegId?: string | null;
+  legLabel?: string | null;
+  milesGap?: string | null;
   loadNumber: string | null;
   lane: string;
   deliveredAt: string | null;
@@ -38,41 +49,58 @@ export type StatementLine = {
   payKind: PayKind;
   payRate: number;
   hours: number | null;
-  /** Null while an hourly load has no hours. */
+  /** Null while an hourly load has no hours or a relay leg lacks miles. */
   amount: number | null;
   brokerStatus: SettlementLoad["brokerStatus"];
 };
 
-/**
- * A fuel card purchase deducted from a driver's pay: what the card was charged (after its discount), with the date, the place and the gallons, so the statement can list it. A deduction is a
- * positive amount here and comes off the total; it is a record the dispatcher picked for this statement, never something taken automatically.
- */
 export type FuelLine = { id: string; on: string; location: string | null; gallons: number | null; pricePerGallon: number | null; discount: number | null; amount: number; loadNumber: string | null };
 
 export type AdjustmentInput = { label: string; amount: string };
 /** `receiptId`: a reimbursement of a receipt the driver sent (sync plan Step 5b): money back, never pay, listed with the adjustments. */
 export type Adjustment = { label: string; amount: number; receiptId?: string };
 
+export const lineKey = (l: { loadId: string; loadLegId?: string | null }): string => l.loadLegId ?? l.loadId;
+
 const cents = (n: number) => Math.round(n * 100 + (n >= 0 ? 1e-7 : -1e-7));
 const dollars = (c: number) => c / 100;
 /** A dollar amount to the cent, half a cent rounding up as the database does. */
 const round2 = (n: number) => dollars(cents(n));
 
-/** What one load pays the driver; null when the pay is hourly and there are no hours yet. */
-export function linePay(kind: PayKind, rate: number, loadedMiles: number, hours: number | null, rateConTotal: number): number | null {
+/** What one load or leg pays the driver; null when the pay is hourly with no hours yet or a leg lacks recorded miles. */
+export function linePay(kind: PayKind, rate: number, loadedMiles: number, hours: number | null, rateConTotal: number, legMiles?: number | null, isLeg = false): number | null {
   if (kind === "flat") return round2(rate);
-  if (kind === "cpm") return round2(rate * loadedMiles);
-  if (kind === "percent") return percentOf(rate, rateConTotal);
+  if (kind === "cpm") {
+    if (isLeg) return legMiles == null ? null : round2(rate * legMiles);
+    return round2(rate * loadedMiles);
+  }
+  if (kind === "percent") {
+    if (isLeg) {
+      if (legMiles == null || loadedMiles <= 0) return null;
+      return round2(rateConTotal * (rate / 100) * (legMiles / loadedMiles));
+    }
+    return percentOf(rate, rateConTotal);
+  }
   return hours == null ? null : round2(rate * hours);
 }
 
 const milesText = (n: number) => `${Number(n.toFixed(1)).toLocaleString("en-US")} mi`;
 
-/** The sum behind a load's amount, in words: "$0.50 a mile × 245 mi", "25% of $1,150.00", "Set amount". */
-export function basisText(kind: PayKind, rate: number, loadedMiles: number, hours: number | null, rateConTotal: number): string {
-  if (kind === "cpm") return `$${rate.toFixed(2)} a mile × ${milesText(loadedMiles)}`;
-  if (kind === "flat") return "Set amount for the load";
-  if (kind === "percent") return `${percentText(rate).replace(" of the rate", "")} of ${usd(rateConTotal, 2)}`;
+/** The sum behind a load's or leg's amount, in words: "$0.50 a mile × 245 mi", "25% of $1,150.00", "Set amount". */
+export function basisText(kind: PayKind, rate: number, loadedMiles: number, hours: number | null, rateConTotal: number, legMiles?: number | null, isLeg = false): string {
+  if (kind === "cpm") {
+    if (isLeg && legMiles == null) return `$${rate.toFixed(2)} a mile: leg miles missing`;
+    return `$${rate.toFixed(2)} a mile × ${milesText(isLeg ? legMiles! : loadedMiles)}`;
+  }
+  if (kind === "flat") return isLeg ? "Set amount for the leg" : "Set amount for the load";
+  if (kind === "percent") {
+    const pct = percentText(rate).replace(" of the rate", "");
+    if (isLeg) {
+      if (legMiles == null || loadedMiles <= 0) return `${pct} of ${usd(rateConTotal, 2)}: leg miles missing`;
+      return `${pct} of ${usd(rateConTotal, 2)} × ${milesText(legMiles)}/${milesText(loadedMiles)}`;
+    }
+    return `${pct} of ${usd(rateConTotal, 2)}`;
+  }
   return hours == null ? `$${rate.toFixed(2)} an hour: enter the hours` : `$${rate.toFixed(2)} an hour × ${Number(hours.toFixed(2))} hr`;
 }
 
@@ -122,19 +150,25 @@ export function computeStatement(input: { loads: SettlementLoad[]; hours: Record
   const cautions: string[] = [];
 
   const lines: StatementLine[] = input.loads.map((l) => {
+    const key = lineKey(l);
+    const isLeg = l.loadLegId != null;
     let hours: number | null = null;
     if (l.payKind === "hourly") {
-      const typed = parseHours(input.hours[l.loadId]);
-      if (typed.error) errors[`hours.${l.loadId}`] = typed.error;
+      const typed = parseHours(input.hours[key]);
+      if (typed.error) errors[`hours.${key}`] = typed.error;
       hours = typed.value ?? l.assignedHours;
     }
-    const amount = linePay(l.payKind, l.payRate, l.loadedMiles, hours, l.rateConTotal);
+    const gap = !isLeg && l.loggedMiles != null ? milesGapSummary(l.loggedMiles, l.loadedMiles, l.payMilesBasis ?? "logged") : null;
+    const effectiveMiles = gap ? gap.paidMiles : l.loadedMiles;
+    const amount = linePay(l.payKind, l.payRate, effectiveMiles, hours, l.rateConTotal, l.legMiles ?? null, isLeg);
     return {
       loadId: l.loadId,
+      ...(isLeg ? { loadLegId: l.loadLegId, legLabel: l.legLabel ?? null } : {}),
+      ...(gap?.label ? { milesGap: gap.label } : {}),
       loadNumber: l.loadNumber,
-      lane: `${l.origin ?? "?"} → ${l.destination ?? "?"}`,
+      lane: l.legLabel ?? `${l.origin ?? "?"} → ${l.destination ?? "?"}`,
       deliveredAt: l.deliveredAt,
-      basis: basisText(l.payKind, l.payRate, l.loadedMiles, hours, l.rateConTotal),
+      basis: basisText(l.payKind, l.payRate, effectiveMiles, hours, l.rateConTotal, l.legMiles ?? null, isLeg),
       payKind: l.payKind,
       payRate: l.payRate,
       hours,
@@ -168,7 +202,12 @@ export function computeStatement(input: { loads: SettlementLoad[]; hours: Record
   const totalCents = loadsCents - fuelCents + adjustmentCents + deductionCents;
   const needsConfirm = needsNegativeConfirm(totalCents, deductions);
 
-  for (const l of lines) if (l.amount == null && !errors[`hours.${l.loadId}`]) blockers.push(`Enter the hours for ${l.loadNumber ?? "an hourly load"}.`);
+  for (const l of lines) {
+    const key = lineKey(l);
+    if (l.amount == null && !errors[`hours.${key}`]) {
+      blockers.push(l.payKind === "hourly" ? `Enter the hours for ${l.loadNumber ?? "an hourly load"}.` : `Record leg miles for ${l.loadNumber ?? "a relay leg"}.`);
+    }
+  }
   if (Object.keys(errors).length > 0) blockers.unshift("Fix what is marked.");
   if (lines.length === 0 && adjustments.length === 0 && !deductions.some((d) => d.kind === "escrow_release")) blockers.push("There is nothing to pay on this statement.");
 

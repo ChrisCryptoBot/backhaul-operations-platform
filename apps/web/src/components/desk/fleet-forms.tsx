@@ -10,6 +10,7 @@ import { saveCostProfileAction, saveDriverAction, saveDriverTaxAction, saveTruck
 import { CDL_CLASSES, DEFAULT_BURDEN_PERCENT, DEFAULT_CARRIER_CUT_PERCENT, FUEL_TYPES, PAY_KINDS, PROFILE_FIELDS, TRUCK_TYPES, canonicalTruckType, industryValues, previewOf, profileField, profileSummary, profileWarnings, readChoices, truckMpg, typicalBands, validateDriver, validateDriverTax, validateProfile, validateTruck, type DriverTaxValues, type DriverValues, type ProfileChoices, type ProfileErrorKey, type ProfileKey, type ProfileNumbers, type ProfileValues, type TruckValues } from "@/lib/fleet-forms";
 import { pickMake, pickModel, specFill, truckMakes, truckModels, truckYears, withCurrent } from "@/lib/truck-specs";
 import { RATE_CON_BASIS } from "@/lib/pay";
+import { isPayArrangement, PAY_ARRANGEMENTS, PAY_ARRANGEMENT_LABEL, payKindsForArrangement, type PayArrangement } from "@/lib/pay-arrangement";
 import { AddressInput } from "./address-input";
 import { COST_ARCHETYPES } from "@/truelane/lib/domain/costArchetype";
 import type { CostProfileMathInput } from "@/truelane/lib/domain/calculators";
@@ -66,15 +67,15 @@ function useShownErrors<K extends string>() {
 
 // ── Drivers ────────────────────────────────────────────────────────────────────────────────────
 
-export type DriverRow = { id: string; name: string; phone: string | null; email: string | null; cdlClass: string | null; cdlExpiry: string; medicalCardExpiry: string; truckId: string | null; truckName: string | null; payKind: string; payRate: string; terminal: string; carrierMc: string; carrierDot: string; payrollWorkerType: string; payrollEmployeeId: string; phoneUserId: string; active: boolean; onLoads: number; onLoadNumbers: string[] };
+export type DriverRow = { id: string; name: string; phone: string | null; email: string | null; cdlClass: string | null; cdlExpiry: string; medicalCardExpiry: string; truckId: string | null; truckName: string | null; payArrangement: string; payKind: string; payRate: string; terminal: string; carrierMc: string; carrierDot: string; payrollWorkerType: string; payrollEmployeeId: string; phoneUserId: string; active: boolean; onLoads: number; onLoadNumbers: string[] };
 
-function DriverDialog({ open, onClose, driver }: { open: boolean; onClose: () => void; driver?: DriverRow }) {
+function DriverDialog({ open, onClose, driver, defaultArrangement = "company" }: { open: boolean; onClose: () => void; driver?: DriverRow; defaultArrangement?: PayArrangement }) {
   const terminalNames = useTerminalNames();
   const router = useRouter();
   const toast = useToast();
   const [pending, start] = React.useTransition();
-  const blank: Record<keyof DriverValues, string> = { name: "", phone: "", email: "", cdlClass: "A", cdlExpiry: "", medicalCardExpiry: "", assignedVehicleId: "", payKind: "", payRate: "", terminal: "", carrierMc: "", carrierDot: "", payrollWorkerType: "", payrollEmployeeId: "", phoneUserId: "" };
-  const initial = driver ? { name: driver.name, phone: driver.phone ?? "", email: driver.email ?? "", cdlClass: driver.cdlClass ?? "", cdlExpiry: driver.cdlExpiry, medicalCardExpiry: driver.medicalCardExpiry, assignedVehicleId: driver.truckId ?? "", payKind: driver.payKind, payRate: driver.payRate, terminal: driver.terminal, carrierMc: driver.carrierMc, carrierDot: driver.carrierDot, payrollWorkerType: driver.payrollWorkerType, payrollEmployeeId: driver.payrollEmployeeId, phoneUserId: driver.phoneUserId } : blank;
+  const blank: Record<keyof DriverValues, string> = { name: "", phone: "", email: "", cdlClass: "A", cdlExpiry: "", medicalCardExpiry: "", assignedVehicleId: "", payArrangement: "", payKind: "", payRate: "", terminal: "", carrierMc: "", carrierDot: "", payrollWorkerType: "", payrollEmployeeId: "", phoneUserId: "" };
+  const initial = driver ? { name: driver.name, phone: driver.phone ?? "", email: driver.email ?? "", cdlClass: driver.cdlClass ?? "", cdlExpiry: driver.cdlExpiry, medicalCardExpiry: driver.medicalCardExpiry, assignedVehicleId: driver.truckId ?? "", payArrangement: driver.payArrangement, payKind: driver.payKind, payRate: driver.payRate, terminal: driver.terminal, carrierMc: driver.carrierMc, carrierDot: driver.carrierDot, payrollWorkerType: driver.payrollWorkerType, payrollEmployeeId: driver.payrollEmployeeId, phoneUserId: driver.phoneUserId } : blank;
   const [values, setValues, draft] = useDraft<Record<keyof DriverValues, string>>(`driver:${driver?.id ?? "new"}`, initial);
   const [serverErrors, setServerErrors] = React.useState<Partial<Record<keyof DriverValues, string>>>({});
   const [message, setMessage] = React.useState("");
@@ -151,11 +152,21 @@ function DriverDialog({ open, onClose, driver }: { open: boolean; onClose: () =>
             />
           </Field>
         </div>
+        <Field label="Pay arrangement" error={errors.payArrangement} hint="Company drivers show payroll estimates (per mile or hourly); contractors show settlement and load gross.">
+          <select value={values.payArrangement} onChange={set("payArrangement")}>
+            <option value="">Workspace default ({PAY_ARRANGEMENT_LABEL[defaultArrangement]})</option>
+            {PAY_ARRANGEMENTS.map((a) => (
+              <option key={a} value={a}>
+                {PAY_ARRANGEMENT_LABEL[a]}
+              </option>
+            ))}
+          </select>
+        </Field>
         <div className="dlg-two">
           <Field label="Usual pay" error={errors.payKind} hint="New loads start from it. The pay on a load can still be changed.">
             <select value={values.payKind} onChange={set("payKind")}>
               <option value="">Not set</option>
-              {PAY_KINDS.map((k) => (
+              {PAY_KINDS.filter((k) => payKindsForArrangement(isPayArrangement(values.payArrangement) ? values.payArrangement : defaultArrangement).includes(k.key as never) || k.key === values.payKind).map((k) => (
                 <option key={k.key} value={k.key}>
                   {k.label}
                 </option>
@@ -364,7 +375,7 @@ export function DriverTaxEdit({ driverId, driverName, initial }: { driverId: str
   );
 }
 
-export function AddDriver({ use }: { use?: UnitUse }) {
+export function AddDriver({ use, defaultArrangement = "company" }: { use?: UnitUse; defaultArrangement?: PayArrangement }) {
   const [open, setOpen] = React.useState(false);
   if (use?.full) return <AtLimit use={use} label="Add a driver" />;
   return (
@@ -372,14 +383,14 @@ export function AddDriver({ use }: { use?: UnitUse }) {
       <button type="button" className="tl-btn primary" onClick={() => setOpen(true)}>
         Add a driver{countText(use)}
       </button>
-      <DriverDialog open={open} onClose={() => setOpen(false)} />
+      <DriverDialog open={open} onClose={() => setOpen(false)} defaultArrangement={defaultArrangement} />
     </>
   );
 }
 
 /** Edit, and take out of service or bring back. A driver on an open load shows that and cannot be taken out until they are off it. */
 /** `list`: in a table the row opens the driver, so only Edit is there (and Reactivate on one out of service); taking someone out of service is on their page. */
-export function DriverRowActions({ driver, list = false }: { driver: DriverRow; list?: boolean }) {
+export function DriverRowActions({ driver, list = false, defaultArrangement = "company" }: { driver: DriverRow; list?: boolean; defaultArrangement?: PayArrangement }) {
   const router = useRouter();
   const toast = useToast();
   const [open, setOpen] = React.useState(false);
@@ -426,7 +437,7 @@ export function DriverRowActions({ driver, list = false }: { driver: DriverRow; 
           Reactivate
         </button>
       )}
-      <DriverDialog open={open} onClose={() => setOpen(false)} driver={driver} />
+      <DriverDialog open={open} onClose={() => setOpen(false)} driver={driver} defaultArrangement={defaultArrangement} />
     </div>
   );
 }

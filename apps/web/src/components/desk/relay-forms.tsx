@@ -52,10 +52,10 @@ function useSend(action: Action, open: boolean, close: () => void, saved: () => 
   return { pending, error, onSubmit };
 }
 
-const BLANK_DROP = { type: "drop_hook", reason: "planned", locationName: "", slot: "", lat: "", lng: "", outgoingNext: "", sealNumber: "", milesDriven: "", milesSource: "", reeferSetTemp: "", reeferActualTemp: "", reeferFuelPct: "", conditionOk: "", conditionNotes: "" };
+const BLANK_DROP = { type: "drop_hook", reason: "planned", locationName: "", slot: "", lat: "", lng: "", outgoingNext: "", sealNumber: "", milesDriven: "", milesSource: "", flatPay: "", reeferSetTemp: "", reeferActualTemp: "", reeferFuelPct: "", conditionOk: "", conditionNotes: "" };
 
 /** Hand the load off: the outgoing driver left it at a place. */
-export function DropForm({ action, loadId, loadNumber, driverName }: { action: Action; loadId: string; loadNumber: string; driverName: string }) {
+export function DropForm({ action, loadId, loadNumber, driverName, payKind }: { action: Action; loadId: string; loadNumber: string; driverName: string; payKind?: string | null }) {
   const [open, setOpen] = React.useState(false);
   const [v, setV, draft] = useDraft(`drop:${loadId}`, BLANK_DROP);
   const set = (k: keyof typeof BLANK_DROP) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setV((x) => ({ ...x, [k]: e.target.value }));
@@ -120,6 +120,13 @@ export function DropForm({ action, loadId, loadNumber, driverName }: { action: A
               </select>
             </label>
           </div>
+          {payKind === "flat" ? (
+            <div style={row}>
+              <label className="tl-field">This driver&rsquo;s amount for their leg ($)
+                <input name="flatPay" type="number" step="0.01" min="0.01" value={v.flatPay} onChange={set("flatPay")} required placeholder="Amount earned on this leg" />
+              </label>
+            </div>
+          ) : null}
           {type !== "slip_seat" ? (
             <div style={row}>
               <label className="tl-field">Reefer set temp
@@ -148,7 +155,7 @@ export function DropForm({ action, loadId, loadNumber, driverName }: { action: A
           <div style={{ ...row, justifyContent: "flex-end", alignItems: "center" }}>
             {error ? <span className="tl-note warn" role="alert" style={{ marginRight: "auto" }}>{error}</span> : null}
             <button type="button" className="tl-btn" onClick={() => { draft.discard(); setOpen(false); }}>Cancel</button>
-            <button type="submit" className="tl-btn primary" disabled={pending || !v.outgoingNext || (!v.locationName.trim() && !(v.lat && v.lng))}>
+            <button type="submit" className="tl-btn primary" disabled={pending || !v.outgoingNext || (!v.locationName.trim() && !(v.lat && v.lng)) || (payKind === "flat" && !(Number(v.flatPay) > 0))}>
               {pending ? "Saving…" : "Record the handoff"}
             </button>
           </div>
@@ -221,8 +228,7 @@ export function ReceiveForm({
               <input name="conditionNotes" type="text" value={v.conditionNotes} onChange={(e) => setV((x) => ({ ...x, conditionNotes: e.target.value }))} />
             </label>
           </div>
-          <p className="tl-note" style={{ marginTop: 10 }}>What each leg is paid is not split yet. This driver&rsquo;s pay is kept, but the load carries no estimate for it, and the driver who dropped it keeps their pay as it stood.</p>
-          <div style={{ ...row, justifyContent: "flex-end", alignItems: "center" }}>
+          <div style={{ ...row, justifyContent: "flex-end", alignItems: "center", marginTop: 10 }}>
             {error ? <span className="tl-note warn" role="alert" style={{ marginRight: "auto" }}>{error}</span> : null}
             <button type="button" className="tl-btn" onClick={() => { draft.discard(); setOpen(false); }}>Cancel</button>
             <button type="submit" className="tl-btn primary" disabled={pending}>

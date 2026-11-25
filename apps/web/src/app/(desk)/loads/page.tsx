@@ -374,12 +374,23 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
           <>
             <Link href={`/loads/${r.id}`}>{r.loadNumber ?? "—"}</Link>
             <AlertDot alerts={byLoad.get(r.id)?.filter((a) => a.code !== "BELOW_COST_UNASSIGNED")} />
-            <span className="sub fold-2">{[r.brokerName, r.driverName ?? "no driver", miles(r.totalMiles)].filter(Boolean).join(" · ")}</span>
+            <span className="sub fold-2">{[r.brokerName, r.driverName ?? (r.openHandoff ? "awaiting handoff" : "no driver"), miles(r.totalMiles)].filter(Boolean).join(" · ")}</span>
           </>
         ),
         status: (
           <>
-            {r.status === "draft" && r.assignmentStatus ? <AssignmentChip status={r.assignmentStatus} /> : <StatusChip status={r.status} />}
+            {r.openHandoff ? (
+              <span
+                className={`tl-chip ${r.openHandoff.state === "disputed" ? "bad" : "warn"} cut`}
+                title={`${r.openHandoff.state === "disputed" ? "Handoff disputed" : "Awaiting handoff"}${r.openHandoff.locationName ? ` · ${r.openHandoff.locationName}` : ""}`}>
+                {r.openHandoff.state === "disputed" ? "Handoff disputed" : "Awaiting handoff"}
+                {r.openHandoff.locationName ? ` · ${r.openHandoff.locationName}` : ""}
+              </span>
+            ) : r.status === "draft" && r.assignmentStatus ? (
+              <AssignmentChip status={r.assignmentStatus} />
+            ) : (
+              <StatusChip status={r.status} />
+            )}
             {r.status !== "in_progress" && r.pickupClosesAt && r.pickupClosesAt.getTime() < now ? (
               <span className="t-sq" data-tone="bad" role="img" title="Pickup passed: the pickup window has closed and the load has not been picked up" aria-label="Pickup passed" />
             ) : null}
@@ -401,8 +412,10 @@ export default async function LoadsPage({ searchParams }: { searchParams?: Param
         floor: <span className="dim">{perMile(r.floorPerMile)}</span>,
         verdict: <VerdictChip verdict={r.verdict} />,
         driver: (
-          <span className="cut" title={[r.driverName ?? "No driver", r.vehicleName, r.assignmentStatus ? ASSIGNMENT_STATUS[r.assignmentStatus]?.label : null].filter(Boolean).join(" · ")}>
-            {r.driverName ?? <span className="dim">No driver</span>}
+          <span
+            className="cut"
+            title={[r.driverName ?? (r.openHandoff ? `Awaiting handoff${r.openHandoff.locationName ? ` at ${r.openHandoff.locationName}` : ""}` : "No driver"), r.vehicleName, r.assignmentStatus ? ASSIGNMENT_STATUS[r.assignmentStatus]?.label : null].filter(Boolean).join(" · ")}>
+            {r.driverName ?? (r.openHandoff ? <span className="dim">Awaiting handoff</span> : <span className="dim">No driver</span>)}
             {r.vehicleName ? <span className="fold-only q">{r.vehicleName}</span> : null}
           </span>
         ),

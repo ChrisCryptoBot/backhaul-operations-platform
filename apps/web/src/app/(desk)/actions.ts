@@ -26,6 +26,7 @@ import { supabaseTransport } from "@/server/bridge/transport";
 import { pullMessagesNow } from "@/server/bridge/live";
 import type { LivePullResult } from "@/lib/live-messages";
 import { setWorkspaceTimezone } from "@/server/tl/zone-setting";
+import { setWorkspacePaySettings } from "@/server/tl/pay-settings";
 import { ZONE_COOKIE } from "@/lib/tz";
 import { cancelLoad, recordTonu, reopenCancelled, rescheduleLoad } from "@/server/tl/disruptions";
 import { invoiceLoad, markLoadPaid } from "@/server/tl/invoicing";
@@ -240,7 +241,8 @@ export async function dropAction(formData: FormData) {
       conditionOk: yesNo(formData, "conditionOk"),
       conditionNotes: field(formData, "conditionNotes") || null,
       milesDriven: numField(formData, "milesDriven"),
-      milesSource: field(formData, "milesSource") || null
+      milesSource: field(formData, "milesSource") || null,
+      flatPay: numField(formData, "flatPay")
     });
     return "Handoff recorded. The load is waiting in the yard for its next driver.";
   });
@@ -294,7 +296,8 @@ export async function dropRelayAction(formData: FormData): Promise<InlineActionR
       conditionOk: yesNo(formData, "conditionOk"),
       conditionNotes: field(formData, "conditionNotes") || null,
       milesDriven: numField(formData, "milesDriven"),
-      milesSource: field(formData, "milesSource") || null
+      milesSource: field(formData, "milesSource") || null,
+      flatPay: numField(formData, "flatPay")
     });
     return "Handoff recorded. The load is waiting in the yard for its next driver.";
   });
@@ -842,6 +845,23 @@ export async function saveTimezoneAction(formData: FormData) {
   cookies().set(ZONE_COOKIE, out.zone, { path: "/", maxAge: 60 * 60 * 24 * 365, sameSite: "lax" });
   revalidatePath("/", "layout");
   redirect("/settings?note=" + encodeURIComponent(out.changed ? "Time zone saved." : "That is already the time zone."));
+}
+
+/** Workspace defaults for driver pay arrangement (company vs contractor) and per-mile basis (logged vs billable). Admin only. */
+export async function savePaySettingsAction(formData: FormData) {
+  await requireCan("admin");
+  const defaultPayArrangement = formData.get("defaultPayArrangement");
+  const payMilesBasis = formData.get("payMilesBasis");
+  const out = await setWorkspacePaySettings({
+    ...(defaultPayArrangement != null ? { defaultPayArrangement } : {}),
+    ...(payMilesBasis != null ? { payMilesBasis } : {})
+  });
+  if (!out.ok) redirect("/settings?tab=rules&error=" + encodeURIComponent(out.error));
+  revalidatePath("/settings");
+  revalidatePath("/drivers");
+  revalidatePath("/loads");
+  revalidatePath("/settlements");
+  redirect("/settings?tab=rules&note=" + encodeURIComponent(out.changed ? "Driver pay defaults saved." : "No changes to driver pay defaults."));
 }
 
 export async function setAppearanceAction(formData: FormData) {

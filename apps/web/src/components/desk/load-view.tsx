@@ -15,7 +15,8 @@ import { evidenceSummary } from "@/server/tl/detention-evidence";
 import { ReadOnlyGate } from "./kit/read-only";
 import { UnwaiveDetentionButton, WaiveDetentionButton } from "./waive-detention";
 import { getThresholds } from "@/server/tl/thresholds";
-import { settlementOfLoad } from "@/server/tl/settlement";
+import { settlementsOfLoad } from "@/server/tl/settlement";
+import { milesGapSummary, PAY_ARRANGEMENT_LABEL } from "@/lib/pay-arrangement";
 import { AssignFields } from "./assign-fields";
 import { DeclineNote } from "./load-view-fields";
 import { AssignTrailer } from "./trailer-forms";
@@ -92,10 +93,10 @@ export async function LoadView({ id }: { id: string }) {
     <p className="tl-note" role="note">You can read this load but not change it. A dispatcher or the accounting office can.</p>
   );
 
-  const [{ byLoad }, feed, settled, waivedMap, tracking, evidence, holders, legs, batons] = await Promise.all([
+  const [{ byLoad }, feed, loadSettlements, waivedMap, tracking, evidence, holders, legs, batons] = await Promise.all([
     getAlerts(new Date(), currentWorkspaceId(), "open", id),
     listLoadAudit(id),
-    settlementOfLoad(id),
+    settlementsOfLoad(id),
     waivedDetentionLoads([id]),
     getLoadTracking(id),
     // Whether the truck's track was frozen for this load's stops (docs/DETENTION_EVIDENCE.md): one line and a link.
@@ -108,7 +109,18 @@ export async function LoadView({ id }: { id: string }) {
   ]);
   const waivedReason = waivedMap.get(id) ?? null;
   const openBaton = batons.find((b) => b.state === "dropped" || b.state === "disputed") ?? null;
-  const { load, evaluation, flipped, driverView, drivers } = detail;
+  const { load, evaluation, flipped, driverView, drivers, driverIsContractor, paySettings } = detail;
+  const legSettlementByLegId = new Map(loadSettlements.legs.map((s) => [s.loadLegId, s]));
+  const anySettled = !!loadSettlements.whole || loadSettlements.legs.length > 0;
+  const settled = loadSettlements.whole
+    ? loadSettlements.whole
+    : loadSettlements.legs.length > 0 && legs.every((l) => legSettlementByLegId.has(l.id))
+      ? {
+          id: loadSettlements.legs[0]!.id,
+          number: [...new Set(loadSettlements.legs.map((s) => s.number))].join(", "),
+          amount: loadSettlements.legs.reduce((sum, s) => sum + s.amount, 0)
+        }
+      : null;
   const a = load.assignment;
   const alerts = byLoad.get(id) ?? [];
 
@@ -135,7 +147,7 @@ export async function LoadView({ id }: { id: string }) {
   const fellThrough = load.status === "cancelled" || load.status === "tonu";
   const firstPickup = load.stops.map((s) => s.timeWindowEarliest).find((d): d is Date => d != null) ?? null;
 
-  const deleteBlocked = load.status === "in_progress" ? "A load on the road cannot be deleted." : load.paymentStatus ? "An invoiced load cannot be deleted." : settled ? "A load on a driver statement cannot be deleted." : null;
+  const deleteBlocked = load.status === "in_progress" ? "A load on the road cannot be deleted." : load.paymentStatus ? "An invoiced load cannot be deleted." : anySettled ? "A load on a driver statement cannot be deleted." : null;
   const can = { cancel: CAN_CANCEL.includes(load.status), tonu: CAN_TONU.includes(load.status), reschedule: CAN_RESCHEDULE.includes(load.status) && firstPickup != null };
 
   const scheduleLocked = !["draft", "accepted"].includes(load.status);
@@ -252,7 +264,7 @@ export async function LoadView({ id }: { id: string }) {
     hosSyncedAt: load.vehicle?.hosSyncedAt ? dateTime(load.vehicle.hosSyncedAt) : null,
     vetStatus: load.assignment?.driver.vetStatus && load.assignment.driver.vetStatus !== "unchecked" ? load.assignment.driver.vetStatus : null,
     coiExpiresAt: load.assignment?.driver.coiExpiresAt ? dateTime(load.assignment.driver.coiExpiresAt) : null,
-    onStatement: Boolean(settled),
+    onStatement: anySettled,
     totalMiles
   });
   const deliveryStopOptions = load.stops.filter((s) => roleOfStop(s) === "delivery").map((s) => ({ id: s.id, label: `Stop ${s.stopSequence}, ${s.facilityName ?? s.addressString}` }));
@@ -294,7 +306,11 @@ export async function LoadView({ id }: { id: string }) {
       forecastFuel: evaluation?.fuelCost?.totalFuelCost ?? 0,
       totalMiles
     },
-    legs.map((l) => ({ status: l.status, kind: l.kind, payEstimate: l.payEstimate != null ? num(l.payEstimate) : null })),
+    legs.map((l) => ({
+      status: l.status,
+      kind: l.kind,
+      payEstimate: legSettlementByLegId.get(l.id)?.amount ?? (l.payEstimate != null ? num(l.payEstimate) : null)
+    })),
     settled,
     { billedExtra: dt.billedExtra, billable: dt.billable, waived: waivedReason != null }
   );
@@ -318,7 +334,17 @@ export async function LoadView({ id }: { id: string }) {
       <div className="sec-box">
         {legs.length > 0 ? (
           <ul className="feed">
-            {legs.map((l) => (
+            {legs.map((l) => {
+              const legSet = legSettlementByLegId.get(l.id);
+              const milesFrom =
+                l.milesSource === "eld"
+                  ? "ELD"
+                  : l.milesSource === "driver"
+                    ? "from the driver"
+                    : l.milesSource === "remainder"
+                      ? "remaining miles"
+                      : "worked out by dispatch";
+              return (
               <li key={l.id}>
                 <div>
                   <b>Leg {l.seq}</b> · {l.driverName ?? "No driver"}{l.vehicleName ? ` · ${l.vehicleName}` : ""}{l.trailerNumber ? ` · ${l.trailerNumber}` : ""}{l.kind === "positioning" ? " · positioning only (no freight)" : ""}
@@ -326,11 +352,12 @@ export async function LoadView({ id }: { id: string }) {
                 </div>
                 <div className="t">
                   {l.fromName ? `From ${l.fromName}` : ""}{l.toName ? ` to ${l.toName}` : ""}
-                  {l.milesDriven != null ? ` · ${num(l.milesDriven).toLocaleString("en-US")} mi (${l.milesSource === "eld" ? "ELD" : l.milesSource === "driver" ? "from the driver" : "worked out by dispatch"})` : l.status === "closed" ? " · miles not recorded" : ""}
-                  {may("billing_details") && l.payEstimate != null ? ` · pay estimate ${usd(num(l.payEstimate), 2)}` : ""}
+                  {l.milesDriven != null ? ` · ${num(l.milesDriven).toLocaleString("en-US")} mi (${milesFrom})` : l.status === "closed" ? " · miles not recorded" : ""}
+                  {may("billing_details") && legSet ? <> · settled {usd(legSet.amount, 2)} on <Link href={`/settlements/${legSet.id}`}>{legSet.number}</Link></> : may("billing_details") && l.payEstimate != null ? ` · pay estimate ${usd(num(l.payEstimate), 2)}` : ""}
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
         ) : null}
         {batons.map((b) => {
@@ -374,11 +401,10 @@ export async function LoadView({ id }: { id: string }) {
         })}
         {canHandOff && a ? (
           <div style={{ marginTop: 12 }}>
-            <DropForm action={dropRelayAction} loadId={load.id} loadNumber={load.loadNumber ?? "this load"} driverName={a.driver.name} />
+            <DropForm action={dropRelayAction} loadId={load.id} loadNumber={load.loadNumber ?? "this load"} driverName={a.driver.name} payKind={a.payKind} />
             <p className="tl-note" style={{ marginTop: 6 }}>For a planned relay, a driver who ran out of hours, or a breakdown. If the driver was recalled while rolling, this is how the load moves on.</p>
           </div>
         ) : null}
-        {legs.length > 0 || batons.length > 0 ? <p className="tl-note" style={{ marginTop: 10 }}>What each leg is paid is not split yet: a closed leg keeps its driver&rsquo;s pay as it stood, and the next driver&rsquo;s assignment carries no estimate. Pay the legs by hand for now.</p> : null}
       </div>
     </section>
   );
@@ -416,6 +442,8 @@ export async function LoadView({ id }: { id: string }) {
             ) : null}
             {may("billing_details") ? (
               <>
+                <dt>Pay arrangement</dt>
+                <dd>{PAY_ARRANGEMENT_LABEL[driverIsContractor ? "contractor" : "company"]} · {driverIsContractor ? "settlement / 1099" : "estimate handed to payroll"}</dd>
                 <dt>Pay (estimate)</dt>
                 <dd>{PAY_KIND_LABEL[a.payKind] ?? a.payKind} · {payLabel(a.payKind, num(a.payRate))}</dd>
                 <dt>Estimate (display only)</dt>
@@ -424,11 +452,20 @@ export async function LoadView({ id }: { id: string }) {
             ) : null}
             <dt>Status</dt>
             <dd><AssignmentChip status={a.status} /></dd>
-            {settled && may("billing_details") ? (
+            {anySettled && may("billing_details") ? (
               <>
                 <dt>Paid to the driver</dt>
                 <dd>
-                  On statement <Link href={`/settlements/${settled.id}`}>{settled.number}</Link>
+                  {loadSettlements.whole ? (
+                    <>On statement <Link href={`/settlements/${loadSettlements.whole.id}`}>{loadSettlements.whole.number}</Link></>
+                  ) : (
+                    loadSettlements.legs.map((s, idx) => (
+                      <React.Fragment key={s.loadLegId}>
+                        {idx > 0 ? " · " : ""}
+                        Leg {s.seq} on <Link href={`/settlements/${s.id}`}>{s.number}</Link>
+                      </React.Fragment>
+                    ))
+                  )}
                 </dd>
               </>
             ) : null}
@@ -920,7 +957,7 @@ export async function LoadView({ id }: { id: string }) {
               <p className="tl-note">For a load cancelled or turned into a TONU by mistake.</p>
             </ConfirmForm>
           ) : null}
-          {load.status === "completed" && !load.paymentStatus && !settled && a ? (
+          {load.status === "completed" && !load.paymentStatus && !anySettled && a ? (
             <ConfirmForm action={reopenDeliveredAction} fields={{ loadId: load.id }} label="Take the delivery back" title={`Take back the delivery of ${load.loadNumber ?? "this load"}?`} eyebrow="Trip" confirmLabel="Take it back" destructive askReason>
               <p className="tl-note">For a delivery entered against the wrong load.</p>
             </ConfirmForm>
@@ -1049,6 +1086,15 @@ export async function LoadView({ id }: { id: string }) {
       <dd>{v}</dd>
     </div>
   );
+  const haulLegs = legs.filter((l) => l.kind === "haul");
+  const allHaulMeasured = haulLegs.length > 0 && haulLegs.every((l) => l.status === "closed" && l.milesDriven != null);
+  const loggedPayMiles = allHaulMeasured
+    ? haulLegs.reduce((sum, l) => sum + num(l.milesDriven!), 0)
+    : load.quotedLoadedMiles != null
+      ? loadedMiles
+      : null;
+  const billablePayMiles = load.quotedLoadedMiles != null ? num(load.quotedLoadedMiles) : loadedMiles;
+  const payMilesGap = milesGapSummary(loggedPayMiles, billablePayMiles, paySettings.payMilesBasis);
   const drawerDetails = (
     <section className="lv-sec">
       <h3>Details</h3>
@@ -1060,6 +1106,7 @@ export async function LoadView({ id }: { id: string }) {
           "Miles",
           <>
             {`${num(load.pickupDeadheadMiles)} empty to pickup · ${loadedMiles} loaded · ${load.isBackhaul ? 0 : num(load.returnDeadheadMiles)} empty home`}
+            {payMilesGap.label ? <span className="tl-sub"> {payMilesGap.label}</span> : null}
             {milesVariance ? (
               <span className={`tl-sub${milesVariance.over ? " warn" : ""}`}>
                 {" "}
@@ -1071,7 +1118,21 @@ export async function LoadView({ id }: { id: string }) {
         )}
         {detailRow("Terms", `${load.payTermsDays != null ? termsLabel(load.payTermsDays) : load.paymentTerms ?? "Not set"} · ${load.channel ?? "dispatch"}`)}
         {load.notes ? detailRow("Notes", load.notes) : null}
-        {settled && may("billing_details") ? detailRow("Driver paid", <>On statement <Link href={`/settlements/${settled.id}`}>{settled.number}</Link></>) : null}
+        {anySettled && may("billing_details") ? detailRow(
+          "Driver paid",
+          loadSettlements.whole ? (
+            <>On statement <Link href={`/settlements/${loadSettlements.whole.id}`}>{loadSettlements.whole.number}</Link></>
+          ) : (
+            <>
+              {loadSettlements.legs.map((s, idx) => (
+                <React.Fragment key={s.loadLegId}>
+                  {idx > 0 ? " · " : ""}
+                  Leg {s.seq} on <Link href={`/settlements/${s.id}`}>{s.number}</Link>
+                </React.Fragment>
+              ))}
+            </>
+          )
+        ) : null}
       </dl>
     </section>
   );
@@ -1161,7 +1222,20 @@ export async function LoadView({ id }: { id: string }) {
             {ledger.revLayover > 0 ? moneyRow("Layover", ledger.revLayover) : null}
           </>
         )}
-        {may("billing_details") ? moneyRow("Driver pay", ledger.expDriver, { cost: true, note: ledger.driverCostNote }) : null}
+        {may("billing_details")
+          ? moneyRow(
+              anySettled ? "Driver pay" : "Driver pay (estimate)",
+              ledger.expDriver,
+              {
+                cost: true,
+                note: anySettled
+                  ? ledger.driverCostNote
+                  : a && !driverIsContractor
+                    ? "Estimate · company payroll (independent of load profit)"
+                    : ledger.driverCostNote ?? "Estimate"
+              }
+            )
+          : null}
         {moneyRow("Fuel", ledger.expFuel, { cost: true, note: ledger.fuelCostSource })}
         {ledger.expTolls > 0 ? moneyRow("Tolls", ledger.expTolls, { cost: true }) : null}
         {ledger.expRider > 0 ? moneyRow("Insurance rider", ledger.expRider, { cost: true }) : null}
@@ -1319,7 +1393,7 @@ export async function LoadView({ id }: { id: string }) {
       sub={sub}
       chips={chips}
       href={`/loads/${load.id}`}
-      actions={fellThrough || !may("dispatch") ? null : <LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load, stopZones)} scheduleLocked={scheduleLocked} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} truckName={load.vehicle?.name ?? null} dealLocked={load.paymentStatus ? "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." : settled ? "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." : null} />}
+      actions={fellThrough || !may("dispatch") ? null : <LoadEditDialog loadId={load.id} loadNumber={load.loadNumber ?? "This load"} initial={toEditValues(load, stopZones)} scheduleLocked={scheduleLocked} driverName={a && ["dispatched", "accepted"].includes(a.status) ? a.driver.name : null} truckName={load.vehicle?.name ?? null} dealLocked={load.paymentStatus ? "This load has been invoiced, so its truck, rate and miles are what was billed and stay as they are." : anySettled ? "This load is on a driver statement, so its truck, rate and miles are what the driver was paid on and stay as they are." : null} />}
       footer={footer}
       deck={drawerDeck}
       trip={drawerTrip}

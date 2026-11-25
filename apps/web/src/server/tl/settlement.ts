@@ -6,7 +6,8 @@ import { toCompany } from "./company";
 import { prisma } from "@/lib/db";
 import type { AuditSnapshot } from "@/lib/audit-diff";
 import { rateConTotal, type PayKind } from "@/lib/pay";
-import { computeStatement, linePay, periodBounds, periodCovering, periodText, rowsTotalCents, statementOf, statementRows, validatePeriod, type Adjustment, type AdjustmentInput, type FuelLine, type SettlementLoad, type Statement, type StatementLine } from "@/lib/settlement";
+import { milesGapSummary, type PayMilesBasis } from "@/lib/pay-arrangement";
+import { computeStatement, lineKey, linePay, periodBounds, periodCovering, periodText, rowsTotalCents, statementOf, statementRows, validatePeriod, type Adjustment, type AdjustmentInput, type FuelLine, type SettlementLoad, type Statement, type StatementLine } from "@/lib/settlement";
 import { DEDUCTION_ROW_KINDS, deductionLines, NO_CHOICES, typedChoices, type DeductionChoices, type DeductionLine, type DeductionOption, type DeductionRowKind } from "@/lib/deductions";
 import { recordAudit } from "./audit";
 import { emitStatement } from "@/server/webhooks/emit";
@@ -48,17 +49,21 @@ function hoursFromEstimate(payKind: string, rate: number, estimate: unknown): nu
   return payKind === "hourly" && rate > 0 && estimate != null && num(estimate as never) > 0 ? new Prisma.Decimal(estimate as never).div(rate).toDecimalPlaces(2).toNumber() : null;
 }
 
-function toSettlementLoad(l: LoadWithAssignment): SettlementLoad {
+function toSettlementLoad(l: LoadWithAssignment, payMilesBasis: PayMilesBasis = "logged"): SettlementLoad {
   const a = l.assignment!;
   const rate = num(a.payRate);
   const assignedHours = hoursFromEstimate(a.payKind, rate, a.payEstimate);
+  const actualLoaded = num(l.loadedMiles);
+  const quotedLoaded = numOrNull(l.quotedLoadedMiles);
   return {
     loadId: l.id,
     loadNumber: l.loadNumber,
     origin: l.originAddress,
     destination: l.destinationAddress,
     deliveredAt: l.completedAt ? l.completedAt.toISOString() : null,
-    loadedMiles: num(l.loadedMiles),
+    loadedMiles: quotedLoaded ?? actualLoaded,
+    loggedMiles: quotedLoaded != null ? actualLoaded : null,
+    payMilesBasis,
     payKind: a.payKind as PayKind,
     payRate: rate,
     rateConTotal: rateConTotal(num(l.quotedRevenue), num(l.fuelSurcharge)),
@@ -67,16 +72,133 @@ function toSettlementLoad(l: LoadWithAssignment): SettlementLoad {
   };
 }
 
-/** Loads a driver delivered between two Dallas dates that are not on a final statement. */
+type LegWithLoad = Prisma.LoadLegGetPayload<{
+  include: {
+    load: {
+      select: {
+        id: true;
+        loadNumber: true;
+        originAddress: true;
+        destinationAddress: true;
+        loadedMiles: true;
+        quotedRevenue: true;
+        fuelSurcharge: true;
+        paymentStatus: true;
+        paidAmount: true;
+        invoicedAmount: true;
+        writeOffAmount: true;
+      };
+    };
+  };
+}>;
+
+async function haulOrderMap(db: Db, loadIds: readonly string[]): Promise<Map<string, number[]>> {
+  const out = new Map<string, number[]>();
+  if (loadIds.length === 0) return out;
+  const rows = await db.loadLeg.findMany({ where: { loadId: { in: [...loadIds] }, kind: "haul" }, select: { loadId: true, seq: true }, orderBy: [{ loadId: "asc" }, { seq: "asc" }] });
+  for (const r of rows) {
+    const seqs = out.get(r.loadId) ?? [];
+    seqs.push(r.seq);
+    out.set(r.loadId, seqs);
+  }
+  return out;
+}
+
+function toSettlementLeg(leg: LegWithLoad, haulSeqs: readonly number[]): SettlementLoad {
+  const l = leg.load;
+  const rate = num(leg.payRate as never);
+  const from = leg.fromName ?? l.originAddress ?? "?";
+  const to = leg.toName ?? l.destinationAddress ?? "?";
+  let legLabel: string;
+  if (leg.kind === "positioning") {
+    legLabel = `Positioning · ${leg.toName ? `to ${leg.toName}` : from}`;
+  } else {
+    const idx = haulSeqs.indexOf(leg.seq);
+    const ordinal = idx >= 0 ? idx + 1 : leg.seq;
+    const total = haulSeqs.length > ordinal ? haulSeqs.length : ordinal;
+    legLabel = `Leg ${ordinal} of ${total} · ${from} → ${to}`;
+  }
+  return {
+    loadId: l.id,
+    loadLegId: leg.id,
+    legLabel,
+    legMiles: numOrNull(leg.milesDriven as never),
+    loadNumber: l.loadNumber,
+    origin: leg.fromName ?? l.originAddress,
+    destination: leg.toName ?? l.destinationAddress,
+    deliveredAt: leg.endedAt ? leg.endedAt.toISOString() : null,
+    loadedMiles: num(l.loadedMiles),
+    payKind: leg.payKind as PayKind,
+    payRate: rate,
+    rateConTotal: rateConTotal(num(l.quotedRevenue), num(l.fuelSurcharge)),
+    assignedHours: hoursFromEstimate(leg.payKind ?? "", rate, leg.payEstimate),
+    brokerStatus: brokerStatus(l)
+  };
+}
+
+const legLoadSelect = {
+  id: true,
+  loadNumber: true,
+  originAddress: true,
+  destinationAddress: true,
+  loadedMiles: true,
+  quotedRevenue: true,
+  fuelSurcharge: true,
+  paymentStatus: true,
+  paidAmount: true,
+  invoicedAmount: true,
+  writeOffAmount: true
+} as const;
+
+async function workspacePayBasis(workspaceId: string, db: Db = prisma): Promise<PayMilesBasis> {
+  const ws = await db.workspace.findUnique({ where: { id: workspaceId }, select: { payMilesBasis: true } });
+  return ws?.payMilesBasis === "billable" ? "billable" : "logged";
+}
+
+/** Loads and closed relay/positioning legs a driver completed between two carrier calendar dates that are not on a final statement. */
 export async function eligibleLoads(driverId: string, start: string, end: string, workspaceId = currentWorkspaceId(), db: Db = prisma): Promise<SettlementLoad[]> {
-  const bounds = periodBounds(start, end, await workspaceTimezone(workspaceId));
+  const [tz, payMilesBasis] = await Promise.all([workspaceTimezone(workspaceId), workspacePayBasis(workspaceId, db)]);
+  const bounds = periodBounds(start, end, tz);
   if (!bounds) return [];
-  const loads = await db.load.findMany({
-    where: { workspaceId, deletedAt: null, status: "completed", completedAt: { gte: bounds.from, lt: bounds.to }, settlement: { is: null }, assignment: { is: { driverId, status: "completed" } } },
-    include: { assignment: true },
-    orderBy: [{ completedAt: "asc" }, { loadNumber: "asc" }]
-  });
-  return loads.map(toSettlementLoad);
+  const [loads, legs] = await Promise.all([
+    db.load.findMany({
+      where: {
+        workspaceId,
+        deletedAt: null,
+        status: "completed",
+        completedAt: { gte: bounds.from, lt: bounds.to },
+        settlement: { is: null },
+        legs: { none: { kind: "haul" } },
+        assignment: { is: { driverId, status: "completed" } }
+      },
+      include: { assignment: true },
+      orderBy: [{ completedAt: "asc" }, { loadNumber: "asc" }]
+    }),
+    db.loadLeg.findMany({
+      where: {
+        workspaceId,
+        driverId,
+        status: "closed",
+        endedAt: { gte: bounds.from, lt: bounds.to },
+        settlementLeg: { is: null },
+        payKind: { not: null },
+        payRate: { not: null },
+        load: { deletedAt: null, status: { not: "quote" } },
+        OR: [{ kind: "positioning", milesDriven: { not: null } }, { kind: "haul", load: { status: "completed" } }]
+      },
+      include: { load: { select: legLoadSelect } },
+      orderBy: [{ endedAt: "asc" }, { seq: "asc" }]
+    })
+  ]);
+  const haulSeqs = await haulOrderMap(
+    db,
+    [...new Set(legs.filter((l) => l.kind === "haul").map((l) => l.loadId))]
+  );
+  const items: Array<{ at: number; num: string; sl: SettlementLoad }> = [
+    ...loads.map((l) => ({ at: l.completedAt?.getTime() ?? 0, num: l.loadNumber ?? "", sl: toSettlementLoad(l, payMilesBasis) })),
+    ...legs.map((lg) => ({ at: lg.endedAt?.getTime() ?? 0, num: `${lg.load.loadNumber ?? ""}:${String(lg.seq).padStart(4, "0")}`, sl: toSettlementLeg(lg, haulSeqs.get(lg.loadId) ?? []) }))
+  ];
+  return items.sort((a, b) => a.at - b.at || a.num.localeCompare(b.num)).map((x) => x.sl);
 }
 
 /** The next statement number: a counter on the workspace, so a discarded draft's number is never given again and numbering does not read every statement. Inside the caller's transaction. */
@@ -196,7 +318,7 @@ export async function saveDraft(id: string, draft: Draft, workspaceId = currentW
   if (s.status !== "draft") return { ok: false, error: "A finalized statement cannot be changed." };
   const { loads, fuelOptions, statement, choices } = await draftStatement(s, draft);
   if (Object.keys(statement.errors).length > 0) return { ok: false, errors: statement.errors };
-  const onStatement = new Set(loads.map((l) => l.loadId));
+  const onStatement = new Set(loads.map((l) => lineKey(l)));
   const hours: Record<string, string> = {};
   for (const [k, v] of Object.entries(draft.hours)) if (onStatement.has(k) && v.trim() !== "") hours[k] = v.trim();
   const adjustments = draft.adjustments.filter((r) => r.label.trim() !== "" || r.amount.trim() !== "").map((r) => ({ label: r.label.trim(), amount: r.amount.trim() }));
@@ -236,7 +358,7 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
   const period = periodText(ymd(s.periodStart), ymd(s.periodEnd));
   const after: AuditSnapshot = { Statement: s.number, Driver: s.driver.name, Period: period, Loads: statement.lines.length, "Pay for loads": money(statement.loadsTotal), Adjustments: money(statement.adjustmentsTotal), ...(statement.fuel.length > 0 ? { "Fuel card": `-${money(statement.fuelTotal)}` } : {}), ...(statement.deductions.length > 0 ? { "Deductions, escrow and advances": money(statement.deductionsTotal) } : {}), ...(statement.needsConfirm ? { "Below zero": "Confirmed" } : {}), Total: money(statement.total) };
   const hours: Record<string, string> = {};
-  for (const [k, v] of Object.entries(draft.hours)) if (statement.lines.some((l) => l.loadId === k) && v.trim() !== "") hours[k] = v.trim();
+  for (const [k, v] of Object.entries(draft.hours)) if (statement.lines.some((l) => lineKey(l) === k) && v.trim() !== "") hours[k] = v.trim();
   try {
     await prisma.$transaction(async (tx) => {
       // The driver is locked first, so two statements for one driver finalize one after the other and each sees the ledger the other left.
@@ -261,7 +383,14 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
         }
       });
       if (claimed.count !== 1) throw new LostDraft();
-      await tx.settlementLoad.createMany({ data: statement.lines.map((l) => ({ settlementId: id, loadId: l.loadId, amount: new Prisma.Decimal(l.amount ?? 0) })) });
+      const loadLines = statement.lines.filter((l) => l.loadLegId == null);
+      const legLines = statement.lines.filter((l) => l.loadLegId != null);
+      if (loadLines.length > 0) {
+        await tx.settlementLoad.createMany({ data: loadLines.map((l) => ({ settlementId: id, loadId: l.loadId, amount: new Prisma.Decimal(l.amount ?? 0) })) });
+      }
+      if (legLines.length > 0) {
+        await tx.settlementLeg.createMany({ data: legLines.map((l) => ({ workspaceId, settlementId: id, loadLegId: l.loadLegId!, loadId: l.loadId, amount: new Prisma.Decimal(l.amount ?? 0) })) });
+      }
       // The statement as rows (rule J), from the same Statement the JSON above is written from. They must come to the total frozen with it, to the cent, or nothing is finalized.
       const rows = statementRows(statement);
       if (!new Prisma.Decimal(rowsTotalCents(rows)).equals(new Prisma.Decimal(statement.total).times(100).toDecimalPlaces(0))) throw new Error(`${s.number}: the statement rows do not add up to its total`);
@@ -304,9 +433,9 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
         const taken = await tx.driverReceipt.updateMany({ where: { id: { in: receiptIds }, workspaceId, driverId: s.driverId, state: "approved", settlementId: null }, data: { settlementId: id } });
         if (taken.count !== receiptIds.length) throw new ReceiptsMoved();
       }
-      // Each load's own history says it was paid, and on what.
+      // Each load or relay leg's own history says it was paid, and on what.
       for (const l of statement.lines) {
-        await recordAudit({ entity: "settlement", action: "load_settled", loadId: l.loadId, loadNumber: l.loadNumber, summary: `Paid to ${s.driver.name} on ${s.number}: ${money(l.amount ?? 0)}`, before: null, after: { Statement: s.number, Pay: money(l.amount ?? 0) }, at: now, workspaceId }, tx);
+        await recordAudit({ entity: "settlement", action: "load_settled", loadId: l.loadId, loadNumber: l.loadNumber, summary: `Paid to ${s.driver.name} on ${s.number}: ${money(l.amount ?? 0)}${l.legLabel ? ` (${l.legLabel})` : ""}`, before: null, after: { Statement: s.number, ...(l.legLabel ? { Leg: l.legLabel } : {}), Pay: money(l.amount ?? 0) }, at: now, workspaceId }, tx);
       }
       await emitStatement(tx, workspaceId, id, "finalized", now);
       await recordAudit(
@@ -319,7 +448,7 @@ export async function finalizeSettlement(id: string, draft: Draft, now = new Dat
     if (e instanceof FuelTaken) return { ok: false, error: "A fuel purchase on this statement was just deducted on another statement, or the card voided it. Reload it and pick again." };
     if (e instanceof ReceiptsMoved) return { ok: false, error: `A receipt on ${s.number} was just changed or paid back on another statement. Reload it and review.` };
     if (e instanceof DeductionsMoved) return { ok: false, error: `${s.driver.name}'s deductions or escrow balance changed while you were looking (another statement was finalized or voided). Reload ${s.number} and review it.` };
-    if (isUniqueViolation(e)) return { ok: false, error: "A load on this statement was just settled on another one. Reload it and try again." };
+    if (isUniqueViolation(e)) return { ok: false, error: "A load or leg on this statement was just settled on another one. Reload it and try again." };
     throw e;
   }
   return { ok: true, id };
@@ -377,8 +506,12 @@ export async function voidSettlement(id: string, reason: string, now = new Date(
       // Checked again in the transaction that voids it: a statement sent to payroll a moment ago is not voided.
       const voided = await tx.settlement.updateMany({ where: { id, workspaceId, status: "final", payrollSentAt: null, paidAt: null }, data: { status: "void", voidedAt: now, voidReason: why } });
       if (voided.count !== 1) throw new PaidAlready();
-      const freed = await tx.settlementLoad.findMany({ where: { settlementId: id }, select: { load: { select: { id: true, loadNumber: true } } } });
+      const [freed, freedLegs] = await Promise.all([
+        tx.settlementLoad.findMany({ where: { settlementId: id }, select: { load: { select: { id: true, loadNumber: true } } } }),
+        tx.settlementLeg.findMany({ where: { settlementId: id }, select: { load: { select: { id: true, loadNumber: true } }, loadLeg: { select: { seq: true, kind: true } } } })
+      ]);
       await tx.settlementLoad.deleteMany({ where: { settlementId: id } });
+      await tx.settlementLeg.deleteMany({ where: { settlementId: id } });
       // Its fuel purchases go back to being available: they were deducted on a statement that no longer stands.
       await tx.fuelTransaction.updateMany({ where: { settlementId: id, workspaceId }, data: { settlementId: null } });
       // So do the receipts paid back on it: still approved, for the next statement.
@@ -404,6 +537,7 @@ export async function voidSettlement(id: string, reason: string, now = new Date(
         }
       }
       for (const f of freed) await recordAudit({ entity: "settlement", action: "load_released", loadId: f.load.id, loadNumber: f.load.loadNumber, summary: `Released from ${s.number}: it can be paid on another statement`, reason: why, before: { Statement: s.number }, after: { Statement: null }, at: now, workspaceId }, tx);
+      for (const fl of freedLegs) await recordAudit({ entity: "settlement", action: "load_released", loadId: fl.load.id, loadNumber: fl.load.loadNumber, summary: `Leg ${fl.loadLeg.seq} released from ${s.number}: it can be paid on another statement`, reason: why, before: { Statement: s.number, Leg: fl.loadLeg.seq }, after: { Statement: null }, at: now, workspaceId }, tx);
       await emitStatement(tx, workspaceId, id, "voided", now);
       await recordAudit(
         { entity: "settlement", action: "statement_voided", summary: `${s.number} voided for ${s.driver.name} (${money(total)}); its loads can be paid again`, reason: why, before: { Status: "Final", Total: money(total) }, after: { Status: "Void" }, at: now, workspaceId },
@@ -596,7 +730,7 @@ async function frozenDeductions(ids: readonly string[]): Promise<Map<string, Ded
  */
 async function resolveSettlementRows(rows: SettlementWithDriver[], workspaceId: string): Promise<SettlementRow[]> {
   const drafts = rows.filter((s) => s.status === "draft");
-  const tz = await workspaceTimezone(workspaceId);
+  const [tz, payMilesBasis] = await Promise.all([workspaceTimezone(workspaceId), workspacePayBasis(workspaceId)]);
   const draftMap = new Map<string, { loads: SettlementLoad[]; statement: Statement }>();
   if (drafts.length > 0) {
     const boundsById = new Map<string, { from: Date; to: Date }>();
@@ -610,20 +744,55 @@ async function resolveSettlementRows(rows: SettlementWithDriver[], workspaceId: 
       if (!maxTo || b.to > maxTo) maxTo = b.to;
     }
     const driverIds = [...new Set(drafts.map((s) => s.driverId))];
-    const candidateLoads =
+    const [candidateLoads, candidateLegs] =
       minFrom && maxTo
-        ? await prisma.load.findMany({
-            where: { workspaceId, deletedAt: null, status: "completed", completedAt: { gte: minFrom, lt: maxTo }, settlement: { is: null }, assignment: { is: { driverId: { in: driverIds }, status: "completed" } } },
-            include: { assignment: true },
-            orderBy: [{ completedAt: "asc" }, { loadNumber: "asc" }]
-          })
-        : [];
-    const byDriver = new Map<string, Array<{ completedAt: Date; sl: SettlementLoad }>>();
+        ? await Promise.all([
+            prisma.load.findMany({
+              where: {
+                workspaceId,
+                deletedAt: null,
+                status: "completed",
+                completedAt: { gte: minFrom, lt: maxTo },
+                settlement: { is: null },
+                legs: { none: { kind: "haul" } },
+                assignment: { is: { driverId: { in: driverIds }, status: "completed" } }
+              },
+              include: { assignment: true },
+              orderBy: [{ completedAt: "asc" }, { loadNumber: "asc" }]
+            }),
+            prisma.loadLeg.findMany({
+              where: {
+                workspaceId,
+                driverId: { in: driverIds },
+                status: "closed",
+                endedAt: { gte: minFrom, lt: maxTo },
+                settlementLeg: { is: null },
+                payKind: { not: null },
+                payRate: { not: null },
+                load: { deletedAt: null, status: { not: "quote" } },
+                OR: [{ kind: "positioning", milesDriven: { not: null } }, { kind: "haul", load: { status: "completed" } }]
+              },
+              include: { load: { select: legLoadSelect } },
+              orderBy: [{ endedAt: "asc" }, { seq: "asc" }]
+            })
+          ])
+        : [[], []];
+    const haulSeqs = await haulOrderMap(
+      prisma,
+      [...new Set(candidateLegs.filter((l) => l.kind === "haul").map((l) => l.loadId))]
+    );
+    const byDriver = new Map<string, Array<{ completedAt: Date; sortNum: string; sl: SettlementLoad }>>();
     for (const l of candidateLoads) {
       if (!l.assignment || !l.completedAt) continue;
       const list = byDriver.get(l.assignment.driverId) ?? [];
-      list.push({ completedAt: l.completedAt, sl: toSettlementLoad(l) });
+      list.push({ completedAt: l.completedAt, sortNum: l.loadNumber ?? "", sl: toSettlementLoad(l, payMilesBasis) });
       byDriver.set(l.assignment.driverId, list);
+    }
+    for (const lg of candidateLegs) {
+      if (!lg.driverId || !lg.endedAt) continue;
+      const list = byDriver.get(lg.driverId) ?? [];
+      list.push({ completedAt: lg.endedAt, sortNum: `${lg.load.loadNumber ?? ""}:${String(lg.seq).padStart(4, "0")}`, sl: toSettlementLeg(lg, haulSeqs.get(lg.loadId) ?? []) });
+      byDriver.set(lg.driverId, list);
     }
     // The fuel purchases picked on these drafts, read together: still available (not deducted elsewhere) and picked on that draft.
     const pickedIds = [...new Set(drafts.flatMap((d) => typedFuelIds(d.fuelIds)))];
@@ -633,7 +802,12 @@ async function resolveSettlementRows(rows: SettlementWithDriver[], workspaceId: 
     const back = await openReimbursements(prisma, workspaceId, driverIds);
     for (const [k, s] of drafts.entries()) {
       const b = boundsById.get(s.id);
-      const loads = b ? (byDriver.get(s.driverId) ?? []).filter((x) => x.completedAt >= b.from && x.completedAt < b.to).map((x) => x.sl) : [];
+      const loads = b
+        ? (byDriver.get(s.driverId) ?? [])
+            .filter((x) => x.completedAt >= b.from && x.completedAt < b.to)
+            .sort((x, y) => x.completedAt.getTime() - y.completedAt.getTime() || x.sortNum.localeCompare(y.sortNum))
+            .map((x) => x.sl)
+        : [];
       const mine = new Set(typedFuelIds(s.fuelIds));
       const ded = offered[k]!;
       const { lines: deductions, errors: deductionErrors } = deductionLines(ded.options, cleanChoices(typedChoices(s.deductionChoices), ded.options), ded.escrowHeldCents);
@@ -719,28 +893,46 @@ export type Unsettled = {
 /** A TONU is on no statement by itself; it is listed for this long so a dispatcher sees it and decides. */
 export const TONU_DAYS = 120;
 
-/** Per driver, the delivered loads not on any final statement, what they come to, and a period that would cover them (the amount is for that period). */
+/** Per driver, the delivered loads and closed relay/positioning legs not on any final statement, what they come to, and a period that would cover them. */
 export async function unsettledByDriver(workspaceId = currentWorkspaceId(), now = new Date(), terminal: Terminals = null): Promise<Unsettled[]> {
-  // Read as the plain columns the pay is worked out from (a whole load, with its assignment and driver, is a hundred): a fleet has thousands of these.
-  const [loads, tonus] = await Promise.all([
-    prisma.$queryRaw<
-      Array<{ driverId: string; driverName: string; completedAt: Date; loadedMiles: number; quotedRevenue: number; fuelSurcharge: number | null; payKind: string; payRate: number; payEstimate: number | null; short: boolean }>
-    >`
-      select a.driver_id as "driverId", d.name as "driverName", l.completed_at as "completedAt", l.loaded_miles::float8 as "loadedMiles", l.quoted_revenue::float8 as "quotedRevenue",
-        l.fuel_surcharge::float8 as "fuelSurcharge", a.pay_kind as "payKind", a.pay_rate::float8 as "payRate", a.pay_estimate::float8 as "payEstimate",
-        (l.payment_status = 'paid' and (coalesce(l.write_off_amount, 0) > 0 or (l.invoiced_amount is not null and l.paid_amount < l.invoiced_amount))) as short
-      from loads l join assignments a on a.load_id = l.id and a.status = 'completed' join drivers d on d.id = a.driver_id
-      where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status = 'completed'
-        and not exists (select 1 from settlement_loads sl where sl.load_id = l.id) ${terminal != null ? Prisma.sql`and d.terminal = any(${termList(terminal)})` : Prisma.empty}`,
-    prisma.$queryRaw<Array<{ driverId: string; driverName: string; n: number }>>`
-      select a.driver_id as "driverId", d.name as "driverName", count(*)::int as n
-      from loads l join assignments a on a.load_id = l.id and a.status = 'completed' join drivers d on d.id = a.driver_id
-      where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status = 'tonu' and l.cancelled_at >= ${new Date(now.getTime() - TONU_DAYS * 86_400_000)}
-        ${terminal != null ? Prisma.sql`and d.terminal = any(${termList(terminal)})` : Prisma.empty}
-      group by a.driver_id, d.name`
+  // Read as plain columns (whole loads without haul legs, plus closed unsettled relay/positioning legs): a fleet has thousands of these.
+  const [[loads, legRows, tonus], tz, payMilesBasis] = await Promise.all([
+    Promise.all([
+      prisma.$queryRaw<
+        Array<{ driverId: string; driverName: string; completedAt: Date; loadedMiles: number; quotedLoadedMiles: number | null; quotedRevenue: number; fuelSurcharge: number | null; payKind: string; payRate: number; payEstimate: number | null; short: boolean }>
+      >`
+        select a.driver_id as "driverId", d.name as "driverName", l.completed_at as "completedAt", l.loaded_miles::float8 as "loadedMiles", l.quoted_loaded_miles::float8 as "quotedLoadedMiles",
+          l.quoted_revenue::float8 as "quotedRevenue", l.fuel_surcharge::float8 as "fuelSurcharge", a.pay_kind as "payKind", a.pay_rate::float8 as "payRate", a.pay_estimate::float8 as "payEstimate",
+          (l.payment_status = 'paid' and (coalesce(l.write_off_amount, 0) > 0 or (l.invoiced_amount is not null and l.paid_amount < l.invoiced_amount))) as short
+        from loads l join assignments a on a.load_id = l.id and a.status = 'completed' join drivers d on d.id = a.driver_id
+        where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status = 'completed'
+          and not exists (select 1 from settlement_loads sl where sl.load_id = l.id)
+          and not exists (select 1 from load_legs lg where lg.load_id = l.id and lg.kind = 'haul')
+          ${terminal != null ? Prisma.sql`and d.terminal = any(${termList(terminal)})` : Prisma.empty}`,
+      prisma.$queryRaw<
+        Array<{ driverId: string; driverName: string; completedAt: Date; loadedMiles: number; legMiles: number | null; quotedRevenue: number; fuelSurcharge: number | null; payKind: string; payRate: number; payEstimate: number | null; short: boolean }>
+      >`
+        select lg.driver_id as "driverId", d.name as "driverName", lg.ended_at as "completedAt", l.loaded_miles::float8 as "loadedMiles", lg.miles_driven::float8 as "legMiles",
+          l.quoted_revenue::float8 as "quotedRevenue", l.fuel_surcharge::float8 as "fuelSurcharge", lg.pay_kind as "payKind", lg.pay_rate::float8 as "payRate", lg.pay_estimate::float8 as "payEstimate",
+          (l.payment_status = 'paid' and (coalesce(l.write_off_amount, 0) > 0 or (l.invoiced_amount is not null and l.paid_amount < l.invoiced_amount))) as short
+        from load_legs lg join loads l on l.id = lg.load_id join drivers d on d.id = lg.driver_id
+        where lg.workspace_id = ${workspaceId} and lg.status = 'closed' and lg.ended_at is not null
+          and lg.driver_id is not null and lg.pay_kind is not null and lg.pay_rate is not null
+          and ((lg.kind = 'positioning' and lg.miles_driven is not null) or (lg.kind = 'haul' and l.status = 'completed'))
+          and l.deleted_at is null
+          and not exists (select 1 from settlement_legs slg where slg.load_leg_id = lg.id)
+          ${terminal != null ? Prisma.sql`and d.terminal = any(${termList(terminal)})` : Prisma.empty}`,
+      prisma.$queryRaw<Array<{ driverId: string; driverName: string; n: number }>>`
+        select a.driver_id as "driverId", d.name as "driverName", count(*)::int as n
+        from loads l join assignments a on a.load_id = l.id and a.status = 'completed' join drivers d on d.id = a.driver_id
+        where l.workspace_id = ${workspaceId} and l.deleted_at is null and l.status = 'tonu' and l.cancelled_at >= ${new Date(now.getTime() - TONU_DAYS * 86_400_000)}
+          ${terminal != null ? Prisma.sql`and d.terminal = any(${termList(terminal)})` : Prisma.empty}
+        group by a.driver_id, d.name`
+    ]),
+    workspaceTimezone(workspaceId),
+    workspacePayBasis(workspaceId)
   ]);
   const tonuByDriver = new Map(tonus.map((t) => [t.driverId, t.n]));
-  const tz = await workspaceTimezone(workspaceId);
   const boundsCache = new Map<string, { from: Date; to: Date } | null>();
   const getBounds = (start: string, end: string) => {
     const k = `${start}:${end}`;
@@ -749,20 +941,27 @@ export async function unsettledByDriver(workspaceId = currentWorkspaceId(), now 
     boundsCache.set(k, b);
     return b;
   };
-  const byDriver = new Map<string, { name: string; loads: typeof loads }>();
+  type UnsettledItem = { completedAt: Date; loadedMiles: number; legMiles: number | null; isLeg: boolean; quotedRevenue: number; fuelSurcharge: number | null; payKind: string; payRate: number; payEstimate: number | null; short: boolean };
+  const byDriver = new Map<string, { name: string; loads: UnsettledItem[] }>();
   for (const l of loads) {
     const group = byDriver.get(l.driverId) ?? { name: l.driverName, loads: [] };
-    group.loads.push(l);
+    const effectiveMiles = l.quotedLoadedMiles != null ? milesGapSummary(l.loadedMiles, l.quotedLoadedMiles, payMilesBasis).paidMiles : l.loadedMiles;
+    group.loads.push({ ...l, loadedMiles: effectiveMiles, legMiles: null, isLeg: false });
     byDriver.set(l.driverId, group);
+  }
+  for (const lg of legRows) {
+    const group = byDriver.get(lg.driverId) ?? { name: lg.driverName, loads: [] };
+    group.loads.push({ ...lg, isLeg: true });
+    byDriver.set(lg.driverId, group);
   }
   const out: Unsettled[] = [];
   for (const [driverId, g] of byDriver) {
     const period = periodCovering(g.loads.map((l) => l.completedAt), tz);
     if (!period) continue;
-    // The period offered may be the latest stretch of a long backlog; the amount is for the loads that stretch holds, so what the row says is what the statement will pay.
+    // The period offered may be the latest stretch of a long backlog; the amount is for the items that stretch holds, so what the row says is what the statement will pay.
     const bounds = getBounds(period.start, period.end);
     const inPeriod = bounds ? g.loads.filter((l) => l.completedAt >= bounds.from && l.completedAt < bounds.to) : g.loads;
-    const lines = inPeriod.map((l) => linePay(l.payKind as PayKind, l.payRate, l.loadedMiles, hoursFromEstimate(l.payKind, l.payRate, l.payEstimate), rateConTotal(l.quotedRevenue, l.fuelSurcharge ?? 0)));
+    const lines = inPeriod.map((l) => linePay(l.payKind as PayKind, l.payRate, l.loadedMiles, hoursFromEstimate(l.payKind, l.payRate, l.payEstimate), rateConTotal(l.quotedRevenue, l.fuelSurcharge ?? 0), l.legMiles, l.isLeg));
     const sorted = inPeriod.map((l) => l.completedAt).sort((a, b) => a.getTime() - b.getTime());
     const cents = lines.reduce((sum, amount) => sum.plus(amount ?? 0), new Prisma.Decimal(0));
     out.push({
@@ -775,8 +974,34 @@ export async function unsettledByDriver(workspaceId = currentWorkspaceId(), now 
   return out.sort((a, b) => a.driverName.localeCompare(b.driverName));
 }
 
+export type LoadSettlementInfo = {
+  whole: { id: string; number: string; amount: number } | null;
+  legs: Array<{ loadLegId: string; seq: number; kind: string; driverName: string | null; id: string; number: string; amount: number }>;
+};
+
+export const onStatement = (l: { settlement?: unknown | null; settlementLegs?: readonly unknown[] }): boolean =>
+  !!l.settlement || (l.settlementLegs?.length ?? 0) > 0;
+
+/** The final statement(s) a load or its relay/positioning legs were paid on, if any. */
+export async function settlementsOfLoad(loadId: string, db: Db = prisma): Promise<LoadSettlementInfo> {
+  const [wholeRow, legRows] = await Promise.all([
+    db.settlementLoad.findUnique({ where: { loadId }, include: { settlement: { select: { id: true, number: true } } } }),
+    db.settlementLeg.findMany({
+      where: { loadId },
+      include: { settlement: { select: { id: true, number: true } }, loadLeg: { select: { seq: true, kind: true, driverName: true } } },
+      orderBy: { loadLeg: { seq: "asc" } }
+    })
+  ]);
+  return {
+    whole: wholeRow ? { id: wholeRow.settlement.id, number: wholeRow.settlement.number, amount: num(wholeRow.amount) } : null,
+    legs: legRows.map((r) => ({ loadLegId: r.loadLegId, seq: r.loadLeg.seq, kind: r.loadLeg.kind, driverName: r.loadLeg.driverName, id: r.settlement.id, number: r.settlement.number, amount: num(r.amount) }))
+  };
+}
+
 /** The final statement a load was paid on, if any. */
 export async function settlementOfLoad(loadId: string): Promise<{ id: string; number: string; amount: number } | null> {
-  const row = await prisma.settlementLoad.findUnique({ where: { loadId }, include: { settlement: { select: { id: true, number: true } } } });
-  return row ? { id: row.settlement.id, number: row.settlement.number, amount: num(row.amount) } : null;
+  const info = await settlementsOfLoad(loadId);
+  if (info.whole) return info.whole;
+  const first = info.legs[0];
+  return first ? { id: first.id, number: first.number, amount: first.amount } : null;
 }

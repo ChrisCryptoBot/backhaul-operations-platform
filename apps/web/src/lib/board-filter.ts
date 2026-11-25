@@ -19,6 +19,7 @@ export type BoardFilterable = {
   poNumber?: string | null;
   invoiceNumber?: string | null;
   brokerMc?: string | null;
+  openHandoff?: { state: string; locationName: string | null } | null;
 };
 
 export const BOARD_STATUSES = [
@@ -27,6 +28,7 @@ export const BOARD_STATUSES = [
   { key: "sent", label: "Sent, waiting" },
   { key: "accepted", label: "Accepted" },
   { key: "in_progress", label: "On the road" },
+  { key: "handoff", label: "Awaiting handoff" },
   { key: "completed", label: "Delivered" }
 ] as const;
 
@@ -35,8 +37,8 @@ export const asBoardStatus = (v: string | undefined): string => (BOARD_STATUSES.
 /** A load that is still open and pays below the truck's own cost. */
 export const isBelowCost = (r: Pick<BoardFilterable, "status" | "verdict">) => r.verdict === "reject" && r.status !== "completed";
 
-/** The text a row is searched on: load number, PO, invoice number, broker and its MC, either city, truck and driver. */
-export const boardSearchText = (r: BoardFilterable) => [r.loadNumber, r.poNumber, r.invoiceNumber, r.brokerName, r.brokerMc, r.origin, r.destination, r.vehicleName, r.driverName].filter(Boolean).join(" ");
+/** The text a row is searched on: load number, PO, invoice number, broker and its MC, either city, truck, driver, and handoff place. */
+export const boardSearchText = (r: BoardFilterable) => [r.loadNumber, r.poNumber, r.invoiceNumber, r.brokerName, r.brokerMc, r.origin, r.destination, r.vehicleName, r.driverName, r.openHandoff?.locationName].filter(Boolean).join(" ");
 
 /** Lower case with every run of punctuation or space as one space, so "DM-40013", "dm 40013" and "Dallas, TX" read alike. */
 const plain = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
@@ -59,10 +61,11 @@ export function searchBoard<T extends BoardFilterable>(rows: T[], q: string | un
  * Whether a row belongs under a tab. "Needs a driver" is a load with no driver, or one who said no, or one chosen and not yet sent (the same loads the sidebar and the dispatch
  * queue count); a load that has been sent and is waiting for the answer is under "Sent, waiting", not under "Needs a driver".
  */
-export function onTab(r: Pick<BoardFilterable, "status" | "assignmentStatus">, key: string): boolean {
+export function onTab(r: Pick<BoardFilterable, "status" | "assignmentStatus" | "openHandoff">, key: string): boolean {
   if (key === "all") return true;
   if (key === "draft") return r.status === "draft" && r.assignmentStatus !== "dispatched";
   if (key === "sent") return r.assignmentStatus === "dispatched";
+  if (key === "handoff") return r.openHandoff != null;
   return r.status === key;
 }
 

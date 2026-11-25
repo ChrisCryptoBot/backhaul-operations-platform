@@ -4,16 +4,19 @@ import { prisma } from "@/lib/db";
 import { driverBlocker } from "@/lib/clearance";
 import { loadWindow } from "@/lib/schedule";
 import { inScope, type Terminals } from "@/lib/scope";
-import { batonDigestText, dropProblems, receiveProblems, relayBadge, waitMinutes, type DropInput, type HandoffType, type Problem } from "@/lib/relay";
+import { batonDigestText, dropProblems, legPayEstimate, receiveProblems, relayBadge, waitMinutes, type DropInput, type HandoffType, type Problem } from "@/lib/relay";
+import { truckFit } from "@/lib/load-fit";
+import { rateConTotal } from "@/lib/pay";
 import { recordAudit } from "./audit";
 import { enqueueBridge } from "@/server/bridge/outbox";
 import { recordAssignmentEvent } from "./assignment-events";
 import { claimLoad, dropAssignment, LoadMoved } from "./claim";
-import { numOrNull } from "./convert";
+import { num, numOrNull } from "./convert";
 import { assertPay, findDriverClash, findTruckClash, windowText } from "./dispatch";
 import { currentActor } from "./identity";
 import { senderNameOf } from "@/lib/driver-messages";
 import { lockWorkspace } from "./plan";
+import { truckLimits } from "./quote";
 import { ensureActiveLeg } from "./relay-legs";
 import { currentAllowed } from "./scope";
 import { inTerminal } from "./terminal-sql";
@@ -82,6 +85,12 @@ export async function recordDrop(loadId: string, input: DropInput, now = new Dat
     }
     const leg = await ensureActiveLeg(tx, load, a, now);
     const miles = input.milesDriven ?? null;
+    if (a.payKind === "flat" && (input.flatPay == null || input.flatPay <= 0)) {
+      throw new RelayError("bad_handoff", "Enter this driver's flat amount for their leg.");
+    }
+    const effectiveRate = a.payKind === "flat" ? input.flatPay! : num(a.payRate);
+    const rcTotal = rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge));
+    const est = legPayEstimate(a.payKind, effectiveRate, miles, num(load.loadedMiles), rcTotal);
     await tx.loadLeg.update({
       where: { id: leg.id },
       data: {
@@ -92,10 +101,9 @@ export async function recordDrop(loadId: string, input: DropInput, now = new Dat
         toLng: lng as never,
         milesDriven: miles as never,
         milesSource: miles != null ? (input.milesSource as string) : null,
-        // The pay as it stood: the next driver's assignment will not carry it.
         payKind: a.payKind,
-        payRate: a.payRate,
-        payEstimate: a.payEstimate
+        payRate: new Prisma.Decimal(effectiveRate),
+        payEstimate: est != null ? new Prisma.Decimal(est) : null
       }
     });
     const droppedSource = via === "phone" ? "driver" : "dispatcher";
@@ -183,10 +191,10 @@ export async function receiveHandoff(handoffId: string, input: ReceiveInput, now
   if (!h) throw new RelayError("handoff_not_found", "That handoff does not exist.");
   const load = await loadForRelay(h.loadId, workspaceId, allowed !== undefined ? allowed : await currentAllowed(workspaceId));
   if (!load) throw new RelayError("load_not_found", "That load does not exist.");
-  if (!["dropped", "disputed"].includes(h.state)) throw new RelayError("not_receivable", "This handoff was already received.");
-  if (load.status !== "in_progress") throw new RelayError("not_relayable", "The load is no longer on the road.");
   const bad = receiveProblems(h, { driverId: input.driverId, vehicleId: input.vehicleId });
   if (bad.length) throw new RelayError("not_receivable", first(bad));
+  if (h.state !== "dropped") throw new RelayError("not_receivable", "This handoff was already received.");
+  if (load.status !== "in_progress") throw new RelayError("not_relayable", "The load is no longer on the road.");
   try {
     assertPay(input.pay);
   } catch (e) {
@@ -202,9 +210,30 @@ export async function receiveHandoff(handoffId: string, input: ReceiveInput, now
 
   const sameTruck = h.type === "slip_seat";
   const vehicleId = sameTruck ? h.tractorOutId : input.vehicleId ?? null;
-  const truck = vehicleId ? await prisma.vehicle.findFirst({ where: { id: vehicleId, workspaceId, archivedAt: null }, select: { id: true, name: true, terminal: true } }) : null;
+  const truck = vehicleId
+    ? await prisma.vehicle.findFirst({
+        where: { id: vehicleId, workspaceId, archivedAt: null },
+        select: { id: true, name: true, terminal: true, payloadLbs: true, maxLengthFt: true, maxWidthFt: true, maxHeightIn: true, hasLiftgate: true, hasRamp: true, hasPalletJack: true }
+      })
+    : null;
   if (vehicleId && !truck) throw new RelayError("truck_not_found", "That truck is not available.");
   if (truck && !sameTruck && !inScope(al, truck.terminal)) throw new RelayError("truck_not_found", `${truck.name ?? "That truck"} is outside the terminals you work.`);
+  if (truck && !sameTruck) {
+    const fit = truckFit(
+      {
+        weightLbs: load.weightLbs,
+        lengthFt: numOrNull(load.lengthFt),
+        widthFt: numOrNull(load.widthFt),
+        heightIn: numOrNull(load.loadHeightIn),
+        hazmatClass: load.hazmatClass,
+        requiresLiftgate: load.requiresLiftgate === true,
+        requiresRamp: load.requiresRamp === true,
+        requiresPalletJack: load.requiresPalletJack === true
+      },
+      truckLimits(truck)
+    );
+    if (fit.blocker) throw new RelayError("bad_handoff", `${truck.name ?? "That truck"} cannot take this load. ${fit.blocker}`);
+  }
 
   // The rest of the load is what the next driver and truck are booked for: from now to the delivery window's close. Another open load in that time needs a reason.
   const whole = loadWindow(load.stops);
@@ -238,10 +267,11 @@ export async function receiveHandoff(handoffId: string, input: ReceiveInput, now
       if (e instanceof LoadMoved) throw new RelayError("not_relayable", e.message);
       throw e;
     }
-    // The baton is taken once: a second tap, or another dispatcher, finds it already received.
-    const taken = await tx.handoff.updateMany({ where: { id: h.id, state: { in: ["dropped", "disputed"] } }, data: { state: "received" } });
+    // The baton is taken once (must be acknowledged if it was disputed): a second tap, or another dispatcher, finds it already received.
+    const taken = await tx.handoff.updateMany({ where: { id: h.id, state: "dropped" }, data: { state: "received" } });
     if (taken.count !== 1) throw new RelayError("not_receivable", "This handoff was already received.");
     const seq = h.outLegSeq + 1;
+    const inPayEst = input.pay.kind === "flat" ? new Prisma.Decimal(input.pay.rate).toDecimalPlaces(2) : null;
     await tx.loadLeg.create({
       data: {
         workspaceId,
@@ -258,12 +288,15 @@ export async function receiveHandoff(handoffId: string, input: ReceiveInput, now
         fromName: h.locationName,
         fromLat: h.locationLat,
         fromLng: h.locationLng,
-        startedAt: now
+        startedAt: now,
+        payKind: input.pay.kind,
+        payRate: new Prisma.Decimal(input.pay.rate),
+        payEstimate: inPayEst
       }
     });
-    // The new driver holds the load, on the road. No pay estimate yet: what each leg is paid is phase 3, and the closed leg kept the first driver's pay as it stood.
+    // The new driver holds the load on the road; cpm/percent estimate settles on the closing remainder miles.
     await tx.assignment.create({
-      data: { loadId: h.loadId, driverId: driver.id, payKind: input.pay.kind, payRate: new Prisma.Decimal(input.pay.rate), payEstimate: null, status: "in_progress", dispatchedBy: via === "dispatcher" ? senderNameOf(currentActor()) : null, respondedAt: now, driverResponse: { via, handoffId: h.id, at: now.toISOString() } }
+      data: { loadId: h.loadId, driverId: driver.id, payKind: input.pay.kind, payRate: new Prisma.Decimal(input.pay.rate), payEstimate: inPayEst, status: "in_progress", dispatchedBy: via === "dispatcher" ? senderNameOf(currentActor()) : null, respondedAt: now, driverResponse: { via, handoffId: h.id, at: now.toISOString() } }
     });
     // The incoming driver's phone gets the load (a bridged driver; nothing is queued for one the dispatcher answers for).
     await enqueueBridge(tx, { workspaceId, loadId: h.loadId, kind: "dispatch", driverId: driver.id, now });

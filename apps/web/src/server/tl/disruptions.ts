@@ -64,6 +64,8 @@ export async function cancelLoad(input: Why & { loadId: string }, now = new Date
     await claimLoad(tx, load.id, workspaceId, CAN_CANCEL, { status: "cancelled", cancelledAt: now, cancelReason: input.reason, cancelNote: input.note?.trim() || null }, inTerminal(scope) as Prisma.LoadWhereInput);
     if (a) await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "cancel", now });
     if (a) await dropAssignment(tx, load.id);
+    await tx.loadLeg.updateMany({ where: { loadId: load.id, status: "active" }, data: { status: "closed", endedAt: now } });
+    await tx.handoff.updateMany({ where: { loadId: load.id, state: { in: ["dropped", "disputed"] } }, data: { state: "cancelled" } });
     await recordAssignmentEvent(tx, {
       workspaceId,
       loadId: load.id,
@@ -108,6 +110,8 @@ export async function recordTonu(input: Why & { loadId: string; fee: number }, n
     await claimLoad(tx, load.id, workspaceId, CAN_TONU, { status: "tonu", tonuRevenue: input.fee, cancelledAt: now, cancelReason: input.reason, cancelNote: input.note?.trim() || null }, inTerminal(scope) as Prisma.LoadWhereInput);
     if (a) await enqueueForLoad(tx, { workspaceId, loadId: load.id, kind: "cancel", now });
     if (a) await tx.assignment.updateMany({ where: { loadId: load.id }, data: { status: "completed", respondedAt: a.respondedAt ?? now } });
+    await tx.loadLeg.updateMany({ where: { loadId: load.id, status: "active" }, data: { status: "closed", endedAt: now } });
+    await tx.handoff.updateMany({ where: { loadId: load.id, state: { in: ["dropped", "disputed"] } }, data: { state: "cancelled" } });
     await recordAssignmentEvent(tx, {
       workspaceId,
       loadId: load.id,

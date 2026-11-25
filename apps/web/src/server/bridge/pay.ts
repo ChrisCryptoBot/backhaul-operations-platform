@@ -6,6 +6,7 @@ import { assertStatementSafe, driverSafeStatement, payPlan, toBalanceRow, toStat
 import { deskFileFolder } from "@/lib/load-documents";
 import { loadSecrets } from "@/lib/secret-text";
 import { linePay } from "@/lib/settlement";
+import { milesGapSummary } from "@/lib/pay-arrangement";
 import { buildStatementPdf } from "@/lib/statement-pdf";
 import { toCentralLocal } from "@/lib/zoned";
 import { num } from "@/server/tl/convert";
@@ -96,7 +97,11 @@ async function balanceRows(orgId: string, workspaceId: string, drivers: readonly
   for (const [i, d] of drivers.entries()) {
     const b = ledger.get(d.id)!;
     const loads = await eligibleLoads(d.id, from, today, workspaceId);
-    const pays = loads.map((l) => linePay(l.payKind, l.payRate, l.loadedMiles, l.assignedHours, l.rateConTotal));
+    const pays = loads.map((l) => {
+      const isLeg = l.loadLegId != null;
+      const effectiveMiles = !isLeg && l.loggedMiles != null ? milesGapSummary(l.loggedMiles, l.loadedMiles, l.payMilesBasis ?? "logged").paidMiles : l.loadedMiles;
+      return linePay(l.payKind, l.payRate, effectiveMiles, l.assignedHours, l.rateConTotal, l.legMiles ?? null, isLeg);
+    });
     out.push(
       toBalanceRow({
         orgId,

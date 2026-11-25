@@ -7,7 +7,7 @@ import { discardSettlementAction, finalizeSettlementAction, markSettlementPaidAc
 import type { Company } from "@/lib/company";
 import { shortDate, usd } from "@/lib/desk-format";
 import { paidMethodLabel } from "@/lib/pay-method";
-import { computeStatement, isNetPay, MAX_ADJUSTMENTS, payNote, validatePeriod, type AdjustmentInput, type FuelLine, type PeriodPreset, type SettlementLoad } from "@/lib/settlement";
+import { computeStatement, isNetPay, lineKey, MAX_ADJUSTMENTS, payNote, validatePeriod, type AdjustmentInput, type FuelLine, type PeriodPreset, type SettlementLoad } from "@/lib/settlement";
 import { DeductionLedger, FuelLedger, NetPay } from "./statement-fuel";
 import { deductionKindLabel, deductionLines, NO_CHOICES, type DeductionChoices, type DeductionOption } from "@/lib/deductions";
 
@@ -322,9 +322,10 @@ export function SettlementEditor({
                 <tbody>
                   {st.lines.map((l, i) => {
                     const src = loads[i]!;
-                    const err = errors[`hours.${l.loadId}`];
+                    const key = lineKey(l);
+                    const err = errors[`hours.${key}`];
                     return (
-                      <tr key={l.loadId}>
+                      <tr key={key}>
                         <td>
                           <Link href={`/loads/${l.loadId}`}>{l.loadNumber ?? "—"}</Link>
                           <div className="tl-sub">{l.lane}</div>
@@ -333,12 +334,15 @@ export function SettlementEditor({
                           {l.deliveredAt ? shortDate(new Date(l.deliveredAt)) : "—"}
                           <div className={`tl-sub${l.brokerStatus === "paid_short" ? " tone-neg" : ""}`}>{BROKER[l.brokerStatus]}</div>
                         </td>
-                        <td>{l.basis}</td>
+                        <td>
+                          {l.basis}
+                          {l.milesGap ? <div className="tl-sub">{l.milesGap}</div> : null}
+                        </td>
                         <td style={{ width: 130 }}>
                           {l.payKind === "hourly" ? (
                             <label>
                               <span className="db-sr-only">Hours for {l.loadNumber}</span>
-                              <input inputMode="decimal" value={hours[l.loadId] ?? ""} placeholder={src.assignedHours != null ? String(src.assignedHours) : "hours"} onChange={(e) => setHours((h) => ({ ...h, [l.loadId]: e.target.value }))} aria-invalid={err ? true : undefined} style={{ width: 100 }} />
+                              <input inputMode="decimal" value={hours[key] ?? ""} placeholder={src.assignedHours != null ? String(src.assignedHours) : "hours"} onChange={(e) => setHours((h) => ({ ...h, [key]: e.target.value }))} aria-invalid={err ? true : undefined} style={{ width: 100 }} />
                               {err ? (
                                 <span className="th-err" role="alert">
                                   {err}
@@ -604,13 +608,16 @@ export function SettlementEditor({
             </thead>
             <tbody>
               {st.lines.map((l) => (
-                <tr key={l.loadId}>
+                <tr key={lineKey(l)}>
                   <td>
                     {l.loadNumber ?? "—"}
                     <div className="rp-meta">{l.lane}</div>
                   </td>
                   <td>{l.deliveredAt ? shortDate(l.deliveredAt) : "—"}</td>
-                  <td>{l.basis}</td>
+                  <td>
+                    {l.basis}
+                    {l.milesGap ? <div className="rp-meta">{l.milesGap}</div> : null}
+                  </td>
                   <td className="num">{l.amount == null ? "needs hours" : usd(l.amount, 2)}</td>
                 </tr>
               ))}

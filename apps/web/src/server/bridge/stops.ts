@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { dateTime } from "@/lib/desk-format";
 import { nearestPlace } from "@/lib/gazetteer/place-index";
 import { recordAudit } from "@/server/tl/audit";
+import { onStatement } from "@/server/tl/settlement";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { wholeOf } from "./core";
 import type { BridgeTransport, StopEventRow } from "./transport";
@@ -94,7 +95,7 @@ export async function pullStopEvents(transport: BridgeTransport, opts: { workspa
     const load = e.source_load_id
       ? await prisma.load.findFirst({
           where: { id: e.source_load_id, workspaceId, deletedAt: null },
-          select: { id: true, loadNumber: true, vehicleId: true, trailerId: true, paymentStatus: true, settlement: { select: { id: true } }, assignment: { select: { status: true, driver: { select: { phoneUserId: true, name: true } } } }, stops: { orderBy: { stopSequence: "asc" }, select: { id: true, stopSequence: true, arrivedAt: true, waitMinutes: true, sealNumber: true, arrivedSource: true } } }
+          select: { id: true, loadNumber: true, vehicleId: true, trailerId: true, paymentStatus: true, settlement: { select: { id: true } }, settlementLegs: { select: { id: true }, take: 1 }, assignment: { select: { status: true, driver: { select: { phoneUserId: true, name: true } } } }, stops: { orderBy: { stopSequence: "asc" }, select: { id: true, stopSequence: true, arrivedAt: true, waitMinutes: true, sealNumber: true, arrivedSource: true } } }
         })
       : null;
     const a = load?.assignment;
@@ -122,7 +123,7 @@ export async function pullStopEvents(transport: BridgeTransport, opts: { workspa
       continue;
     }
     const where = `stop ${e.stop_seq}`;
-    if (load.paymentStatus || load.settlement) {
+    if (load.paymentStatus || onStatement(load)) {
       // What was invoiced or paid is what was delivered: a late time from the phone is shown, not applied.
       const change = stopChange(e, stop);
       if (change.data) {

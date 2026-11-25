@@ -90,6 +90,7 @@ export type AuditAction =
   | "load_settled"
   | "load_released"
   | "thresholds_changed"
+  | "pay_settings_changed"
   | "company_changed"
   | "customer_added"
   | "customer_changed"
@@ -253,6 +254,7 @@ export const ACTION_LABEL: Record<string, string> = {
   load_settled: "Load paid on a statement",
   load_released: "Load released from a statement",
   thresholds_changed: "Thresholds changed",
+  pay_settings_changed: "Driver pay defaults changed",
   company_changed: "Company details changed",
   customer_added: "Customer added",
   customer_changed: "Customer changed",

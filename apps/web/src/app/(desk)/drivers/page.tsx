@@ -14,6 +14,7 @@ import { ymdOf } from "@/lib/fleet-forms";
 import { ASSIGNMENT_STATUS, payLabel, shortDate } from "@/lib/desk-format";
 import { papersCell } from "@/lib/papers";
 import { currentTerminal } from "@/server/tl/terminal";
+import { workspacePaySettings } from "@/server/tl/dispatch";
 import { partnerState } from "@/server/partners/call";
 import { vetLabel } from "@/server/partners/vetting";
 import { VetButton } from "@/components/desk/partner-actions";
@@ -44,8 +45,11 @@ const NOW_ORDER = ["in_progress", "accepted", "dispatched", "draft"];
 
 export default async function DriversPage({ searchParams }: { searchParams?: { q?: string; sort?: string; page?: string } }) {
   const terminal = await currentTerminal();
-  const vetState = await partnerState("vetting");
-  const pageData = await listDriversPage({ q: searchParams?.q, sort: searchParams?.sort, page: asPage(searchParams?.page), terminal });
+  const [vetState, pageData, paySettings] = await Promise.all([
+    partnerState("vetting"),
+    listDriversPage({ q: searchParams?.q, sort: searchParams?.sort, page: asPage(searchParams?.page), terminal }),
+    workspacePaySettings()
+  ]);
   const drivers = pageData.rows;
   const sortParam = searchParams?.sort ? { key: pageData.sort.key as string, dir: pageData.sort.dir } : null;
   const href = (p: { sort?: string | null; page?: number }) => {
@@ -69,6 +73,7 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
       medicalCardExpiry: ymdOf(d.medicalCardExpiry),
       truckId: d.truckId,
       truckName: d.truck,
+      payArrangement: d.payArrangement ?? "",
       payKind: d.payKind ?? "",
       payRate: d.payRate == null ? "" : String(d.payRate),
       terminal: d.terminal ?? "",
@@ -134,7 +139,7 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
         delivered: d.delivered,
         act: (
           <CanGate caps={["dispatch"]}>
-            <DriverRowActions driver={row} list />
+            <DriverRowActions driver={row} list defaultArrangement={paySettings.defaultPayArrangement} />
           </CanGate>
         )
       }
@@ -147,7 +152,7 @@ export default async function DriversPage({ searchParams }: { searchParams?: { q
       <PageHead title="Drivers" sub={`${scopeWords(terminal) ? `${scopeWords(terminal)}. ` : ""}Who can take a load today. A lapsed CDL or medical card blocks the assignment. A driver on an open load cannot be taken out of service.`}>
         <Link href="/drivers/import" className="tl-btn">Import from a file</Link>
         <CanGate caps={["dispatch"]}>
-          <AddDriver use={use} />
+          <AddDriver use={use} defaultArrangement={paySettings.defaultPayArrangement} />
         </CanGate>
       </PageHead>
       <DataTableTools tableId="drivers-table" total={pageData.total} placeholder="Search driver, code, phone, truck…" server={{ path: "/drivers", q: pageData.q, keep: searchParams?.sort ? { sort: searchParams.sort } : {} }} />

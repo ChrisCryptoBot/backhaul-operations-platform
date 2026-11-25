@@ -1,7 +1,9 @@
 import { cookies } from "next/headers";
 import Link from "next/link";
 import React from "react";
-import { saveTimezoneAction, setAppearanceAction } from "../actions";
+import { savePaySettingsAction, saveTimezoneAction, setAppearanceAction } from "../actions";
+import { PAY_ARRANGEMENTS, PAY_ARRANGEMENT_LABEL, PAY_MILES_BASES, PAY_MILES_BASIS_LABEL } from "@/lib/pay-arrangement";
+import { workspacePaySettings } from "@/server/tl/dispatch";
 import { Card, PageHead } from "@/components/desk/ui";
 import { SleepNowButton } from "@/components/desk/splash";
 import { ThresholdsForm } from "@/components/desk/thresholds-form";
@@ -81,6 +83,7 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
   // The company, the plan, the team, the integrations, the clock and the thresholds are the admin's: everyone else sees how the desk looks for them and the alert rules, and the actions behind the rest refuse them as well.
   const admin = can(me.role, me.grants, "admin");
   const zone = await workspaceTimezone(currentWorkspaceId());
+  const paySettings = await workspacePaySettings(currentWorkspaceId());
   const [keyStatus, hooks, factoringTerms] = await Promise.all([allCredentialStatus(), webhookPaths(), getFactoringTerms()]);
   const host = headers().get("x-forwarded-host") ?? headers().get("host") ?? "";
   const integrationsOrigin = host ? `${headers().get("x-forwarded-proto") ?? "https"}://${host}` : "";
@@ -371,6 +374,33 @@ export default async function SettingsPage({ searchParams }: { searchParams?: { 
     <>
       {admin ? (
         <>
+      <Card title="Driver pay defaults" className="tl-card">
+        <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
+          Each driver&apos;s pay arrangement drives which options and estimates appear across the desk. Set the workspace default here (individual drivers can override on Drivers), and pick whether per-mile driver pay reads logged/ELD miles or billable loaded miles.
+        </p>
+        <div className="st-row">
+          <span className="th-label" id="st-pay-arr">Default arrangement</span>
+          <form action={savePaySettingsAction} className="t-seg" role="group" aria-labelledby="st-pay-arr">
+            {PAY_ARRANGEMENTS.map((arr) => (
+              <button key={arr} type="submit" name="defaultPayArrangement" value={arr} aria-pressed={paySettings.defaultPayArrangement === arr}>
+                {PAY_ARRANGEMENT_LABEL[arr]}
+              </button>
+            ))}
+          </form>
+          <span className="tl-sub">{PAY_ARRANGEMENT_LABEL[paySettings.defaultPayArrangement]} by default when a driver has no override.</span>
+        </div>
+        <div className="st-row">
+          <span className="th-label" id="st-pay-mi">Per-mile basis</span>
+          <form action={savePaySettingsAction} className="t-seg" role="group" aria-labelledby="st-pay-mi">
+            {PAY_MILES_BASES.map((b) => (
+              <button key={b} type="submit" name="payMilesBasis" value={b} aria-pressed={paySettings.payMilesBasis === b}>
+                {b === "logged" ? "Logged / ELD miles" : "Billable miles"}
+              </button>
+            ))}
+          </form>
+          <span className="tl-sub">{PAY_MILES_BASIS_LABEL[paySettings.payMilesBasis]}.</span>
+        </div>
+      </Card>
       <Card title="Thresholds" className="tl-card">
         <p className="tl-note" style={{ marginBottom: 14, maxWidth: "72ch" }}>
           The lines the dashboard, the alerts, the invoices and the verdict card judge by. They are shared by everyone using this desk, and each change is recorded in the audit log.

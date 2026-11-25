@@ -1,4 +1,5 @@
 import { computeCostProfileFloorBreakdown, DEFAULT_LABOR_BURDEN_PCT_NEW_PROFILE, type CostProfileFloorBreakdown, type CostProfileMathInput } from "@/truelane/lib/domain/calculators";
+import { PAY_ARRANGEMENTS, isPayArrangement } from "./pay-arrangement";
 import { PERCENT_MAX } from "./pay";
 import { COST_ARCHETYPES, normalizeFscCutAnswer, type CostArchetype, type FscCutAnswer } from "@/truelane/lib/domain/costArchetype";
 import { isUnusualValue, needsPercentConfirm, UNUSUAL_VALUE_LIMITS } from "@/truelane/lib/formatNumbers";
@@ -29,6 +30,8 @@ export type DriverValues = {
   cdlExpiry: string;
   medicalCardExpiry: string;
   assignedVehicleId: string;
+  /** How this driver is paid: company | contractor | blank (inherit phone link / workspace default). */
+  payArrangement: string;
   /** How they are usually paid: "cpm", "hourly", "flat" (a set amount) or "percent" (of the rate), or blank. A load's assignment starts from it. */
   payKind: string;
   payRate: string;
@@ -84,6 +87,7 @@ export function validateDriver(input: Raw): DriverCheck {
     cdlExpiry: str(input.cdlExpiry),
     medicalCardExpiry: str(input.medicalCardExpiry),
     assignedVehicleId: str(input.assignedVehicleId),
+    payArrangement: str(input.payArrangement),
     payKind: str(input.payKind),
     payRate: str(input.payRate),
     terminal: str(input.terminal).replace(/\s+/g, " "),
@@ -96,6 +100,7 @@ export function validateDriver(input: Raw): DriverCheck {
   const errors: Partial<Record<keyof DriverValues, string>> = {};
   if (v.carrierMc && !/^\d{3,8}$/.test(v.carrierMc)) errors.carrierMc = "Digits only, for example 123456.";
   if (v.carrierDot && !/^\d{3,8}$/.test(v.carrierDot)) errors.carrierDot = "Digits only, for example 1234567.";
+  if (v.payArrangement && !isPayArrangement(v.payArrangement)) errors.payArrangement = `Pick ${PAY_ARRANGEMENTS.join(" or ")}.`;
   if (v.payrollWorkerType && v.payrollWorkerType !== "employee" && v.payrollWorkerType !== "contractor") errors.payrollWorkerType = "Employee or contractor.";
   if (v.payrollEmployeeId.length > 60) errors.payrollEmployeeId = "That id is too long.";
   if (v.phoneUserId && !/^[A-Za-z0-9_.:@-]{3,200}$/.test(v.phoneUserId)) errors.phoneUserId = "Paste the id exactly as the driver's app shows it: letters, digits and _ . : @ - only.";

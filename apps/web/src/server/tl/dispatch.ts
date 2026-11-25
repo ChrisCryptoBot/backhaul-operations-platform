@@ -24,6 +24,7 @@ import { recordAssignmentEvent } from "./assignment-events";
 import { writePositioningLeg } from "./relay-legs";
 import { MILES_SOURCES, type MilesSource } from "@/lib/relay";
 import { isOfferedRecallCode, isRecallCode, recallReasonText, type RecallCode } from "@/lib/recall-reasons";
+import { resolveIsContractor, type PayArrangement, type PayMilesBasis } from "@/lib/pay-arrangement";
 import { senderNameOf } from "@/lib/driver-messages";
 import { currentActor } from "./identity";
 
@@ -317,12 +318,45 @@ export async function unassignLoad(loadId: string, reason: string | null, now = 
 }
 
 /**
- * Whether the driver's live phone link is a contractor's (finalization plan F2): the latest claimed code not withdrawn, role `owner_op_leased`. Anything else, or no link, is an employee:
- * the safe answer, as an employee is never sent load money.
+ * Workspace-level driver pay defaults: arrangement (`company` | `contractor`) and per-mile basis (`logged` | `billable`).
  */
-export async function driverIsContractor(driverId: string, workspaceId = currentWorkspaceId(), db: Pick<typeof prisma, "driverLinkInvite"> = prisma): Promise<boolean> {
-  const live = await db.driverLinkInvite.findFirst({ where: { workspaceId, driverId, claimedAt: { not: null }, revokedAt: null }, orderBy: { claimedAt: "desc" }, select: { driverRole: true } });
-  return live?.driverRole === "owner_op_leased";
+export async function workspacePaySettings(
+  workspaceId = currentWorkspaceId(),
+  db: Pick<typeof prisma, "workspace"> = prisma
+): Promise<{ defaultPayArrangement: PayArrangement; payMilesBasis: PayMilesBasis }> {
+  const ws = await db.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { defaultPayArrangement: true, payMilesBasis: true }
+  });
+  return {
+    defaultPayArrangement: ws?.defaultPayArrangement === "contractor" ? "contractor" : "company",
+    payMilesBasis: ws?.payMilesBasis === "billable" ? "billable" : "logged"
+  };
+}
+
+/**
+ * Whether this driver is paid as a contractor:
+ * 1) explicit desk `driver.payArrangement` (`company` | `contractor`),
+ * 2) live claimed phone link role (`owner_op_leased`),
+ * 3) workspace `defaultPayArrangement` (default `company`).
+ */
+export async function driverIsContractor(
+  driverId: string,
+  workspaceId = currentWorkspaceId(),
+  db: Partial<Pick<typeof prisma, "driver" | "workspace" | "driverLinkInvite">> = prisma
+): Promise<boolean> {
+  const [driver, live, ws] = await Promise.all([
+    db.driver ? db.driver.findFirst({ where: { id: driverId, workspaceId }, select: { payArrangement: true } }) : Promise.resolve(null),
+    db.driverLinkInvite
+      ? db.driverLinkInvite.findFirst({ where: { workspaceId, driverId, claimedAt: { not: null }, revokedAt: null }, orderBy: { claimedAt: "desc" }, select: { driverRole: true } })
+      : Promise.resolve(null),
+    db.workspace ? db.workspace.findUnique({ where: { id: workspaceId }, select: { defaultPayArrangement: true } }) : Promise.resolve(null)
+  ]);
+  return resolveIsContractor({
+    driverArrangement: driver?.payArrangement,
+    inviteRole: live?.driverRole,
+    workspaceDefault: ws?.defaultPayArrangement
+  });
 }
 
 /** What the driver is sent: the driver-safe summary, checked against the confidentiality gate before it goes anywhere. A contractor also gets their load's gross and the fee. */
