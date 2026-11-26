@@ -15,7 +15,8 @@ import { checkAccess, requireCan } from "@/server/tl/access";
 import { decideReceipt, type ReceiptResult } from "@/server/tl/receipts";
 import { removeLoadDocument, setDocumentToDriver, type DocResult } from "@/server/tl/documents";
 import { addMember, setMemberGrants, removeMember, setMemberRole, type MemberResult } from "@/server/tl/members";
-import { assignDriver, dispatchLoad, DispatchError, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
+import { assignDriver, dispatchLoad, DispatchError, driverSummaryFor, recordDriverResponse, unassignLoad } from "@/server/tl/dispatch";
+import { offerText } from "@/lib/offer-text";
 import { isRecallCode } from "@/lib/recall-reasons";
 import { reasonsFrom, type Reasons } from "@/lib/assign-reasons";
 import { RelayError, acknowledgeDiscrepancy, flagDiscrepancy, receiveHandoff, recordDrop } from "@/server/tl/relay";
@@ -402,6 +403,90 @@ export async function respondAction(formData: FormData) {
     await recordDriverResponse(loadId, response, new Date(), note || undefined);
     return response === "accepted" ? "Driver accepted." : "Driver declined. Pick another driver.";
   });
+}
+
+// ── From the Dispatch queue: the same server steps as the load page, answered in place ───────────────
+
+export type SendOutcome = { ok: true; message: string } | { ok: false; code: string; error: string; missing?: string };
+
+/**
+ * Send a load to its driver from the queue: the same checks as `sendAction` (the server decides what is missing, whatever the page showed), answered in place. A load that lacks something
+ * goes only with `sendAnyway`, and the audit says what it went without.
+ */
+export async function sendInlineAction(loadId: string, sendAnyway = false): Promise<SendOutcome> {
+  await requireCan("dispatch");
+  try {
+    const gaps = await loadSendGaps(loadId);
+    const missing = gapsPhrase(gaps);
+    if (gaps.length > 0 && !sendAnyway) return { ok: false, code: "not_ready", error: `Not ready: still missing ${missing}. Send anyway if the driver has it another way.`, missing };
+    await dispatchLoad(loadId, new Date(), gaps.length > 0 ? { sentWithout: missing } : {});
+    refreshLoads();
+    return { ok: true, message: gaps.length > 0 ? `Sent without ${missing}.` : "Sent to the driver." };
+  } catch (e) {
+    if (e instanceof DispatchError) return { ok: false, code: e.code, error: e.message };
+    throw e;
+  }
+}
+
+export type AssignSendOutcome = AssignOutcome | { ok: true; sent: boolean; message: string; missing?: string };
+
+/**
+ * Assign and send in one press (the Assign window's main button). The assignment is saved first, with every check `assignDriver` makes; then it is sent when nothing is missing. A load that
+ * lacks something stays assigned and ready, and the window offers "Send anyway", which sends what was saved (sendInlineAction) and never assigns again.
+ */
+export async function assignAndSendAction(input: { loadId: string; driverId: string; payKind: string; rate: string; reasons?: Reasons; expected?: { assignmentVersion: number | null; driverId: string | null } | null }): Promise<AssignSendOutcome> {
+  const me = await requireCan("dispatch");
+  const out = await assignFromQueue(input, { usualPayOnly: !seesPay(me) });
+  if (!out.ok) return out;
+  refreshLoads();
+  try {
+    const gaps = await loadSendGaps(input.loadId);
+    if (gaps.length > 0) {
+      const missing = gapsPhrase(gaps);
+      return { ok: true, sent: false, missing, message: `Assigned. Not sent yet: still missing ${missing}.` };
+    }
+    await dispatchLoad(input.loadId, new Date(), {});
+    refreshLoads();
+    return { ok: true, sent: true, message: "Assigned and sent to the driver." };
+  } catch (e) {
+    // Assigned, and the send itself refused (a note that repeats the load's money, say): the load stays ready, and says why.
+    if (e instanceof DispatchError) return { ok: true, sent: false, message: `Assigned. Not sent: ${e.message}` };
+    throw e;
+  }
+}
+
+/** The driver's answer, recorded by the dispatcher for a driver who answered by phone call (no app): the same rules as `respondAction`, in place. A no needs its reason. */
+export async function respondInlineAction(loadId: string, response: string, note: string): Promise<InlineActionResult> {
+  await requireCan("dispatch");
+  if (response !== "accepted" && response !== "declined") return { ok: false, error: "Press Accepted or Declined." };
+  const why = (note ?? "").trim();
+  if (response === "declined" && why.length < 3) return { ok: false, error: "Say why the driver declined. It is kept with the answer." };
+  return tryInline(async () => {
+    await recordDriverResponse(loadId, response, new Date(), why || undefined);
+    return response === "accepted" ? "Recorded: the driver accepted." : "Recorded: the driver declined. Pick another driver.";
+  });
+}
+
+/** Try again to put a load on the driver's phone, from the queue. */
+export async function retryInlineAction(loadId: string): Promise<InlineActionResult> {
+  await requireCan("dispatch");
+  return tryInline(async () => {
+    const r = await retryBridgeDelivery(loadId);
+    if (r === "nothing") throw new DispatchError("not_sent", "There is nothing waiting to be delivered for this load.");
+    return r === "delivered" ? "Delivered to the driver's phone." : "Still could not reach the driver's phone. It will keep trying.";
+  });
+}
+
+/** The offer as plain text, for a driver without the app: built only from the driver-safe summary (checked before it leaves), so it never carries what the customer pays. */
+export async function offerTextAction(loadId: string): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
+  await requireCan("dispatch");
+  try {
+    const summary = await driverSummaryFor(loadId);
+    return { ok: true, text: offerText(summary, await workspaceTimezone(currentWorkspaceId())) };
+  } catch (e) {
+    if (e instanceof DispatchError) return { ok: false, error: e.message };
+    throw e;
+  }
 }
 
 // ── When a load falls through or moves ────────────────────────────────────────────────────────
