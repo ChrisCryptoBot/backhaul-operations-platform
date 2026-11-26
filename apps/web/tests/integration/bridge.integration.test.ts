@@ -4,6 +4,7 @@ import { assignDriver, dispatchLoad, DispatchError, driverSummaryFor, unassignLo
 import { currentWorkspaceId } from "@/server/tl/workspace";
 import { flushBridgeOutbox, pullBridgeResponses } from "@/server/bridge/service";
 import { memoryTransport } from "@/server/bridge/transport";
+import { clearAlertCache, getAlerts } from "@/server/tl/alerts";
 import { pullStopEvents } from "@/server/bridge/stops";
 import { assertDriverSafe, type LoadSummary } from "@/server/tl/projector";
 import { completeTrip, startTrip } from "@/server/tl/execution";
@@ -127,8 +128,17 @@ describe.skipIf(!run)("the driver link, desk half", () => {
     expect(await prisma.bridgeOutbox.count({ where: { loadId, kind: "reassign_old", status: "pending" } })).toBe(1);
     await flushBridgeOutbox(t);
     expect(t.table[0]).toMatchObject({ status: "reassigned" });
-    // A late accept of the withdrawn row does not land.
+    // The driver accepts the withdrawn offer anyway: it does not land, and the desk says so loudly instead of only in the audit log.
+    t.phone(t.table[0]!.id, { state: "accepted" });
+    expect(await pullBridgeResponses(t)).toMatchObject({ applied: 0, flagged: 1 });
+    clearAlertCache();
+    const flagged = (await getAlerts(new Date(), ws, "open")).alerts.filter((x) => x.loadId === loadId && x.code === "DRIVER_LINK_FLAG");
+    expect(flagged).toHaveLength(1);
+    expect(flagged[0]!.level).toBe("block");
     await dispatchLoad(loadId);
+    // Sending it again is acting on the assignment: the warning has been answered.
+    clearAlertCache();
+    expect((await getAlerts(new Date(), ws, "open")).alerts.some((x) => x.loadId === loadId && x.code === "DRIVER_LINK_FLAG")).toBe(false);
     await flushBridgeOutbox(t);
     const open = t.table.filter((r) => r.status === "dispatched");
     expect(open).toHaveLength(1);

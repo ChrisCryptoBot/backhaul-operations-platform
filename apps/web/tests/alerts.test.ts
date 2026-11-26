@@ -40,6 +40,14 @@ describe("deriveAlerts", () => {
     expect(codes([load()])).toEqual([]);
   });
 
+  test("an answer from the driver's phone the desk could not apply blocks the open load until someone acts on it", () => {
+    const flagged = load({ linkFlag: { message: "The phone says accepted, but the desk has taken this load off the driver.", at: at(-H) } });
+    const [a] = deriveAlerts([flagged], NOW).filter((x) => x.code === "DRIVER_LINK_FLAG");
+    expect(a).toMatchObject({ level: "block" });
+    expect(a!.message).toContain("The phone says accepted");
+    expect(codes([load({ status: "completed", linkFlag: flagged.linkFlag })])).not.toContain("DRIVER_LINK_FLAG");
+  });
+
   test("a load with no stop times still says it has no driver, on the day it was booked for", () => {
     const untimed = load({ stops: [{ timeWindowEarliest: null, timeWindowLatest: null, referenceNumbers: ["x"] }], scheduledDate: at(6 * H) });
     expect(deriveAlerts([untimed], NOW)[0]).toMatchObject({ code: "PICKUP_NO_DRIVER", message: "Pickup is in 6 h and no driver has been sent." });

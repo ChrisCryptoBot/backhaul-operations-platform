@@ -31,7 +31,8 @@ export type AlertCode =
   | "MISSING_POD"
   | "DETENTION_UNBILLED"
   | "HANDOFF_WAITING"
-  | "HANDOFF_DISCREPANCY";
+  | "HANDOFF_DISCREPANCY"
+  | "DRIVER_LINK_FLAG";
 
 /** The thresholds the rules use. Fixed for now; the settings screen will own them. */
 export type AlertThresholds = { pickupHours: number; sentNoAnswerHours: number; clearanceDays: number };
@@ -40,6 +41,13 @@ export const ALERT_DEFAULTS: AlertThresholds = { pickupHours: 24, sentNoAnswerHo
 export type RuleDef = { code: AlertCode; level: AlertLevel; title: string; appliesTo: string; trigger: (t: AlertThresholds) => string };
 
 export const RULES: RuleDef[] = [
+  {
+    code: "DRIVER_LINK_FLAG",
+    level: "block",
+    title: "The driver's phone and the desk disagree",
+    appliesTo: "Loads on the driver link",
+    trigger: () => "The driver answered on their phone, but the desk could not apply it (the offer had been changed or taken back, or the desk shows the load differently). It stays until someone assigns, sends or recalls the load again."
+  },
   {
     code: "HANDOFF_DISCREPANCY",
     level: "block",
@@ -196,6 +204,8 @@ export type AlertLoad = {
   closedWithoutPod?: boolean | null;
   /** The trailer unit on the load, when one is set. */
   trailer?: { number: string; status: string; registrationExpiry: Date | null; inspectionExpiry: Date | null } | null;
+  /** An answer from the driver's phone the desk could not apply, newer than anything done to the assignment since (server/bridge/service.ts). */
+  linkFlag?: { message: string; at: Date } | null;
   /** A baton waiting for the next driver (src/server/tl/relay.ts): the load is on the road with nobody holding it. */
   handoff?: { type?: string; state: string; locationName: string | null; droppedAt: Date; discrepancyFlagged: boolean; ackAt: Date | null; outDriverName: string | null } | null;
   stops: Array<{ timeWindowEarliest: Date | null; timeWindowLatest: Date | null; referenceNumbers: unknown }>;
@@ -290,6 +300,9 @@ export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds =
       }
       if (l.verdict === "reject") add(l, "BELOW_COST_UNASSIGNED", "warn", "Pays below the truck's cost and has no driver sent.");
     }
+
+    // The phone said one thing and the desk shows another: the driver may think they have a load at a pay the desk took back. Loud until someone acts on the assignment again.
+    if (open && l.linkFlag) add(l, "DRIVER_LINK_FLAG", "block", `The driver's phone and the desk disagree: ${l.linkFlag.message} Call the driver, then assign or send it again.`);
 
     if (a?.status === "dispatched" && a.dispatchedAt) {
       const waited = now.getTime() - a.dispatchedAt.getTime();

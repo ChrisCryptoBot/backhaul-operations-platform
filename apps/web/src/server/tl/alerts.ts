@@ -80,6 +80,19 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
   // The batons waiting for a next driver, for the loads read (one query): a load on the road with nobody holding it, which the rules would otherwise not see.
   const handoffRows = await prisma.handoff.findMany({ where: { workspaceId, state: { in: ["dropped", "disputed"] }, loadId: { in: [...open, ...extra].map((l) => l.id) } }, select: { loadId: true, type: true, state: true, locationName: true, droppedAt: true, discrepancyFlagged: true, ackAt: true, outDriverName: true } });
   const handoffByLoad = new Map(handoffRows.map((r) => [r.loadId, r]));
+  // Answers from a driver's phone the desk could not apply (written as assignment flags by the bridge), newer than the last move of the assignment: two queries for every load read.
+  const linkIds = [...open, ...extra].map((l) => l.id);
+  const [linkFlags, lastMoves] =
+    linkIds.length > 0
+      ? await Promise.all([
+          prisma.auditEvent.findMany({ where: { workspaceId, entity: "assignment", action: "driver_link_flag", loadId: { in: linkIds } }, orderBy: { createdAt: "desc" }, distinct: ["loadId"], select: { loadId: true, summary: true, createdAt: true } }),
+          prisma.assignmentEvent.groupBy({ by: ["loadId"], where: { workspaceId, loadId: { in: linkIds } }, _max: { createdAt: true } })
+        ])
+      : [[], []];
+  const lastMove = new Map(lastMoves.map((m) => [m.loadId, m._max.createdAt]));
+  const linkFlagByLoad = new Map(
+    linkFlags.filter((f) => f.loadId && !((lastMove.get(f.loadId)?.getTime() ?? 0) >= f.createdAt.getTime())).map((f) => [f.loadId!, { message: f.summary, at: f.createdAt }])
+  );
   const seen = new Set<string>();
   const input: AlertLoad[] = [];
   for (const l of [...open, ...delivered, ...uninvoiced, ...extra]) {
@@ -109,6 +122,7 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
       verdict: l.status === "draft" && profile ? (evaluateTlLoad(l, profile, l.vehicle)?.finalDecision ?? null) : null,
       stops: l.stops.map((s) => ({ timeWindowEarliest: s.timeWindowEarliest, timeWindowLatest: s.timeWindowLatest, referenceNumbers: s.referenceNumbers })),
       scheduledDate: l.scheduledDate,
+      linkFlag: linkFlagByLoad.get(l.id) ?? null,
       assignment: a ? { status: a.status, dispatchedAt: a.dispatchedAt, driver: { id: a.driver.id, name: a.driver.name, cdlExpiry: a.driver.cdlExpiry, medicalCardExpiry: a.driver.medicalCardExpiry, coiExpiresAt: a.driver.coiExpiresAt, vetStatus: a.driver.vetStatus, vetAuthorityActive: a.driver.vetAuthorityActive } } : null
     });
   }
