@@ -1,7 +1,7 @@
 import { daysPastDue } from "./overdue";
 import { clearanceSoon, driverBlocker } from "./clearance";
 import { trailerBlocker, trailerClearanceSoon } from "./trailer-clearance";
-import { loadWindow, windowsOverlap, type Window } from "./schedule";
+import { activeWindow, loadWindow, windowsOverlap, type Window } from "./schedule";
 import { activeTz } from "./tz";
 import { handoffLevel, waitMinutes, waitWords } from "./relay";
 
@@ -209,6 +209,8 @@ export type AlertLoad = {
   /** A baton waiting for the next driver (src/server/tl/relay.ts): the load is on the road with nobody holding it. */
   handoff?: { type?: string; state: string; locationName: string | null; droppedAt: Date; discrepancyFlagged: boolean; ackAt: Date | null; outDriverName: string | null } | null;
   stops: Array<{ timeWindowEarliest: Date | null; timeWindowLatest: Date | null; referenceNumbers: unknown }>;
+  /** When the active leg past the first started, on a relay load: its holder is busy from then, not from the first pickup (lib/schedule.ts activeWindow). */
+  relayFrom?: Date | null;
   /** The day the load was booked for: the pickup clock when no stop has a window yet. */
   scheduledDate?: Date | null;
   assignment: null | {
@@ -330,7 +332,7 @@ export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds =
   const byDriver = new Map<string, Array<{ load: AlertLoad; win: Window }>>();
   for (const l of loads) {
     if (!OPEN.includes(l.status) || !l.assignment || l.assignment.status === "declined") continue;
-    const win = loadWindow(l.stops);
+    const win = activeWindow(l.stops, l.relayFrom);
     if (!win) continue;
     const list = byDriver.get(l.assignment.driver.id) ?? [];
     list.push({ load: l, win });
@@ -351,7 +353,7 @@ export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds =
     if (!OPEN.includes(l.status) || !l.vehicle) continue;
     // A load dropped at a relay point (a hook or a rescue) has left its truck: that truck is free for another load. A driver swap keeps the truck on it.
     if (l.handoff && l.handoff.type !== "slip_seat") continue;
-    const win = loadWindow(l.stops);
+    const win = activeWindow(l.stops, l.relayFrom);
     if (!win) continue;
     const list = byTruck.get(l.vehicle.id) ?? [];
     list.push({ load: l, win });

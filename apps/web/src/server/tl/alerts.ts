@@ -90,6 +90,9 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
         ])
       : [[], []];
   const lastMove = new Map(lastMoves.map((m) => [m.loadId, m._max.createdAt]));
+  // Relay loads past their first leg: their holder is busy from the hand-over, not the first pickup, for the double-booked rules (one query for every open load read).
+  const relayLegs = linkIds.length > 0 ? await prisma.loadLeg.findMany({ where: { workspaceId, loadId: { in: linkIds }, status: "active", seq: { gt: 1 } }, select: { loadId: true, startedAt: true } }) : [];
+  const relayFromByLoad = new Map(relayLegs.filter((r) => r.startedAt != null).map((r) => [r.loadId, r.startedAt!]));
   const linkFlagByLoad = new Map(
     linkFlags.filter((f) => f.loadId && !((lastMove.get(f.loadId)?.getTime() ?? 0) >= f.createdAt.getTime())).map((f) => [f.loadId!, { message: f.summary, at: f.createdAt }])
   );
@@ -123,6 +126,7 @@ async function buildAlerts(now: Date, workspaceId: string, scope: AlertScope, ex
       stops: l.stops.map((s) => ({ timeWindowEarliest: s.timeWindowEarliest, timeWindowLatest: s.timeWindowLatest, referenceNumbers: s.referenceNumbers })),
       scheduledDate: l.scheduledDate,
       linkFlag: linkFlagByLoad.get(l.id) ?? null,
+      relayFrom: relayFromByLoad.get(l.id) ?? null,
       assignment: a ? { status: a.status, dispatchedAt: a.dispatchedAt, driver: { id: a.driver.id, name: a.driver.name, cdlExpiry: a.driver.cdlExpiry, medicalCardExpiry: a.driver.medicalCardExpiry, coiExpiresAt: a.driver.coiExpiresAt, vetStatus: a.driver.vetStatus, vetAuthorityActive: a.driver.vetAuthorityActive } } : null
     });
   }

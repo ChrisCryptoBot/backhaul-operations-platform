@@ -14,6 +14,16 @@ export function loadWindow(stops: StopWindow[]): Window | null {
   return { start, end: end.getTime() < start.getTime() ? start : end };
 }
 
+/**
+ * The part of a load's window its holder is on it for. After a relay hand-over (docs/RELAY_DESIGN.md) the driver and truck holding the load took it at the hand-over, so they are busy from
+ * then to the end, not from the first pickup they never drove. `relayFrom` is when the active leg past the first started; without one, the whole window.
+ */
+export function activeWindow(stops: StopWindow[], relayFrom?: Date | null): Window | null {
+  const w = loadWindow(stops);
+  if (!w || !relayFrom || relayFrom.getTime() <= w.start.getTime()) return w;
+  return { start: relayFrom, end: relayFrom.getTime() >= w.end.getTime() ? relayFrom : w.end };
+}
+
 /** Two windows overlap when each starts before the other ends. Back to back (one ends as the next starts) is fine. */
 export function windowsOverlap(a: Window, b: Window): boolean {
   return a.start.getTime() < b.end.getTime() && b.start.getTime() < a.end.getTime();

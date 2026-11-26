@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { describePay } from "@/lib/audit-diff";
 import { driverBlocker } from "@/lib/clearance";
 import { dateTime, usd } from "@/lib/desk-format";
-import { loadWindow, windowsOverlap, type StopWindow, type Window } from "@/lib/schedule";
+import { activeWindow, loadWindow, windowsOverlap, type StopWindow, type Window } from "@/lib/schedule";
 import { PAY_KIND_KEYS, PERCENT_MAX, rateConTotal } from "@/lib/pay";
 import { loadSecrets } from "@/lib/secret-text";
 import { assertDriverSafe, contractorMoney, driverFacingPay, payEstimate, projectLoadToSummary, type AssignmentPay, type LoadSummary, type PayKind } from "./projector";
@@ -45,6 +45,10 @@ const PAY_KINDS: readonly PayKind[] = PAY_KIND_KEYS;
 const SENDABLE_LOAD_STATUSES = ["draft", "accepted"];
 const OPEN_ASSIGNMENT = ["draft", "dispatched", "accepted", "in_progress"];
 const OPEN_LOAD = ["draft", "accepted", "in_progress"];
+/** The leg a relay load is on after a hand-over (an active leg past the first): its holder is busy from its start, not from the first pickup (lib/schedule.ts activeWindow). */
+const RELAY_LEG = { where: { status: "active", seq: { gt: 1 } }, select: { startedAt: true }, take: 1 } as const;
+const relayFrom = (l: { legs?: Array<{ startedAt: Date | null }> }) => l.legs?.[0]?.startedAt ?? null;
+
 /** A load dropped at a relay point by a hook or a rescue has left its truck, so the truck is not on it any more (a driver swap keeps the truck on the load). */
 const LEFT_ITS_TRUCK: Prisma.LoadWhereInput = { NOT: { handoffs: { some: { state: { in: ["dropped", "disputed"] }, type: { not: "slip_seat" } } } } };
 
@@ -102,10 +106,10 @@ export async function findDriverClash(driverId: string, exceptLoadId: string, wi
   if (!win) return null;
   const others = await db.assignment.findMany({
     where: { driverId, loadId: { not: exceptLoadId }, status: { in: OPEN_ASSIGNMENT }, load: { deletedAt: null, status: { in: OPEN_LOAD } } },
-    include: { load: { include: { stops: true } } }
+    include: { load: { include: { stops: true, legs: RELAY_LEG } } }
   });
   for (const o of others) {
-    const w = loadWindow(o.load.stops);
+    const w = activeWindow(o.load.stops, relayFrom(o.load));
     if (w && windowsOverlap(win, w)) return { loadNumber: o.load.loadNumber, window: w };
   }
   return null;
@@ -117,9 +121,9 @@ export async function findDriverClash(driverId: string, exceptLoadId: string, wi
  */
 export async function findTruckClash(vehicleId: string, exceptLoadId: string, win: Window | null, workspaceId = currentWorkspaceId(), db: Pick<typeof prisma, "load"> = prisma): Promise<{ loadNumber: string | null; window: Window } | null> {
   if (!win) return null;
-  const others = await db.load.findMany({ where: { workspaceId, vehicleId, ...(exceptLoadId ? { id: { not: exceptLoadId } } : {}), deletedAt: null, status: { in: OPEN_LOAD }, ...LEFT_ITS_TRUCK }, include: { stops: true } });
+  const others = await db.load.findMany({ where: { workspaceId, vehicleId, ...(exceptLoadId ? { id: { not: exceptLoadId } } : {}), deletedAt: null, status: { in: OPEN_LOAD }, ...LEFT_ITS_TRUCK }, include: { stops: true, legs: RELAY_LEG } });
   for (const o of others) {
-    const w = loadWindow(o.stops);
+    const w = activeWindow(o.stops, relayFrom(o));
     if (w && windowsOverlap(win, w)) return { loadNumber: o.loadNumber, window: w };
   }
   return null;
@@ -146,11 +150,11 @@ export async function driverClashesIn(driverIds: string[], exceptLoadId: string,
   if (!win || driverIds.length === 0) return out;
   const others = await prisma.assignment.findMany({
     where: { driverId: { in: driverIds }, loadId: { not: exceptLoadId }, status: { in: OPEN_ASSIGNMENT }, load: { deletedAt: null, status: { in: OPEN_LOAD } } },
-    select: { driverId: true, load: { select: { loadNumber: true, stops: { select: { timeWindowEarliest: true, timeWindowLatest: true } } } } }
+    select: { driverId: true, load: { select: { loadNumber: true, stops: { select: { timeWindowEarliest: true, timeWindowLatest: true } }, legs: RELAY_LEG } } }
   });
   for (const o of others) {
     if (out.has(o.driverId)) continue;
-    const w = loadWindow(o.load.stops);
+    const w = activeWindow(o.load.stops, relayFrom(o.load));
     if (w && windowsOverlap(win, w)) out.set(o.driverId, o.load.loadNumber);
   }
   return out;
@@ -160,10 +164,10 @@ export async function driverClashesIn(driverIds: string[], exceptLoadId: string,
 export async function truckClashesIn(vehicleIds: string[], exceptLoadId: string, win: Window | null, workspaceId = currentWorkspaceId()): Promise<Map<string, string | null>> {
   const out = new Map<string, string | null>();
   if (!win || vehicleIds.length === 0) return out;
-  const others = await prisma.load.findMany({ where: { workspaceId, vehicleId: { in: vehicleIds }, ...(exceptLoadId ? { id: { not: exceptLoadId } } : {}), deletedAt: null, status: { in: OPEN_LOAD }, ...LEFT_ITS_TRUCK }, select: { vehicleId: true, loadNumber: true, stops: { select: { timeWindowEarliest: true, timeWindowLatest: true } } } });
+  const others = await prisma.load.findMany({ where: { workspaceId, vehicleId: { in: vehicleIds }, ...(exceptLoadId ? { id: { not: exceptLoadId } } : {}), deletedAt: null, status: { in: OPEN_LOAD }, ...LEFT_ITS_TRUCK }, select: { vehicleId: true, loadNumber: true, stops: { select: { timeWindowEarliest: true, timeWindowLatest: true } }, legs: RELAY_LEG } });
   for (const o of others) {
     if (!o.vehicleId || out.has(o.vehicleId)) continue;
-    const w = loadWindow(o.stops);
+    const w = activeWindow(o.stops, relayFrom(o));
     if (w && windowsOverlap(win, w)) out.set(o.vehicleId, o.loadNumber);
   }
   return out;

@@ -48,6 +48,24 @@ describe("deriveAlerts", () => {
     expect(codes([load({ status: "completed", linkFlag: flagged.linkFlag })])).not.toContain("DRIVER_LINK_FLAG");
   });
 
+  test("after a relay hand-over the new driver is busy from the hand-over, not from the first pickup they never drove", () => {
+    // A runs day 3 to day 5; the new driver took it on day 4. B is theirs on day 3: no clash, as they were not on A then.
+    const stopsA = [
+      { timeWindowEarliest: at(3 * D), timeWindowLatest: at(3 * D + 3 * H), referenceNumbers: ["x"] },
+      { timeWindowEarliest: at(5 * D), timeWindowLatest: at(5 * D + 3 * H), referenceNumbers: ["x"] }
+    ];
+    const stopsB = [
+      { timeWindowEarliest: at(3 * D + H), timeWindowLatest: at(3 * D + 2 * H), referenceNumbers: ["x"] },
+      { timeWindowEarliest: at(3 * D + 8 * H), timeWindowLatest: at(3 * D + 9 * H), referenceNumbers: ["x"] }
+    ];
+    const held = { status: "in_progress", dispatchedAt: at(-D), driver: driver() };
+    const a = load({ id: "a", status: "in_progress", stops: stopsA, assignment: held, relayFrom: at(4 * D) });
+    const b = load({ id: "b", status: "accepted", stops: stopsB, assignment: { ...held, status: "accepted" } });
+    expect(deriveAlerts([a, b], NOW).filter((x) => x.code === "DOUBLE_BOOKED")).toEqual([]);
+    // Without the hand-over the same two loads overlap.
+    expect(deriveAlerts([{ ...a, relayFrom: null }, b], NOW).filter((x) => x.code === "DOUBLE_BOOKED")).toHaveLength(2);
+  });
+
   test("a load with no stop times still says it has no driver, on the day it was booked for", () => {
     const untimed = load({ stops: [{ timeWindowEarliest: null, timeWindowLatest: null, referenceNumbers: ["x"] }], scheduledDate: at(6 * H) });
     expect(deriveAlerts([untimed], NOW)[0]).toMatchObject({ code: "PICKUP_NO_DRIVER", message: "Pickup is in 6 h and no driver has been sent." });
