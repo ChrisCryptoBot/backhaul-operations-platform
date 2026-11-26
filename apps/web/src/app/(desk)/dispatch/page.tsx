@@ -200,6 +200,7 @@ export default async function DispatchPage({ searchParams }: { searchParams?: { 
   const now = Date.now();
   // The filters live in the address, so they survive a refresh and a trip elsewhere and back. The day is the carrier's.
   const filter = readQueueFilter(searchParams);
+  const filtered = isFiltered(filter);
   const tz = await workspaceTimezone(ws);
   const keyOf = (ms: number) => dateKeyOf(ms, tz);
   const today = keyOf(now);
@@ -312,7 +313,7 @@ export default async function DispatchPage({ searchParams }: { searchParams?: { 
       <div className="tl-cols dq-cols">
         <Card title={`Needs a driver · ${needs.length}${counts.declined + counts.ready > 0 ? ` (${[counts.declined ? `${counts.declined} declined` : null, counts.ready ? `${counts.ready} ready to send` : null].filter(Boolean).join(", ")})` : ""}`}>
           {needs.length === 0 ? (
-            <EmptyState icon="check" title="Nothing waiting">Every load has a driver.</EmptyState>
+            <EmptyState icon="check" title={filtered ? "Nothing matches" : "Nothing waiting"}>{filtered ? "No load that needs a driver matches these filters." : "Every load has a driver."}</EmptyState>
           ) : (
             <ul className="dq">
               {needs.slice(0, limits.needs).map((p) => (
@@ -324,7 +325,7 @@ export default async function DispatchPage({ searchParams }: { searchParams?: { 
         </Card>
         <Card title={`Sent, waiting · ${sent.length}`}>
           {sent.length === 0 ? (
-            <EmptyState icon="dispatch" title="Nothing out for an answer">Loads you send appear here until the driver answers.</EmptyState>
+            <EmptyState icon="dispatch" title={filtered ? "Nothing matches" : "Nothing out for an answer"}>{filtered ? "No sent load matches these filters." : "Loads you send appear here until the driver answers."}</EmptyState>
           ) : (
             <ul className="dq">
               {sent.slice(0, limits.sent).map((p) => (
@@ -336,7 +337,7 @@ export default async function DispatchPage({ searchParams }: { searchParams?: { 
         </Card>
         <Card title={`Accepted and moving · ${road.length}`}>
           {road.length === 0 ? (
-            <EmptyState icon="trucks" title="Nothing on the road">Accepted loads show here until they are delivered.</EmptyState>
+            <EmptyState icon="trucks" title={filtered ? "Nothing matches" : "Nothing on the road"}>{filtered ? "No moving load matches these filters." : "Accepted loads show here until they are delivered."}</EmptyState>
           ) : (
             <ul className="dq">
               {road.slice(0, limits.road).map((p) => (
