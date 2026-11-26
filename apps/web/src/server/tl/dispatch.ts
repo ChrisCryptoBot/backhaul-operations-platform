@@ -29,6 +29,7 @@ import { senderNameOf } from "@/lib/driver-messages";
 import { currentActor } from "./identity";
 import { missingReasons, needsMessage, reasonText, type ReasonNeed, type Reasons } from "@/lib/assign-reasons";
 import { truckFit } from "@/lib/load-fit";
+import { hosCheck } from "@/lib/hos-check";
 import { loadSpecsOf, truckLimits } from "./truck-fit";
 
 export { driverBlocker };
@@ -256,6 +257,10 @@ export async function assignDriver(
   const clash = await findDriverClash(driver.id, load.id, loadWindow(load.stops));
   if (clash) needs.push({ code: "double_booked", message: `${driver.name} is already on ${clash.loadNumber ?? "another load"} (${windowText(clash.window)}).` });
   if (replacing) needs.push({ code: "reason_required", message: `${prev!.driver.name} has this load.` });
+  // Hours (49 CFR 395.3): the ELD is the record, so this never refuses outright, but assigning a driver whose clocks do not cover the trip, or have not reported for half a day, needs its
+  // own reason: the evidence the dispatcher made that call knowingly (49 CFR 390.6). A driver with no ELD clocks is not asked about.
+  const hos = hosCheck(driver, input.estimatedHours ?? tripHoursOf(load), now);
+  if (hos.state === "short" || hos.state === "stale") needs.push({ code: "hos_short", message: `${driver.name}: ${hos.note}.` });
   const truckBusy = truck ? await findTruckClash(truck.id, load.id, loadWindow(load.stops), workspaceId) : null;
   if (truckBusy) needs.push({ code: "truck_busy", message: `${truckName} is already on ${truckBusy.loadNumber ?? "another load"} (${windowText(truckBusy.window)}).` });
   if (repaid) needs.push({ code: "pay_changed", message: `${driver.name} was sent this load at ${describePay(prev!.payKind, num(prev!.payRate))}. The offer on their phone is taken back and the load has to be sent again.` });

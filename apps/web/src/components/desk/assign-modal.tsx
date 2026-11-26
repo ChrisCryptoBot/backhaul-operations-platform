@@ -180,6 +180,7 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
                             {" "}
                             {data.seesPay ? payLabel(s.payKind, s.payRate) : null}
                             {s.truckName ? (data.hasTruck ? ` · priced on ${s.truckName}` : ` · priced on ${s.truckName}, which goes on the load`) : ""}
+                            {s.hosNote || s.truckNote ? <span className="as-note"> · {[s.hosNote, s.truckNote].filter(Boolean).join(" · ")}</span> : null}
                           </span>
                         </span>
                         <span className={s.leftOver == null ? "tl-sub" : s.leftOver >= 0 ? "as-ok" : "as-bad"}>

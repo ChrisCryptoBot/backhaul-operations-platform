@@ -1,6 +1,9 @@
 import { inScope, terminalFilter, type Terminals } from "@/lib/scope";
 import { prisma } from "@/lib/db";
-import { driverBlocker, driverClashNotes } from "./dispatch";
+import { driverBlocker, driverClashNotes, tripHoursOf, truckClashesIn } from "./dispatch";
+import { hosCheck, HOS_RANK, type HosState } from "@/lib/hos-check";
+import { truckBodyNote, truckFit } from "@/lib/load-fit";
+import { loadSpecsOf, truckLimits } from "./truck-fit";
 import { evaluateTlLoad } from "./evaluate";
 import { numOrNull } from "./convert";
 import type { loadInclude } from "./queries";
@@ -29,6 +32,13 @@ export type AssignDriverOption = {
   payRate: number | null;
   /** For someone who may not see pay: this driver has no usual pay, so they cannot be assigned until billing sets it. */
   noUsualPay?: boolean;
+  /** Their hours against this trip (src/lib/hos-check.ts): a caution and a rank, never a blocker; a short or stale reading needs a reason to assign. */
+  hosNote?: string | null;
+  hosState?: HosState;
+  /** On a load with no truck, what stops the truck this driver brings (it cannot carry the load, or it is on another load then), or a caution about it. */
+  truckNote?: string | null;
+  /** This driver already said no to this load, or was just taken off it (no-show, not responding, breakdown): kept out of the best fits for it. */
+  thisLoad?: string | null;
 };
 
 export type Suggestion = {
@@ -41,6 +51,10 @@ export type Suggestion = {
   /** The truck the price is on, and whether it is the load's own. */
   truckName: string | null;
   onLoadsTruck: boolean;
+  /** Their hours against this trip, when the ELD reported any. */
+  hosNote?: string | null;
+  /** A caution about the truck they bring (a box truck on a trailer load, oversize, hazmat). */
+  truckNote?: string | null;
 };
 
 type RankLoad = Prisma.LoadGetPayload<{ include: typeof loadInclude }>;
@@ -58,17 +72,45 @@ export async function rankDrivers(load: RankLoad, workspaceId: string, terminal:
   // Every card is checked against when this load's last window closes, so a driver whose card lapses mid-trip is not offered.
   const tripEnd = loadWindow(load.stops)?.end ?? load.scheduledDate ?? null;
   const at = (home: string | null) => (terminal != null && inScope(terminal, home) ? 0 : 1);
+  // Hours: the trip's drive time against each driver's clocks (a caution and a rank, never a blocker).
+  const tripHours = tripHoursOf(load);
+  const now = new Date();
+  // On a load with no truck, each driver brings the truck they usually drive (dispatch.ts assignDriver): is it free then, and can it carry this load?
+  const win = loadWindow(load.stops);
+  const truckless = load.vehicleId == null;
+  const truckBusy = truckless ? await truckClashesIn([...new Set(drivers.map((d) => d.assignedVehicleId).filter((v): v is string => v != null))], load.id, win, workspaceId) : new Map<string, string | null>();
+  const specs = loadSpecsOf(load);
+  // This load's own history: who said no to it, and who was just taken off it for not showing up, not answering or a breakdown.
+  const SKIP_AFTER = new Set(["DRIVER_NO_SHOW", "DRIVER_UNRESPONSIVE", "MECHANICAL_BREAKDOWN"]);
+  const past = await prisma.assignmentEvent.findMany({ where: { workspaceId, loadId: load.id, kind: { in: ["declined", "recalled"] } }, select: { driverId: true, kind: true, reasonCode: true } });
+  const thisLoadOf = new Map<string, string>();
+  for (const e of past) {
+    if (!e.driverId) continue;
+    if (e.kind === "declined") thisLoadOf.set(e.driverId, "Declined this load");
+    else if (e.reasonCode && SKIP_AFTER.has(e.reasonCode)) thisLoadOf.set(e.driverId, "Just recalled from this load");
+  }
 
   const options: AssignDriverOption[] = [];
   const fits: Suggestion[] = [];
+  const hosRankOf = new Map<string, number>();
   for (const d of drivers) {
     const blocker = driverBlocker(d, new Date(), tripEnd);
     const busy = busyBy.get(d.id) ?? null;
     const payKind = d.defaultPayKind;
     const payRate = numOrNull(d.defaultPayRate);
     const flag = checkLoad(schedules.get(d.id) ?? null, stopTimes, tz);
-    options.push({ id: d.id, name: d.name, code: d.code, home: d.terminal, blocker, busy, shiftNote: flag ? flagWords(flag, tz) : null, payKind, payRate });
-    if (blocker || busy) continue;
+    const hos = hosCheck(d, tripHours, now);
+    // The truck this driver would bring to a load that has none: one already on another load then, or one that cannot carry it, keeps them out of the best fits.
+    const brings = truckless ? d.assignedVehicle : null;
+    const bringsBusy = brings ? truckBusy.get(brings.id) : undefined;
+    const bringsFit = brings ? truckFit(specs, truckLimits(brings)) : null;
+    const bodyNote = brings ? truckBodyNote(load.trailerType, brings.type, brings.name ?? "Their truck") : null;
+    const truckName = brings?.name ?? "Their truck";
+    const truckStop = brings ? (bringsFit?.blocker ? `${truckName} cannot take it: ${bringsFit.blocker}` : bringsBusy !== undefined ? `${truckName} is on ${bringsBusy ?? "another load"}` : null) : null;
+    const truckNote = truckStop ?? bodyNote ?? bringsFit?.warnings[0] ?? null;
+    const thisLoad = thisLoadOf.get(d.id) ?? null;
+    options.push({ id: d.id, name: d.name, code: d.code, home: d.terminal, blocker, busy, shiftNote: flag ? flagWords(flag, tz) : null, payKind, payRate, hosNote: hos.note, hosState: hos.state, truckNote, thisLoad });
+    if (blocker || busy || truckStop || thisLoad || hos.state === "short") continue;
 
     const truck = load.vehicle ?? d.assignedVehicle;
     const profile = truck?.costProfile ?? null;
@@ -78,16 +120,21 @@ export async function rankDrivers(load: RankLoad, workspaceId: string, terminal:
       const margin = e.result.verdictMarginPerMi;
       leftOver = margin == null ? null : margin * e.totalMiles;
     }
-    fits.push({ driverId: d.id, name: d.name, leftOver, payKind, payRate, truckName: truck?.name ?? null, onLoadsTruck: load.vehicleId != null && d.assignedVehicleId === load.vehicleId });
+    fits.push({ driverId: d.id, name: d.name, leftOver, payKind, payRate, truckName: truck?.name ?? null, onLoadsTruck: load.vehicleId != null && d.assignedVehicleId === load.vehicleId, hosNote: hos.note, truckNote });
+    hosRankOf.set(d.id, HOS_RANK[hos.state]);
   }
 
-  // Best first: what the load leaves over the floor, then a driver who usually drives the load's truck, then name. A fit that cannot be priced goes last.
+  // Best first: a driver whose hours are not in doubt (a stale reading goes after), then what the load leaves over the floor, then a driver who usually drives the load's truck, then name.
+  // A fit that cannot be priced goes last.
   const key = (f: Suggestion) => f.leftOver ?? -Infinity;
-  fits.sort((a, b) => key(b) - key(a) || (b.onLoadsTruck ? 1 : 0) - (a.onLoadsTruck ? 1 : 0) || a.name.localeCompare(b.name));
+  const hosRank = (f: Suggestion) => hosRankOf.get(f.driverId) ?? 0;
+  fits.sort((a, b) => hosRank(a) - hosRank(b) || key(b) - key(a) || (b.onLoadsTruck ? 1 : 0) - (a.onLoadsTruck ? 1 : 0) || a.name.localeCompare(b.name));
   const rank = new Map(fits.map((f, i) => [f.driverId, i]));
   // The drivers who can take it, best fit first, then the rest by name.
   const homeOf = new Map(drivers.map((d) => [d.id, d.terminal] as const));
-  options.sort((a, b) => at(homeOf.get(a.id) ?? null) - at(homeOf.get(b.id) ?? null) || (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
+  // Someone who already said no to this load, or was just taken off it, goes to the very end of the list (still there, to pick on purpose).
+  const last = (o: AssignDriverOption) => (o.thisLoad ? 1 : 0);
+  options.sort((a, b) => last(a) - last(b) || at(homeOf.get(a.id) ?? null) - at(homeOf.get(b.id) ?? null) || (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
   return { options, fits };
 }
 

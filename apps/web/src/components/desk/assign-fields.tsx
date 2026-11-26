@@ -8,7 +8,7 @@ import { useClearOnSuccess } from "./kit/use-submit-outcome";
 import type { ReasonCode } from "@/lib/assign-reasons";
 
 /** `home` is the driver's home terminal and `shiftNote` a caution that a stop of this load falls outside their shift; neither stops an assignment. */
-type Option = { id: string; name: string; blocker: string | null; busy: string | null; payKind: string | null; payRate: number | null; code?: string | null; home?: string | null; shiftNote?: string | null; noUsualPay?: boolean };
+type Option = { id: string; name: string; blocker: string | null; busy: string | null; payKind: string | null; payRate: number | null; code?: string | null; home?: string | null; shiftNote?: string | null; noUsualPay?: boolean; hosNote?: string | null; truckNote?: string | null; thisLoad?: string | null };
 
 const optionText = (d: Option) => `${d.code ? `${d.code} · ` : ""}${d.name}${d.home ? ` (${d.home})` : ""}`;
 
@@ -112,7 +112,7 @@ export function AssignFields({
           {drivers.map((d) => (
             <option key={d.id} value={d.id} disabled={!!d.blocker}>
               {optionText(d)}
-              {d.blocker ? ` — ${d.blocker}` : payHidden && d.noUsualPay ? " — no usual pay set: ask billing or an admin" : d.busy ? ` — ${d.busy}` : d.shiftNote ? ` — ${d.shiftNote}` : ""}
+              {d.blocker ? ` — ${d.blocker}` : payHidden && d.noUsualPay ? " — no usual pay set: ask billing or an admin" : d.busy ? ` — ${d.busy}` : d.thisLoad ? ` — ${d.thisLoad}` : d.truckNote ? ` — ${d.truckNote}` : d.hosNote ? ` — ${d.hosNote}` : d.shiftNote ? ` — ${d.shiftNote}` : ""}
             </option>
           ))}
         </select>

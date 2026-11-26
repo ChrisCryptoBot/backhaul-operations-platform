@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { prisma } from "@/lib/db";
-import { assignDriver, dispatchLoad } from "@/server/tl/dispatch";
+import { assignDriver, dispatchLoad, recordDriverResponse } from "@/server/tl/dispatch";
 import { saveCostProfile, saveDriver, saveTruck } from "@/server/tl/fleet";
 import { assignFromQueue, assignOptions } from "@/server/tl/suggest";
 
@@ -211,6 +211,48 @@ describe.skipIf(!run)("who could take a load, on the demo database", () => {
 
     const other = await mkLoad("PAY2", "2027-06-26", { vehicleId: ids.other });
     expect(await assignFromQueue({ loadId: other.id, driverId: ids.Loose!, payKind: "cpm", rate: "0.50" }, { usualPayOnly: true })).toEqual({ ok: false, code: "no_default_pay", error: "WC2 Loose has no usual pay set. Ask billing or an admin to set it on their driver page." });
+  });
+
+  test("hours: a driver short on hours is cautioned, left out of the best fits, and assigned only with a reason of its own", async () => {
+    const tired = await saveDriver(driverForm("WC2 Tired", { payKind: "cpm", payRate: "0.40" }), null);
+    if (!tired.ok) throw new Error("driver");
+    await prisma.driver.update({ where: { id: tired.id }, data: { hosDriveMinutes: 120, hosShiftMinutes: 300, hosCycleMinutes: 2000, hosSyncedAt: new Date() } });
+    try {
+      const load = await mkLoad("HOS1", "2027-06-28", { vehicleId: ids.other });
+      const out = (await assignOptions(load.id, undefined, { limit: 50 }))!;
+      const opt = out.drivers.find((d) => d.name === "WC2 Tired")!;
+      expect(opt.hosState).toBe("short");
+      expect(opt.hosNote).toMatch(/^2\.0 h drive left · trip needs ~/);
+      expect(out.suggestions.some((s) => s.name === "WC2 Tired")).toBe(false);
+      const refused = await assignFromQueue({ loadId: load.id, driverId: tired.id, payKind: "cpm", rate: "0.40" });
+      expect((refused as { needs?: Array<{ code: string }> }).needs?.map((n) => n.code)).toEqual(["hos_short"]);
+      expect(await assignFromQueue({ loadId: load.id, driverId: tired.id, payKind: "cpm", rate: "0.40", reasons: { hos_short: "10 h reset before the 06:00 pickup" } })).toEqual({ ok: true });
+      const audit = await prisma.auditEvent.findFirst({ where: { loadId: load.id, action: "assigned" }, orderBy: { createdAt: "desc" } });
+      expect(audit?.reason).toBe("Short on hours: 10 h reset before the 06:00 pickup");
+    } finally {
+      await prisma.driver.update({ where: { id: tired.id }, data: { active: false } });
+    }
+  });
+
+  test("on a load with no truck, a driver whose truck is on another load then is not a best fit, and says why", async () => {
+    const day = "2027-06-29";
+    await mkLoad("BUSYTRK", day); // the WC2 truck is on this one that day
+    const loose = await mkLoad("TRK3", day, { vehicleId: null });
+    const out = (await assignOptions(loose.id, undefined, { limit: 50 }))!;
+    const dear = out.drivers.find((d) => d.name === "WC2 Dear")!;
+    expect(dear.truckNote).toBe("WC2 Truck is on WC2-BUSYTRK");
+    expect(out.suggestions.some((s) => s.name === "WC2 Dear")).toBe(false);
+  });
+
+  test("a driver who declined a load is not suggested for it again, and goes to the end of its list", async () => {
+    const load = await mkLoad("DECL1", "2027-06-30");
+    expect(await assignFromQueue({ loadId: load.id, driverId: ids.Dear!, payKind: "cpm", rate: "0.80" })).toEqual({ ok: true });
+    await dispatchLoad(load.id);
+    await recordDriverResponse(load.id, "declined", new Date(), "Home time");
+    const out = (await assignOptions(load.id, undefined, { limit: 50 }))!;
+    expect(out.drivers.find((d) => d.name === "WC2 Dear")?.thisLoad).toBe("Declined this load");
+    expect(out.suggestions.some((s) => s.name === "WC2 Dear")).toBe(false);
+    expect(out.drivers[out.drivers.length - 1]!.name).toBe("WC2 Dear");
   });
 
   test("send checks the load again inside its own transaction: a load that moved on since it was assigned is not sent", async () => {
