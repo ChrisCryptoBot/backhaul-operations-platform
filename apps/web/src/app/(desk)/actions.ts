@@ -25,7 +25,7 @@ import { retryBridgeDelivery } from "@/server/bridge/retry";
 import { endDriverLinkFromDesk, issueDriverInvite, pullDriverLinks } from "@/server/bridge/links";
 import { bridgeConfig } from "@/server/bridge/core";
 import { supabaseTransport } from "@/server/bridge/transport";
-import { pullMessagesNow } from "@/server/bridge/live";
+import { pullAnswersNow, pullMessagesNow } from "@/server/bridge/live";
 import type { LivePullResult } from "@/lib/live-messages";
 import { setWorkspaceTimezone } from "@/server/tl/zone-setting";
 import { setWorkspacePaySettings } from "@/server/tl/pay-settings";
@@ -64,6 +64,16 @@ import type { Identity } from "@/server/tl/identity";
 
 /** Whether this person may see and set driver pay: the billing office's capability (a dispatcher has it only with the "Can also bill" grant). */
 const seesPay = (me: Identity) => canAny(me.role, me.grants, ["billing_details"]);
+
+/**
+ * Put what a desk change queued for a driver's phone on the phone now, after the change committed, instead of at the next minute's schedule (which stays the safety net). Best effort and
+ * not waited for: a failure is the schedule's to retry. Called only from the actions, so the domain functions stay free of side effects and their tests never race the queue.
+ */
+function pushSoon(loadId: string) {
+  if (!bridgeConfig(process.env as Record<string, string | undefined>)) return;
+  const ws = currentWorkspaceId();
+  void retryBridgeDelivery(loadId, ws).catch(() => undefined);
+}
 import { currentTerminal } from "@/server/tl/terminal";
 import { assignTrailerToLoad, hookTrailer, saveTrailer, setTrailerArchived, type AssignTrailerResult, type SaveResult as TrailerSaveResult } from "@/server/tl/trailers";
 import { connectPartner, disconnectPartner, retryConnection, type ConnectResult } from "@/server/partners/connections";
@@ -174,6 +184,7 @@ export async function assignAction(formData: FormData) {
       // One box per condition (src/lib/assign-reasons.ts): a reason typed for one never covers another.
       reasons: reasonsFrom((k) => formData.get(k))
     });
+    pushSoon(loadId);
     return "Driver assigned. Send it when you are ready.";
   });
 }
@@ -191,7 +202,11 @@ export async function assignOptionsAction(loadId: string): Promise<AssignOptions
 export async function assignFromQueueAction(input: { loadId: string; driverId: string; payKind: string; rate: string; reasons?: Reasons; expected?: { assignmentVersion: number | null; driverId: string | null } | null }): Promise<AssignOutcome> {
   const me = await requireCan("dispatch");
   const out = await assignFromQueue(input, { usualPayOnly: !seesPay(me) });
-  if (out.ok) refreshLoads();
+  if (out.ok) {
+    // A change of driver or pay takes the old offer off the phone (reassign_old): now, not at the next schedule.
+    pushSoon(input.loadId);
+    refreshLoads();
+  }
   return out;
 }
 
@@ -207,6 +222,7 @@ export async function unassignAction(formData: FormData) {
     const miles = String(formData.get("milesDriven") ?? "").trim();
     const positioning = rolling ? { milesDriven: miles === "" ? null : Number(miles), milesSource: (String(formData.get("milesSource") ?? "") || null) as MilesSource | null } : undefined;
     await unassignLoad(loadId, note, undefined, undefined, undefined, isRecallCode(code) ? code : null, positioning);
+    pushSoon(loadId);
     return code ? "Driver recalled. The load is back in Needs a driver." : "Driver removed. The load is back on the board.";
   });
 }
@@ -234,6 +250,7 @@ export async function recallAction(formData: FormData): Promise<InlineActionResu
     const miles = String(formData.get("milesDriven") ?? "").trim();
     const positioning = rolling ? { milesDriven: miles === "" ? null : Number(miles), milesSource: (String(formData.get("milesSource") ?? "") || null) as MilesSource | null } : undefined;
     await unassignLoad(loadId, note, undefined, undefined, undefined, isRecallCode(code) ? code : null, positioning);
+    pushSoon(loadId);
     return code ? "Driver recalled. The load is back in Needs a driver." : "Driver removed. The load is back on the board.";
   });
 }
@@ -287,6 +304,7 @@ export async function receiveAction(formData: FormData) {
       conditionNotes: field(formData, "conditionNotes") || null,
       overrideReason: field(formData, "overrideReason") || null
     });
+    pushSoon(field(formData, "loadId"));
     return "Handoff received. The next driver has the load.";
   });
 }
@@ -340,6 +358,7 @@ export async function receiveRelayAction(formData: FormData): Promise<InlineActi
       conditionNotes: field(formData, "conditionNotes") || null,
       overrideReason: field(formData, "overrideReason") || null
     });
+    pushSoon(field(formData, "loadId"));
     return "Handoff received. The next driver has the load.";
   });
 }
@@ -374,6 +393,7 @@ export async function sendAction(formData: FormData) {
     const missing = gapsPhrase(gaps);
     if (gaps.length > 0 && !sendAnyway) throw new DispatchError("not_ready", `Not ready: still missing ${missing}. Send anyway if the driver has it another way.`);
     await dispatchLoad(loadId, new Date(), gaps.length > 0 ? { sentWithout: missing } : {});
+    pushSoon(loadId);
     return gaps.length > 0 ? `Sent without ${missing}.` : "Sent to the driver.";
   });
 }
@@ -420,6 +440,7 @@ export async function sendInlineAction(loadId: string, sendAnyway = false): Prom
     const missing = gapsPhrase(gaps);
     if (gaps.length > 0 && !sendAnyway) return { ok: false, code: "not_ready", error: `Not ready: still missing ${missing}. Send anyway if the driver has it another way.`, missing };
     await dispatchLoad(loadId, new Date(), gaps.length > 0 ? { sentWithout: missing } : {});
+    pushSoon(loadId);
     refreshLoads();
     return { ok: true, message: gaps.length > 0 ? `Sent without ${missing}.` : "Sent to the driver." };
   } catch (e) {
@@ -438,6 +459,7 @@ export async function assignAndSendAction(input: { loadId: string; driverId: str
   const me = await requireCan("dispatch");
   const out = await assignFromQueue(input, { usualPayOnly: !seesPay(me) });
   if (!out.ok) return out;
+  pushSoon(input.loadId);
   refreshLoads();
   try {
     const gaps = await loadSendGaps(input.loadId);
@@ -446,6 +468,7 @@ export async function assignAndSendAction(input: { loadId: string; driverId: str
       return { ok: true, sent: false, missing, message: `Assigned. Not sent yet: still missing ${missing}.` };
     }
     await dispatchLoad(input.loadId, new Date(), {});
+    pushSoon(input.loadId);
     refreshLoads();
     return { ok: true, sent: true, message: "Assigned and sent to the driver." };
   } catch (e) {
@@ -1959,6 +1982,21 @@ export async function sendMessageAction(input: { driverId: string; body: string;
   const out = await sendMessage({ driverId: String(input.driverId), body: String(input.body ?? ""), loadId: input.loadId ? String(input.loadId) : null, clientId: input.clientId ? String(input.clientId) : null });
   if (out.ok) revalidatePath("/messages");
   return out;
+}
+
+/** The Dispatch queue's live loop: deliver what waits for the phones and apply the drivers' answers now (throttled per fleet), and say whether anything changed. Nothing when the link is off. */
+export async function pullAnswersNowAction(): Promise<LivePullResult> {
+  await requireCan("dispatch");
+  const t = linkTransport();
+  if (!t) return { pulled: false, changed: false };
+  try {
+    const out = await pullAnswersNow(t);
+    if (out.changed) refreshLoads();
+    return out;
+  } catch {
+    // The link being down never breaks the queue: the schedule keeps trying.
+    return { pulled: false, changed: false };
+  }
 }
 
 /** The Messages page's live loop: look on the phone link now (throttled per fleet) and say whether anything changed. Nothing to do when the link is not switched on. */

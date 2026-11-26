@@ -5,6 +5,7 @@ import { currentWorkspaceId } from "@/server/tl/workspace";
 import { flushBridgeOutbox, pullBridgeResponses } from "@/server/bridge/service";
 import { memoryTransport } from "@/server/bridge/transport";
 import { clearAlertCache, getAlerts } from "@/server/tl/alerts";
+import { ANSWERS_EVERY_MS, pullAnswersNow, __resetLivePullForTest } from "@/server/bridge/live";
 import { pullStopEvents } from "@/server/bridge/stops";
 import { assertDriverSafe, type LoadSummary } from "@/server/tl/projector";
 import { completeTrip, startTrip } from "@/server/tl/execution";
@@ -159,6 +160,22 @@ describe.skipIf(!run)("the driver link, desk half", () => {
     // The version the window saw is accepted.
     await assignDriver({ loadId, driverId, pay: { kind: "cpm", rate: 0.65 }, reasons: dbl, expected: { assignmentVersion: a.assignmentVersion, driverId } });
     expect(Number((await prisma.assignment.findUniqueOrThrow({ where: { loadId } })).payRate)).toBe(0.65);
+  });
+
+  test("the queue's live look applies a driver's answer at once, and only once per window however many tabs ask", async () => {
+    await reset();
+    __resetLivePullForTest();
+    const t = memoryTransport();
+    await assignAndSend();
+    await flushBridgeOutbox(t);
+    t.phone(t.table[0]!.id, { state: "accepted" });
+    const now = new Date();
+    expect(await pullAnswersNow(t, { now })).toEqual({ pulled: true, changed: true });
+    expect((await prisma.assignment.findUniqueOrThrow({ where: { loadId } })).status).toBe("accepted");
+    // A second tab ten seconds later does not hit the link again.
+    expect(await pullAnswersNow(t, { now: new Date(now.getTime() + 10_000) })).toEqual({ pulled: false, changed: false });
+    // After the window, a look with nothing new says so.
+    expect(await pullAnswersNow(t, { now: new Date(now.getTime() + ANSWERS_EVERY_MS + 1) })).toEqual({ pulled: true, changed: false });
   });
 
   test("who sent it goes by name only", async () => {

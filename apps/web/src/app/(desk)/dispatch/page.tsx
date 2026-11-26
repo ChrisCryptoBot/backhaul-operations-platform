@@ -22,6 +22,7 @@ import { HANDOFF_STATE_LABEL, OUTGOING_NEXT_LABEL, handoffLevel, waitWords, type
 import { NEEDS_ORDER, QUEUE_CHIP, queueColumnOf, type QueueColumn } from "@/lib/dispatch-queue";
 import { recallAction, receiveRelayAction, discrepancyRelayAction } from "@/app/(desk)/actions";
 import { rateConTotal } from "@/lib/pay";
+import { LiveRefresh } from "@/components/desk/live-refresh";
 import { num } from "@/server/tl/convert";
 
 export const metadata = { title: "Dispatch queue · TrueLane" };
@@ -228,6 +229,7 @@ export default async function DispatchPage({ searchParams }: { searchParams?: { 
 
   return (
     <>
+      <LiveRefresh pull={mayAssign} />
       <PageHead title="Dispatch queue" sub="What needs a driver, what is waiting on an answer, and what is moving. Soonest first.">
         {quoteAccess.ok ? <Link href="/quote" className="tl-btn ghost">Price an offer</Link> : null}
       </PageHead>
