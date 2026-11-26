@@ -1,3 +1,5 @@
+-- Generated from prisma/migrations/20270115000000_recall_driver_no_show/migration.sql by apps/web/scripts/export-supabase.mjs. Do not edit here: change the Prisma migration and run npm run db:export-supabase.
+
 -- Dispatch queue P1.5b (2026-11-25): a recall reason of its own for a driver who never showed or quit, apart from one who cannot be reached.
 -- Widens the reason check on assignment_events; no row changes. The desk offers the new reason only once this is applied (src/lib/recall-reasons.ts RECALL_OFFERED).
 ALTER TABLE "assignment_events" DROP CONSTRAINT IF EXISTS "assignment_events_reason_check";

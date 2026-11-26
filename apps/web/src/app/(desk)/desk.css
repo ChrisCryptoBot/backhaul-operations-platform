@@ -781,6 +781,8 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .as-fields { display: flex; flex-wrap: wrap; gap: var(--db-3); align-items: flex-end; }
 /* A reason box takes the whole line: one per condition that needs a reason (src/lib/assign-reasons.ts). */
 .as-reason { flex-basis: 100%; }
+/* A message in the Assign window's footer takes the room on the left, the buttons stay right. */
+.as-msg { margin-right: auto; }
 
 /* The dispatch queue: a load per ruled row, one signal on it, and the action that moves it on. */
 .dq { list-style: none; margin: 0; padding: 0; }
@@ -794,6 +796,13 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .dq-sig { font-size: var(--db-text-sm); font-weight: 600; }
 .dq-sig.block { color: var(--db-neg); }
 .dq-sig.warn { color: var(--db-warn); }
+/* The next step on a queue row, done in place: a few small buttons, and a question asked inline (send anyway, why they declined). */
+/* A row with several steps puts them on a line of their own under the state, instead of squeezing them beside it. */
+.dq-foot:has(.dq-acts) { flex-wrap: wrap; }
+.dq-acts { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--db-1) var(--db-2); margin-left: auto; }
+.dq-ask { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--db-1) var(--db-2); }
+.dq-offer { flex-basis: 100%; width: 100%; font: var(--db-text-sm)/1.4 var(--db-font-mono, monospace); }
+.dq-why { width: 160px; height: 22px; padding: 0 6px; font-size: var(--db-text-sm); }
 
 .pl-tray-item { display: grid; gap: var(--db-1); justify-items: start; margin-bottom: var(--db-2); }
 .pl-tray-item .pl-load { justify-self: stretch; }

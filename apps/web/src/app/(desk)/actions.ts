@@ -479,10 +479,11 @@ export async function retryInlineAction(loadId: string): Promise<InlineActionRes
 
 /** The offer as plain text, for a driver without the app: built only from the driver-safe summary (checked before it leaves), so it never carries what the customer pays. */
 export async function offerTextAction(loadId: string): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
-  await requireCan("dispatch");
+  const me = await requireCan("dispatch");
   try {
     const summary = await driverSummaryFor(loadId);
-    return { ok: true, text: offerText(summary, await workspaceTimezone(currentWorkspaceId())) };
+    // Someone who may not see driver pay copies the offer without the figure (the driver's own phone still shows it to them).
+    return { ok: true, text: offerText(summary, await workspaceTimezone(currentWorkspaceId()), seesPay(me)) };
   } catch (e) {
     if (e instanceof DispatchError) return { ok: false, error: e.message };
     throw e;

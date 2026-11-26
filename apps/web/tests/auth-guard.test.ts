@@ -33,7 +33,8 @@ describe("every server action asks who is calling", () => {
       const open = text.indexOf("{\n", text.indexOf(")", at));
       const next = text.slice(at).search(/\n(?=export |\/\/ ──)/);
       const body = text.slice(open, next < 0 ? undefined : at + next);
-      return !/^\{\n\s+await requireCan\("\w+"(, "\w+")*\);/.test(body);
+      // `await requireCan(...)` first, or the same kept as the caller (`const me = await requireCan(...)`) when the action needs who it is (the billing grant decides driver pay).
+      return !/^\{\n\s+(?:const \w+ = )?await requireCan\("\w+"(, "\w+")*\);/.test(body);
     });
     expect(bare, "Start the action with `await requireCan(capability)` (src/server/tl/access.ts; the capabilities are in src/lib/roles.ts).").toEqual([]);
   });

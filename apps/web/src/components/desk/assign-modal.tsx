@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { tried } from "./kit/tried";
 import React from "react";
-import { assignFromQueueAction, assignOptionsAction } from "@/app/(desk)/actions";
+import { assignAndSendAction, assignFromQueueAction, assignOptionsAction, sendInlineAction } from "@/app/(desk)/actions";
 import { payLabel, usd } from "@/lib/desk-format";
 import type { AssignOptions } from "@/server/tl/suggest";
 import { AssignFields } from "./assign-fields";
@@ -33,6 +33,8 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
   const [reloads, setReloads] = React.useState(0);
   // A reload after "someone else changed it" keeps that message on screen; opening the window afresh clears it.
   const keepError = React.useRef(false);
+  // Assigned, and the send stopped on something missing: the window offers to send what was saved, and never assigns again.
+  const [saved, setSaved] = React.useState<{ message: string } | null>(null);
   const close = React.useCallback(() => setOpen(false), []);
 
   React.useEffect(() => {
@@ -42,6 +44,7 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
     if (!keepError.current) setError(null);
     keepError.current = false;
     setNeeds([]);
+    setSaved(null);
     void assignOptionsAction(loadId).then((out) => {
       if (!live) return;
       setData(out);
@@ -52,22 +55,22 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
     };
   }, [open, loadId, reloads]);
 
-  async function go() {
+  /** `send`: Assign & send (the main button); otherwise Save draft. */
+  async function go(send: boolean) {
     const f = formRef.current;
     if (!f) return;
     const v = new FormData(f);
     setBusy(true);
-    const got = await tried(() =>
-      assignFromQueueAction({
-        loadId,
-        driverId: String(v.get("driverId") ?? ""),
-        payKind: String(v.get("payKind") ?? ""),
-        rate: String(v.get("rate") ?? ""),
-        reasons: reasonsFrom((k) => v.get(k)),
-        // What was there when the window opened: someone else's change in between is refused, not written over.
-        expected: data?.current ?? null
-      })
-    );
+    const input = {
+      loadId,
+      driverId: String(v.get("driverId") ?? ""),
+      payKind: String(v.get("payKind") ?? ""),
+      rate: String(v.get("rate") ?? ""),
+      reasons: reasonsFrom((k) => v.get(k)),
+      // What was there when the window opened: someone else's change in between is refused, not written over.
+      expected: data?.current ?? null
+    };
+    const got = await tried(() => (send ? assignAndSendAction(input) : assignFromQueueAction(input)));
     setBusy(false);
     if (!got.ok) {
       setError(got.message);
@@ -88,8 +91,26 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
       return;
     }
     forget.current?.();
+    router.refresh();
+    const sentOut = out as { ok: true; sent?: boolean; message?: string };
+    if (sentOut.sent === false) {
+      // Saved, not sent: stay open on what is missing, with a way to send what was saved.
+      setError(null);
+      setSaved({ message: sentOut.message ?? "Assigned. Not sent yet." });
+      return;
+    }
     setOpen(false);
-    toast({ text: `${loadNumber} assigned. Send it to the driver when you are ready.`, tone: "ok" });
+    toast({ text: sentOut.sent ? `${loadNumber}: assigned and sent to the driver.` : `${loadNumber} assigned. Send it from the queue when you are ready.`, tone: "ok" });
+  }
+
+  async function sendSaved() {
+    setBusy(true);
+    const got = await tried(() => sendInlineAction(loadId, true));
+    setBusy(false);
+    if (!got.ok) return setError(got.message);
+    if (!got.value.ok) return setError(got.value.error);
+    setOpen(false);
+    toast({ text: `${loadNumber}: ${got.value.message}`, tone: "ok" });
     router.refresh();
   }
 
@@ -114,12 +135,31 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
                 {error}
               </span>
             ) : null}
-            <button type="button" className="tl-btn" onClick={close}>
-              Back
-            </button>
-            <button type="button" className="tl-btn primary" disabled={busy || !data || chosen === ""} aria-busy={busy || undefined} onClick={() => void go()}>
-              {busy ? "Assigning…" : "Assign"}
-            </button>
+            {saved ? (
+              <>
+                <span className="tl-note warn as-msg" role="status">
+                  {saved.message}
+                </span>
+                <button type="button" className="tl-btn" onClick={close}>
+                  Leave it ready to send
+                </button>
+                <button type="button" className="tl-btn primary" disabled={busy} aria-busy={busy || undefined} onClick={() => void sendSaved()}>
+                  {busy ? "Sending…" : "Send anyway"}
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" className="tl-btn" onClick={close}>
+                  Back
+                </button>
+                <button type="button" className="tl-btn" disabled={busy || !data || chosen === ""} onClick={() => void go(false)}>
+                  Save draft
+                </button>
+                <button type="button" className="tl-btn primary" disabled={busy || !data || chosen === ""} aria-busy={busy || undefined} onClick={() => void go(true)}>
+                  {busy ? "Working…" : "Assign & send"}
+                </button>
+              </>
+            )}
           </>
         }>
         {data === undefined ? <p className="tl-note">Looking at who is free…</p> : null}
@@ -160,7 +200,8 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
               className="as-fields"
               onSubmit={(e) => {
                 e.preventDefault();
-                void go();
+                // Enter in a field saves; sending to the driver is always a press of its own.
+                void go(false);
               }}>
               <AssignFields key={chosen} loadId={loadId} drivers={data.drivers} initial={{ driverId: chosen || null, payKind: chosenOption?.payKind ?? null, rate: chosenOption?.payRate ?? null }} rateConTotal={data.rateConTotal}
                 draftKey={`assign-queue:${loadId}:${chosen}`}

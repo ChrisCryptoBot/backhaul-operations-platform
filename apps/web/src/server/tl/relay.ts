@@ -406,7 +406,7 @@ export async function openHandoffs(workspaceId = currentWorkspaceId(), allowed?:
   const al = allowed !== undefined ? allowed : await currentAllowed(workspaceId);
   const rows = await prisma.handoff.findMany({
     where: { workspaceId, state: { in: ["dropped", "disputed"] }, load: { deletedAt: null, ...inTerminal(al) } },
-    include: { load: { select: { id: true, loadNumber: true, originAddress: true, destinationAddress: true } } },
+    include: { load: { select: { id: true, loadNumber: true, originAddress: true, destinationAddress: true, quotedRevenue: true, fuelSurcharge: true } } },
     orderBy: { droppedAt: "asc" }
   });
   const legCounts = rows.length ? await prisma.loadLeg.groupBy({ by: ["loadId"], where: { workspaceId, loadId: { in: rows.map((r) => r.loadId) } }, _count: { _all: true } }) : [];
