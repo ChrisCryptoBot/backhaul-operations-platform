@@ -53,7 +53,7 @@ import type { DriverTaxValues, DriverValues, ProfileKey, TruckValues } from "@/l
 import type { Thresholds } from "@/lib/thresholds";
 import type { PayKind } from "@/server/tl/projector";
 import { quoteWarnings, readQuote, type QuoteValues } from "@/lib/quote";
-import { bookQuote, discardQuote, fitQuote, listQuotes, passQuote, quoteContext, saveQuote, type BookResult, type FitResult, type Override, type QuoteContext, type QuoteListRow, type QuoteSave } from "@/server/tl/quote";
+import { bookQuote, discardQuote, fitQuote, listQuotes, passQuote, quoteContext, saveQuote, zonedValues, type BookResult, type FitResult, type Override, type QuoteContext, type QuoteListRow, type QuoteSave } from "@/server/tl/quote";
 import type { LoadEditValues } from "@/lib/load-edit";
 import type { InvoiceForm } from "@/lib/invoicing";
 import type { CompleteValues, CorrectValues, ExpenseValues, StartValues } from "@/lib/trip";
@@ -1049,17 +1049,21 @@ export async function setAppearanceAction(formData: FormData) {
 
 // ── Quote ──────────────────────────────────────────────────────────────────────────────────────
 
-export type PricedQuote = { ok: true; fit: FitResult; context: QuoteContext; warnings: string[] } | { ok: false };
+/** `stopZones`: the clock at each stop, in order, as the server works it out (the form shows each time on it). */
+export type PricedQuote = { ok: true; fit: FitResult; context: QuoteContext; warnings: string[]; stopZones: string[] } | { ok: false; stopZones?: string[] };
 
 /** The offer priced as you type: the nearest trucks in the terminals in view (`limit` of them, 25 to start, 25 more at a time), each with the driver who runs it, plus what the desk already knows about the lane and the broker. Writes nothing. */
 export async function priceQuoteAction(values: QuoteValues, limit?: number, keepTruckId?: string | null): Promise<PricedQuote> {
   const me = await requireCan("read");
-  const input = readQuote(values);
-  if (!input) return { ok: false };
+  // Each stop's time is the dock's: its clock is worked out here, from where the stop is, before anything is read.
+  const zoned = zonedValues(values, await workspaceTimezone(currentWorkspaceId()));
+  const stopZones = zoned.stops.map((s) => s.zone ?? "");
+  const input = readQuote(zoned);
+  if (!input) return { ok: false, stopZones };
   const terminal = await currentTerminal();
   // Driver pay stays with the people who may see it (the bill capability), as on the Dispatch queue: everyone else gets the same verdict with no pay figure in the answer.
   const [fit, context] = await Promise.all([fitQuote(input, undefined, undefined, terminal, asLimit(limit), keepTruckId ? [String(keepTruckId)] : [], { seesPay: seesPay(me) }), quoteContext(input, undefined, terminal)]);
-  return { ok: true, fit, context, warnings: quoteWarnings(input) };
+  return { ok: true, fit, context, warnings: quoteWarnings(input), stopZones };
 }
 
 /** Saved quotes, a page at a time, for the list's search and filter. */

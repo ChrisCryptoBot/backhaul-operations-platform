@@ -87,7 +87,14 @@ export function rateConDraftToQuote(draft: DraftDto | RateConInputDraft, current
   };
 
   if (load.quotedRevenue != null && load.quotedRevenue > 0) setField("offer", String(load.quotedRevenue), "Offer");
-  if (load.loadedMiles != null && load.loadedMiles > 0) setField("loadedMiles", String(load.loadedMiles), "Loaded miles");
+  // Miles the document printed are the contract's: marked as typed, so the road measure that follows fills only the empty miles and never writes over them. With none printed, the
+  // map measures them (a mark left from an earlier figure is taken off).
+  if (load.loadedMiles != null && load.loadedMiles > 0) {
+    setField("loadedMiles", String(load.loadedMiles), "Loaded miles");
+    if (!next.manual.includes("loadedMiles")) next.manual.push("loadedMiles");
+  } else {
+    next.manual = next.manual.filter((m) => m !== "loadedMiles" && m !== "loadedHours");
+  }
   if (load.brokerName) setField("broker", load.brokerName, "Customer");
   if (load.brokerMcNumber) setField("brokerMc", load.brokerMcNumber, "Customer MC");
   if (load.loadNumber) setField("loadNumber", load.loadNumber, "Load #");
@@ -125,12 +132,14 @@ export function rateConDraftToQuote(draft: DraftDto | RateConInputDraft, current
   // Stops mapping: requires at least one pickup and one delivery
   if (draft.stops && draft.stops.length >= 2) {
     const stops: QuoteStop[] = draft.stops.map((s) => {
-      const appointment = localIso(s.timeWindowEarliest);
-      const appointmentEnd = localIso(s.timeWindowLatest);
+      // The time as the document printed it, on the dock's own clock (the reading worked the zone out from the stop): the form shows it as it is on the paper.
+      const appointment = localIso(s.timeWindowEarliest, s.zone);
+      const appointmentEnd = localIso(s.timeWindowLatest, s.zone);
       const stop: QuoteStop = {
         role: s.stopRole === "delivery" ? "delivery" : "pickup",
         address: s.addressString || "",
-        appointment
+        appointment,
+        ...(s.zone ? { zone: s.zone } : {})
       };
       if (appointmentEnd && appointmentEnd !== appointment) stop.appointmentEnd = appointmentEnd;
       if (s.facilityName) stop.facility = s.facilityName;

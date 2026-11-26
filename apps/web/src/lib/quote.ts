@@ -4,6 +4,17 @@ import type { Benchmark } from "./verdict";
 import { fuelSurchargeDollars, type FuelSurchargeUnit } from "@/truelane/lib/fuelSurcharge";
 import { isUnusualValue } from "@/truelane/lib/formatNumbers";
 import { parseCentralLocal } from "./zoned";
+import { activeTz } from "./tz";
+
+/** A stop's point when both halves are real coordinates, else none. */
+const pointOf = (s: { lat?: unknown; lng?: unknown }): { lat: number | null; lng: number | null } => {
+  const lat = typeof s.lat === "number" && Number.isFinite(s.lat) && Math.abs(s.lat) <= 90 ? s.lat : null;
+  const lng = typeof s.lng === "number" && Number.isFinite(s.lng) && Math.abs(s.lng) <= 180 ? s.lng : null;
+  return lat != null && lng != null ? { lat, lng } : { lat: null, lng: null };
+};
+
+/** The clock a stop's typed time is read on: its own when known, else the carrier's. */
+const clockOf = (s: { zone?: string | null }) => (s.zone && s.zone.trim() !== "" ? s.zone : activeTz());
 import type { LoadSpecs } from "./load-fit";
 import { isOtherTrailer, OTHER_TRAILER_MAX, OTHER_TRAILER_PREFIX, TRAILER_TYPES } from "@/truelane/constants/trailerData";
 import { PACKING_GROUPS, REEFER_MODES, type PackingGroup, type ReeferMode } from "./load-edit";
@@ -18,8 +29,16 @@ export type QuoteStopRole = "pickup" | "delivery";
 export type QuoteStop = {
   role: QuoteStopRole;
   address: string;
-  /** "2026-10-30T08:00" on the Dallas clock, or blank. */
+  /** "2026-10-30T08:00" on the clock at the stop (`zone`), or blank: the dock's time, as the broker and the rate confirmation say it. */
   appointment: string;
+  /**
+   * The clock at this stop (an IANA zone), worked out on the server from where the stop is (server/geo/stop-zone.ts). The server works it out again on every save and booking and never takes
+   * the browser's; the form keeps it only to show the right clock and to check the order of the stops. Left out, a time is read on the carrier's clock.
+   */
+  zone?: string | null;
+  /** Where the road measure found the stop, so the server can tell the clock in a state that spans two zones. Cleared when the address changes. */
+  lat?: number | null;
+  lng?: number | null;
   appointmentEnd?: string;
   facility?: string;
   contactName?: string;
@@ -171,6 +190,9 @@ export type QuoteInput = {
   stops: Array<{
     role: QuoteStopRole;
     address: string;
+    /** Where the measure found it (kept on the stop so a reopened quote reads the same clock), or null. */
+    lat: number | null;
+    lng: number | null;
     appointment: number | null;
     appointmentEnd: number | null;
     facility: string | null;
@@ -378,8 +400,9 @@ export function readQuote(values: QuoteValues): QuoteInput | null {
     stops: values.stops.map((s) => ({
       role: s.role,
       address: str(s.address),
-      appointment: s.appointment ? parseCentralLocal(s.appointment) : null,
-      appointmentEnd: s.appointmentEnd ? parseCentralLocal(s.appointmentEnd) : null,
+      ...pointOf(s),
+      appointment: s.appointment ? parseCentralLocal(s.appointment, clockOf(s)) : null,
+      appointmentEnd: s.appointmentEnd ? parseCentralLocal(s.appointmentEnd, clockOf(s)) : null,
       facility: str(s.facility) || null,
       contactName: str(s.contactName) || null,
       contactPhone: str(s.contactPhone) || null,
@@ -459,9 +482,9 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
   stops.forEach((s, i) => {
     if (str(s.address).length < 2) errors[`stop${i}`] = "Where is this stop? A city and state is enough.";
     else if (str(s.address).length > 200) errors[`stop${i}`] = "At most 200 characters.";
-    const openMs = s.appointment ? parseCentralLocal(s.appointment) : null;
+    const openMs = s.appointment ? parseCentralLocal(s.appointment, clockOf(s)) : null;
     if (s.appointment && openMs == null) errors[`stop${i}Time`] = "A real date and time.";
-    const closeMs = s.appointmentEnd ? parseCentralLocal(s.appointmentEnd) : null;
+    const closeMs = s.appointmentEnd ? parseCentralLocal(s.appointmentEnd, clockOf(s)) : null;
     if (s.appointmentEnd && closeMs == null) errors[`stop${i}TimeEnd`] = "A real date and time.";
     else if (openMs != null && closeMs != null && closeMs < openMs) errors[`stop${i}TimeEnd`] = "The window cannot close before it opens.";
     if (str(s.facility).length > 80) errors[`stop${i}Facility`] = "At most 80 characters.";
@@ -479,7 +502,7 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
   // Stops in order: a stop cannot be due before the one ahead of it.
   let earlier: number | null = null;
   stops.forEach((s, i) => {
-    const t = s.appointment ? parseCentralLocal(s.appointment) : null;
+    const t = s.appointment ? parseCentralLocal(s.appointment, clockOf(s)) : null;
     if (t == null) return;
     if (earlier != null && t < earlier && !errors[`stop${i}Time`]) errors[`stop${i}Time`] = "This is before the stop ahead of it. Check the date and time.";
     else earlier = t;
@@ -656,6 +679,18 @@ export function quoteCautions(input: QuoteInput): QuoteCautions {
   else if (input.fscUnit === "per_mile" && input.fsc > 2) out.fsc = (`A fuel surcharge of $${input.fsc} a loaded mile looks high. Check it.`);
   if (input.factoringFraction != null && input.factoringFraction >= 0.5) out.factoringPct = (`A factoring fee of ${(input.factoringFraction * 100).toFixed(0)}% is very high. Did you mean ${(input.factoringFraction * 10).toFixed(1)}%?`);
   return out;
+}
+
+/**
+ * The offer that covers the floor, from the audited pay needed (`payNeeded`: the offer plus the surcharge that follows it, worked out by the vendored rules with the carrier's cut, factoring
+ * and the rider). The surcharge is taken back out the way it was typed (a percent rides on the offer, a rate a mile does not), and the answer is rounded up to the dollar so it is never a cent
+ * short. Null when the load already clears (the rules only work the figure out when there is a gap) or nothing is known.
+ */
+export function floorOffer(i: { payNeeded: number | null | undefined; gross: number; marginPerMile: number | null; fsc: number; fscUnit: FuelSurchargeUnit; loadedMiles: number }): number | null {
+  if (i.payNeeded == null || !Number.isFinite(i.payNeeded) || i.marginPerMile == null || i.marginPerMile >= 0 || i.payNeeded <= i.gross) return null;
+  const fsc = Number.isFinite(i.fsc) && i.fsc > 0 ? i.fsc : 0;
+  const offer = i.fscUnit === "per_mile" ? i.payNeeded - fsc * i.loadedMiles : i.payNeeded / (1 + fsc / 100);
+  return offer > 0 ? Math.ceil(offer - 1e-9) : null;
 }
 
 /** The surcharge in dollars, whichever way it was typed: a percent of the offer or dollars per loaded mile, as the phone adds it. */

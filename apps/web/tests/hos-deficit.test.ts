@@ -66,8 +66,10 @@ describe("the deficit tag in the Fleet Matrix row", () => {
     expect(tsx).toMatch(/r\.hos\.availableHours != null \? `\$\{r\.hos\.availableHours\}h left/);
   });
 
-  it("is built from the server's own caution level and the trip's on-duty hours, not from elapsed hours", () => {
-    expect(tsx).toMatch(/hosDeficit\(\{ level: r\.hos\.caution\.level, availableHours: r\.hos\.availableHours, tripHours: r\.detail\.metrics\.tripHours \}\)/);
+  it("is built from the server's own caution level and the first day of the trip's driving (11 h at most, 49 CFR 395.3), not from elapsed hours", () => {
+    // Quote review Q1 (2026-11-25): hours left now are read against the first day, as assigning reads them; a two-day trip is not a deficit against one day's clock.
+    expect(tsx).toMatch(/hosDeficit\(\{ level: r\.hos\.caution\.level, availableHours: r\.hos\.availableHours, tripHours: firstDay\(r\.detail\.metrics\.tripHours\) \}\)/);
+    expect(tsx).toMatch(/const firstDay = \(tripHours: number \| null \| undefined\) => \(tripHours == null \? tripHours : Math\.min\(tripHours, DRIVE_LIMIT_HOURS\)\)/);
     expect(tsx).not.toMatch(/hosDeficit\([^)]*elapsedHours/);
   });
 

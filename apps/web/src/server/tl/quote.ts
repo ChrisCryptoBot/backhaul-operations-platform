@@ -15,6 +15,8 @@ import { missingTimes, OVERRIDE_REASONS, PASS_REASONS, surchargeDollars, validat
 import { notQuote, QUOTE_STATUS } from "@/lib/quote-status";
 import { loadWindow } from "@/lib/schedule";
 import { toCentralLocal } from "@/lib/zoned";
+import { stopZoneOf } from "@/server/geo/stop-zone";
+import { DEFAULT_TZ } from "@/lib/tz";
 import { acceptGateFor } from "@/truelane/lib/calculate/acceptGate";
 import type { AcceptGate, MarketBand } from "@/truelane/lib/domain/marketVerdict";
 import { fuelSurchargePercentFromDollars, fuelSurchargePerMileFromDollars } from "@/truelane/lib/fuelSurcharge";
@@ -52,6 +54,14 @@ import { workspaceTimezone } from "./zone";
  * load with status `quote` (lib/quote-status.ts); booking it makes it a load that needs a driver, writes the decision (accepted, or
  * overridden with the reason given), freezes the truck's floor and dock terms on it, and can put the chosen driver on it.
  */
+
+/**
+ * The form's values with each stop's clock worked out here, from where the stop is (its measured point, else its state, else the carrier's clock): a stop's time is the dock's time, as
+ * everywhere else on the desk (src/lib/tz.ts). Whatever zone the browser sent is replaced, never trusted.
+ */
+export function zonedValues(values: QuoteValues, carrier: string): QuoteValues {
+  return { ...values, stops: values.stops.map((s) => ({ ...s, zone: stopZoneOf({ lat: typeof s.lat === "number" ? s.lat : null, lng: typeof s.lng === "number" ? s.lng : null, addressString: s.address }, carrier) })) };
+}
 
 export type FitDetail = {
   effectiveGross: number;
@@ -506,6 +516,7 @@ export async function quoteContext(input: QuoteInput, workspaceId = currentWorks
 function stopRows(input: QuoteInput) {
   return input.stops.map((s, i) => ({
     stopSequence: i + 1,
+    ...(s.lat != null && s.lng != null ? { lat: new Prisma.Decimal(s.lat).toDecimalPlaces(6), lng: new Prisma.Decimal(s.lng).toDecimalPlaces(6) } : {}),
     stopType: s.role,
     stopRole: s.role,
     addressString: s.address,
@@ -602,7 +613,8 @@ export const STALE_QUOTE = "Someone changed this quote since you opened it. Relo
 const movedSince = (updatedAt: Date, version: string | null | undefined) => version != null && version !== "" && updatedAt.getTime() !== Date.parse(version);
 
 /** Save the form as a quote (or update the one it came from). It is not a load anyone can see on the board until it is booked. */
-export async function saveQuote(values: QuoteValues, quoteId: string | null, vehicleId: string | null, workspaceId = currentWorkspaceId(), now = new Date(), opts: QuoteWriteOpts = {}): Promise<QuoteSave> {
+export async function saveQuote(raw: QuoteValues, quoteId: string | null, vehicleId: string | null, workspaceId = currentWorkspaceId(), now = new Date(), opts: QuoteWriteOpts = {}): Promise<QuoteSave> {
+  const values = zonedValues(raw, await workspaceTimezone(workspaceId));
   const check = validateQuote(values);
   if (!check.ok) return { ok: false, errors: check.errors };
   const input = check.input;
@@ -819,7 +831,7 @@ export async function listQuotes(workspaceId = currentWorkspaceId(), filter: Quo
 type LoadWithStops = Prisma.LoadGetPayload<{ include: { stops: true } }>;
 
 /** A load as the form's values. The surcharge goes back to the unit it was typed in, as the phone does. */
-export function quoteValuesFromLoad(l: LoadWithStops): QuoteValues {
+export function quoteValuesFromLoad(l: LoadWithStops, carrier: string = DEFAULT_TZ): QuoteValues {
   const dec = (n: number | null, places = 4) => (n == null ? "" : new Prisma.Decimal(n).toDecimalPlaces(places).toString());
   const unit = l.fuelSurchargeUnit === "per_mile" ? "per_mile" : "percent";
   const dollars = numOrNull(l.fuelSurcharge) ?? 0;
@@ -833,12 +845,18 @@ export function quoteValuesFromLoad(l: LoadWithStops): QuoteValues {
   const stops = [...l.stops].sort((a, b) => a.stopSequence - b.stopSequence);
   return {
     stops: stops.map((s) => {
-      const open = s.timeWindowEarliest ? toCentralLocal(s.timeWindowEarliest.getTime()) : "";
-      const close = s.timeWindowLatest ? toCentralLocal(s.timeWindowLatest.getTime()) : "";
+      // Each time on the clock at its own dock, as it was typed.
+      const zone = stopZoneOf(s, carrier);
+      const open = s.timeWindowEarliest ? toCentralLocal(s.timeWindowEarliest.getTime(), zone) : "";
+      const close = s.timeWindowLatest ? toCentralLocal(s.timeWindowLatest.getTime(), zone) : "";
+      const lat = numOrNull(s.lat);
+      const lng = numOrNull(s.lng);
       const refs = Array.isArray(s.referenceNumbers) ? (s.referenceNumbers as unknown[]).map(String).join(", ") : "";
       return {
         role: (s.stopRole ?? s.stopType) === "delivery" ? "delivery" : "pickup",
         address: s.addressString,
+        zone,
+        ...(lat != null && lng != null ? { lat, lng } : {}),
         appointment: open,
         appointmentEnd: close && close !== open ? close : "",
         facility: s.facilityName ?? "",
@@ -915,7 +933,7 @@ export async function getQuote(id: string, workspaceId = currentWorkspaceId()): 
   const l = await prisma.load.findFirst({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null, AND: [inTerminal(await currentAllowed(workspaceId))] }, include: { stops: { orderBy: { stopSequence: "asc" } }, decisions: { orderBy: { decidedAt: "desc" }, take: 1 } } });
   if (!l) return null;
   const passed = l.decisions[0]?.decisionType === PASSED ? (l.decisions[0].overrideReason ?? "Passed") : null;
-  return { vehicleId: l.vehicleId, values: quoteValuesFromLoad(l), passedFor: passed, version: l.updatedAt.toISOString() };
+  return { vehicleId: l.vehicleId, values: quoteValuesFromLoad(l, await workspaceTimezone(workspaceId)), passedFor: passed, version: l.updatedAt.toISOString() };
 }
 
 /**
@@ -925,7 +943,7 @@ export async function getQuote(id: string, workspaceId = currentWorkspaceId()): 
 export async function getQuoteLike(id: string, workspaceId = currentWorkspaceId()): Promise<QuoteValues | null> {
   const l = await prisma.load.findFirst({ where: { id, workspaceId, deletedAt: null, AND: [inTerminal(await currentAllowed(workspaceId))] }, include: { stops: { orderBy: { stopSequence: "asc" } } } });
   if (!l || l.stops.length < 2) return null;
-  const v = quoteValuesFromLoad(l);
+  const v = quoteValuesFromLoad(l, await workspaceTimezone(workspaceId));
   return { ...v, loadNumber: "", poNumber: "", rateConNumber: "", proNumber: "", bolNumber: "", rateConPath: "", stops: v.stops.map((st) => ({ ...st, appointment: "", appointmentEnd: "", refs: "" })) };
 }
 
@@ -944,7 +962,7 @@ export async function passQuote(id: string, reason: string, notes: string, works
   // What it was worth when it was passed on: priced again as it stands, for the record. Never stops the pass.
   let details: DecisionDetails | null = null;
   try {
-    const check = validateQuote(quoteValuesFromLoad(l));
+    const check = validateQuote(quoteValuesFromLoad(l, await workspaceTimezone(workspaceId)));
     if (check.ok) {
       const [fit, laneRecord] = await Promise.all([fitQuote(check.input, workspaceId, now, await currentTerminal(workspaceId)), laneBenchmark(check.input, workspaceId, now)]);
       const row = fit.rows.find((r) => r.truckId === l.vehicleId && !r.blocked) ?? fit.rows.find((r) => !r.blocked) ?? fit.rows[0] ?? null;
@@ -1081,7 +1099,7 @@ export type Override = { reason: string; notes: string };
  * decision. Both ends need a time, because the desk cannot yet edit a stop and a load with no times cannot be planned or chased.
  */
 export async function bookQuote(
-  values: QuoteValues,
+  raw: QuoteValues,
   pick: { vehicleId: string; driverId: string | null },
   override: Override | null,
   quoteId: string | null,
@@ -1089,6 +1107,7 @@ export async function bookQuote(
   now = new Date(),
   opts: BookOpts = {}
 ): Promise<BookResult> {
+  const values = zonedValues(raw, await workspaceTimezone(workspaceId));
   const check = validateQuote(values);
   if (!check.ok) return { ok: false, errors: check.errors };
   const input = check.input;

@@ -16,10 +16,11 @@ import { DRIVE_LIMIT_HOURS } from "@/lib/hos-check";
 
 /** What the clock has to cover before the first ten-hour break: a longer trip is driven over more than one day (49 CFR 395.3), so hours left now are read against the first day. */
 const firstDay = (tripHours: number | null | undefined) => (tripHours == null ? tripHours : Math.min(tripHours, DRIVE_LIMIT_HOURS));
-import { BLANK_QUOTE, gateTitle, grossPerLoadedMile, HAZMAT_CLASSES, isQuoteDirty, missingTimes, OVERRIDE_REASONS, PASS_REASONS, quoteCautions, readQuote, swapRoute, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
+import { BLANK_QUOTE, floorOffer, gateTitle, grossPerLoadedMile, HAZMAT_CLASSES, isQuoteDirty, missingTimes, OVERRIDE_REASONS, PASS_REASONS, quoteCautions, readQuote, swapRoute, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
 import { BRIEF_LABEL, buildBrief, type BriefKind } from "@/lib/quote-brief";
 import type { CustomerOption, FitRow, LaneBenchmark, QuoteListRow } from "@/server/tl/quote";
 import type { Measured } from "@/server/geo/measure";
+import { forgetRateCon, keepRateCon, readRateCon } from "@/lib/quote-file-store";
 import { groundOf, readVerdict, type Benchmark, type Verdict as VerdictRead } from "@/lib/verdict";
 import { ExplainScope, VerdictHead, VerdictLadder, VerdictRests, VerdictRuler, VerdictTag, type LadderLine } from "./verdict-card";
 import { TRAILER_TYPES } from "@/truelane/constants/trailerData";
@@ -35,13 +36,16 @@ import { parseBrokerSnippet } from "@/lib/quote-parser";
 import { PACKING_GROUPS, REEFER_MODES } from "@/lib/load-edit";
 import { lumperFlag, type LumperFlag } from "@/lib/lumper";
 import "./quote-terminal.css";
-import { clockName } from "@/lib/tz";
+import { clockName, zoneAbbr } from "@/lib/tz";
 
 /** How long ago an ISO time was, in the unit that reads best: "3 min ago", "2 h ago", "1 d ago". */
 const ago = (iso: string) => {
   const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60_000));
   return min < 90 ? `${min} min ago` : min < 60 * 36 ? `${Math.round(min / 60)} h ago` : `${Math.round(min / 1440)} d ago`;
 };
+
+/** What the reading said about a dropped rate confirmation, kept with the file until the quote is booked (lib/quote-file-store.ts). */
+type RateConMeta = { fileName: string; isRealFile: boolean; warnings: string[]; lumper: LumperFlag | null; tonuOnly: boolean; fuelSurchargeIncluded: number | null };
 
 type Initial = { id: string | null; values: QuoteValues; vehicleId: string | null; /** Why it was passed on, when it was: the quote is then read, not edited. */ passedFor: string | null; /** The saved quote's last change, so a save or booking over someone else's newer change is refused. */ version?: string | null } | null;
 
@@ -120,14 +124,7 @@ export function QuoteDesk({
   const [draggingFile, setDraggingFile] = React.useState(false);
   const rateConInputRef = React.useRef<HTMLInputElement>(null);
   const rateConFileRef = React.useRef<File | null>(null);
-  const [rateConMeta, setRateConMeta] = React.useState<{
-    fileName: string;
-    isRealFile: boolean;
-    warnings: string[];
-    lumper: LumperFlag | null;
-    tonuOnly: boolean;
-    fuelSurchargeIncluded: number | null;
-  } | null>(null);
+  const [rateConMeta, setRateConMeta] = React.useState<RateConMeta | null>(null);
 
   // Keyboard shortcuts modal state
   const [shortcutsOpen, setShortcutsOpen] = React.useState(false);
@@ -158,6 +155,18 @@ export function QuoteDesk({
 
   // What is typed here is kept until the person saves, books or starts over
   const draftKey = `quote:${draftId}`;
+  // A rate confirmation dropped on this quote earlier (before a refresh, or before it was saved) comes back with what the reading said about it.
+  React.useEffect(() => {
+    let live = true;
+    void readRateCon<RateConMeta>(draftKey).then((kept) => {
+      if (!live || !kept || rateConFileRef.current) return;
+      rateConFileRef.current = kept.file;
+      setRateConMeta(kept.meta);
+    });
+    return () => {
+      live = false;
+    };
+  }, [draftKey]);
   const [values, setValues, draft] = useDraft<QuoteValues>(draftKey, initial?.values ?? BLANK_QUOTE);
   const [ask, setAsk, askDraft] = useDraft<QuoteAsk>(`${draftKey}:ask`, BLANK_ASK);
   const { reason, notes, passReason, passNotes, pasteText, selected } = ask;
@@ -288,7 +297,11 @@ export function QuoteDesk({
     return findBackhauls({ address: lastStop.address }, openPickups);
   }, [lastStop?.address, openPickups]);
 
-  const check = validateQuote(values);
+  // Each stop's clock, as the server last worked it out (from where the stop is), else the one the stop came with (a reopened quote, a rate confirmation). The form checks the order of the
+  // stops on these; the server works them out again for every save and booking.
+  const zoneAt = React.useCallback((i: number): string | null => priced?.stopZones?.[i] || values.stops[i]?.zone || null, [priced, values.stops]);
+  const zoned = React.useMemo<QuoteValues>(() => ({ ...values, stops: values.stops.map((st, i) => ({ ...st, zone: zoneAt(i) })) }), [values, zoneAt]);
+  const check = validateQuote(zoned);
   const customer = brokers.find((b) => b.name.trim().toLowerCase() === values.broker.trim().toLowerCase()) ?? null;
   const filled = React.useRef<{ mc: string; phone: string; email: string; terms: string } | null>(null);
   const [filledFrom, setFilledFrom] = React.useState<string | null>(null);
@@ -312,11 +325,11 @@ export function QuoteDesk({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customer?.name]);
 
-  const usedFuel = readQuote(values)?.fuelPrice ?? null;
+  const usedFuel = readQuote(zoned)?.fuelPrice ?? null;
   const cautions = React.useMemo(() => {
-    const input = readQuote(values);
+    const input = readQuote(zoned);
     return input ? quoteCautions(input) : {};
-  }, [values]);
+  }, [zoned]);
   const errors: Record<string, string> = { ...serverErrors, ...(tried && !check.ok ? check.errors : {}) };
 
   React.useEffect(() => {
@@ -378,6 +391,8 @@ export function QuoteDesk({
             if (t.home != null && !manual.current.has("emptyHome")) next.emptyHomeByTruck[id] = String(t.home);
           }
           if (!manual.current.has("emptyToPickup")) next.emptyToPickup = out.emptyMidMiles > 0 ? String(out.emptyMidMiles) : "";
+          // Where each stop was found: the server reads a stop's clock from it (Texas, Florida and a few others span two zones). Only when the route is still the one measured.
+          if (out.stopPoints && out.stopPoints.length === next.stops.length && routeKey(next.stops) === routeNow) next.stops = next.stops.map((st, k) => ({ ...st, lat: out.stopPoints![k]!.lat, lng: out.stopPoints![k]!.lng }));
           return next;
         });
         const trucks = Object.keys(out.perTruck).length;
@@ -421,10 +436,11 @@ export function QuoteDesk({
     // The chips narrow what was priced: equipment that suits the load, a driver on shift, nothing in the way, one terminal. An unknown (no trailer hooked, no schedule) is not a "no".
     const list = rows.filter((r) => (!chips.trailer || r.trailerFits !== false) && (!chips.shift || r.onShift !== false) && (!chips.ready || r.available) && (!chips.terminal || r.terminal === chips.terminal));
     if (matrixSort === "deadhead") {
+      // Closest first among the trucks that can take it; a truck that cannot (busy, over its limits, a lapsed card) stays below them, as in the margin order.
       return list.sort((a, b) => {
         const aEmpty = Number(values.emptyByTruck[a.truckId] ?? a.emptyToPickup ?? 0);
         const bEmpty = Number(values.emptyByTruck[b.truckId] ?? b.emptyToPickup ?? 0);
-        return aEmpty - bEmpty;
+        return (a.blocked ? 1 : 0) - (b.blocked ? 1 : 0) || aEmpty - bEmpty;
       });
     }
     return list;
@@ -464,6 +480,7 @@ export function QuoteDesk({
     askDraft.discard();
     rateConFileRef.current = null;
     setRateConMeta(null);
+    void forgetRateCon(draftKey);
     setQuoteId(null);
     setVersion(null);
     setTried(false);
@@ -562,8 +579,11 @@ export function QuoteDesk({
           attachNote = "Load booked, but rate con file could not be attached. Upload it under Paperwork.";
         }
       }
+      // A quote saved with a rate confirmation on another computer, or before the file was kept: the load says it came from one, so say where the file goes.
+      if (!file && (values.rateConPath ?? "").trim() !== "" && rateConMeta?.isRealFile !== false) attachNote = "The rate confirmation file is not on this computer. Attach it to the load under Paperwork.";
       rateConFileRef.current = null;
       setRateConMeta(null);
+      void forgetRateCon(draftKey);
       setAsking(false);
       draft.saved();
       askDraft.saved();
@@ -577,10 +597,10 @@ export function QuoteDesk({
     // The server asks for what the form had not: a reason for the verdict, for the driver's hours, or a yes to a pickup already past. The dialog shows each one it needs.
     if (out.gate || out.hos || out.pastPickup) setAsking(true);
     setMessage(out.error ?? (out.errors ? "Fix what is marked, then book it." : null));
-  }, [row, values, quoteId, draft, askDraft, router, version, pastOk, hosReason]);
+  }, [row, values, quoteId, draft, askDraft, router, version, pastOk, hosReason, draftKey, rateConMeta?.isRealFile]);
 
   // What booking this row asks for before it goes: a reason for the verdict, a reason for the driver's hours, a yes to a pickup more than a day past.
-  const pickupMs = readQuote(values)?.stops[0]?.appointment ?? null;
+  const pickupMs = readQuote(zoned)?.stops[0]?.appointment ?? null;
   const needs = {
     gate: row?.gate ?? null,
     hos: row?.driverId && row.hos.needsReason ? (row.hos.caution.message ?? "This driver's hours need a look.") : null,
@@ -591,6 +611,11 @@ export function QuoteDesk({
   const onBook = React.useCallback(() => {
     // Nothing is booked from a row that cannot take it, or by someone who may only look, whichever way it was asked for (the button, Enter, a shortcut).
     if (locked || busy || !row || row.blocked) return;
+    // A TONU notice is not a haul: there is nothing to book (the fee is billed on the load that was cancelled).
+    if (rateConMeta?.tonuOnly) {
+      setMessage("This document is a TONU notice, not a load to haul. Bill the fee on the load that was cancelled, or dismiss the file.");
+      return;
+    }
     setTried(true);
     setServerErrors({});
     if (!check.ok) {
@@ -608,7 +633,7 @@ export function QuoteDesk({
       return;
     }
     void book(null);
-  }, [locked, busy, row, check.ok, values.stops, needs.gate, needs.hos, needs.past, book]);
+  }, [locked, busy, row, check.ok, values.stops, needs.gate, needs.hos, needs.past, book, rateConMeta?.tonuOnly]);
 
   const onSave = React.useCallback(async () => {
     if (locked || busy) return;
@@ -624,6 +649,8 @@ export function QuoteDesk({
     if (out.ok) {
       setQuoteId(out.id);
       setVersion(out.version);
+      // The saved quote reopens under its own key: the dropped file and what was read from it go with it.
+      if (rateConMeta) await keepRateCon(`quote:${out.id}`, { file: rateConFileRef.current, meta: rateConMeta });
       setMessage(null);
       draft.saved();
       askDraft.saved();
@@ -634,7 +661,7 @@ export function QuoteDesk({
       setServerErrors(out.errors ?? {});
       setMessage(out.error ?? "Fix what is marked, then save it.");
     }
-  }, [locked, busy, check.ok, values, row?.driverId, row?.truckId, quoteId, version, draft, askDraft, toast, router]);
+  }, [locked, busy, check.ok, values, row?.driverId, row?.truckId, quoteId, version, draft, askDraft, toast, router, rateConMeta]);
 
   const onOpenPass = React.useCallback(() => {
     if (locked || busy) return;
@@ -755,14 +782,16 @@ export function QuoteDesk({
       text: [res.draft.printed.notes ?? "", res.draft.printed.dockTerms ?? "", ...res.draft.printed.accessorials, ...res.draft.stops.map((s) => s.stopNotes ?? "")],
       stops: res.draft.stops.map((s) => ({ stopType: s.stopType, facilityName: s.facilityName }))
     });
-    setRateConMeta({
+    const meta: RateConMeta = {
       fileName,
       isRealFile: file !== null,
       warnings: res.draft.warnings,
       lumper,
       tonuOnly: res.draft.printed.tonuOnly,
       fuelSurchargeIncluded: res.draft.printed.fuelSurchargeIncluded
-    });
+    };
+    setRateConMeta(meta);
+    void keepRateCon(draftKey, { file, meta });
     if (res.draft.printed.tonuOnly) {
       toast({ text: "This rate confirmation appears to be a TONU notice.", tone: "bad" });
     } else {
@@ -822,7 +851,7 @@ export function QuoteDesk({
   // Copy Brief: three texts for three readers (lib/quote-brief.ts). Only the dispatch note carries our truck and our margin.
   const copyBrief = async (kind: BriefKind) => {
     const text = buildBrief(kind, {
-      stops: values.stops,
+      stops: zoned.stops,
       loadedMiles: values.loadedMiles,
       weightLbs: values.weightLbs,
       trailer: values.trailer,
@@ -1239,6 +1268,7 @@ export function QuoteDesk({
                     onClick={() => {
                       rateConFileRef.current = null;
                       setRateConMeta(null);
+                      void forgetRateCon(draftKey);
                       set({ rateConPath: "" });
                     }}>
                     Dismiss
@@ -1296,15 +1326,17 @@ export function QuoteDesk({
                             label={`Stop ${i + 1} address`}
                             value={s.address}
                             placeholder={first ? "Dallas, TX" : last ? "Atlanta, GA" : "City, ST"}
-                            onChange={(text) => setStop(i, { address: text })}
+                            onChange={(text) => setStop(i, { address: text, lat: null, lng: null, zone: null })}
                             onEnter={() => (last ? focusId("qt-offer") : focusAddress(i + 2))}
                             invalid={!!err(`stop${i}`)}
                           />
                           {err(`stop${i}`) ? <span className="th-err">{err(`stop${i}`)}</span> : null}
                         </label>
                         <label className="tl-field qt-when">
-                          <span className="db-sr-only">Stop {i + 1} time, {clockName()}</span>
+                          <span className="db-sr-only">Stop {i + 1} time, {clockName(zoneAt(i) ?? undefined)}</span>
                           <DateInput type="datetime-local" value={s.appointment} onChange={(e) => setStop(i, { appointment: e.target.value })} aria-invalid={err(`stop${i}Time`) ? true : undefined} />
+                          {/* The dock's own clock, as the rate confirmation prints it. */}
+                          {zoneAt(i) ? <span className="tl-sub qt-zone" aria-hidden="true">{zoneAbbr(zoneAt(i))} at the dock</span> : null}
                           {err(`stop${i}Time`) ? <span className="th-err">{err(`stop${i}Time`)}</span> : null}
                         </label>
                         {!first && !last ? (
@@ -1320,7 +1352,7 @@ export function QuoteDesk({
                           <summary className="tl-sub">Stop {i + 1} details (facility, closes, refs, contact &amp; notes)</summary>
                           <div className="qt-grid" style={{ marginTop: 6 }}>
                             <label className="tl-field">
-                              Closes ({clockName()})
+                              Closes ({clockName(zoneAt(i) ?? undefined)})
                               <DateInput type="datetime-local" value={s.appointmentEnd ?? ""} onChange={(e) => setStop(i, { appointmentEnd: e.target.value })} aria-invalid={err(`stop${i}TimeEnd`) ? true : undefined} />
                               {err(`stop${i}TimeEnd`) ? <span className="th-err">{err(`stop${i}TimeEnd`)}</span> : null}
                             </label>
@@ -1363,7 +1395,7 @@ export function QuoteDesk({
                 <button type="button" className="tl-btn sm" onClick={addStop}>
                   Add a stop
                 </button>
-                <span className="tl-sub">Times are {clockName()}, needed to book it and not to price it.</span>
+                <span className="tl-sub">Times are each dock&apos;s local time, as the rate confirmation prints them. Needed to book it, not to price it.</span>
               </div>
             </section>
 
@@ -2063,6 +2095,9 @@ export function QuoteDesk({
                   {/* Counter-Offer Negotiation Assistant */}
                   <CounterOfferAssistant
                     currentOffer={currentOfferNum}
+                    fsc={Number(values.fsc) || 0}
+                    fscUnit={values.fscUnit}
+                    loadedMiles={Number(values.loadedMiles) || 0}
                     row={row}
                     onApply={handleApplyCounter}
                     onStep={handleStepOffer}
@@ -2102,7 +2137,7 @@ export function QuoteDesk({
                     Reject it
                   </button>
                 ) : (
-                  <button type="button" className="tl-btn primary" disabled={busy || locked || !row || !!row.blocked} aria-busy={busy || undefined} onClick={onBook}>
+                  <button type="button" className="tl-btn primary" disabled={busy || locked || !row || !!row.blocked || !!rateConMeta?.tonuOnly} aria-busy={busy || undefined} onClick={onBook}>
                     {bookLabel}
                   </button>
                 )}
@@ -2111,7 +2146,7 @@ export function QuoteDesk({
                     {quoteId ? "Update quote" : "Save as quote"}
                   </button>
                   {verdict?.state === "reject" ? (
-                    <button type="button" className="tl-btn ghost" disabled={busy || locked || !row || !!row.blocked} aria-busy={busy || undefined} onClick={onBook}>
+                    <button type="button" className="tl-btn ghost" disabled={busy || locked || !row || !!row.blocked || !!rateConMeta?.tonuOnly} aria-busy={busy || undefined} onClick={onBook}>
                       Book anyway
                     </button>
                   ) : (
@@ -2458,30 +2493,30 @@ function verdictOf(row: FitRow, benchmark: Benchmark, marketSuspect?: boolean): 
  */
 function CounterOfferAssistant({
   currentOffer,
+  fsc,
+  fscUnit,
+  loadedMiles,
   row,
   onApply,
   onStep
 }: {
   currentOffer: number;
+  fsc: number;
+  fscUnit: QuoteValues["fscUnit"];
+  loadedMiles: number;
   row: FitRow;
   onApply: (val: number) => void;
   onStep: (delta: number) => void;
 }) {
   const totalTripMiles = row.totalMiles || 1;
-  const floorRate = row.floorPerMile || 0;
-  const profitPerMile = row.detail?.metrics?.profitPerMile ?? row.marginPerMile ?? 0;
+  // The offer that covers this truck's floor, from the audited figure (the carrier's cut, factoring, the rider and the surcharge all counted), never worked out here from the floor a mile.
+  // A load that already clears has no floor button: the offer is above it.
+  const breakEvenOffer = floorOffer({ payNeeded: row.detail?.payNeeded, gross: row.detail?.effectiveGross ?? currentOffer, marginPerMile: row.marginPerMile, fsc, fscUnit, loadedMiles });
 
-  let breakEvenOffer: number | null = null;
-  if (profitPerMile < 0) {
-    const neededExtra = Math.ceil(Math.abs(profitPerMile) * totalTripMiles);
-    breakEvenOffer = Math.round((currentOffer + neededExtra) / 10) * 10;
-  } else if (floorRate > 0) {
-    breakEvenOffer = Math.round((floorRate * totalTripMiles) / 10) * 10;
-  }
-
+  // A step up from the floor (or the offer, when it clears), in dollars over every mile, rounded up to the next ten: what to ask for, before fees.
   const baseForTargets = breakEvenOffer != null ? Math.max(breakEvenOffer, currentOffer) : currentOffer;
-  const target10Offer = Math.round((baseForTargets + totalTripMiles * 0.25) / 10) * 10;
-  const target15Offer = Math.round((baseForTargets + totalTripMiles * 0.50) / 10) * 10;
+  const target10Offer = Math.ceil((baseForTargets + totalTripMiles * 0.25) / 10) * 10;
+  const target15Offer = Math.ceil((baseForTargets + totalTripMiles * 0.5) / 10) * 10;
 
   return (
     <div className="qt-negotiate">
@@ -2494,36 +2529,30 @@ function CounterOfferAssistant({
           <button
             type="button"
             className="qt-target-chip"
-            title="Break-even offer to clear $0 margin"
+            title="The offer that covers this truck's cost, after the carrier's cut, factoring and the rider"
             onClick={() => onApply(breakEvenOffer!)}>
             <span>Floor:</span>
-            <b>${breakEvenOffer.toLocaleString()}</b>
-            {breakEvenOffer > currentOffer ? (
-              <span className="qt-diff">+${(breakEvenOffer - currentOffer).toLocaleString()}</span>
-            ) : null}
+            <b>{usd(breakEvenOffer)}</b>
+            {breakEvenOffer > currentOffer ? <span className="qt-diff">+{usd(breakEvenOffer - currentOffer)}</span> : null}
           </button>
         ) : null}
         <button
           type="button"
           className="qt-target-chip"
-          title="Target offer for healthy +$0.25/mi profit margin"
+          title="$0.25 a mile over every mile above the floor (or the offer, when it clears), before fees"
           onClick={() => onApply(target10Offer)}>
-          <span>Target (+10%):</span>
-          <b>${target10Offer.toLocaleString()}</b>
-          {target10Offer > currentOffer ? (
-            <span className="qt-diff">+${(target10Offer - currentOffer).toLocaleString()}</span>
-          ) : null}
+          <span>+$0.25/mi:</span>
+          <b>{usd(target10Offer)}</b>
+          {target10Offer > currentOffer ? <span className="qt-diff">+{usd(target10Offer - currentOffer)}</span> : null}
         </button>
         <button
           type="button"
           className="qt-target-chip"
-          title="Target offer for high-yield +$0.50/mi profit margin"
+          title="$0.50 a mile over every mile above the floor (or the offer, when it clears), before fees"
           onClick={() => onApply(target15Offer)}>
-          <span>Target (+15%):</span>
-          <b>${target15Offer.toLocaleString()}</b>
-          {target15Offer > currentOffer ? (
-            <span className="qt-diff">+${(target15Offer - currentOffer).toLocaleString()}</span>
-          ) : null}
+          <span>+$0.50/mi:</span>
+          <b>{usd(target15Offer)}</b>
+          {target15Offer > currentOffer ? <span className="qt-diff">+{usd(target15Offer - currentOffer)}</span> : null}
         </button>
       </div>
       <div className="qt-steppers">

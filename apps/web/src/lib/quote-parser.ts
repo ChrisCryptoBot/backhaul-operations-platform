@@ -22,9 +22,10 @@ export function parseBrokerSnippet(text: string): ParsedBrokerSnippet {
 
   // 1. Origin & Destination
   // e.g. "Dallas, TX to Atlanta, GA" or "Chicago, IL -> Indianapolis, IN" or "PU: Houston, TX DEL: Memphis, TN"
+  // A city name stays on one line (spaces and tabs, never a line break), so a pasted email's earlier lines are not swallowed into the origin.
   const routePatterns = [
-    /(?:from|origin|pu|pickup)?[:\s]*([A-Za-z\s\.\-]+,\s*[A-Za-z]{2})\s*(?:to|->|-->|–|-|(?:dest|destination|del|delivery)[:\s]+)\s*([A-Za-z\s\.\-]+,\s*[A-Za-z]{2})/i,
-    /([A-Za-z\s\.\-]+,\s*[A-Z]{2})\s+(?:to|->|-->|–)\s+([A-Za-z\s\.\-]+,\s*[A-Z]{2})/i
+    /(?:from|origin|pu|pickup)?[:\s]*([A-Za-z \t.\-]+,[ \t]*[A-Za-z]{2})\s*(?:to|->|-->|–|-|(?:dest|destination|del|delivery)[:\s]+)\s*([A-Za-z \t.\-]+,[ \t]*[A-Za-z]{2})/i,
+    /([A-Za-z \t.\-]+,[ \t]*[A-Z]{2})\s+(?:to|->|-->|–)\s+([A-Za-z \t.\-]+,[ \t]*[A-Z]{2})/i
   ];
 
   for (const pat of routePatterns) {
@@ -54,7 +55,9 @@ export function parseBrokerSnippet(text: string): ParsedBrokerSnippet {
     const num = Math.round(parseFloat(kWeight[1]) * 1000);
     result.weightLbs = String(num);
   } else {
-    const lbsWeight = clean.match(/(?:weight|wt)?[:\s]*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,5})\s*(?:lbs?|#|pounds)?/i);
+    // A number is a weight only when it says so: a unit after it (lbs, #, pounds) or the word before it. A bare five digits is as likely a ZIP code (75201) or a year (2026).
+    const lbsWeight =
+      clean.match(/\b([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,5})\s*(?:lbs?\b|#|pounds\b)/i) ?? clean.match(/\b(?:weight|wt)\b[:\s]*([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{4,5})\b/i);
     if (lbsWeight && lbsWeight[1]) {
       result.weightLbs = lbsWeight[1].replace(/,/g, "");
     }

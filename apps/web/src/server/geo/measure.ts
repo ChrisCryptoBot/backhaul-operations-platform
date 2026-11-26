@@ -22,6 +22,8 @@ export type Measured =
       /** Drive time for the loaded miles alone, at the route's own average speed. */
       loadedHours: number;
       perTruck: Record<string, TruckMiles>;
+      /** Where each stop was found, in stop order: the server reads a stop's clock from it (a state like Texas spans two zones). */
+      stopPoints?: Array<{ lat: number; lng: number }>;
     }
   | { ok: false; error: string };
 
@@ -71,7 +73,8 @@ export async function measureQuote(input: MeasureInput): Promise<Measured> {
     loadedMiles: roundMiles(split.loadedMiles),
     emptyMidMiles: roundMiles(split.emptyMidMiles),
     loadedHours: loadedLegHours(route.seconds, split.routeMiles, split.loadedMiles),
-    perTruck
+    perTruck,
+    stopPoints: points.map((p) => ({ lat: p.lat, lng: p.lng }))
   };
 }
 

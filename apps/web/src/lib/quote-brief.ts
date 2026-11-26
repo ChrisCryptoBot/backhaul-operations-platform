@@ -12,7 +12,7 @@
 import { display } from "./date-field";
 import { miles, perMile, usd } from "./desk-format";
 import { grossPerLoadedMile, type QuoteStop } from "./quote";
-import { clockName } from "./tz";
+import { clockName, zoneAbbr } from "./tz";
 
 export type BriefKind = "customer" | "driver" | "dispatch";
 
@@ -45,7 +45,10 @@ function positive(s: string | null | undefined): number | null {
 
 const trailerWords = (trailer: string) => trailer.replace(/_/g, " ").trim();
 const clean = (s: string) => s.trim();
-const when = (stop: QuoteStop | undefined) => (stop && stop.appointment ? display(stop.appointment, true) : "");
+/** A stop's time with its dock's clock when the stop knows it ("8:00 AM ET"), as the rate confirmation prints it; with no clock known, the time alone (the line under says whose clock). */
+const when = (stop: QuoteStop | undefined) => (stop && stop.appointment ? `${display(stop.appointment, true)}${stop.zone ? ` ${zoneAbbr(stop.zone)}` : ""}` : "");
+/** Whether every timed stop says its own clock, so no line about one clock is needed. */
+const allZoned = (stops: QuoteStop[]) => stops.filter((s) => s.appointment).every((s) => !!s.zone);
 
 function customerEmail(i: BriefInput): string {
   const stops = i.stops;
@@ -57,7 +60,7 @@ function customerEmail(i: BriefInput): string {
     const at = when(s);
     lines.push(`${label}: ${clean(s.address) || "TBD"}${at ? `, ${at}` : ""}`);
   });
-  if (stops.some((s) => s.appointment)) lines.push(`Times are ${clockName()}.`);
+  if (stops.some((s) => s.appointment)) lines.push(allZoned(stops) ? "Times are each dock's local time." : `Times are ${clockName()}.`);
 
   const mi = positive(i.loadedMiles);
   if (mi != null) lines.push(`Loaded miles: ${miles(mi)}`);
@@ -92,7 +95,7 @@ function driverText(i: BriefInput): string {
   const pickup = when(stops[0]);
   const delivery = last > 0 ? when(stops[last]) : "";
   const times = [pickup ? `PU ${pickup}` : "", delivery ? `DEL ${delivery}` : ""].filter(Boolean);
-  if (times.length) lines.push(`${times.join(", ")} (${clockName()})`);
+  if (times.length) lines.push(allZoned([stops[0]!, ...(last > 0 ? [stops[last]!] : [])]) ? times.join(", ") : `${times.join(", ")} (${clockName()})`);
 
   const weight = positive(i.weightLbs);
   const shortWeight = weight == null ? "" : weight >= 1000 ? `${Math.round(weight / 1000)}k lb` : `${Math.round(weight)} lb`;
