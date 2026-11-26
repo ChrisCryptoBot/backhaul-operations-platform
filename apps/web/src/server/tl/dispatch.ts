@@ -145,30 +145,35 @@ export async function driverClashNotes(driverIds: string[], exceptLoadId: string
 }
 
 /** For each of these drivers, the number of another open load they hold whose window overlaps `win` (null when it has no number). One query for all of them. */
-export async function driverClashesIn(driverIds: string[], exceptLoadId: string, win: Window | null): Promise<Map<string, string | null>> {
+/** `win` is one window for all of them, or each one's own (a quote: each driver leaves from where their truck is, so each is committed from a different time). */
+export async function driverClashesIn(driverIds: string[], exceptLoadId: string, win: Window | null | ((driverId: string) => Window | null)): Promise<Map<string, string | null>> {
   const out = new Map<string, string | null>();
-  if (!win || driverIds.length === 0) return out;
+  const winOf = typeof win === "function" ? win : () => win;
+  if (win == null || driverIds.length === 0) return out;
   const others = await prisma.assignment.findMany({
     where: { driverId: { in: driverIds }, loadId: { not: exceptLoadId }, status: { in: OPEN_ASSIGNMENT }, load: { deletedAt: null, status: { in: OPEN_LOAD } } },
     select: { driverId: true, load: { select: { loadNumber: true, stops: { select: { timeWindowEarliest: true, timeWindowLatest: true } }, legs: RELAY_LEG } } }
   });
   for (const o of others) {
     if (out.has(o.driverId)) continue;
+    const mine = winOf(o.driverId);
     const w = activeWindow(o.load.stops, relayFrom(o.load));
-    if (w && windowsOverlap(win, w)) out.set(o.driverId, o.load.loadNumber);
+    if (mine && w && windowsOverlap(mine, w)) out.set(o.driverId, o.load.loadNumber);
   }
   return out;
 }
 
 /** Which trucks are already on another open load at that time, for many trucks at once (one query): truck id to the other load's number. */
-export async function truckClashesIn(vehicleIds: string[], exceptLoadId: string, win: Window | null, workspaceId = currentWorkspaceId()): Promise<Map<string, string | null>> {
+export async function truckClashesIn(vehicleIds: string[], exceptLoadId: string, win: Window | null | ((vehicleId: string) => Window | null), workspaceId = currentWorkspaceId()): Promise<Map<string, string | null>> {
   const out = new Map<string, string | null>();
-  if (!win || vehicleIds.length === 0) return out;
+  const winOf = typeof win === "function" ? win : () => win;
+  if (win == null || vehicleIds.length === 0) return out;
   const others = await prisma.load.findMany({ where: { workspaceId, vehicleId: { in: vehicleIds }, ...(exceptLoadId ? { id: { not: exceptLoadId } } : {}), deletedAt: null, status: { in: OPEN_LOAD }, ...LEFT_ITS_TRUCK }, select: { vehicleId: true, loadNumber: true, stops: { select: { timeWindowEarliest: true, timeWindowLatest: true } }, legs: RELAY_LEG } });
   for (const o of others) {
     if (!o.vehicleId || out.has(o.vehicleId)) continue;
+    const mine = winOf(o.vehicleId);
     const w = activeWindow(o.stops, relayFrom(o));
-    if (w && windowsOverlap(win, w)) out.set(o.vehicleId, o.loadNumber);
+    if (mine && w && windowsOverlap(mine, w)) out.set(o.vehicleId, o.loadNumber);
   }
   return out;
 }

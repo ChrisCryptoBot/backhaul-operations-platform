@@ -1053,10 +1053,12 @@ export type PricedQuote = { ok: true; fit: FitResult; context: QuoteContext; war
 
 /** The offer priced as you type: the nearest trucks in the terminals in view (`limit` of them, 25 to start, 25 more at a time), each with the driver who runs it, plus what the desk already knows about the lane and the broker. Writes nothing. */
 export async function priceQuoteAction(values: QuoteValues, limit?: number, keepTruckId?: string | null): Promise<PricedQuote> {
-  await requireCan("read");
+  const me = await requireCan("read");
   const input = readQuote(values);
   if (!input) return { ok: false };
-  const [fit, context] = await Promise.all([fitQuote(input, undefined, undefined, await currentTerminal(), asLimit(limit), keepTruckId ? [String(keepTruckId)] : []), quoteContext(input)]);
+  const terminal = await currentTerminal();
+  // Driver pay stays with the people who may see it (the bill capability), as on the Dispatch queue: everyone else gets the same verdict with no pay figure in the answer.
+  const [fit, context] = await Promise.all([fitQuote(input, undefined, undefined, terminal, asLimit(limit), keepTruckId ? [String(keepTruckId)] : [], { seesPay: seesPay(me) }), quoteContext(input, undefined, terminal)]);
   return { ok: true, fit, context, warnings: quoteWarnings(input) };
 }
 
@@ -1066,16 +1068,22 @@ export async function listQuotesAction(q: string, status: "open" | "passed" | "a
   return listQuotes(undefined, { q, status, offset }, await currentTerminal());
 }
 
-export async function saveQuoteAction(values: QuoteValues, quoteId: string | null, vehicleId: string | null): Promise<QuoteSave> {
+export async function saveQuoteAction(values: QuoteValues, quoteId: string | null, vehicleId: string | null, version?: string | null): Promise<QuoteSave> {
   await requireCan("quote");
-  const out = await saveQuote(values, quoteId, vehicleId);
+  const out = await saveQuote(values, quoteId, vehicleId, undefined, undefined, { version: version ?? null });
   if (out.ok) revalidatePath("/quote");
   return out;
 }
 
-export async function bookQuoteAction(values: QuoteValues, pick: { vehicleId: string; driverId: string | null }, override: Override | null, quoteId: string | null): Promise<BookResult> {
+export async function bookQuoteAction(
+  values: QuoteValues,
+  pick: { vehicleId: string; driverId: string | null },
+  override: Override | null,
+  quoteId: string | null,
+  extra: { version?: string | null; pastOk?: boolean; hosReason?: string | null } = {}
+): Promise<BookResult> {
   await requireCan("quote");
-  const out = await bookQuote(values, pick, override, quoteId);
+  const out = await bookQuote(values, pick, override, quoteId, undefined, undefined, { version: extra.version ?? null, pastOk: extra.pastOk === true, hosReason: typeof extra.hosReason === "string" ? extra.hosReason.slice(0, 500) : null });
   if (out.ok) {
     for (const path of ["/quote", "/loads", "/dispatch", "/planner", "/alerts", "/audit", "/kpi"]) revalidatePath(path);
     revalidatePath("/", "layout");

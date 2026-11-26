@@ -21,7 +21,7 @@ import { fuelSurchargePercentFromDollars, fuelSurchargePerMileFromDollars } from
 import { cityState } from "@/lib/city-state";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
-import { assignDriver, DispatchError, driverClashesIn, findTruckClash, truckClashesIn, windowText } from "./dispatch";
+import { assignDriver, DispatchError, driverClashesIn, findTruckClash, tripHoursOf, truckClashesIn, windowText } from "./dispatch";
 import { resolveOrCreateCustomer } from "./customers";
 import { duplicateMessage, findTwinLoad } from "./twins";
 import type { PayKind } from "@/lib/pay";
@@ -32,7 +32,8 @@ import { freezeLoadSnapshot } from "./snapshot";
 import { currentWorkspaceId } from "./workspace";
 import { lockWorkspace } from "./plan";
 import { currentTerminal } from "./terminal";
-import { currentAllowed } from "./scope";
+import { allowedFor, currentAllowed } from "./scope";
+import { DRIVE_LIMIT_HOURS, hosCheck, type HosState } from "@/lib/hos-check";
 import { listCustomerRecordsInScope } from "./customers";
 import { inTerminal } from "./terminal-sql";
 import { currentActor } from "./identity";
@@ -79,8 +80,10 @@ export type FitRow = {
   truckName: string;
   driverId: string | null;
   driverName: string | null;
-  /** Whose pay is in the verdict, in a sentence. */
+  /** Whose pay is in the verdict, in a sentence. For someone who may not see driver pay, it says whose pay without the figure. */
   labourNote: string;
+  /** Whose pay the verdict counts: the driver's own usual pay, the truck's profile, or none (the owner drives, or a leased-on truck). */
+  labourFrom: "driver" | "truck" | "none";
   emptyToPickup: number;
   totalMiles: number;
   band: MarketBand;
@@ -96,8 +99,11 @@ export type FitRow = {
   blocked: string | null;
   /** Things to know that do not stop it: equipment the truck is not marked as carrying, oversize freight, hazmat, hours left on the clock. */
   warnings: string[];
-  /** The hours the truck's driver has left on the clock as the ELD last said (null when no ELD is linked), when that was, and how the trip compares. A caution only: nothing in the verdict reads it. */
-  hos: { availableHours: number | null; syncedAt: string | null; caution: HosCaution };
+  /**
+   * The hours the driver has left as their ELD last said (the driver's own clocks, as assigning reads them; the truck's reading only when the driver has none), when that was, and how the trip
+   * compares. A caution only: nothing in the verdict reads it. `needsReason`: assigning this driver needs an hours reason (short or stale clocks, src/lib/hos-check.ts), so booking with them asks for one.
+   */
+  hos: { availableHours: number | null; syncedAt: string | null; caution: HosCaution; state: HosState; needsReason: boolean };
   /** When the driver works, and a caution when the typed appointments fall outside it. Beside the hours-left note; nothing in the verdict, the ranking or booking reads it. */
   shift?: QuoteShift;
   detail: FitDetail;
@@ -176,21 +182,53 @@ const HOUR = 3_600_000;
  * When the truck and driver are committed: from the time it takes to reach the pickup to the later of the last appointment and the pickup plus the loaded drive. A load whose
  * delivery time is early on paper but whose road takes longer is not "free" at that time.
  */
-const windowOf = (input: QuoteInput) => {
+const windowOf = (input: QuoteInput, truckId?: string | null) => {
   const first = input.stops[0]?.appointment;
-  const last = input.stops[input.stops.length - 1]?.appointment;
-  if (first == null || last == null) return null;
+  if (first == null) return null;
+  const lastStop = input.stops[input.stops.length - 1];
+  // The delivery window's close when one is typed, else its time; with no delivery time yet, the pickup plus the loaded drive, so a clash shows while the quote is still being typed.
+  const last = lastStop?.appointmentEnd ?? lastStop?.appointment ?? null;
   const driveMs = (input.loadedHours ?? input.loadedMiles / 50) * HOUR;
-  return loadWindow([{ timeWindowEarliest: new Date(first - (input.emptyToPickup / 50) * HOUR), timeWindowLatest: new Date(Math.max(last, first + driveMs)) }]);
+  // The truck leaves from where it is: its own empty miles to the pickup (measured from its base, or typed for it), not the miles between stops. They are driven at the loaded leg's measured
+  // pace when the road gave one, else 50 mph.
+  const empty = (truckId ? input.emptyByTruck[truckId] : undefined) ?? input.emptyToPickup;
+  const mph = input.loadedHours != null && input.loadedHours > 0 ? input.loadedMiles / input.loadedHours : 50;
+  return loadWindow([{ timeWindowEarliest: new Date(first - (empty / mph) * HOUR), timeWindowLatest: new Date(Math.max(last ?? first, first + driveMs)) }]);
 };
 
 type TruckForFit = Prisma.VehicleGetPayload<{ include: { costProfile: true; drivers: true; trailers: true } }>;
+
+/**
+ * Hours on the clock, read the way assigning reads them (server/tl/dispatch.ts assignDriver): the driver's own ELD clocks against the trip's drive time, the first day against the 11-hour limit
+ * and the whole trip against the cycle (src/lib/hos-check.ts). A driver with no clocks falls back to the truck's last reading as a caution only, for a pickup within the next day (hours left now
+ * say nothing about next week). Never an input to the verdict.
+ */
+function hoursOf(row: EvaluateLoadRow, truck: TruckForFit, driver: TruckForFit["drivers"][number] | null, now: Date, pickupAt: number | null): FitRow["hos"] {
+  const tripHours = tripHoursOf(row);
+  if (driver) {
+    const check = hosCheck({ hosDriveMinutes: driver.hosDriveMinutes, hosShiftMinutes: driver.hosShiftMinutes, hosCycleMinutes: driver.hosCycleMinutes, hosSyncedAt: driver.hosSyncedAt }, tripHours, now);
+    if (check.state !== "none") {
+      const needsReason = check.state === "short" || check.state === "stale";
+      const left = driver.hosDriveMinutes != null ? new Prisma.Decimal(driver.hosDriveMinutes).div(60).toDecimalPlaces(1).toNumber() : null;
+      return {
+        availableHours: left,
+        syncedAt: driver.hosSyncedAt ? driver.hosSyncedAt.toISOString() : null,
+        caution: { level: check.state === "short" ? "short" : check.state === "stale" ? "caution" : "none", message: needsReason ? `${driver.name}: ${check.note}. Booking with them asks for a reason.` : null },
+        state: check.state,
+        needsReason
+      };
+    }
+  }
+  const available = numOrNull(truck.hosAvailableHours);
+  const soon = pickupAt == null || pickupAt - now.getTime() < 24 * HOUR;
+  return { availableHours: available, syncedAt: truck.hosSyncedAt ? truck.hosSyncedAt.toISOString() : null, caution: soon ? hosCaution(Math.min(tripHours, DRIVE_LIMIT_HOURS), available) : hosCaution(null, null), state: "none", needsReason: false };
+}
 
 /** What a truck holds and carries, as the load check reads it (moved to truck-fit.ts so dispatch.ts can use it too). */
 export { truckLimits } from "./truck-fit";
 import { truckLimits } from "./truck-fit";
 
-function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["drivers"][number] | null, blocked: string | null, shift: QuoteShift = NO_QUOTE_SHIFT, now: Date = new Date(), soonDays = 30): FitRow | null {
+function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["drivers"][number] | null, blocked: string | null, shift: QuoteShift = NO_QUOTE_SHIFT, now: Date = new Date(), soonDays = 30, seesPay = true): FitRow | null {
   const profile = truck.costProfile;
   if (!profile) return null;
   const emptyToPickup = input.emptyByTruck[truck.id] ?? input.emptyToPickup;
@@ -204,12 +242,7 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
   const labour = resolveLabour(profile as never, row.assignment, e.totalMiles, num(row.quotedRevenue) + num(row.fuelSurcharge));
   const margin = e.result.verdictMarginPerMi;
   const forLoad = truckFit(input.specs, truckLimits(truck));
-  // Hours left on the clock are a note beside the verdict, never an input to it (the vendored rules and the verdict are untouched).
-  const available = numOrNull(truck.hosAvailableHours);
-  // The ELD's hours left are as of now: they say something about a pickup in the next day, and nothing about one next week.
-  const pickupAt = input.stops[0]?.appointment ?? null;
-  const soon = pickupAt == null || pickupAt - Date.now() < 24 * 3_600_000;
-  const hos = { availableHours: available, syncedAt: truck.hosSyncedAt ? truck.hosSyncedAt.toISOString() : null, caution: soon ? hosCaution(e.tripHours, available) : hosCaution(null, null) };
+  const hos = hoursOf(row, truck, driver, now, input.stops[0]?.appointment ?? null);
   const body = truckBodyNote(input.trailer, truck.type, truck.name ?? "Truck");
   // Does the equipment suit the load: the trailer hooked to the truck against the kind and length the load needs (a longer trailer takes a shorter load), else the truck's own body. Unknown is not "no".
   const hooked = truck.trailers.find((t) => t.status === "available") ?? truck.trailers[0] ?? null;
@@ -229,7 +262,8 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
     truckName: truck.name ?? "Truck",
     driverId: driver?.id ?? null,
     driverName: driver?.name ?? null,
-    labourNote: labour.note,
+    labourNote: seesPay || labour.source === "truck" && !/Driver pay/.test(labour.note) ? labour.note : labour.source === "assignment" ? "Priced with this driver's usual pay." : "Priced with the driver pay on the truck's cost profile.",
+    labourFrom: labour.source === "assignment" ? "driver" : /Driver pay/.test(labour.note) ? "truck" : "none",
     emptyToPickup,
     totalMiles: e.totalMiles,
     band: e.marketVerdict.band,
@@ -286,7 +320,9 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
  * the ones whose empty miles are measured or typed, nearest first), each with its own empty miles, and ranks those by what each mile clears over the floor. A truck with a cost profile missing has no floor and is
  * counted apart. `terminal` is the scope in view: only its trucks are priced; null is the whole fleet. `keep` names trucks that are priced whatever their distance (the truck a saved quote is on).
  */
-export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspaceId(), now = new Date(), terminal: Terminals = null, limit: number = NEAREST_DEFAULT, keep: readonly string[] = []): Promise<FitResult> {
+/** `seesPay`: false for someone who may not see driver pay (no billing capability): every row is still priced with the driver's usual pay, and no pay figure is in the answer. */
+export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspaceId(), now = new Date(), terminal: Terminals = null, limit: number = NEAREST_DEFAULT, keep: readonly string[] = [], opts: { seesPay?: boolean } = {}): Promise<FitResult> {
+  const seesPay = opts.seesPay ?? true;
   const lane = await laneBenchmark(input, workspaceId, now);
   const judged = judgedBy(input, lane);
   const here = { workspaceId, archivedAt: null, ...(terminal != null ? { terminal: terminalFilter(terminal) } : {}) };
@@ -310,12 +346,14 @@ export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspace
     ).map((t) => [t.id, t] as const)
   );
   const trucks = ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
-  const win = windowOf(input);
+  // Each truck is committed from the time it has to leave its own base, so each has its own window; a driver's is their truck's.
+  const winByTruck = new Map(trucks.map((t) => [t.id, windowOf(input, t.id)] as const));
+  const truckOfDriver = new Map(trucks.flatMap((t) => t.drivers.map((d) => [d.id, t.id] as const)));
   const rows: FitRow[] = [];
   const skipped: FitResult["skipped"] = unpriced.map((v) => ({ truck: v.name ?? "Truck", why: "No cost profile, so no floor to price against." }));
   // Who is already on another load at that time, for the drivers of the trucks priced (one query), not one query per driver.
-  const clashes = await driverClashesIn(trucks.flatMap((t) => t.drivers.map((d) => d.id)), "", win);
-  const truckClashes = await truckClashesIn(trucks.map((t) => t.id), "", win, workspaceId);
+  const clashes = await driverClashesIn(trucks.flatMap((t) => t.drivers.map((d) => d.id)), "", (id) => winByTruck.get(truckOfDriver.get(id) ?? "") ?? null);
+  const truckClashes = await truckClashesIn(trucks.map((t) => t.id), "", (id) => winByTruck.get(id) ?? null, workspaceId);
   // A card that lapses before the pickup is as good as lapsed for this load.
   const pickupAt = input.stops[0]?.appointment != null ? new Date(input.stops[0].appointment) : null;
   // Each driver's shift on the carrier's clock, from one batched read (a caution beside the hours-left one).
@@ -333,17 +371,18 @@ export async function fitQuote(input: QuoteInput, workspaceId = currentWorkspace
       let blocked: string | null = truckBusy;
       let ownBlock: string | null = null;
       if (d) {
-        ownBlock = driverBlocker(d, now) ?? (pickupAt ? (driverBlocker(d, pickupAt) ? `${driverBlocker(d, pickupAt)!.replace(/ expired$/, "")} expires before the pickup` : null) : null);
+        // Good for the whole trip, as assigning asks (dispatch.ts): a card that lapses before the last delivery closes blocks, not only one that lapses before the pickup.
+        ownBlock = driverBlocker(d, now, winByTruck.get(t.id)?.end ?? pickupAt);
         if (!ownBlock && clashes.has(d.id)) ownBlock = `Already on ${clashes.get(d.id) ?? "another load"} at that time`;
         blocked = blocked ?? ownBlock;
       }
       if (!ownBlock) driversAllBlocked = false;
-      const r = fitFor(judged, t, d, blocked, shiftOf(d?.id), now, soonDays);
+      const r = fitFor(judged, t, d, blocked, shiftOf(d?.id), now, soonDays, seesPay);
       if (r) rows.push(r);
     }
     // Every driver of this truck is out (a lapsed card, another load): the truck can still be booked now and a driver put on it from the load.
     if (driversAllBlocked) {
-      const r = fitFor(judged, t, null, truckBusy, NO_QUOTE_SHIFT, now, soonDays);
+      const r = fitFor(judged, t, null, truckBusy, NO_QUOTE_SHIFT, now, soonDays, seesPay);
       if (r) {
         r.warnings = [`No driver of ${t.name ?? "this truck"} can take it at that time. Book the truck and assign a driver from the load.`, ...r.warnings];
         rows.push(r);
@@ -413,12 +452,17 @@ export async function laneBenchmark(input: QuoteInput, workspaceId: string, now:
  */
 const judgedBy = (input: QuoteInput, lane: LaneBenchmark | null): QuoteInput => (lane ? { ...input, marketTotal: lane.perMile * input.loadedMiles } : input);
 
-export async function quoteContext(input: QuoteInput, workspaceId = currentWorkspaceId()): Promise<QuoteContext> {
+/**
+ * What the desk knows about the lane and the customer, for the terminals in view (`terminals`, null for everything): the history shown follows the scope, as the Lanes and Customers screens do.
+ * The lane record that stands in for a market rate (laneBenchmark) is the whole company's on purpose (Chris, 2026-11-25), so every dispatcher gets the same verdict.
+ */
+export async function quoteContext(input: QuoteInput, workspaceId = currentWorkspaceId(), terminals: Terminals = null): Promise<QuoteContext> {
   const from = cityStateOf(input.stops[0]?.address);
   const to = cityStateOf(input.stops[input.stops.length - 1]?.address);
+  const here = inTerminal(terminals);
   let lane: QuoteContext["lane"] = null;
   if (from.length >= 2 && to.length >= 2) {
-    const where = laneWhere(from, to, workspaceId);
+    const where = { ...laneWhere(from, to, workspaceId), AND: [here] };
     const [count, recent] = await Promise.all([prisma.load.count({ where }), prisma.load.findMany({ where, orderBy: { completedAt: "desc" }, take: LANE_SAMPLE })]);
     if (count > 0) {
       // The average is over the most recent LANE_SAMPLE finished loads; the list shows the latest five of them.
@@ -434,7 +478,7 @@ export async function quoteContext(input: QuoteInput, workspaceId = currentWorks
   let broker: QuoteContext["broker"] = null;
   if (input.broker) {
     // The customer's most recent loads (a customer a desk has worked with for years has thousands; the record is read over the latest BROKER_SAMPLE).
-    const theirs = await prisma.load.findMany({ where: { workspaceId, deletedAt: null, ...notQuote, brokerName: { equals: input.broker, mode: "insensitive" } }, orderBy: { createdAt: "desc" }, take: BROKER_SAMPLE });
+    const theirs = await prisma.load.findMany({ where: { workspaceId, deletedAt: null, ...notQuote, brokerName: { equals: input.broker, mode: "insensitive" }, AND: [here] }, orderBy: { createdAt: "desc" }, take: BROKER_SAMPLE });
     if (theirs.length > 0) {
       const done = theirs.filter((l) => l.status === "completed");
       const rated = done.map((l) => ({ gross: paidOn(l), miles: num(l.loadedMiles) })).filter((r) => r.miles > 0);
@@ -449,7 +493,7 @@ export async function quoteContext(input: QuoteInput, workspaceId = currentWorks
       };
     }
   }
-  const passedWhere = { workspaceId, status: QUOTE_STATUS, deletedAt: null, decisions: { some: { decisionType: PASSED } } };
+  const passedWhere = { workspaceId, status: QUOTE_STATUS, deletedAt: null, decisions: { some: { decisionType: PASSED } }, AND: [here] };
   const [passedLane, passedBroker] = await Promise.all([
     from.length >= 2 && to.length >= 2 ? prisma.load.count({ where: { ...passedWhere, originAddress: placeMatch(from), destinationAddress: placeMatch(to) } }) : 0,
     input.broker ? prisma.load.count({ where: { ...passedWhere, brokerName: { equals: input.broker, mode: "insensitive" } } }) : 0
@@ -549,18 +593,28 @@ function loadFields(input: QuoteInput, truckId: string | null, firstOffer: numbe
 /** The desk's own number for a quote: the time in seconds, and four random characters so two saved in the same second are not the same number. */
 const quoteNumber = (now: Date) => `QT-${new Prisma.Decimal(now.getTime()).div(1000).toDecimalPlaces(0, Prisma.Decimal.ROUND_DOWN).toNumber().toString(36).toUpperCase()}${randomBytes(2).toString("hex").toUpperCase()}`;
 
-export type QuoteSave = { ok: true; id: string } | { ok: false; errors?: QuoteErrors; error?: string };
+/** `version`: the quote's last change as the form last saw it (its `updatedAt`), so a save over someone else's newer change is refused rather than written over. */
+export type QuoteSave = { ok: true; id: string; version: string } | { ok: false; errors?: QuoteErrors; error?: string; stale?: true };
+/** What a write to a quote also carries: the person's limit (read from the request when left out; tests stand in for one) and the version the form holds. */
+export type QuoteWriteOpts = { allowed?: Terminals; version?: string | null };
+export const STALE_QUOTE = "Someone changed this quote since you opened it. Reload to see their version; what you typed stays here.";
+/** Whether the quote has changed since the form's version (to the millisecond, which is what the column keeps). No version: a form from before versions, not refused. */
+const movedSince = (updatedAt: Date, version: string | null | undefined) => version != null && version !== "" && updatedAt.getTime() !== Date.parse(version);
 
 /** Save the form as a quote (or update the one it came from). It is not a load anyone can see on the board until it is booked. */
-export async function saveQuote(values: QuoteValues, quoteId: string | null, vehicleId: string | null, workspaceId = currentWorkspaceId(), now = new Date()): Promise<QuoteSave> {
+export async function saveQuote(values: QuoteValues, quoteId: string | null, vehicleId: string | null, workspaceId = currentWorkspaceId(), now = new Date(), opts: QuoteWriteOpts = {}): Promise<QuoteSave> {
   const check = validateQuote(values);
   if (!check.ok) return { ok: false, errors: check.errors };
   const input = check.input;
+  // The person's limit holds for the quote and for the truck it is saved on, whatever ids arrive.
+  const allowed = await allowedFor(workspaceId, opts.allowed);
   const truck = vehicleId ? await prisma.vehicle.findFirst({ where: { id: vehicleId, workspaceId, archivedAt: null } }) : null;
+  if (truck && !inScope(allowed, truck.terminal)) return { ok: false, error: `${truck.name ?? "That truck"} is based outside the terminals you work. Pick a truck from them.` };
   const data = { ...loadFields(input, truck?.id ?? null, input.offer), vehicleId: truck?.id ?? null };
   if (quoteId) {
-    const existing = await prisma.load.findFirst({ where: { id: quoteId, workspaceId, status: QUOTE_STATUS, deletedAt: null }, include: { decisions: { orderBy: { decidedAt: "desc" }, take: 1 } } });
+    const existing = await prisma.load.findFirst({ where: { id: quoteId, workspaceId, status: QUOTE_STATUS, deletedAt: null, ...inTerminal(allowed) }, include: { decisions: { orderBy: { decidedAt: "desc" }, take: 1 } } });
     if (!existing) return { ok: false, error: "That quote is gone." };
+    if (movedSince(existing.updatedAt, opts.version)) return { ok: false, error: STALE_QUOTE, stale: true };
     // A quote that was passed on stays as it was said: start a new one from it ("Quote like this") rather than rewrite it.
     if (existing.decisions[0]?.decisionType === PASSED) return { ok: false, error: "That quote was passed on. Start a new quote from it instead." };
     // A typed load number that has since been cleared goes back to the desk's own number.
@@ -568,24 +622,33 @@ export async function saveQuote(values: QuoteValues, quoteId: string | null, veh
     const firstOffer = extrasOf(existing.quoteExtras).firstOffer ?? num(existing.quotedRevenue);
     const keep = { quoteExtras: { ...quoteExtrasOf(input), firstOffer } };
     const number = !input.loadNumber && existing.loadNumber && !/^QT-/.test(existing.loadNumber) ? { loadNumber: quoteNumber(now) } : {};
-    const saved = await prisma.$transaction(async (tx) => {
+    const saved = await prisma.$transaction(async (tx): Promise<"ok" | "gone" | "stale" | "passed"> => {
+      // One write to a quote at a time per desk, so the checks below and the write are not interleaved with a booking, a pass or another save.
+      await lockWorkspace(tx, workspaceId);
+      const fresh = await tx.load.findFirst({ where: { id: quoteId, workspaceId, status: QUOTE_STATUS, deletedAt: null }, select: { updatedAt: true, decisions: { where: { decisionType: PASSED }, select: { id: true }, take: 1 } } });
+      if (!fresh) return "gone";
+      if (fresh.decisions.length > 0) return "passed";
+      if (movedSince(fresh.updatedAt, opts.version)) return "stale";
       // Only while it is still a quote: a booking that got there first is not overwritten.
       const claimed = await tx.load.updateMany({ where: { id: quoteId, workspaceId, status: QUOTE_STATUS, deletedAt: null }, data: { ...data, ...keep, ...number } });
-      if (claimed.count !== 1) return false;
+      if (claimed.count !== 1) return "gone";
       await tx.stop.deleteMany({ where: { loadId: quoteId } });
       await tx.stop.createMany({ data: stopRows(input).map((s) => ({ ...s, loadId: quoteId })) });
       await recordAudit({ entity: "load", entityId: quoteId, action: "quote_saved", loadId: null, loadNumber: existing.loadNumber, workspaceId, summary: `Quote updated: ${quoteLane(input)}, $${input.offer.toLocaleString("en-US")}`, before: null, after: null, at: now }, tx);
-      return true;
+      return "ok";
     });
-    if (!saved) return { ok: false, error: "That quote was booked or thrown away while you were editing it." };
-    return { ok: true, id: quoteId };
+    if (saved === "stale") return { ok: false, error: STALE_QUOTE, stale: true };
+    if (saved === "passed") return { ok: false, error: "That quote was passed on. Start a new quote from it instead." };
+    if (saved === "gone") return { ok: false, error: "That quote was booked or thrown away while you were editing it." };
+    const after = await prisma.load.findUniqueOrThrow({ where: { id: quoteId }, select: { updatedAt: true } });
+    return { ok: true, id: quoteId, version: after.updatedAt.toISOString() };
   }
   const created = await prisma.$transaction(async (tx) => {
     const l = await tx.load.create({ data: { workspaceId, status: QUOTE_STATUS, channel: "quote", loadNumber: quoteNumber(now), ...data, stops: { create: stopRows(input) } } });
     await recordAudit({ entity: "load", entityId: l.id, action: "quote_saved", loadId: null, loadNumber: l.loadNumber, workspaceId, summary: `Quote saved: ${quoteLane(input)}, $${input.offer.toLocaleString("en-US")}${input.broker ? ` for ${input.broker}` : ""}`, before: null, after: null, at: now }, tx);
     return l;
   });
-  return { ok: true, id: created.id };
+  return { ok: true, id: created.id, version: created.updatedAt.toISOString() };
 }
 
 /** A customer the desk keeps a record of, as the quote form fills from it. */
@@ -847,12 +910,12 @@ export function quoteValuesFromLoad(l: LoadWithStops): QuoteValues {
 }
 
 /** A saved quote as the form's values, to reopen it. */
-export async function getQuote(id: string, workspaceId = currentWorkspaceId()): Promise<{ values: QuoteValues; vehicleId: string | null; passedFor: string | null } | null> {
+export async function getQuote(id: string, workspaceId = currentWorkspaceId()): Promise<{ values: QuoteValues; vehicleId: string | null; passedFor: string | null; version: string } | null> {
   // A quote on a truck outside the person's limit is not found, whatever id the address carries.
   const l = await prisma.load.findFirst({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null, AND: [inTerminal(await currentAllowed(workspaceId))] }, include: { stops: { orderBy: { stopSequence: "asc" } }, decisions: { orderBy: { decidedAt: "desc" }, take: 1 } } });
   if (!l) return null;
   const passed = l.decisions[0]?.decisionType === PASSED ? (l.decisions[0].overrideReason ?? "Passed") : null;
-  return { vehicleId: l.vehicleId, values: quoteValuesFromLoad(l), passedFor: passed };
+  return { vehicleId: l.vehicleId, values: quoteValuesFromLoad(l), passedFor: passed, version: l.updatedAt.toISOString() };
 }
 
 /**
@@ -891,7 +954,14 @@ export async function passQuote(id: string, reason: string, notes: string, works
     details = null;
   }
   const lane = `${cityState(l.originAddress) ?? "?"} to ${cityState(l.destinationAddress) ?? "?"}`;
-  await prisma.$transaction(async (tx) => {
+  const scope = allowed !== undefined ? allowed : await currentAllowed(workspaceId);
+  const outcome = await prisma.$transaction(async (tx): Promise<"ok" | "gone" | "passed"> => {
+    // Claimed under the desk's lock: a booking or another pass that got there first since the quote was read wins, and this pass is refused rather than written onto a booked load.
+    await lockWorkspace(tx, workspaceId);
+    const fresh = await tx.load.findFirst({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null, ...inTerminal(scope) }, select: { decisions: { where: { decisionType: PASSED }, select: { id: true }, take: 1 } } });
+    if (!fresh) return "gone";
+    if (fresh.decisions.length > 0) return "passed";
+    await tx.load.update({ where: { id }, data: { updatedAt: now } });
     await tx.loadDecision.create({ data: { loadId: id, decisionType: PASSED, overrideReason: reason, overrideNotes: notes.trim() || null, decidedAt: now, decidedBy: currentActor(), ...(details ? { details: details as unknown as Prisma.InputJsonObject } : {}) } });
     await recordAudit(
       {
@@ -909,17 +979,22 @@ export async function passQuote(id: string, reason: string, notes: string, works
       },
       tx
     );
+    return "ok";
   });
+  if (outcome === "gone") return { ok: false, error: "That quote was booked or thrown away since you opened it. Look for it on the board." };
+  if (outcome === "passed") return { ok: false, error: "That quote was already passed on." };
   return { ok: true };
 }
 
 /** Throw a saved quote away. It is written to the audit trail (a quote was priced for a customer; its being thrown away is part of that customer's record). */
-export async function discardQuote(id: string, workspaceId = currentWorkspaceId(), now = new Date()): Promise<boolean> {
-  const q = await prisma.load.findFirst({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null } });
+export async function discardQuote(id: string, workspaceId = currentWorkspaceId(), now = new Date(), allowed?: Terminals): Promise<boolean> {
+  // A quote on a truck outside the person's limit is not theirs to throw away (a quote with no truck yet is everyone's).
+  const scope = await allowedFor(workspaceId, allowed);
+  const q = await prisma.load.findFirst({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null, ...inTerminal(scope) } });
   if (!q) return false;
   const lane = `${cityState(q.originAddress) ?? "?"} to ${cityState(q.destinationAddress) ?? "?"}`;
   return prisma.$transaction(async (tx) => {
-    const out = await tx.load.updateMany({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null }, data: { deletedAt: now } });
+    const out = await tx.load.updateMany({ where: { id, workspaceId, status: QUOTE_STATUS, deletedAt: null, ...inTerminal(scope) }, data: { deletedAt: now } });
     if (out.count !== 1) return false;
     await recordAudit({ entity: "load", action: "quote_discarded", loadId: null, loadNumber: q.loadNumber, workspaceId, summary: `Quote thrown away: ${lane}, $${num(q.quotedRevenue).toLocaleString("en-US")}${q.brokerName ? ` for ${q.brokerName}` : ""}`, before: { Lane: lane, Offer: `$${num(q.quotedRevenue).toLocaleString("en-US")}` }, after: null, at: now }, tx);
     return true;
@@ -981,7 +1056,22 @@ export function decisionDetails(input: QuoteInput, row: FitRow | null, lane: Lan
 
 export type BookResult =
   | { ok: true; loadId: string; loadNumber: string | null; assigned: boolean; note: string | null }
-  | { ok: false; errors?: QuoteErrors; error?: string; gate?: AcceptGate };
+  | {
+      ok: false;
+      errors?: QuoteErrors;
+      error?: string;
+      gate?: AcceptGate;
+      /** The pickup is more than a day past: booking needs the person to say so (`pastOk`). */
+      pastPickup?: true;
+      /** The driver's hours need a reason before they are put on it (the hours note). */
+      hos?: string;
+      stale?: true;
+    };
+
+/** What booking also carries: the version and limit as for a save, a yes to a pickup already past, and the reason for putting a driver on it with the hours they have. */
+export type BookOpts = QuoteWriteOpts & { pastOk?: boolean; hosReason?: string | null };
+/** How long past a pickup can be before booking asks. A load typed a little late is normal; one a day or more back is usually the wrong date or year. */
+const PAST_PICKUP_MS = 24 * 3_600_000;
 
 export type Override = { reason: string; notes: string };
 
@@ -996,7 +1086,8 @@ export async function bookQuote(
   override: Override | null,
   quoteId: string | null,
   workspaceId = currentWorkspaceId(),
-  now = new Date()
+  now = new Date(),
+  opts: BookOpts = {}
 ): Promise<BookResult> {
   const check = validateQuote(values);
   if (!check.ok) return { ok: false, errors: check.errors };
@@ -1004,6 +1095,11 @@ export async function bookQuote(
   const last = input.stops.length - 1;
   const missing = missingTimes(input.stops);
   if (Object.keys(missing).length > 0) return { ok: false, errors: missing };
+  const pickupAt = input.stops[0]?.appointment ?? null;
+  if (pickupAt != null && pickupAt < now.getTime() - PAST_PICKUP_MS && !opts.pastOk) {
+    return { ok: false, pastPickup: true, error: "The pickup time is more than a day ago. Check the date and the year, or say it is right to book it." };
+  }
+  const allowed = await allowedFor(workspaceId, opts.allowed);
 
   const truck = await prisma.vehicle.findFirst({ where: { id: pick.vehicleId, workspaceId, archivedAt: null }, include: { costProfile: true, drivers: { where: { active: true } }, trailers: { take: 3 } } });
   if (!truck) return { ok: false, error: "That truck is not available." };
@@ -1023,9 +1119,12 @@ export async function bookQuote(
   if (record) input.broker = record.name;
 
   const laneRecord = await laneBenchmark(input, workspaceId, now);
-  const fit = fitFor(judgedBy(input, laneRecord), { ...truck, drivers: driver ? [driver] : [] } as TruckForFit, driver, null)!;
+  const fit = fitFor(judgedBy(input, laneRecord), { ...truck, drivers: driver ? [driver] : [] } as TruckForFit, driver, null, NO_QUOTE_SHIFT, now)!;
   const forLoad = truckFit(input.specs, truckLimits(truck));
   if (forLoad.blocker) return { ok: false, error: `${truck.name} cannot take this load. ${forLoad.blocker}` };
+  // Putting a driver on it whose hours are short or not current needs its own reason, as assigning asks (the evidence the call was made knowingly, 49 CFR 390.6); it goes with the assignment.
+  const hosReason = (opts.hosReason ?? "").trim();
+  if (driver && fit.hos.needsReason && hosReason.length < 3) return { ok: false, hos: fit.hos.caution.message ?? `${driver.name}'s hours need a look.`, error: "Say why you are putting this driver on it with the hours they have." };
   if (fit.gate) {
     const reason = override?.reason ?? "";
     const valid = (OVERRIDE_REASONS as readonly string[]).includes(reason) && (reason !== "Other" || (override?.notes ?? "").trim().length >= 3);
@@ -1033,7 +1132,9 @@ export async function bookQuote(
   }
 
   // What the quote first said (when it was saved from a quote), so the raise to the booked offer is on the record.
-  const prior = quoteId ? await prisma.load.findFirst({ where: { id: quoteId, workspaceId, status: QUOTE_STATUS, deletedAt: null }, select: { quoteExtras: true, quotedRevenue: true } }) : null;
+  const prior = quoteId ? await prisma.load.findFirst({ where: { id: quoteId, workspaceId, status: QUOTE_STATUS, deletedAt: null, ...inTerminal(allowed) }, select: { quoteExtras: true, quotedRevenue: true } }) : null;
+  // A quote outside the person's limit is not theirs to book, whatever id arrives.
+  if (quoteId && !prior) return { ok: false, error: "That quote was already booked or thrown away. Look for it on the board." };
   const firstOffer = prior ? (extrasOf(prior.quoteExtras).firstOffer ?? num(prior.quotedRevenue)) : null;
   const fields = loadFields(input, truck.id, firstOffer);
   // What the load was priced on: the miles the verdict used, so what happens on the road can be compared with it later.
@@ -1065,14 +1166,19 @@ export async function bookQuote(
         if (just) return { loadId: just.id, loadNumber: just.loadNumber, same: true as const };
       }
       // A truck is on one load at a time.
-      const busy = await findTruckClash(truck.id, quoteId ?? "", windowOf(input), workspaceId);
+      const busy = await findTruckClash(truck.id, quoteId ?? "", windowOf(input, truck.id), workspaceId);
       if (busy) throw new DispatchError("load_not_assignable", `${truck.name} is already on ${busy.loadNumber ?? "another load"} (${windowText(busy.window)}). Pick another truck, or move that load first.`);
 
       let loadId: string;
       let loadNumber: string | null;
       if (quoteId) {
+        // Read again under the lock: a quote passed on, changed by someone else, or moved out of reach since the form opened is not booked.
+        const fresh = await tx.load.findFirst({ where: { id: quoteId, workspaceId, status: QUOTE_STATUS, deletedAt: null, ...inTerminal(allowed) }, select: { updatedAt: true, decisions: { where: { decisionType: PASSED }, select: { id: true }, take: 1 } } });
+        if (!fresh) throw new DispatchError("load_not_found", "That quote was already booked or thrown away. Look for it on the board.");
+        if (fresh.decisions.length > 0) throw new DispatchError("load_not_assignable", "That quote was passed on. Start a new quote from it.");
+        if (movedSince(fresh.updatedAt, opts.version)) throw new DispatchError("stale", STALE_QUOTE);
         // Booked once: the claim only succeeds while it is still a quote, so a second booking of the same quote (another tab, a retry) finds nothing to claim.
-        const claimed = await tx.load.updateMany({ where: { id: quoteId, workspaceId, status: QUOTE_STATUS, deletedAt: null }, data: resolvedData });
+        const claimed = await tx.load.updateMany({ where: { id: quoteId, workspaceId, status: QUOTE_STATUS, deletedAt: null, decisions: { none: { decisionType: PASSED } } }, data: resolvedData });
         if (claimed.count !== 1) throw new DispatchError("load_not_found", "That quote was already booked or thrown away. Look for it on the board.");
         await tx.stop.deleteMany({ where: { loadId: quoteId } });
         await tx.stop.createMany({ data: stopRows(input).map((st) => ({ ...st, loadId: quoteId })) });
@@ -1116,7 +1222,7 @@ export async function bookQuote(
     });
   } catch (e) {
     // A quote that was booked or discarded since the page opened, a clash another dispatcher just made: say so rather than fail.
-    if (e instanceof DispatchError) return { ok: false, error: e.message };
+    if (e instanceof DispatchError) return { ok: false, error: e.message, ...(e.message === STALE_QUOTE ? { stale: true as const } : {}) };
     throw e;
   }
   if (saved.same) return { ok: true, loadId: saved.loadId, loadNumber: saved.loadNumber, assigned: false, note: "This was booked a moment ago; it is the same load." };
@@ -1130,7 +1236,7 @@ export async function bookQuote(
   if (driver) {
     if (driver.defaultPayKind && driver.defaultPayRate != null) {
       try {
-        await assignDriver({ loadId: saved.loadId, driverId: driver.id, pay: { kind: driver.defaultPayKind as PayKind, rate: num(driver.defaultPayRate) } }, now);
+        await assignDriver({ loadId: saved.loadId, driverId: driver.id, pay: { kind: driver.defaultPayKind as PayKind, rate: num(driver.defaultPayRate) }, reasons: hosReason ? { hos_short: hosReason } : undefined, allowed }, now, workspaceId);
         assigned = true;
       } catch (e) {
         note = e instanceof DispatchError ? `Booked, but ${driver.name} could not be assigned: ${e.message}` : `Booked, but ${driver.name} could not be assigned.`;

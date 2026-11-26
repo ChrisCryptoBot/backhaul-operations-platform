@@ -79,7 +79,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
   if (kind === "quote-decisions") {
     const scope = reportScope();
     if (scope == null) return null;
-    const { rows } = await listQuoteDecisions({ period: asKpiPeriod(first(query.period)), by: scope === "all" ? null : scope }, now);
+    const { rows } = await listQuoteDecisions({ period: asKpiPeriod(first(query.period)), by: scope === "all" ? null : scope, terminals: await currentTerminal() }, now);
     return {
       filename: name("quote-decisions"),
       csv: toCsv(

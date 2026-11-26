@@ -286,7 +286,8 @@ describe.skipIf(!run)("quoting on the demo database: integrity", () => {
     if (!lapsing.ok) throw new Error("lapsing");
     const later = await fitQuote(readQuote(quote({}, "2027-07-20"))!);
     const row = later.rows.find((r) => r.driverId === lapsing.id)!;
-    expect(row.blocked).toMatch(/CDL expires before the pickup/);
+    // Read as assigning reads it: good for the whole trip, so the message names the trip end (dispatch.ts, src/lib/clearance.ts).
+    expect(row.blocked).toMatch(/CDL lapses .* before the trip ends/);
   });
 
   test("a straight truck is told when the load wants another trailer; a van or box truck is not told about a dry van", async () => {

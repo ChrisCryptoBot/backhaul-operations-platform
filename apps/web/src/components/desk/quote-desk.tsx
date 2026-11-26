@@ -12,6 +12,10 @@ import { UNREACHABLE } from "@/lib/connection";
 import { miles, perMile, shortDate, usd } from "@/lib/desk-format";
 import { addressReady, roundMiles } from "@/lib/geo";
 import { hosDeficit, hosDeficitLabel, hosDeficitTitle } from "@/lib/hos-deficit";
+import { DRIVE_LIMIT_HOURS } from "@/lib/hos-check";
+
+/** What the clock has to cover before the first ten-hour break: a longer trip is driven over more than one day (49 CFR 395.3), so hours left now are read against the first day. */
+const firstDay = (tripHours: number | null | undefined) => (tripHours == null ? tripHours : Math.min(tripHours, DRIVE_LIMIT_HOURS));
 import { BLANK_QUOTE, gateTitle, grossPerLoadedMile, HAZMAT_CLASSES, isQuoteDirty, missingTimes, OVERRIDE_REASONS, PASS_REASONS, quoteCautions, readQuote, swapRoute, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
 import { BRIEF_LABEL, buildBrief, type BriefKind } from "@/lib/quote-brief";
 import type { CustomerOption, FitRow, LaneBenchmark, QuoteListRow } from "@/server/tl/quote";
@@ -39,12 +43,14 @@ const ago = (iso: string) => {
   return min < 90 ? `${min} min ago` : min < 60 * 36 ? `${Math.round(min / 60)} h ago` : `${Math.round(min / 1440)} d ago`;
 };
 
-type Initial = { id: string | null; values: QuoteValues; vehicleId: string | null; /** Why it was passed on, when it was: the quote is then read, not edited. */ passedFor: string | null } | null;
+type Initial = { id: string | null; values: QuoteValues; vehicleId: string | null; /** Why it was passed on, when it was: the quote is then read, not edited. */ passedFor: string | null; /** The saved quote's last change, so a save or booking over someone else's newer change is refused. */ version?: string | null } | null;
 
 /** What the form held before Clear or a swap, kept for a few seconds behind an Undo. */
 /** What is typed into the booking, pass and quick-paste dialogs, and which truck was picked: kept with the quote, like its fields. */
-type QuoteAsk = { reason: string; notes: string; passReason: string; passNotes: string; pasteText: string; selected: string | null };
-const BLANK_ASK: QuoteAsk = { reason: "", notes: "", passReason: "", passNotes: "", pasteText: "", selected: null };
+type QuoteAsk = { reason: string; notes: string; passReason: string; passNotes: string; pasteText: string; selected: string | null; hosReason?: string; pastOk?: boolean };
+const BLANK_ASK: QuoteAsk = { reason: "", notes: "", passReason: "", passNotes: "", pasteText: "", selected: null, hosReason: "", pastOk: false };
+/** How long past a pickup can be before booking asks (the server's own line, server/tl/quote.ts). */
+const PAST_PICKUP_MS = 24 * 3_600_000;
 
 /** How the person has the module set up: which tab, how the fleet matrix is sorted and whether it is open, and the saved-quotes search. Kept for the person, not per quote. */
 /** How many trucks the table shows when nothing is priced yet. */
@@ -53,7 +59,7 @@ const UNPRICED_SHOWN = 25;
 type QuoteView = { viewMode: "terminal" | "saved"; matrixSort: "margin" | "deadhead"; matrixOpen: boolean; listQuery: string; listStatus: "open" | "passed" | "all" };
 const BLANK_VIEW: QuoteView = { viewMode: "terminal", matrixSort: "deadhead", matrixOpen: true, listQuery: "", listStatus: "open" };
 
-type Snap = { values: QuoteValues; quoteId: string | null; selected: string | null; reason: string; notes: string; lastRoute: string; measure: { state: "idle" | "busy" | "ok" | "error"; text: string } };
+type Snap = { values: QuoteValues; quoteId: string | null; version: string | null; selected: string | null; reason: string; notes: string; lastRoute: string; measure: { state: "idle" | "busy" | "ok" | "error"; text: string } };
 
 export type FleetTruckOption = {
   id: string;
@@ -161,7 +167,13 @@ export function QuoteDesk({
   const setPassNotes = React.useCallback((v: string) => setAsk((a) => ({ ...a, passNotes: v })), [setAsk]);
   const setPasteText = React.useCallback((v: string) => setAsk((a) => ({ ...a, pasteText: v })), [setAsk]);
   const setSelected = React.useCallback((v: string | null) => setAsk((a) => ({ ...a, selected: v })), [setAsk]);
+  const hosReason = ask.hosReason ?? "";
+  const pastOk = ask.pastOk === true;
+  const setHosReason = React.useCallback((v: string) => setAsk((a) => ({ ...a, hosReason: v })), [setAsk]);
+  const setPastOk = React.useCallback((v: boolean) => setAsk((a) => ({ ...a, pastOk: v })), [setAsk]);
   const [quoteId, setQuoteId] = React.useState<string | null>(initial?.id ?? null);
+  // The saved quote's version as this form last saw it: sent with a save or a booking so someone else's newer change is never written over.
+  const [version, setVersion] = React.useState<string | null>(initial?.version ?? null);
   const [priced, setPriced] = React.useState<PricedQuote | null>(null);
   const [pricing, setPricing] = React.useState(false);
   const [priceFailed, setPriceFailed] = React.useState(false);
@@ -453,6 +465,7 @@ export function QuoteDesk({
     rateConFileRef.current = null;
     setRateConMeta(null);
     setQuoteId(null);
+    setVersion(null);
     setTried(false);
     setServerErrors({});
     setMessage(null);
@@ -465,7 +478,7 @@ export function QuoteDesk({
   };
 
   // Clear and the swap can be taken back: what the form held is kept for a few seconds behind an Undo.
-  const snapshot = (): Snap => ({ values, quoteId, selected, reason, notes, lastRoute: lastRoute.current, measure });
+  const snapshot = (): Snap => ({ values, quoteId, version, selected, reason, notes, lastRoute: lastRoute.current, measure });
   const restore = (snap: Snap) => {
     // A measure still on its way for the form as it is now must not land on the form as it was.
     measureSeq.current += 1;
@@ -476,6 +489,7 @@ export function QuoteDesk({
     setMeasure(measuring ? { state: "idle", text: "" } : snap.measure);
     setValues(snap.values);
     setQuoteId(snap.quoteId);
+    setVersion(snap.version);
     setSelected(snap.selected);
     setReason(snap.reason);
     setNotes(snap.notes);
@@ -527,7 +541,7 @@ export function QuoteDesk({
     if (!row) return;
     setBusy(true);
     setMessage(null);
-    const out = await reach(() => bookQuoteAction(values, { vehicleId: row.truckId, driverId: row.driverId }, override, quoteId));
+    const out = await reach(() => bookQuoteAction(values, { vehicleId: row.truckId, driverId: row.driverId }, override, quoteId, { version, pastOk, hosReason: row.driverId && row.hos.needsReason ? hosReason : null }));
     if (!out) return;
     setBusy(false);
     if (out.ok) {
@@ -560,11 +574,23 @@ export function QuoteDesk({
     }
     setServerErrors(out.errors ?? {});
     if (out.errors) setTried(true);
-    if (out.gate) setAsking(true);
+    // The server asks for what the form had not: a reason for the verdict, for the driver's hours, or a yes to a pickup already past. The dialog shows each one it needs.
+    if (out.gate || out.hos || out.pastPickup) setAsking(true);
     setMessage(out.error ?? (out.errors ? "Fix what is marked, then book it." : null));
-  }, [row, values, quoteId, draft, askDraft, router]);
+  }, [row, values, quoteId, draft, askDraft, router, version, pastOk, hosReason]);
+
+  // What booking this row asks for before it goes: a reason for the verdict, a reason for the driver's hours, a yes to a pickup more than a day past.
+  const pickupMs = readQuote(values)?.stops[0]?.appointment ?? null;
+  const needs = {
+    gate: row?.gate ?? null,
+    hos: row?.driverId && row.hos.needsReason ? (row.hos.caution.message ?? "This driver's hours need a look.") : null,
+    past: pickupMs != null && pickupMs < Date.now() - PAST_PICKUP_MS
+  };
+  const needsReady = (!needs.gate || (reason !== "" && (reason !== "Other" || notes.trim().length >= 3))) && (!needs.hos || hosReason.trim().length >= 3) && (!needs.past || pastOk);
 
   const onBook = React.useCallback(() => {
+    // Nothing is booked from a row that cannot take it, or by someone who may only look, whichever way it was asked for (the button, Enter, a shortcut).
+    if (locked || busy || !row || row.blocked) return;
     setTried(true);
     setServerErrors({});
     if (!check.ok) {
@@ -577,25 +603,27 @@ export function QuoteDesk({
       setMessage("Add the pickup and delivery times to book it.");
       return;
     }
-    if (row?.gate) {
+    if (needs.gate || needs.hos || needs.past) {
       setAsking(true);
       return;
     }
     void book(null);
-  }, [check.ok, values.stops, row?.gate, book]);
+  }, [locked, busy, row, check.ok, values.stops, needs.gate, needs.hos, needs.past, book]);
 
   const onSave = React.useCallback(async () => {
+    if (locked || busy) return;
     setTried(true);
     if (!check.ok) {
       setMessage("Fix what is marked, then save it.");
       return;
     }
     setBusy(true);
-    const out = await reach(() => saveQuoteAction({ ...values, driverId: row?.driverId ?? "" }, quoteId, row?.truckId ?? null));
+    const out = await reach(() => saveQuoteAction({ ...values, driverId: row?.driverId ?? "" }, quoteId, row?.truckId ?? null, version));
     if (!out) return;
     setBusy(false);
     if (out.ok) {
       setQuoteId(out.id);
+      setVersion(out.version);
       setMessage(null);
       draft.saved();
       askDraft.saved();
@@ -606,22 +634,23 @@ export function QuoteDesk({
       setServerErrors(out.errors ?? {});
       setMessage(out.error ?? "Fix what is marked, then save it.");
     }
-  }, [check.ok, values, row?.driverId, row?.truckId, quoteId, draft, askDraft, toast, router]);
+  }, [locked, busy, check.ok, values, row?.driverId, row?.truckId, quoteId, version, draft, askDraft, toast, router]);
 
   const onOpenPass = React.useCallback(() => {
+    if (locked || busy) return;
     setTried(true);
     if (!check.ok) {
       setMessage("Fix what is marked, then pass on it.");
       return;
     }
     setPassing(true);
-  }, [check.ok]);
+  }, [locked, busy, check.ok]);
 
   async function onPass() {
     setBusy(true);
     let id = quoteId;
     if (!id) {
-      const saved = await reach(() => saveQuoteAction({ ...values, driverId: row?.driverId ?? "" }, null, row?.truckId ?? null));
+      const saved = await reach(() => saveQuoteAction({ ...values, driverId: row?.driverId ?? "" }, null, row?.truckId ?? null, null));
       if (!saved) {
         setPassing(false);
         return;
@@ -847,8 +876,8 @@ export function QuoteDesk({
       }
       if (/^[1-9]$/.test(e.key)) {
         const idx = parseInt(e.key, 10) - 1;
-        if (rows[idx]) {
-          setSelected(rows[idx].key);
+        if (displayRows[idx]) {
+          setSelected(displayRows[idx].key);
         }
       }
     };
@@ -856,7 +885,7 @@ export function QuoteDesk({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, check, row, onBook, onSave, onOpenPass]);
+  }, [displayRows, check, row, onBook, onSave, onOpenPass]);
 
   const err = (k: string) => errors[k];
   const stopCount = values.stops.length;
@@ -1119,7 +1148,10 @@ export function QuoteDesk({
                               if (!window.confirm(`Throw away the quote for ${q.lane}${q.broker ? ` (${q.broker})` : ""}? It is kept in the audit trail, but it cannot be opened again.`)) return;
                               const out = await reach(() => discardQuoteAction(q.id));
                               if (out?.ok) {
-                                if (q.id === quoteId) setQuoteId(null);
+                                if (q.id === quoteId) {
+                                  setQuoteId(null);
+                                  setVersion(null);
+                                }
                                 router.refresh();
                                 toast({ text: "Quote discarded.", tone: "ok" });
                               } else if (out) toast({ text: "That quote could not be thrown away. It may already be booked or gone; reload the list.", tone: "bad" });
@@ -1851,7 +1883,7 @@ export function QuoteDesk({
                           const on = row?.key === r.key;
                           const truckInfo = { homeBaseAddress: r.homeBase };
                           // A note beside the verdict, never an input to it: the server's own hours check says "short", this words how far.
-                          const deficit = hosDeficit({ level: r.hos.caution.level, availableHours: r.hos.availableHours, tripHours: r.detail.metrics.tripHours });
+                          const deficit = hosDeficit({ level: r.hos.caution.level, availableHours: r.hos.availableHours, tripHours: firstDay(r.detail.metrics.tripHours) });
                           return (
                             <tr
                               key={r.key}
@@ -1943,7 +1975,7 @@ export function QuoteDesk({
                   const deficit = hosDeficit({
                     level: activeInspection.hos.caution.level,
                     availableHours: activeInspection.hos.availableHours,
-                    tripHours: activeInspection.detail.metrics.tripHours
+                    tripHours: firstDay(activeInspection.detail.metrics.tripHours)
                   });
                   const isHovered = Boolean(inspectedKey && inspectedKey !== row?.key);
                   return (
@@ -1968,7 +2000,7 @@ export function QuoteDesk({
                               <i>{deficit ? "▲" : "●"}</i>
                               <span>
                                 {activeInspection.hos.availableHours}h drive left{activeInspection.hos.syncedAt ? ` (${ago(activeInspection.hos.syncedAt)})` : ""}
-                                {activeInspection.detail.metrics.tripHours ? ` (trip needs ${activeInspection.detail.metrics.tripHours}h)` : ""}
+                                {activeInspection.detail.metrics.tripHours ? ` (${activeInspection.detail.metrics.tripHours > DRIVE_LIMIT_HOURS ? `first day needs ${DRIVE_LIMIT_HOURS}h of a ${activeInspection.detail.metrics.tripHours}h trip` : `trip needs ${activeInspection.detail.metrics.tripHours}h`})` : ""}
                               </span>
                             </span>
                           ) : (
@@ -2066,24 +2098,24 @@ export function QuoteDesk({
               {/* Action Buttons */}
               <div className="qt-actions">
                 {verdict?.state === "reject" ? (
-                  <button type="button" className="tl-btn primary" disabled={busy} onClick={onOpenPass}>
+                  <button type="button" className="tl-btn primary" disabled={busy || locked} onClick={onOpenPass}>
                     Reject it
                   </button>
                 ) : (
-                  <button type="button" className="tl-btn primary" disabled={busy || !row || !!row.blocked} aria-busy={busy || undefined} onClick={onBook}>
+                  <button type="button" className="tl-btn primary" disabled={busy || locked || !row || !!row.blocked} aria-busy={busy || undefined} onClick={onBook}>
                     {bookLabel}
                   </button>
                 )}
                 <div className="qt-actions-row">
-                  <button type="button" className="tl-btn" disabled={busy} onClick={() => void onSave()}>
+                  <button type="button" className="tl-btn" disabled={busy || locked} onClick={() => void onSave()}>
                     {quoteId ? "Update quote" : "Save as quote"}
                   </button>
                   {verdict?.state === "reject" ? (
-                    <button type="button" className="tl-btn ghost" disabled={busy || !!row?.blocked} aria-busy={busy || undefined} onClick={onBook}>
+                    <button type="button" className="tl-btn ghost" disabled={busy || locked || !row || !!row.blocked} aria-busy={busy || undefined} onClick={onBook}>
                       Book anyway
                     </button>
                   ) : (
-                    <button type="button" className="tl-btn ghost" disabled={busy || !row} onClick={onOpenPass}>
+                    <button type="button" className="tl-btn ghost" disabled={busy || locked || !row} onClick={onOpenPass}>
                       Pass on it
                     </button>
                   )}
@@ -2138,28 +2170,44 @@ export function QuoteDesk({
       </div>
 
       {/* ── Ask Reason Modal ───────────────────────────────────────────────────── */}
-      <Modal open={asking} onClose={() => setAsking(false)} eyebrow="Before booking" title={row?.gate ? gateTitle(row.gate, benchmark) : "Book it?"}>
+      <Modal open={asking} onClose={() => setAsking(false)} eyebrow="Before booking" title={needs.gate ? gateTitle(needs.gate, benchmark) : needs.hos ? "Put this driver on it with the hours they have?" : needs.past ? "Book a pickup that has already passed?" : "Book it?"}>
         <div className="dlg-form">
-          <p className="tl-note">The reason is kept with the decision and in the audit log.</p>
-          <div role="radiogroup" aria-label="Reason" className="qt-reasons">
-            {OVERRIDE_REASONS.map((r) => (
-              <label key={r} className="dlg-check">
-                <input type="radio" name="qt-reason" checked={reason === r} onChange={() => setReason(r)} />
-                {r}
+          <p className="tl-note">What you say here is kept with the decision and in the audit log.</p>
+          {needs.gate ? (
+            <>
+              <div role="radiogroup" aria-label="Reason" className="qt-reasons">
+                {OVERRIDE_REASONS.map((r) => (
+                  <label key={r} className="dlg-check">
+                    <input type="radio" name="qt-reason" checked={reason === r} onChange={() => setReason(r)} />
+                    {r}
+                  </label>
+                ))}
+              </div>
+              <label className="tl-field">
+                Notes {reason === "Other" ? "(say what the reason is)" : "(optional)"}
+                <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="A few words" />
               </label>
-            ))}
-          </div>
-          <label className="tl-field">
-            Notes {reason === "Other" ? "(say what the reason is)" : "(optional)"}
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="A few words" />
-          </label>
+            </>
+          ) : null}
+          {needs.hos ? (
+            <label className="tl-field">
+              {needs.hos} Why put them on it?
+              <textarea value={hosReason} onChange={(e) => setHosReason(e.target.value)} placeholder="For example: a 34-hour restart ends before the pickup" />
+            </label>
+          ) : null}
+          {needs.past ? (
+            <label className="dlg-check">
+              <input type="checkbox" checked={pastOk} onChange={(e) => setPastOk(e.target.checked)} />
+              The pickup is more than a day ago, and that is right.
+            </label>
+          ) : null}
           {message ? <p className="tl-note warn" role="alert">{message}</p> : null}
           <div className="dlg-actions">
             <button type="button" className="tl-btn" onClick={() => setAsking(false)}>
               Back
             </button>
-            <button type="button" className="tl-btn primary" disabled={busy || reason === "" || (reason === "Other" && notes.trim().length < 3)} onClick={() => void book({ reason, notes })}>
-              Book it anyway
+            <button type="button" className="tl-btn primary" disabled={busy || locked || !row || !!row.blocked || !needsReady} onClick={() => void book(needs.gate ? { reason, notes } : null)}>
+              {needs.gate ? "Book it anyway" : "Book it"}
             </button>
           </div>
         </div>
@@ -2321,7 +2369,9 @@ export function QuoteDesk({
 /** Short labour note for matrix row. */
 function shortLabour(r: FitRow): string {
   const m = /: (.*?), plus/.exec(r.labourNote);
-  return m ? `pay ${m[1]}` : r.labourNote;
+  // Someone who may not see driver pay gets whose pay it is, never the figure.
+  if (!m) return r.labourFrom === "driver" ? "usual pay" : r.labourNote;
+  return `pay ${m[1]}`;
 }
 
 /** The line under the Offer field: "$2.92/mi loaded", the typed offer over the typed loaded miles (gross, before any fee). Nothing until both are typed. */
@@ -2503,7 +2553,7 @@ function VerdictPanel({ row, verdict, values, lane, milesFrom, fuelFrom }: { row
   if (d.thinMargin && !verdict.sentence.includes("five cents")) notes.push("It clears, but by less than five cents a mile.");
   if (d.timeTrap && d.profitPerHour != null && !verdict.sentence.includes("an hour against")) notes.push(`Profit per trip hour is ${usd(d.profitPerHour, 2)}, under the ${usd(d.hourlyTarget, 0)} an hour target.`);
   if (d.requiredRests > 0) notes.push(`A run this long needs ${d.requiredRests} ten-hour ${d.requiredRests === 1 ? "rest" : "rests"}: about ${d.elapsedHours.toFixed(0)} hours elapsed.`);
-  const ground = groundOf({ miles: milesFrom, fuel: fuelFrom, market: lane ? { laneLoads: lane.loads, laneDays: lane.days } : values.marketRate.trim() === "" ? "none" : "typed", driver: /from this assignment/.test(row.labourNote) });
+  const ground = groundOf({ miles: milesFrom, fuel: fuelFrom, market: lane ? { laneLoads: lane.loads, laneDays: lane.days } : values.marketRate.trim() === "" ? "none" : "typed", driver: row.labourFrom === "driver" });
   const sgnRate = (n: number) => `${n < 0 ? "\u2212" : "+"}${perMile(Math.abs(n))}`;
   const ladder: LadderLine[] =
     row.allInPerMile == null || row.marginPerMile == null || row.leftOver == null

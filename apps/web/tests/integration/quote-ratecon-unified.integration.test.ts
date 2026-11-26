@@ -81,7 +81,8 @@ describe.skipIf(!run)("unified Quote rate-con ingestion & zero-drift persistence
       { fileName: "RC-AFB-482913_dallas-to-houston_cargo-van.pdf" }
     );
 
-    const booked = await bookQuote(mapped.values, { vehicleId, driverId: null }, null, null, W, NOW);
+    // The sample rate confirmation is dated in the past: booking it says so on purpose (pastOk), as a person would in the dialog.
+    const booked = await bookQuote(mapped.values, { vehicleId, driverId: null }, null, null, W, NOW, { pastOk: true });
     expect(booked).toMatchObject({ ok: true });
     if (!booked.ok) return;
 

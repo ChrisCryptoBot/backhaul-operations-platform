@@ -1,3 +1,4 @@
+import { currentTerminal } from "@/server/tl/terminal";
 import Link from "next/link";
 import React from "react";
 import { notFound } from "next/navigation";
@@ -27,7 +28,7 @@ export default async function QuoteDecisionsPage({ searchParams }: { searchParam
   const scope = reportScope();
   if (scope == null) notFound();
   const period = asKpiPeriod(Array.isArray(searchParams?.period) ? searchParams?.period[0] : searchParams?.period);
-  const { report: r, rows, capped } = await getQuoteReport({ period, by: scope === "all" ? null : scope });
+  const { report: r, rows, capped } = await getQuoteReport({ period, by: scope === "all" ? null : scope, terminals: await currentTerminal() });
   const href = (key: string) => `/kpi/quotes?period=${key}`;
 
   return (

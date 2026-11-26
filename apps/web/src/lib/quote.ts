@@ -263,6 +263,12 @@ const fuelOverride = (s: string): number | null => {
   return n != null && n >= 0.5 && n <= 25 ? n : null;
 };
 
+/** More decimal places than `places` in a typed number ("1500.555" has three): money is kept to the cent, so a figure with more is a slip. */
+export const tooManyDecimals = (raw: string, places: number): boolean => {
+  const m = /\.(\d+)$/.exec(raw.replace(/,/g, "").trim());
+  return m != null && m[1]!.length > places;
+};
+
 const positive = (s: string): number | null => {
   const n = num(str(s));
   return n != null && n > 0 ? n : null;
@@ -606,6 +612,12 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
     const n = num(fact);
     if (n == null || n < 0 || n > 100) errors.factoringPct = "A percent from 0 to 100.";
   }
+  // Money to the cent (a rate a mile to a tenth of a cent), as an invoice keeps it: the price is never worked out on a figure the load cannot hold.
+  for (const [key, places] of [["offer", 2], ["marketRate", 2], ["permitEscort", 2], ["insuranceRider", 2], ["detentionHourlyRate", 2], ["towingPerMile", 3]] as const) {
+    const raw = str(values[key] ?? "");
+    if (raw !== "" && !errors[key] && tooManyDecimals(raw, places)) errors[key] = places === 2 ? "Dollars and cents, at most two decimal places." : "At most three decimal places.";
+  }
+  if (!errors.fsc && str(values.fsc) !== "" && tooManyDecimals(str(values.fsc), values.fscUnit === "per_mile" ? 3 : 2)) errors.fsc = values.fscUnit === "per_mile" ? "At most three decimal places." : "A percent with at most two decimal places.";
   if (Object.keys(errors).length > 0) return { ok: false, errors };
 
   const input = readQuote(values)!;

@@ -18,6 +18,7 @@ function mockRow(over: Partial<FitRow> = {}): FitRow {
     driverId: "drv-1",
     driverName: "Marcus Vance",
     labourNote: "usual pay: $0.62/mi, plus 25% burden",
+    labourFrom: "driver",
     emptyToPickup: 45,
     totalMiles: 545.2,
     band: "above_market",
@@ -34,7 +35,7 @@ function mockRow(over: Partial<FitRow> = {}): FitRow {
     onShift: null,
     available: true,
     warnings: [],
-    hos: { availableHours: 11, syncedAt: null, caution: { level: "none", message: null } },
+    hos: { availableHours: 11, syncedAt: null, caution: { level: "none", message: null }, state: "none", needsReason: false },
     detail: {
       effectiveGross: 1275,
       payNeeded: 818,
