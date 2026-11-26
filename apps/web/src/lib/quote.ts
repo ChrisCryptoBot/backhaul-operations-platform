@@ -692,11 +692,11 @@ export function validateQuote(values: QuoteValues): QuoteCheck {
  */
 export function quoteWarnings(input: QuoteInput): string[] {
   const c = quoteCautions(input);
-  return [c.marketRate, c.fsc, c.factoringPct].filter((s): s is string => s != null);
+  return [c.marketRate, c.fsc, c.factoringPct, c.hazmat].filter((s): s is string => s != null);
 }
 
 /** A "did you mean" note, keyed by the field it is about. */
-export type QuoteCautions = { marketRate?: string; fsc?: string; factoringPct?: string };
+export type QuoteCautions = { marketRate?: string; fsc?: string; factoringPct?: string; hazmat?: string };
 
 /**
  * The same checks as quoteWarnings, keyed by field, so the desk can show each one under its own field as the phone does (a caution card under the market
@@ -713,6 +713,12 @@ export function quoteCautions(input: QuoteInput): QuoteCautions {
   // The phone's softer nudges: a surcharge that is half the offer, or over $2 a loaded mile, is more often a slip than a rate.
   else if (input.fscUnit === "percent" && input.fsc >= 50) out.fsc = (`A fuel surcharge of ${input.fsc}% of the offer is very high. Did you mean ${input.fsc / 10}% or ${input.fsc / 100}%?`);
   else if (input.fscUnit === "per_mile" && input.fsc > 2) out.fsc = (`A fuel surcharge of $${input.fsc} a loaded mile looks high. Check it.`);
+  // Hazmat paperwork: the shipping papers carry the UN number and a 24-hour emergency response phone (49 CFR 172.202, 172.604). A caution, never a refusal: the shipper prepares the
+  // papers, and the desk only says what to ask for.
+  if (input.specs.hazmatClass) {
+    const missing = [input.hazmatUnNumber ? null : "the UN number", input.hazmatEmergencyPhone ? null : "the 24-hour emergency phone"].filter(Boolean);
+    if (missing.length > 0) out.hazmat = `Hazmat: ask the shipper for ${missing.join(" and ")}. The shipping papers must carry them (49 CFR 172.202, 172.604).`;
+  }
   if (input.factoringFraction != null && input.factoringFraction >= 0.5) out.factoringPct = (`A factoring fee of ${(input.factoringFraction * 100).toFixed(0)}% is very high. Did you mean ${(input.factoringFraction * 10).toFixed(1)}%?`);
   return out;
 }

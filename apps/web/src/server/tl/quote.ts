@@ -23,6 +23,9 @@ import { fuelSurchargePercentFromDollars, fuelSurchargePerMileFromDollars } from
 import { cityState } from "@/lib/city-state";
 import { CUSTOMER_KINDS, kindLabel, type CustomerKind } from "@/lib/customer";
 import { nearNames } from "@/lib/customer-match";
+import { noAuthority, normalizeMcNumber, type AuthorityResult, type AuthorityState } from "@/lib/fmcsa";
+import { lookupMc } from "@/server/fmcsa/lookup";
+import { overBudget } from "./budget";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { assignDriver, DispatchError, driverClashesIn, findTruckClash, tripHoursOf, truckClashesIn, windowText } from "./dispatch";
@@ -292,7 +295,9 @@ function fitFor(input: QuoteInput, truck: TruckForFit, driver: TruckForFit["driv
     trailerFits,
     onShift: shift.tag == null ? null : shift.tag !== "Off duty" && shift.warn == null,
     available: (blocked ?? forLoad.blocker) == null,
-    warnings: [...forLoad.warnings, ...(body ? [body] : []), ...(hos.caution.message ? [hos.caution.message] : [])],
+    // A placarded hazmat load needs a driver with the H (or X) endorsement (49 CFR 383.93). The desk keeps no endorsements yet, so it says so for every driver: a caution until the
+    // Drivers module carries them (Chris, 2026-11-25), then a block.
+    warnings: [...forLoad.warnings, ...(body ? [body] : []), ...(hos.caution.message ? [hos.caution.message] : []), ...(input.specs.hazmatClass && driver ? [`Hazmat: ${driver.name}'s H endorsement is not on file. Check their CDL before you book (49 CFR 383.93).`] : [])],
     hos,
     shift,
     detail: {
@@ -1109,11 +1114,27 @@ export type BookResult =
       hos?: string;
       /** The customer has no record yet: booking makes one, so it asks what kind it is first, and offers the close spellings already on the desk. */
       newCustomer?: { name: string; near: string[] };
+      /** FMCSA found no active authority for the MC, or no one with it: booking it needs a reason (Chris, 2026-11-25: warn with a reason, any dispatcher). */
+      authority?: { mc: string; state: AuthorityState; label: string; name: string | null };
       stale?: true;
     };
 
 /** What booking also carries: the version and limit as for a save, a yes to a pickup already past, and the reason for putting a driver on it with the hours they have. */
-export type BookOpts = QuoteWriteOpts & { pastOk?: boolean; hosReason?: string | null; /** What a new customer record is (Chris, 2026-11-25: asked every time). */ customerKind?: CustomerKind | null };
+export type BookOpts = QuoteWriteOpts & {
+  pastOk?: boolean;
+  hosReason?: string | null;
+  /** What a new customer record is (Chris, 2026-11-25: asked every time). */
+  customerKind?: CustomerKind | null;
+  /** Why it is booked although FMCSA shows no active authority for the MC, or no one with it. */
+  authorityReason?: string | null;
+  /** The person checked the MC on SAFER themselves while FMCSA's lookup did not answer: on the record beside "not checked". */
+  saferChecked?: boolean;
+  /** Tests stand in for the FMCSA lookup with this; the desk uses the real one (server/fmcsa/lookup.ts). */
+  authorityLookup?: (mc: string) => Promise<AuthorityResult>;
+};
+
+/** FMCSA answers that need a reason before the load is booked: no active authority, or no one with that MC. A carrier's own authority with no broker authority is said, not asked about. */
+const ASK_ABOUT: readonly AuthorityState[] = ["inactive", "not_found"];
 /** How long past a pickup can be before booking asks. A load typed a little late is normal; one a day or more back is usually the wrong date or year. */
 const PAST_PICKUP_MS = 24 * 3_600_000;
 
@@ -1172,6 +1193,25 @@ export async function bookQuote(
   const mcDigits = (input.brokerMc ?? "").replace(/\D/g, "");
   const mcTwin = mcDigits ? await prisma.customer.findFirst({ where: { workspaceId, mcNumber: { contains: mcDigits }, ...(record ? { id: { not: record.id } } : {}), NOT: { name: { equals: input.broker ?? "", mode: "insensitive" } } }, select: { name: true, mcNumber: true } }) : null;
   const mcNote = mcTwin && (mcTwin.mcNumber ?? "").replace(/\D/g, "") === mcDigits ? `MC ${mcDigits} is also on ${mcTwin.name}'s record. Check who this load is really from.` : null;
+
+  // The customer's authority, checked at FMCSA when an MC was typed (a shipper has none and is not asked about). Risk control, not a rule the carrier is bound by: no active authority or no
+  // one with the MC needs a reason, which is kept with the booking; an outage or a spent daily allowance books with "not checked" on the record (and the person's own SAFER check, if they
+  // made one). A carrier's own authority with no broker authority is told after booking, never asked about.
+  const mcForAuthority = normalizeMcNumber(input.brokerMc);
+  let authority: AuthorityResult | null = null;
+  if (mcForAuthority) {
+    authority = opts.authorityLookup ? await opts.authorityLookup(mcForAuthority) : overBudget("fmcsa", workspaceId) ? noAuthority("unavailable") : await lookupMc(mcForAuthority);
+  }
+  const authorityReason = (opts.authorityReason ?? "").trim();
+  if (authority && mcForAuthority && ASK_ABOUT.includes(authority.state) && authorityReason.length < 3) {
+    return { ok: false, authority: { mc: mcForAuthority, state: authority.state, label: authority.label, name: authority.name }, error: `FMCSA: ${authority.label} for MC ${mcForAuthority}. Say why you are booking it anyway.` };
+  }
+  const authorityText = !authority
+    ? null
+    : authority.state === "unavailable"
+      ? `Not checked (FMCSA did not answer)${opts.saferChecked ? "; checked on SAFER by hand" : ""}`
+      : `${authority.label}${authority.name ? ` (${authority.name})` : ""}${ASK_ABOUT.includes(authority.state) ? `; booked anyway: ${authorityReason}` : ""}`;
+  const authorityNote = authority?.state === "carrier" ? `FMCSA: MC ${mcForAuthority} has carrier authority only, not broker authority. Check who this load is really from.` : null;
 
   const laneRecord = await laneBenchmark(input, workspaceId, now);
   const fit = fitFor(judgedBy(input, laneRecord), { ...truck, drivers: driver ? [driver] : [] } as TruckForFit, driver, null, NO_QUOTE_SHIFT, now)!;
@@ -1272,7 +1312,8 @@ export async function bookQuote(
             Verdict: fit.decision,
             "Per mile, every mile": fit.allInPerMile == null ? null : `$${fit.allInPerMile.toFixed(2)}`,
             "Fuel priced at": fuelNote,
-            "Judged against": input.marketTotal != null ? "The market rate typed" : laneRecord ? `Your ${laneRecord.loads} loads on this lane, $${laneRecord.perMile.toFixed(2)}/mi` : "Cost alone (no market rate, no lane record)"
+            "Judged against": input.marketTotal != null ? "The market rate typed" : laneRecord ? `Your ${laneRecord.loads} loads on this lane, $${laneRecord.perMile.toFixed(2)}/mi` : "Cost alone (no market rate, no lane record)",
+            ...(authorityText ? { "Customer authority": authorityText } : {})
           },
           at: now
         },
@@ -1292,17 +1333,17 @@ export async function bookQuote(
 
   // The driver comes last and can fail on its own (a lapsed card, another load at that time) without undoing the booking.
   let assigned = false;
-  let note: string | null = mcNote;
+  let note: string | null = [mcNote, authorityNote].filter(Boolean).join(" ") || null;
   if (driver) {
     if (driver.defaultPayKind && driver.defaultPayRate != null) {
       try {
         await assignDriver({ loadId: saved.loadId, driverId: driver.id, pay: { kind: driver.defaultPayKind as PayKind, rate: num(driver.defaultPayRate) }, reasons: hosReason ? { hos_short: hosReason } : undefined, allowed }, now, workspaceId);
         assigned = true;
       } catch (e) {
-        note = [mcNote, e instanceof DispatchError ? `Booked, but ${driver.name} could not be assigned: ${e.message}` : `Booked, but ${driver.name} could not be assigned.`].filter(Boolean).join(" ");
+        note = [mcNote, authorityNote, e instanceof DispatchError ? `Booked, but ${driver.name} could not be assigned: ${e.message}` : `Booked, but ${driver.name} could not be assigned.`].filter(Boolean).join(" ");
       }
     } else {
-      note = [mcNote, `Booked. ${driver.name} has no usual pay yet, so assign them from the load.`].filter(Boolean).join(" ");
+      note = [mcNote, authorityNote, `Booked. ${driver.name} has no usual pay yet, so assign them from the load.`].filter(Boolean).join(" ");
     }
   }
   return { ok: true, loadId: saved.loadId, loadNumber: saved.loadNumber, assigned, note };

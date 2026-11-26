@@ -1084,10 +1084,10 @@ export async function bookQuoteAction(
   pick: { vehicleId: string; driverId: string | null },
   override: Override | null,
   quoteId: string | null,
-  extra: { version?: string | null; pastOk?: boolean; hosReason?: string | null; customerKind?: string | null } = {}
+  extra: { version?: string | null; pastOk?: boolean; hosReason?: string | null; customerKind?: string | null; authorityReason?: string | null; saferChecked?: boolean } = {}
 ): Promise<BookResult> {
   await requireCan("quote");
-  const out = await bookQuote(values, pick, override, quoteId, undefined, undefined, { version: extra.version ?? null, pastOk: extra.pastOk === true, hosReason: typeof extra.hosReason === "string" ? extra.hosReason.slice(0, 500) : null, customerKind: extra.customerKind === "broker" || extra.customerKind === "shipper" || extra.customerKind === "other" ? extra.customerKind : null });
+  const out = await bookQuote(values, pick, override, quoteId, undefined, undefined, { version: extra.version ?? null, pastOk: extra.pastOk === true, hosReason: typeof extra.hosReason === "string" ? extra.hosReason.slice(0, 500) : null, customerKind: extra.customerKind === "broker" || extra.customerKind === "shipper" || extra.customerKind === "other" ? extra.customerKind : null, authorityReason: typeof extra.authorityReason === "string" ? extra.authorityReason.slice(0, 500) : null, saferChecked: extra.saferChecked === true });
   if (out.ok) {
     for (const path of ["/quote", "/loads", "/dispatch", "/planner", "/alerts", "/audit", "/kpi"]) revalidatePath(path);
     revalidatePath("/", "layout");

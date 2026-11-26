@@ -52,8 +52,8 @@ type Initial = { id: string | null; values: QuoteValues; vehicleId: string | nul
 
 /** What the form held before Clear or a swap, kept for a few seconds behind an Undo. */
 /** What is typed into the booking, pass and quick-paste dialogs, and which truck was picked: kept with the quote, like its fields. */
-type QuoteAsk = { reason: string; notes: string; passReason: string; passNotes: string; pasteText: string; selected: string | null; hosReason?: string; pastOk?: boolean; customerKind?: string };
-const BLANK_ASK: QuoteAsk = { reason: "", notes: "", passReason: "", passNotes: "", pasteText: "", selected: null, hosReason: "", pastOk: false, customerKind: "" };
+type QuoteAsk = { reason: string; notes: string; passReason: string; passNotes: string; pasteText: string; selected: string | null; hosReason?: string; pastOk?: boolean; customerKind?: string; authorityReason?: string; saferChecked?: boolean };
+const BLANK_ASK: QuoteAsk = { reason: "", notes: "", passReason: "", passNotes: "", pasteText: "", selected: null, hosReason: "", pastOk: false, customerKind: "", authorityReason: "", saferChecked: false };
 /** How long past a pickup can be before booking asks (the server's own line, server/tl/quote.ts). */
 const PAST_PICKUP_MS = 24 * 3_600_000;
 
@@ -192,6 +192,12 @@ export function QuoteDesk({
   const setCustomerKind = React.useCallback((v: string) => setAsk((a) => ({ ...a, customerKind: v })), [setAsk]);
   // A customer with no record yet, as the server said when booking was asked for: the name it asked about and the close spellings already on the desk.
   const [newCustomer, setNewCustomer] = React.useState<{ name: string; near: string[] } | null>(null);
+  const authorityReason = ask.authorityReason ?? "";
+  const saferChecked = ask.saferChecked === true;
+  const setAuthorityReason = React.useCallback((v: string) => setAsk((a) => ({ ...a, authorityReason: v })), [setAsk]);
+  const setSaferChecked = React.useCallback((v: boolean) => setAsk((a) => ({ ...a, saferChecked: v })), [setAsk]);
+  // What FMCSA said about the MC when booking was asked for, when it needs a reason (no active authority, or no one with that MC).
+  const [authorityAsk, setAuthorityAsk] = React.useState<{ mc: string; label: string; name: string | null } | null>(null);
   const [quoteId, setQuoteId] = React.useState<string | null>(initial?.id ?? null);
   // The saved quote's version as this form last saw it: sent with a save or a booking so someone else's newer change is never written over.
   const [version, setVersion] = React.useState<string | null>(initial?.version ?? null);
@@ -481,6 +487,18 @@ export function QuoteDesk({
     null;
 
   const authority = useAuthorityLookup();
+  // An MC is checked at FMCSA however it arrives: typed (on leaving the box, or after a pause), pasted, or read from a rate confirmation. The server checks it again at booking.
+  const checkedMc = React.useRef<string>("");
+  React.useEffect(() => {
+    const digits = values.brokerMc.replace(/\D/g, "");
+    if (digits.length < 4 || digits.length > 8 || digits === checkedMc.current) return;
+    const timer = window.setTimeout(() => {
+      checkedMc.current = digits;
+      void authority.check(values.brokerMc, values.broker, (name) => setValues((v) => (v.broker.trim() === "" ? { ...v, broker: name } : v)));
+    }, 700);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [values.brokerMc]);
   const set = (patch: Partial<QuoteValues>) => setValues((v) => ({ ...v, ...patch }));
   const setStop = (i: number, patch: Partial<QuoteStop>) => setValues((v) => ({ ...v, stops: v.stops.map((s, k) => (k === i ? { ...s, ...patch } : s)) }));
   const addStop = () => setValues((v) => ({ ...v, stops: [...v.stops.slice(0, -1), { role: "delivery", address: "", appointment: "" }, v.stops[v.stops.length - 1]!] }));
@@ -570,7 +588,7 @@ export function QuoteDesk({
     if (!row) return;
     setBusy(true);
     setMessage(null);
-    const out = await reach(() => bookQuoteAction(values, { vehicleId: row.truckId, driverId: row.driverId }, override, quoteId, { version, pastOk, hosReason: row.driverId && row.hos.needsReason ? hosReason : null, customerKind: newCustomer && newCustomer.name.trim().toLowerCase() === values.broker.trim().toLowerCase() ? customerKind : null }));
+    const out = await reach(() => bookQuoteAction(values, { vehicleId: row.truckId, driverId: row.driverId }, override, quoteId, { version, pastOk, hosReason: row.driverId && row.hos.needsReason ? hosReason : null, customerKind: newCustomer && newCustomer.name.trim().toLowerCase() === values.broker.trim().toLowerCase() ? customerKind : null, authorityReason: authorityAsk ? authorityReason : null, saferChecked }));
     if (!out) return;
     setBusy(false);
     if (out.ok) {
@@ -608,10 +626,11 @@ export function QuoteDesk({
     if (out.errors) setTried(true);
     // The server asks for what the form had not: a reason for the verdict, for the driver's hours, or a yes to a pickup already past. The dialog shows each one it needs.
     if (out.newCustomer) setNewCustomer(out.newCustomer);
-    if (out.gate || out.hos || out.pastPickup || out.newCustomer) setAsking(true);
+    if (out.authority) setAuthorityAsk({ mc: out.authority.mc, label: out.authority.label, name: out.authority.name });
+    if (out.gate || out.hos || out.pastPickup || out.newCustomer || out.authority) setAsking(true);
     // The new-customer question says it all in the dialog; the server's sentence would only repeat it.
-    setMessage(out.newCustomer && !out.gate && !out.hos && !out.pastPickup ? null : (out.error ?? (out.errors ? "Fix what is marked, then book it." : null)));
-  }, [row, values, quoteId, draft, askDraft, router, version, pastOk, hosReason, draftKey, rateConMeta?.isRealFile, newCustomer, customerKind]);
+    setMessage((out.newCustomer || out.authority) && !out.gate && !out.hos && !out.pastPickup ? null : (out.error ?? (out.errors ? "Fix what is marked, then book it." : null)));
+  }, [row, values, quoteId, draft, askDraft, router, version, pastOk, hosReason, draftKey, rateConMeta?.isRealFile, newCustomer, customerKind, authorityAsk, authorityReason, saferChecked]);
 
   // What booking this row asks for before it goes: a reason for the verdict, a reason for the driver's hours, a yes to a pickup more than a day past.
   const pickupMs = readQuote(zoned)?.stops[0]?.appointment ?? null;
@@ -620,9 +639,11 @@ export function QuoteDesk({
     hos: row?.driverId && row.hos.needsReason ? (row.hos.caution.message ?? "This driver's hours need a look.") : null,
     past: pickupMs != null && pickupMs < Date.now() - PAST_PICKUP_MS,
     // Only while the customer box still holds the name the server asked about: picking a close spelling instead answers it.
-    customer: newCustomer && newCustomer.name.trim().toLowerCase() === values.broker.trim().toLowerCase() ? newCustomer : null
+    customer: newCustomer && newCustomer.name.trim().toLowerCase() === values.broker.trim().toLowerCase() ? newCustomer : null,
+    // Only while the MC box still holds the number FMCSA was asked about.
+    authority: authorityAsk && authorityAsk.mc === values.brokerMc.replace(/\D/g, "") ? authorityAsk : null
   };
-  const needsReady = (!needs.gate || (reason !== "" && (reason !== "Other" || notes.trim().length >= 3))) && (!needs.hos || hosReason.trim().length >= 3) && (!needs.past || pastOk) && (!needs.customer || customerKind !== "");
+  const needsReady = (!needs.gate || (reason !== "" && (reason !== "Other" || notes.trim().length >= 3))) && (!needs.hos || hosReason.trim().length >= 3) && (!needs.past || pastOk) && (!needs.customer || customerKind !== "") && (!needs.authority || authorityReason.trim().length >= 3);
 
   const onBook = React.useCallback(() => {
     // Nothing is booked from a row that cannot take it, or by someone who may only look, whichever way it was asked for (the button, Enter, a shortcut).
@@ -1506,6 +1527,12 @@ export function QuoteDesk({
                     />
                     {err("brokerMc") ? <span className="th-err" role="alert">{err("brokerMc")}</span> : null}
                     <AuthorityStatus busy={authority.busy} result={authority.result} />
+                    {authority.result?.state === "unavailable" ? (
+                      // FMCSA did not answer: the booking says "not checked", and the person's own check on SAFER goes on the record beside it.
+                      <span className="tl-check">
+                        <input type="checkbox" checked={saferChecked} onChange={(e) => setSaferChecked(e.target.checked)} /> I checked it on SAFER
+                      </span>
+                    ) : null}
                   </label>
                   <label className="tl-field">
                     Customer&apos;s load number
@@ -1717,7 +1744,7 @@ export function QuoteDesk({
                 </div>
                 {values.hazmatClass || values.hazmatUnNumber || values.hazmatPackingGroup ? (
                   <p className="tl-note warn" style={{ marginTop: 8 }}>
-                    Check the driver&apos;s H endorsement (49 CFR 383.93)
+                    Check the driver&apos;s H endorsement (49 CFR 383.93).{cautions.hazmat ? ` ${cautions.hazmat}` : ""}
                   </p>
                 ) : null}
                 <div className="qt-needs">
@@ -2235,7 +2262,7 @@ export function QuoteDesk({
       </div>
 
       {/* ── Ask Reason Modal ───────────────────────────────────────────────────── */}
-      <Modal open={asking} onClose={() => setAsking(false)} eyebrow="Before booking" title={needs.gate ? gateTitle(needs.gate, benchmark) : needs.hos ? "Put this driver on it with the hours they have?" : needs.past ? "Book a pickup that has already passed?" : needs.customer ? `New customer: ${needs.customer.name}` : "Book it?"}>
+      <Modal open={asking} onClose={() => setAsking(false)} eyebrow="Before booking" title={needs.gate ? gateTitle(needs.gate, benchmark) : needs.hos ? "Put this driver on it with the hours they have?" : needs.past ? "Book a pickup that has already passed?" : needs.customer ? `New customer: ${needs.customer.name}` : needs.authority ? "Book it without active authority on file?" : "Book it?"}>
         <div className="dlg-form">
           <p className="tl-note">What you say here is kept with the decision and in the audit log.</p>
           {needs.gate ? (
@@ -2254,9 +2281,10 @@ export function QuoteDesk({
               </label>
             </>
           ) : null}
+          {needs.hos ? <p className="tl-note warn">{needs.hos}</p> : null}
           {needs.hos ? (
             <label className="tl-field">
-              {needs.hos} Why put them on it?
+              Why put them on it?
               <textarea value={hosReason} onChange={(e) => setHosReason(e.target.value)} placeholder="For example: a 34-hour restart ends before the pickup" />
             </label>
           ) : null}
@@ -2286,6 +2314,18 @@ export function QuoteDesk({
                 </p>
               ) : null}
             </fieldset>
+          ) : null}
+          {needs.authority ? (
+            <p className="tl-note warn">
+              FMCSA: {needs.authority.label.toLowerCase()} for MC {needs.authority.mc}
+              {needs.authority.name ? ` (${needs.authority.name})` : ""}. A load from an MC with no active authority is the double-brokering sign.
+            </p>
+          ) : null}
+          {needs.authority ? (
+            <label className="tl-field">
+              Why book it anyway?
+              <textarea value={authorityReason} onChange={(e) => setAuthorityReason(e.target.value)} placeholder="For example: authority reinstated today, confirmed with the broker by phone" />
+            </label>
           ) : null}
           {needs.past ? (
             <label className="dlg-check">
