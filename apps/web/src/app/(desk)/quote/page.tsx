@@ -1,11 +1,14 @@
 import { terminalFilter } from "@/lib/scope";
 import { currentTerminal } from "@/server/tl/terminal";
+import { currentAllowed } from "@/server/tl/scope";
+import { inTerminal } from "@/server/tl/terminal-sql";
 import React from "react";
+import Link from "next/link";
 import { QuoteDesk, type FleetTruckOption } from "@/components/desk/quote-desk";
 import { PageHead } from "@/components/desk/ui";
 import { requirePage } from "@/server/tl/access";
-import { can } from "@/lib/roles";
-import { brokerNames, getQuote, getQuoteLike, listOpenPickups, listQuotes } from "@/server/tl/quote";
+import { can, canAny } from "@/lib/roles";
+import { brokerNames, getQuote, getQuoteLike, listQuotes } from "@/server/tl/quote";
 import { prisma } from "@/lib/db";
 import { currentWorkspaceId } from "@/server/tl/workspace";
 
@@ -24,7 +27,7 @@ export default async function QuotePage({ searchParams }: { searchParams: { quot
   const likeId = id ? null : first(searchParams.like);
   // Everything on this page is for the terminals in view (inside what the person may see).
   const terminal = await currentTerminal();
-  const [quotes, brokers, saved, like, fleetRaw, openPickups] = await Promise.all([
+  const [quotes, brokers, saved, like, fleetRaw] = await Promise.all([
     listQuotes(undefined, { status: "open" }, terminal),
     brokerNames(undefined, terminal),
     id ? getQuote(id) : null,
@@ -38,8 +41,7 @@ export default async function QuotePage({ searchParams }: { searchParams: { quot
       orderBy: { name: "asc" },
       // A fleet has far more trucks than a page can use: the first few by name (and the saved quote's own truck), enough for the strip and the table before anything is priced. Pricing reads the nearest itself.
       take: FLEET_SHIPPED
-    }),
-    listOpenPickups(undefined, terminal)
+    })
   ]);
 
   const fleet: FleetTruckOption[] = fleetRaw.map((v) => ({
@@ -53,14 +55,20 @@ export default async function QuotePage({ searchParams }: { searchParams: { quot
   }));
 
   const initial = saved && id ? { id, ...saved } : like ? { id: null, values: like, vehicleId: null, passedFor: null } : null;
+  // A quote that is no longer one may simply have been booked (the page refreshes under the "booked" card): say so and link the load, rather than call the link old.
+  const booked = id && !saved ? await prisma.load.findFirst({ where: { id, workspaceId: currentWorkspaceId(), deletedAt: null, status: { not: "quote" }, ...inTerminal(await currentAllowed()) }, select: { id: true, loadNumber: true } }) : null;
   // Names the form for what it keeps: each quote is its own, and each "quote like this" is its own (they start from different loads).
   const draftId = id ?? (likeId ? `like-${likeId}` : "new");
   return (
     <>
       <PageHead title="Quote" sub="Price an offer or drop a rate confirmation, pick the truck and driver, and book it." />
-      {id && !saved ? (
+      {id && !saved && booked ? (
+        <p className="tl-note" role="status">
+          That quote is booked: <Link href={`/loads/${booked.id}`}>{booked.loadNumber ?? "open the load"}</Link>.
+        </p>
+      ) : id && !saved ? (
         <p className="tl-note warn" role="status">
-          That quote is not here any more: it was booked, thrown away, or the link is old. Look for a booked one on the board.
+          That quote is not here any more: it was thrown away, or the link is old. Look for a booked one on the board.
         </p>
       ) : null}
       <QuoteDesk
@@ -71,7 +79,9 @@ export default async function QuotePage({ searchParams }: { searchParams: { quot
         initial={initial}
         canWrite={can(me.role, me.grants, "quote")}
         fleet={fleet}
-        openPickups={openPickups}
+        canMeasure={canAny(me.role, me.grants, ["dispatch", "billing_details"])}
+        canSend={can(me.role, me.grants, "dispatch")}
+        canFuel={canAny(me.role, me.grants, ["quote", "figures"])}
       />
     </>
   );

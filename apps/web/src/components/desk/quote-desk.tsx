@@ -1,7 +1,6 @@
 "use client";
 
 import { uiZoom } from "@/lib/ui-zoom";
-import { findBackhauls, type OpenPickupCandidate } from "@/lib/backhaul-detect";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -17,10 +16,11 @@ import { DRIVE_LIMIT_HOURS } from "@/lib/hos-check";
 /** What the clock has to cover before the first ten-hour break: a longer trip is driven over more than one day (49 CFR 395.3), so hours left now are read against the first day. */
 const firstDay = (tripHours: number | null | undefined) => (tripHours == null ? tripHours : Math.min(tripHours, DRIVE_LIMIT_HOURS));
 import { CUSTOMER_KINDS } from "@/lib/customer";
-import { BLANK_QUOTE, floorOffer, gateTitle, grossPerLoadedMile, HAZMAT_CLASSES, isQuoteDirty, missingTimes, OVERRIDE_REASONS, PASS_REASONS, quoteCautions, readQuote, swapRoute, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
+import { BLANK_QUOTE, floorOffer, gateTitle, pricingKeyOf, grossPerLoadedMile, HAZMAT_CLASSES, isQuoteDirty, missingTimes, OVERRIDE_REASONS, PASS_REASONS, quoteCautions, readQuote, swapRoute, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
 import { BRIEF_LABEL, buildBrief, type BriefKind } from "@/lib/quote-brief";
 import type { CustomerOption, FitRow, LaneBenchmark, QuoteListRow } from "@/server/tl/quote";
 import type { Measured } from "@/server/geo/measure";
+import { SendButton } from "./send-button";
 import { forgetRateCon, keepRateCon, readRateCon } from "@/lib/quote-file-store";
 import { groundOf, readVerdict, type Benchmark, type Verdict as VerdictRead } from "@/lib/verdict";
 import { ExplainScope, VerdictHead, VerdictLadder, VerdictRests, VerdictRuler, VerdictTag, type LadderLine } from "./verdict-card";
@@ -61,7 +61,7 @@ const PAST_PICKUP_MS = 24 * 3_600_000;
 /** How many trucks the table shows when nothing is priced yet. */
 const UNPRICED_SHOWN = 25;
 
-type QuoteView = { viewMode: "terminal" | "saved"; matrixSort: "margin" | "deadhead"; matrixOpen: boolean; listQuery: string; listStatus: "open" | "passed" | "all" };
+type QuoteView = { viewMode: "terminal" | "saved"; matrixSort: "margin" | "deadhead"; matrixOpen: boolean; listQuery: string; listStatus: "open" | "passed" | "all" | "past" };
 const BLANK_VIEW: QuoteView = { viewMode: "terminal", matrixSort: "deadhead", matrixOpen: true, listQuery: "", listStatus: "open" };
 
 type Snap = { values: QuoteValues; quoteId: string | null; version: string | null; selected: string | null; reason: string; notes: string; lastRoute: string; measure: { state: "idle" | "busy" | "ok" | "error"; text: string } };
@@ -91,7 +91,9 @@ export function QuoteDesk({
   draftId,
   canWrite,
   fleet = [],
-  openPickups = []
+  canMeasure = true,
+  canSend = false,
+  canFuel = true
 }: {
   quotes: { rows: QuoteListRow[]; total: number };
   brokers: CustomerOption[];
@@ -100,7 +102,12 @@ export function QuoteDesk({
   draftId: string;
   canWrite: boolean;
   fleet?: FleetTruckOption[];
-  openPickups?: OpenPickupCandidate[];
+  /** Whether this person may measure miles on the map (dispatch or billing): the measure route refuses anyone else, so the form does not ask. */
+  canMeasure?: boolean;
+  /** Whether this person may send a load to its driver (dispatch): the booked card then offers to send it now. */
+  canSend?: boolean;
+  /** Whether this person may look up the regional fuel price (quote or figures): the route refuses anyone else, so the form does not ask. */
+  canFuel?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -138,7 +145,7 @@ export function QuoteDesk({
   const quotes = list.rows;
   React.useEffect(() => setList(firstPage), [firstPage]);
   const listSeq = React.useRef(0);
-  const refilter = (q: string, status: "open" | "passed" | "all", more = false) => {
+  const refilter = (q: string, status: QuoteView["listStatus"], more = false) => {
     const mine = ++listSeq.current;
     void listQuotesAction(q, status, more ? list.rows.length : 0)
       .then((out) => {
@@ -295,13 +302,6 @@ export function QuoteDesk({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [values.commodity, values.pieceCount, values.palletCount, values.weightLbs, values.lengthFt, values.widthFt, values.heightIn, values.reeferSetTempF, values.reeferMinF, values.reeferMaxF, values.reeferMode, values.hazmatClass, values.hazmatUnNumber, values.hazmatPackingGroup, values.hazmatEmergencyPhone, values.detentionFreeMinutes, values.detentionHourlyRate, values.paymentTerms, values.notes, values.trailer, values.requiresLiftgate, values.requiresRamp, values.requiresPalletJack]);
 
-  // Backhaul discovery: detect open pickups near the delivery destination
-  const lastStop = values.stops[values.stops.length - 1];
-  const backhauls = React.useMemo(() => {
-    if (!lastStop?.address.trim()) return { count: 0, nearestMiles: null, matches: [] };
-    return findBackhauls({ address: lastStop.address }, openPickups);
-  }, [lastStop?.address, openPickups]);
-
   // Each stop's clock, as the server last worked it out (from where the stop is), else the one the stop came with (a reopened quote, a rate confirmation). The form checks the order of the
   // stops on these; the server works them out again for every save and booking.
   const zoneAt = React.useCallback((i: number): string | null => priced?.stopZones?.[i] || values.stops[i]?.zone || null, [priced, values.stops]);
@@ -342,7 +342,8 @@ export function QuoteDesk({
     setMessage(null);
   }, [values]);
 
-  // Price as you type
+  // Price as you type: only when something the price depends on changes (lib/quote.ts pricingKeyOf), not for a PO number or a stop's contact.
+  const pricingKey = React.useMemo(() => pricingKeyOf(values), [values]);
   React.useEffect(() => {
     const mine = ++seq.current;
     const timer = window.setTimeout(async () => {
@@ -363,11 +364,17 @@ export function QuoteDesk({
       }
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [values, priceAgain, fitLimit, initial?.vehicleId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pricingKey, priceAgain, fitLimit, initial?.vehicleId]);
 
   // Measure on the road
   const routeNow = routeKey(values.stops);
   React.useEffect(() => {
+    // Measuring on the map is for dispatch and billing (each call is paid for); anyone else types the miles, and is told so instead of shown a refusal (a reopened route included).
+    if (!canMeasure) {
+      if (!done && values.stops.every((s) => addressReady(s.address))) setMeasure({ state: "idle", text: "Type the miles: measuring on the map is for dispatch." });
+      return;
+    }
     if (done || routeNow === lastRoute.current || !values.stops.every((s) => addressReady(s.address))) return;
     const mine = ++measureSeq.current;
     const timer = window.setTimeout(async () => {
@@ -936,8 +943,10 @@ export function QuoteDesk({
         </span>
         <div className="grow">
           <h3>{done.loadNumber ?? "The load"} is booked on {done.truck}</h3>
-          <p className="tl-note">{done.note ?? (done.assigned ? "The driver is on it, not sent yet. Send it from the load." : "It is on the Dispatch queue, needing a driver.")}</p>
+          <p className="tl-note">{done.note ?? (done.assigned ? (canSend ? "The driver is on it, not sent yet." : "The driver is on it, not sent yet. Send it from the load.") : "It is on the Dispatch queue, needing a driver.")}</p>
         </div>
+        {/* Chris, 2026-11-25: send the offer to the driver's phone from here. The Dispatch queue's own button: the server's send checks, the same audit, "Send anyway" when something is missing. */}
+        {done.assigned && canSend ? <SendButton loadId={done.loadId} loadNumber={done.loadNumber ?? "The load"} /> : null}
         <Link className="tl-btn primary" href={`/loads/${done.loadId}`}>
           Open the load
         </Link>
@@ -1115,11 +1124,11 @@ export function QuoteDesk({
         <section className="qt-quotes" style={{ marginTop: 0 }}>
           <div className="rc-list-head">
             <h2 className="rc-eyebrow">Saved quotes</h2>
-            <span className="tl-sub">{list.total === 0 ? "" : `${list.total} ${listStatus === "all" ? "in all" : listStatus}`}</span>
+            <span className="tl-sub">{list.total === 0 ? "" : `${list.total} ${listStatus === "all" ? "in all" : listStatus === "past" ? "with the pickup gone by" : listStatus}`}</span>
           </div>
           <div className="qt-list-tools">
             <div className="t-seg" role="group" aria-label="Which quotes">
-              {(["open", "passed", "all"] as const).map((s) => (
+              {(["open", "past", "passed", "all"] as const).map((s) => (
                 <button
                   key={s}
                   type="button"
@@ -1128,7 +1137,7 @@ export function QuoteDesk({
                     setListStatus(s);
                     refilter(listQuery, s);
                   }}>
-                  {s === "open" ? "Open" : s === "passed" ? "Passed" : "All"}
+                  {s === "open" ? "Open" : s === "past" ? "Pickup passed" : s === "passed" ? "Passed" : "All"}
                 </button>
               ))}
             </div>
@@ -1155,6 +1164,7 @@ export function QuoteDesk({
                     <th>Customer</th>
                     <th className="num">Offer</th>
                     <th className="num">Loaded</th>
+                    <th>Pickup</th>
                     <th>Outcome</th>
                     <th>Saved</th>
                     <th aria-label="Actions" />
@@ -1169,7 +1179,17 @@ export function QuoteDesk({
                       <td>{q.broker ?? "—"}</td>
                       <td className="num">{usd(q.offer, 0)}</td>
                       <td className="num">{miles(q.loadedMiles)}</td>
-                      <td>{q.passedFor ? <span className="tl-chip muted">{`Passed · ${q.passedFor}`}</span> : <span className="tl-chip info">Open</span>}</td>
+                      <td>{q.pickupAt ? shortDate(q.pickupAt) : "—"}</td>
+                      <td>
+                        {q.passedFor ? (
+                          <span className="tl-chip muted">{`Passed · ${q.passedFor}`}</span>
+                        ) : q.pickupAt && new Date(q.pickupAt).getTime() < Date.now() ? (
+                          // Marked only: the quote stays open until someone passes on it or books it.
+                          <span className="tl-chip warn">Pickup passed</span>
+                        ) : (
+                          <span className="tl-chip info">Open</span>
+                        )}
+                      </td>
                       <td>{shortDate(q.savedAt)}</td>
                       <td>
                         <div className="row-actions">
@@ -1466,7 +1486,8 @@ export function QuoteDesk({
                 <Money label="Factoring fee" unit="%" value={values.factoringPct} error={err("factoringPct")} caution={cautions.factoringPct} onChange={(v) => set({ factoringPct: v })} hint="Blank uses truck's own." />
                 <Money label="Fuel price" unit="$ a gallon" value={values.fuelPrice} error={err("fuelPrice")} onChange={(v) => set({ fuelPrice: v, fuelSource: v.trim() === "" ? "" : "typed" })} hint="Filled with weekly price." />
               </div>
-              <LiveFuelPrice fuel="diesel" origin={values.stops[0]?.address ?? ""} destination={values.stops[values.stops.length - 1]?.address ?? ""} typed={values.fuelPrice} onUse={(price) => set({ fuelPrice: price, fuelSource: "regional" })} auto autoFilled={values.fuelSource === "regional"} />
+              {/* The regional price comes through /fuel/eia, which is for people who quote or keep the figures; anyone else types a price or leaves the truck's own. */}
+              {canFuel ? <LiveFuelPrice fuel="diesel" origin={values.stops[0]?.address ?? ""} destination={values.stops[values.stops.length - 1]?.address ?? ""} typed={values.fuelPrice} onUse={(price) => set({ fuelPrice: price, fuelSource: "regional" })} auto autoFilled={values.fuelSource === "regional"} /> : null}
               <details className="qt-more" open={paperOpen || undefined} onToggle={(e) => setPaperOpen((e.currentTarget as HTMLDetailsElement).open)}>
                 <summary>Customer paperwork</summary>
                 <div className="qt-grid">

@@ -475,7 +475,11 @@ export async function quoteContext(input: QuoteInput, workspaceId = currentWorks
   let lane: QuoteContext["lane"] = null;
   if (from.length >= 2 && to.length >= 2) {
     const where = { ...laneWhere(from, to, workspaceId), AND: [here] };
-    const [count, recent] = await Promise.all([prisma.load.count({ where }), prisma.load.findMany({ where, orderBy: { completedAt: "desc" }, take: LANE_SAMPLE })]);
+    const [count, recent] = await Promise.all([
+      prisma.load.count({ where }),
+      // The columns the lane box shows and averages, and no more: this runs on every price.
+      prisma.load.findMany({ where, orderBy: { completedAt: "desc" }, take: LANE_SAMPLE, select: { id: true, loadNumber: true, completedAt: true, brokerName: true, actualRevenue: true, quotedRevenue: true, fuelSurcharge: true, loadedMiles: true } })
+    ]);
     if (count > 0) {
       // The average is over the most recent LANE_SAMPLE finished loads; the list shows the latest five of them.
       const rows = recent.map((l) => {
@@ -490,7 +494,13 @@ export async function quoteContext(input: QuoteInput, workspaceId = currentWorks
   let broker: QuoteContext["broker"] = null;
   if (input.broker) {
     // The customer's most recent loads (a customer a desk has worked with for years has thousands; the record is read over the latest BROKER_SAMPLE).
-    const theirs = await prisma.load.findMany({ where: { workspaceId, deletedAt: null, ...notQuote, brokerName: { equals: input.broker, mode: "insensitive" }, AND: [here] }, orderBy: { createdAt: "desc" }, take: BROKER_SAMPLE });
+    // The customer's latest BROKER_SAMPLE loads, only the columns the record reads: this runs on every price, and a customer of years holds thousands of loads.
+    const theirs = await prisma.load.findMany({
+      where: { workspaceId, deletedAt: null, ...notQuote, brokerName: { equals: input.broker, mode: "insensitive" }, AND: [here] },
+      orderBy: { createdAt: "desc" },
+      take: BROKER_SAMPLE,
+      select: { brokerName: true, status: true, actualRevenue: true, quotedRevenue: true, fuelSurcharge: true, loadedMiles: true, paymentStatus: true, invoicedAt: true, paidAt: true }
+    });
     if (theirs.length > 0) {
       const done = theirs.filter((l) => l.status === "completed");
       const rated = done.map((l) => ({ gross: paidOn(l), miles: num(l.loadedMiles) })).filter((r) => r.miles > 0);
@@ -695,6 +705,8 @@ export async function brokerNames(workspaceId = currentWorkspaceId(), terminals:
         invoicedAmount: true,
         payTermsDays: true
       },
+      // The most recent invoices, so the slow-pay warning reads how each customer pays now (it was any 2,000, in no order).
+      orderBy: { invoicedAt: "desc" },
       take: 2000
     })
   ]);
@@ -793,8 +805,11 @@ async function customerNamed(name: string | null, workspaceId: string) {
   return prisma.customer.findFirst({ where: { workspaceId, name: { equals: name.trim(), mode: "insensitive" } } });
 }
 
-export type QuoteListRow = { id: string; lane: string; broker: string | null; offer: number; loadedMiles: number; savedAt: Date; truck: string | null; /** Why it was passed on, or null while it is still open. */ passedFor: string | null };
-export type QuoteListFilter = { q?: string; status?: "open" | "passed" | "all"; offset?: number };
+/** `pickupAt`: the first stop's time, so a quote whose pickup has gone by is marked (Chris, 2026-11-25: marked only, never passed on by itself). */
+export type QuoteListRow = { id: string; lane: string; broker: string | null; offer: number; loadedMiles: number; savedAt: Date; truck: string | null; /** Why it was passed on, or null while it is still open. */ passedFor: string | null; pickupAt: Date | null };
+/** `past`: open quotes whose pickup time has gone by. */
+export type QuoteListStatus = "open" | "passed" | "all" | "past";
+export type QuoteListFilter = { q?: string; status?: QuoteListStatus; offset?: number; now?: Date };
 export const QUOTE_PAGE = 20;
 
 /** Saved quotes, newest first, a page at a time. `q` matches the lane, the customer, the load number or the truck; `status` keeps open ones, passed ones, or both. */
@@ -808,7 +823,13 @@ export async function listQuotes(workspaceId = currentWorkspaceId(), filter: Quo
     AND: [
       inTerminal(terminals),
       ...words.map((w) => ({ OR: [{ originAddress: { contains: w, mode: "insensitive" as const } }, { destinationAddress: { contains: w, mode: "insensitive" as const } }, { brokerName: { contains: w, mode: "insensitive" as const } }, { loadNumber: { contains: w, mode: "insensitive" as const } }, { vehicle: { name: { contains: w, mode: "insensitive" as const } } }] })),
-      ...(filter.status === "passed" ? [{ decisions: { some: { decisionType: PASSED } } }] : filter.status === "open" ? [{ decisions: { none: { decisionType: PASSED } } }] : [])
+      ...(filter.status === "passed"
+        ? [{ decisions: { some: { decisionType: PASSED } } }]
+        : filter.status === "open"
+          ? [{ decisions: { none: { decisionType: PASSED } } }]
+          : filter.status === "past"
+            ? [{ decisions: { none: { decisionType: PASSED } } }, { scheduledDate: { lt: filter.now ?? new Date() } }]
+            : [])
     ]
   };
   const [total, rows] = await Promise.all([
@@ -825,7 +846,8 @@ export async function listQuotes(workspaceId = currentWorkspaceId(), filter: Quo
       loadedMiles: num(l.loadedMiles),
       savedAt: l.updatedAt,
       truck: l.vehicle?.name ?? null,
-      passedFor: l.decisions[0]?.decisionType === PASSED ? (l.decisions[0].overrideReason ?? "Passed") : null
+      passedFor: l.decisions[0]?.decisionType === PASSED ? (l.decisions[0].overrideReason ?? "Passed") : null,
+      pickupAt: l.scheduledDate
     }))
   };
 }

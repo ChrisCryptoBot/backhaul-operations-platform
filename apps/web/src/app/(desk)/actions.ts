@@ -1067,7 +1067,7 @@ export async function priceQuoteAction(values: QuoteValues, limit?: number, keep
 }
 
 /** Saved quotes, a page at a time, for the list's search and filter. */
-export async function listQuotesAction(q: string, status: "open" | "passed" | "all", offset: number): Promise<{ rows: QuoteListRow[]; total: number }> {
+export async function listQuotesAction(q: string, status: "open" | "passed" | "all" | "past", offset: number): Promise<{ rows: QuoteListRow[]; total: number }> {
   await requireCan("read");
   return listQuotes(undefined, { q, status, offset }, await currentTerminal());
 }

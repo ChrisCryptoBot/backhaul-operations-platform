@@ -351,6 +351,42 @@ export function swapRoute(values: QuoteValues): QuoteValues {
   };
 }
 
+/**
+ * What the price depends on, as one string: the live price runs again only when this changes. Paperwork (load, PO, BOL, PRO and rate-con numbers, contact details, notes, the commodity,
+ * piece and pallet counts, reefer settings, hazmat paperwork, payment terms, detention terms) and each stop's facility, contact, notes and references never move a verdict, a fit or the lane
+ * and customer record, so typing them does not price the fleet again. Everything else does, the customer's name included (the customer record is read by it).
+ */
+export function pricingKeyOf(v: QuoteValues): string {
+  const {
+    loadNumber: _ln,
+    rateConNumber: _rc,
+    proNumber: _pro,
+    bolNumber: _bol,
+    poNumber: _po,
+    brokerPhone: _ph,
+    brokerEmail: _em,
+    brokerMc: _mc,
+    commodity: _co,
+    pieceCount: _pc,
+    palletCount: _pl,
+    notes: _no,
+    paymentTerms: _pt,
+    detentionFreeMinutes: _df,
+    detentionHourlyRate: _dr,
+    rateConPath: _rp,
+    reeferSetTempF: _rs,
+    reeferMinF: _rmin,
+    reeferMaxF: _rmax,
+    reeferMode: _rm,
+    hazmatUnNumber: _un,
+    hazmatPackingGroup: _pg,
+    hazmatEmergencyPhone: _hp,
+    stops,
+    ...priced
+  } = v;
+  return JSON.stringify({ ...priced, stops: stops.map((s) => ({ role: s.role, address: s.address, appointment: s.appointment, appointmentEnd: s.appointmentEnd ?? "", lat: s.lat ?? null, lng: s.lng ?? null })) });
+}
+
 /** Whether anything has been typed: the form against what it started from, leaving out the fuel price figure itself (the form fills that in by itself). */
 export function isQuoteDirty(values: QuoteValues, baseline: QuoteValues): boolean {
   return JSON.stringify({ ...values, fuelPrice: "" }) !== JSON.stringify({ ...baseline, fuelPrice: "" });
