@@ -18,6 +18,7 @@ import { currentWorkspaceId } from "./workspace";
 import { workspaceTimezone } from "./zone";
 import { stopZoneOf } from "@/server/geo/stop-zone";
 import { activeTz } from "@/lib/tz";
+import { declineNoteOf } from "@/lib/dispatch-queue";
 
 /**
  * Read model for the dispatcher screens, all computed from the TrueLane-shaped tables with TrueLane's own math.
@@ -79,6 +80,27 @@ export function boardRowOf(l: BoardLoad) {
     floorPerMile: l.status === "completed" && numOrNull((l as { snapshotBaseFloorRpm?: unknown }).snapshotBaseFloorRpm as never) != null ? numOrNull((l as { snapshotBaseFloorRpm?: unknown }).snapshotBaseFloorRpm as never) : evaluation?.verdictFloorRpm ?? null,
     driverName: l.assignment?.driver.name ?? null,
     assignmentStatus: l.assignment?.status ?? (l.status === "dispatched" ? "dispatched" : null),
+    /** Where the assignment stands, for the Dispatch queue: when it was sent and answered, the driver's reason for a no, and whether the offer reached their phone. */
+    assignment: l.assignment
+      ? {
+          status: l.assignment.status,
+          dispatchedAt: l.assignment.dispatchedAt,
+          respondedAt: l.assignment.respondedAt,
+          declineNote: declineNoteOf(l.assignment.driverResponse),
+          bridgeError: l.assignment.bridgeError,
+          bridgeSyncedAt: l.assignment.bridgeSyncedAt,
+          assignmentVersion: l.assignment.assignmentVersion
+        }
+      : null,
+    /** The driver has the TrueLane app (a phone account on the driver link): an offer reaches them there; without it the dispatcher calls and answers for them. */
+    driverLinked: l.assignment?.driver.phoneUserId != null,
+    driverPhone: l.assignment?.driver.phone ?? null,
+    equipment: l.trailerType,
+    weightLbs: l.weightLbs,
+    stopCount: l.stops.length,
+    /** The last stop's window (its close, else its open), on that dock's clock: what a load on the road is racing. */
+    deliveryAt: l.stops[l.stops.length - 1]?.timeWindowLatest ?? l.stops[l.stops.length - 1]?.timeWindowEarliest ?? null,
+    deliveryZone: l.stops.length > 0 ? stopZoneOf(l.stops[l.stops.length - 1]!, activeTz()) : null,
     paymentStatus: l.paymentStatus,
     poNumber: l.poNumber,
     invoiceNumber: l.invoiceNumber,
