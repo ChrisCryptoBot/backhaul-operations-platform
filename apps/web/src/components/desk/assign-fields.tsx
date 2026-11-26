@@ -8,7 +8,7 @@ import { useClearOnSuccess } from "./kit/use-submit-outcome";
 import type { ReasonCode } from "@/lib/assign-reasons";
 
 /** `home` is the driver's home terminal and `shiftNote` a caution that a stop of this load falls outside their shift; neither stops an assignment. */
-type Option = { id: string; name: string; blocker: string | null; busy: string | null; payKind: string | null; payRate: number | null; code?: string | null; home?: string | null; shiftNote?: string | null };
+type Option = { id: string; name: string; blocker: string | null; busy: string | null; payKind: string | null; payRate: number | null; code?: string | null; home?: string | null; shiftNote?: string | null; noUsualPay?: boolean };
 
 const optionText = (d: Option) => `${d.code ? `${d.code} · ` : ""}${d.name}${d.home ? ` (${d.home})` : ""}`;
 
@@ -30,7 +30,8 @@ export function AssignFields({
   overridePlaceholder = "For example: team run",
   draftKey,
   forgetRef,
-  needs = []
+  needs = [],
+  payHidden = false
 }: {
   drivers: Option[];
   loadId: string;
@@ -44,6 +45,8 @@ export function AssignFields({
   forgetRef?: React.MutableRefObject<(() => void) | null>;
   /** One box per condition that needs a reason (src/lib/assign-reasons.ts), each sent as `reason_<code>`: a reason typed in one never covers another. `hint` says why it is asked. */
   needs?: Array<{ code: ReasonCode; label: string; hint?: string }>;
+  /** For someone who may not see driver pay (billing_details): no pay fields; the server saves the driver's usual pay. */
+  payHidden?: boolean;
   initial: { driverId: string | null; payKind: string | null; rate: number | null };
   rateConTotal?: number | null;
 }) {
@@ -109,7 +112,7 @@ export function AssignFields({
           {drivers.map((d) => (
             <option key={d.id} value={d.id} disabled={!!d.blocker}>
               {optionText(d)}
-              {d.blocker ? ` — ${d.blocker}` : d.busy ? ` — ${d.busy}` : d.shiftNote ? ` — ${d.shiftNote}` : ""}
+              {d.blocker ? ` — ${d.blocker}` : payHidden && d.noUsualPay ? " — no usual pay set: ask billing or an admin" : d.busy ? ` — ${d.busy}` : d.shiftNote ? ` — ${d.shiftNote}` : ""}
             </option>
           ))}
         </select>
@@ -141,6 +144,10 @@ export function AssignFields({
           ))}
         </datalist>
       </label>
+      {payHidden ? (
+        <span className="tl-sub as-reason">Pay: the driver&apos;s usual pay, set by billing.</span>
+      ) : (
+        <>
       <label className="tl-field">
         Pay
         <select
@@ -168,6 +175,8 @@ export function AssignFields({
         </span>
       ) : null}
       {usualText ? <span className="tl-sub" style={{ flexBasis: "100%" }}>{usual?.name}&apos;s usual pay is {usualText}.</span> : null}
+        </>
+      )}
       {askOverride ? (
         <label className="tl-field" style={{ flexBasis: "100%" }}>
           {overrideLabel}

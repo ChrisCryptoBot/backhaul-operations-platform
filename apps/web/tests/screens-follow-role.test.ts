@@ -64,6 +64,18 @@ describe("screens switch off the controls a role cannot use", () => {
     expect(gate).toContain("checkAccess(");
   });
 
+  it("driver pay in the assign forms follows the billing grant, on the page and on the server", () => {
+    const actions = src("src/app/(desk)/actions.ts");
+    // The server decides: someone without billing_details gets the usual pay saved, whatever the form sent.
+    expect(actions).toContain('canAny(me.role, me.grants, ["billing_details"])');
+    expect(actions).toMatch(/assignFromQueue\(input, \{ usualPayOnly: !seesPay\(me\) \}\)/);
+    expect(actions).toMatch(/assignOptions\(loadId, undefined, \{ seesPay: seesPay\(me\) \}\)/);
+    const drawer = src("src/components/desk/load-view.tsx");
+    expect(drawer).toContain('payHidden={!may("billing_details")}');
+    expect(src("src/components/desk/assign-modal.tsx")).toContain("payHidden={!data.seesPay}");
+    expect(src("src/app/(desk)/drivers/pick/route.ts")).toContain('checkAccess("billing_details")');
+  });
+
   it("the Planner's Assign buttons only show to someone who may dispatch", () => {
     const page = src("src/app/(desk)/planner/page.tsx");
     expect(page).toContain('checkAccess("dispatch")');

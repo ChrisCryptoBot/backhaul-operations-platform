@@ -196,6 +196,23 @@ describe.skipIf(!run)("who could take a load, on the demo database", () => {
     expect((await prisma.load.findUniqueOrThrow({ where: { id: second.id } })).vehicleId).toBe(ids.truck);
   });
 
+  test("someone who may not see driver pay assigns at the driver's usual pay, never a typed one, and sees no pay or margin", async () => {
+    const load = await mkLoad("PAY1", "2027-06-25");
+    const hidden = (await assignOptions(load.id, undefined, { limit: 50, seesPay: false }))!;
+    expect(hidden.seesPay).toBe(false);
+    expect(hidden.rateConTotal).toBe(0);
+    expect(hidden.drivers.every((d) => d.payKind == null && d.payRate == null)).toBe(true);
+    expect(hidden.suggestions.every((s) => s.leftOver == null && s.payRate == null)).toBe(true);
+    expect(hidden.drivers.find((d) => d.name === "WC2 Loose")?.noUsualPay).toBe(true);
+
+    // A typed 9.99 a mile is ignored: Cheap's usual $0.40 a mile is what is saved.
+    expect(await assignFromQueue({ loadId: load.id, driverId: ids.Cheap!, payKind: "cpm", rate: "9.99" }, { usualPayOnly: true })).toEqual({ ok: true });
+    expect(Number((await prisma.assignment.findUniqueOrThrow({ where: { loadId: load.id } })).payRate)).toBe(0.4);
+
+    const other = await mkLoad("PAY2", "2027-06-26", { vehicleId: ids.other });
+    expect(await assignFromQueue({ loadId: other.id, driverId: ids.Loose!, payKind: "cpm", rate: "0.50" }, { usualPayOnly: true })).toEqual({ ok: false, code: "no_default_pay", error: "WC2 Loose has no usual pay set. Ask billing or an admin to set it on their driver page." });
+  });
+
   test("send checks the load again inside its own transaction: a load that moved on since it was assigned is not sent", async () => {
     const load = await mkLoad("SEND-MOVED", "2027-06-23");
     expect(await assignFromQueue({ loadId: load.id, driverId: ids.Dear!, payKind: "cpm", rate: "0.80" })).toEqual({ ok: true });

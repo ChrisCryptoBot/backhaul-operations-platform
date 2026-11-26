@@ -138,12 +138,12 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
                           <b>{s.name}</b>
                           <span className="tl-sub">
                             {" "}
-                            {payLabel(s.payKind, s.payRate)}
+                            {data.seesPay ? payLabel(s.payKind, s.payRate) : null}
                             {s.truckName ? (data.hasTruck ? ` · priced on ${s.truckName}` : ` · priced on ${s.truckName}, which goes on the load`) : ""}
                           </span>
                         </span>
                         <span className={s.leftOver == null ? "tl-sub" : s.leftOver >= 0 ? "as-ok" : "as-bad"}>
-                          {s.leftOver == null ? "Cannot be priced yet" : s.leftOver >= 0 ? `Leaves ${usd(s.leftOver)}${i === 0 ? ", the most" : ""}` : `Short by ${usd(Math.abs(s.leftOver))}`}
+                          {!data.seesPay ? (i === 0 ? "Best fit" : "") : s.leftOver == null ? "Cannot be priced yet" : s.leftOver >= 0 ? `Leaves ${usd(s.leftOver)}${i === 0 ? ", the most" : ""}` : `Short by ${usd(Math.abs(s.leftOver))}`}
                         </span>
                       </button>
                     </li>
@@ -166,6 +166,7 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
                 draftKey={`assign-queue:${loadId}:${chosen}`}
                 forgetRef={forget}
                 needs={needs.map((n) => ({ code: n.code, label: REASON_LABEL[n.code], hint: n.message }))}
+                payHidden={!data.seesPay}
               />
             </form>
           </div>

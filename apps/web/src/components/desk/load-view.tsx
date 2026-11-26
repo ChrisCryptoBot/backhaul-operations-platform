@@ -510,7 +510,12 @@ export async function LoadView({ id }: { id: string }) {
         {canAssign ? (
           <form action={assignAction} className="tl-form-row" style={{ marginBottom: canUnassign ? 10 : 0 }}>
             <input type="hidden" name="loadId" value={load.id} />
-            <AssignFields loadId={load.id} drivers={drivers} initial={{ driverId: a?.driverId ?? null, payKind: a?.payKind ?? null, rate: a ? num(a.payRate) : null }} rateConTotal={rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge))}
+            <AssignFields
+              loadId={load.id}
+              payHidden={!may("billing_details")}
+              // Driver pay never reaches the page of someone who may not see it: not in the list, not as the starting value.
+              drivers={may("billing_details") ? drivers : drivers.map((d) => ({ ...d, payKind: null, payRate: null, noUsualPay: d.payKind == null || d.payRate == null }))}
+              initial={may("billing_details") ? { driverId: a?.driverId ?? null, payKind: a?.payKind ?? null, rate: a ? num(a.payRate) : null } : { driverId: a?.driverId ?? null, payKind: null, rate: null }} rateConTotal={rateConTotal(num(load.quotedRevenue), num(load.fuelSurcharge))}
               needs={[
                 // Each box is asked up front, "only if ...": the page form cannot ask again after the server says which apply, and a reason typed in one never covers another.
                 ...(drivers.some((d) => d.busy) ? [{ code: "double_booked" as const, label: REASON_IF.double_booked }] : []),

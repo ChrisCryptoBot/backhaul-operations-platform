@@ -57,7 +57,12 @@ import type { LoadEditValues } from "@/lib/load-edit";
 import type { InvoiceForm } from "@/lib/invoicing";
 import type { CompleteValues, CorrectValues, ExpenseValues, StartValues } from "@/lib/trip";
 import { saveLoadDetails, type EditResult } from "@/server/tl/edit";
-import { assignFromQueue, assignOptions, type AssignOptions, type AssignOutcome } from "@/server/tl/suggest";
+import { assignFromQueue, assignOptions, usualPayOf, type AssignOptions, type AssignOutcome } from "@/server/tl/suggest";
+import { canAny } from "@/lib/roles";
+import type { Identity } from "@/server/tl/identity";
+
+/** Whether this person may see and set driver pay: the billing office's capability (a dispatcher has it only with the "Can also bill" grant). */
+const seesPay = (me: Identity) => canAny(me.role, me.grants, ["billing_details"]);
 import { currentTerminal } from "@/server/tl/terminal";
 import { assignTrailerToLoad, hookTrailer, saveTrailer, setTrailerArchived, type AssignTrailerResult, type SaveResult as TrailerSaveResult } from "@/server/tl/trailers";
 import { connectPartner, disconnectPartner, retryConnection, type ConnectResult } from "@/server/partners/connections";
@@ -146,14 +151,25 @@ async function attempt(loadId: string, fn: () => Promise<string>): Promise<never
 }
 
 export async function assignAction(formData: FormData) {
-  await requireCan("dispatch");
+  const me = await requireCan("dispatch");
   const loadId = String(formData.get("loadId"));
   await attempt(loadId, async () => {
-    const rate = Number(formData.get("rate"));
+    const driverId = String(formData.get("driverId"));
+    let kind = String(formData.get("payKind"));
+    let rate = Number(formData.get("rate"));
+    // Someone who may not see driver pay does not set it: the driver's usual pay is saved, whatever the form sent.
+    if (!seesPay(me)) {
+      const usual = await usualPayOf(driverId);
+      if (usual.kind === "missing") throw new DispatchError("no_default_pay", usual.error);
+      if (usual.kind === "pay") {
+        kind = usual.payKind;
+        rate = Number(usual.rate);
+      }
+    }
     await assignDriver({
       loadId,
-      driverId: String(formData.get("driverId")),
-      pay: { kind: String(formData.get("payKind")) as PayKind, rate },
+      driverId,
+      pay: { kind: kind as PayKind, rate },
       // One box per condition (src/lib/assign-reasons.ts): a reason typed for one never covers another.
       reasons: reasonsFrom((k) => formData.get(k))
     });
@@ -166,14 +182,14 @@ export async function assignAction(formData: FormData) {
  * load's rate and each driver's margin, and nobody else has a use for it.
  */
 export async function assignOptionsAction(loadId: string): Promise<AssignOptions | null> {
-  await requireCan("dispatch");
-  return assignOptions(loadId);
+  const me = await requireCan("dispatch");
+  return assignOptions(loadId, undefined, { seesPay: seesPay(me) });
 }
 
 /** Assign from the queue or the planner. Answers in place (no redirect), and everything that shows a load looks again. */
 export async function assignFromQueueAction(input: { loadId: string; driverId: string; payKind: string; rate: string; reasons?: Reasons; expected?: { assignmentVersion: number | null; driverId: string | null } | null }): Promise<AssignOutcome> {
-  await requireCan("dispatch");
-  const out = await assignFromQueue(input);
+  const me = await requireCan("dispatch");
+  const out = await assignFromQueue(input, { usualPayOnly: !seesPay(me) });
   if (out.ok) refreshLoads();
   return out;
 }

@@ -27,6 +27,8 @@ export type AssignDriverOption = {
   shiftNote: string | null;
   payKind: string | null;
   payRate: number | null;
+  /** For someone who may not see pay: this driver has no usual pay, so they cannot be assigned until billing sets it. */
+  noUsualPay?: boolean;
 };
 
 export type Suggestion = {

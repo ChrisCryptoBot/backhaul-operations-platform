@@ -11,7 +11,7 @@ import { numOrNull } from "@/server/tl/convert";
 import { currentTerminal } from "@/server/tl/terminal";
 import { currentAllowed } from "@/server/tl/scope";
 import { currentWorkspaceId } from "@/server/tl/workspace";
-import { guardRoute } from "@/server/tl/access";
+import { checkAccess, guardRoute } from "@/server/tl/access";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +23,8 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const denied = await guardRoute("read");
   if (denied) return denied;
+  // Driver pay is the billing office's: someone without it gets the drivers without their pay (and a note on who has none), the same as the Assign window.
+  const seesPay = (await checkAccess("billing_details")).ok;
   const params = new URL(request.url).searchParams;
   const q = (params.get("q") ?? "").trim().slice(0, 60);
   const loadId = params.get("load");
@@ -50,7 +52,7 @@ export async function GET(request: Request) {
   };
   return NextResponse.json(
     {
-      drivers: drivers.map((d) => ({ id: d.id, name: d.name, code: d.code, home: d.terminal, terminal: d.terminal, blocker: driverBlocker(d, new Date(), tripEnd), busy: busyBy.get(d.id) ?? null, shiftNote: shiftNote(d.id), payKind: d.defaultPayKind, payRate: numOrNull(d.defaultPayRate) }))
+      drivers: drivers.map((d) => ({ id: d.id, name: d.name, code: d.code, home: d.terminal, terminal: d.terminal, blocker: driverBlocker(d, new Date(), tripEnd), busy: busyBy.get(d.id) ?? null, shiftNote: shiftNote(d.id), ...(seesPay ? { payKind: d.defaultPayKind, payRate: numOrNull(d.defaultPayRate) } : { payKind: null, payRate: null, noUsualPay: d.defaultPayKind == null || d.defaultPayRate == null }) }))
     },
     { headers: { "Cache-Control": "private, no-store" } }
   );
