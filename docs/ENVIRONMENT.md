@@ -42,9 +42,16 @@ Legend: **Required** = the desk does not work without it. **Secret** = never pri
 |---|---|---|---|
 | `BRIDGE_SUPABASE_URL` | for the link | no | The Supabase project the bridge table lives in (`https://...`). |
 | `BRIDGE_SUPABASE_SERVICE_KEY` | for the link | yes | The service key the desk writes the bridge table with. Read at the moment of each call. |
-| `BRIDGE_CRON_SECRET` | for the link | yes | The secret the schedule sends (header `x-bridge-cron`) to `POST /bridge/cron`. Without it the route answers 404. |
+| `BRIDGE_CRON_SECRET` | for the link | yes | The secret the schedule sends to `/bridge/cron`: as the `x-bridge-cron` header on a `POST`, or as `Authorization: Bearer <secret>` on a `GET`. Without it the route answers 404. |
 
 A fleet is switched on by setting its Clerk Organization id on the workspace (`workspaces.bridge_org_id`) and each driver's phone account (`drivers.phone_user_id`); neither is an environment variable.
+
+**What calls `/bridge/cron` every minute.** Either works; use one.
+
+- **Supabase pg_cron** (any plan): a job that runs `net.http_post` to `https://<desk>/bridge/cron` every minute with the header `x-bridge-cron: <BRIDGE_CRON_SECRET>`.
+- **Vercel cron**: Vercel calls with `GET` and sends the project's `CRON_SECRET` as `Authorization: Bearer <CRON_SECRET>`, so set `CRON_SECRET` to the same value as `BRIDGE_CRON_SECRET` and add `{ "path": "/bridge/cron", "schedule": "* * * * *" }` under `crons` in `vercel.json`. A schedule every minute needs a paid Vercel plan (a Hobby deploy with it fails), which is why the repo's `vercel.json` does not carry it.
+
+Without a schedule the Dispatch queue still looks on the link itself while it is open, and says "The driver link has not run" once something has waited more than five minutes.
 
 ## The partner backbone (docs/PARTNER_BACKBONE.md)
 | Name | Required | Secret | What it does |

@@ -23,6 +23,7 @@ import { NEEDS_ORDER, QUEUE_CHIP, queueColumnOf, type QueueColumn } from "@/lib/
 import { recallAction, receiveRelayAction, discrepancyRelayAction } from "@/app/(desk)/actions";
 import { rateConTotal } from "@/lib/pay";
 import { LiveRefresh } from "@/components/desk/live-refresh";
+import { linkStall } from "@/server/bridge/health";
 import { num } from "@/server/tl/convert";
 
 export const metadata = { title: "Dispatch queue · TrueLane" };
@@ -191,7 +192,7 @@ const COLUMN_STEP = 30;
 export default async function DispatchPage({ searchParams }: { searchParams?: { needs?: string; sent?: string; road?: string } }) {
   const ws = currentWorkspaceId();
   const terminal = await currentTerminal();
-  const [rows, { alerts, byLoad }, dispatchAccess, quoteAccess, waiting] = await Promise.all([listBoardRows(ws, "open", terminal), getAlerts(new Date(), ws, "shell", undefined, terminal), checkAccess("dispatch"), checkAccess("quote"), openHandoffs(ws, terminal)]);
+  const [rows, { alerts, byLoad }, dispatchAccess, quoteAccess, waiting, stall] = await Promise.all([listBoardRows(ws, "open", terminal), getAlerts(new Date(), ws, "shell", undefined, terminal), checkAccess("dispatch"), checkAccess("quote"), openHandoffs(ws, terminal), linkStall(ws)]);
   const now = Date.now();
   // A viewer, a driver manager or the accounting office reads this page; the buttons that change a driver are only for someone the server would let do it.
   const mayAssign = dispatchAccess.ok;
@@ -233,6 +234,13 @@ export default async function DispatchPage({ searchParams }: { searchParams?: { 
       <PageHead title="Dispatch queue" sub="What needs a driver, what is waiting on an answer, and what is moving. Soonest first.">
         {quoteAccess.ok ? <Link href="/quote" className="tl-btn ghost">Price an offer</Link> : null}
       </PageHead>
+
+      {stall && mayAssign ? (
+        <p className="dq-strip" data-level="block" role="alert">
+          <b>The driver link has not run for {ageWords(stall.minutes)}</b>
+          <span>Offers wait to reach the drivers&apos; phones and their answers wait to come back. This page looks on the link itself while it is open; the schedule that calls the link is not running.</span>
+        </p>
+      ) : null}
 
       {blocks.length + warns.length > 0 ? (
         <p className="dq-strip row-open" data-level={blocks.length > 0 ? "block" : "warn"} role="status">

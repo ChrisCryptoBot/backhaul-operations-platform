@@ -23,11 +23,24 @@ const same = (a: string, b: string): boolean => {
   return x.length === y.length && timingSafeEqual(x, y);
 };
 
+/** For a schedule that posts (Supabase pg_cron with pg_net, a server's own cron): the secret in the `x-bridge-cron` header. */
 export async function POST(req: NextRequest) {
+  return run(req.headers.get("x-bridge-cron") ?? "");
+}
+
+/**
+ * For Vercel cron, which calls with GET and sends the project's CRON_SECRET as `Authorization: Bearer <secret>`: set that to the same value as the link's secret. Not set up by the repo's
+ * vercel.json on purpose: a schedule every minute needs a paid Vercel plan (docs/ENVIRONMENT.md).
+ */
+export async function GET(req: NextRequest) {
+  const m = /^Bearer\s+(.+)$/i.exec(req.headers.get("authorization") ?? "");
+  return run(m ? m[1]!.trim() : "");
+}
+
+async function run(given: string) {
   const secret = process.env[BRIDGE_ENV.cron]?.trim();
   const cfg = bridgeConfig(process.env as Record<string, string | undefined>);
   if (!secret || !cfg) return NextResponse.json({ ok: false, error: "Not found." }, { status: 404 });
-  const given = req.headers.get("x-bridge-cron") ?? "";
   if (!same(given, secret)) return NextResponse.json({ ok: false, error: "Not allowed." }, { status: 401 });
 
   const transport = supabaseTransport(cfg);

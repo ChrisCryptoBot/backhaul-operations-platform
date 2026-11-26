@@ -6,6 +6,7 @@ import { flushBridgeOutbox, pullBridgeResponses } from "@/server/bridge/service"
 import { memoryTransport } from "@/server/bridge/transport";
 import { clearAlertCache, getAlerts } from "@/server/tl/alerts";
 import { ANSWERS_EVERY_MS, pullAnswersNow, __resetLivePullForTest } from "@/server/bridge/live";
+import { linkStall } from "@/server/bridge/health";
 import { pullStopEvents } from "@/server/bridge/stops";
 import { assertDriverSafe, type LoadSummary } from "@/server/tl/projector";
 import { completeTrip, startTrip } from "@/server/tl/execution";
@@ -176,6 +177,23 @@ describe.skipIf(!run)("the driver link, desk half", () => {
     expect(await pullAnswersNow(t, { now: new Date(now.getTime() + 10_000) })).toEqual({ pulled: false, changed: false });
     // After the window, a look with nothing new says so.
     expect(await pullAnswersNow(t, { now: new Date(now.getTime() + ANSWERS_EVERY_MS + 1) })).toEqual({ pulled: true, changed: false });
+  });
+
+  test("the queue says when the link has stopped: something due for the phones has waited past five minutes", async () => {
+    await reset();
+    const now = new Date();
+    expect(await linkStall(ws, now)).toBeNull();
+    // Due a minute ago: the schedule has not had its turn yet.
+    await prisma.bridgeOutbox.create({ data: { workspaceId: ws, loadId, kind: "dispatch", phoneUserId: PHONE, nextAttemptAt: new Date(now.getTime() - 60_000) } });
+    expect(await linkStall(ws, now)).toBeNull();
+    // Due twelve minutes ago and still waiting: nothing is calling the link.
+    await prisma.bridgeOutbox.create({ data: { workspaceId: ws, loadId, kind: "update", phoneUserId: PHONE, nextAttemptAt: new Date(now.getTime() - 12 * 60_000) } });
+    expect(await linkStall(ws, now)).toEqual({ minutes: 12 });
+    // An item pushed back after a failed try (its next try is later) is the schedule working, not stalled.
+    await prisma.bridgeOutbox.deleteMany({ where: { loadId } });
+    await prisma.bridgeOutbox.create({ data: { workspaceId: ws, loadId, kind: "dispatch", phoneUserId: PHONE, nextAttemptAt: new Date(now.getTime() + 5 * 60_000), attempts: 2, lastError: "unreachable" } });
+    expect(await linkStall(ws, now)).toBeNull();
+    await prisma.bridgeOutbox.deleteMany({ where: { loadId } });
   });
 
   test("who sent it goes by name only", async () => {
