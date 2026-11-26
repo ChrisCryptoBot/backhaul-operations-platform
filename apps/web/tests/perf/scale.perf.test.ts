@@ -1,5 +1,10 @@
 import { beforeAll, describe, expect, test } from "vitest";
 import { prisma } from "@/lib/db";
+import { currentWorkspaceId } from "@/server/tl/workspace";
+import { openHandoffs } from "@/server/tl/relay";
+import { recalledLoads } from "@/server/tl/assignment-events";
+import { linkStall } from "@/server/bridge/health";
+
 import { BLANK_QUOTE, readQuote } from "@/lib/quote";
 import { listPayroll } from "@/server/partners/payroll";
 import { agingSummary, clearAgingCache } from "@/server/tl/aging";
@@ -120,6 +125,20 @@ describe.runIf(run)("the desk at the size of a big fleet", () => {
     expect(await best(() => listTrailersPage({ q: "T-0042" }))).toBeLessThan(500);
     expect(await best(() => listTrailersPage({ compliance: "lapsed", type: "dry_van" }))).toBeLessThan(800);
     expect(await best(() => countTrailersAvailable("dry_van", null))).toBeLessThan(800);
+  }, 60_000);
+
+  test("Dispatch queue: everything the page reads, at once, as the page reads it", async () => {
+    const page = async () => {
+      const ws = currentWorkspaceId();
+      const [rows, , waiting] = await Promise.all([listBoardRows(ws, "open", null), getAlerts(new Date(), ws, "shell"), openHandoffs(ws, null), linkStall(ws)]);
+      await recalledLoads(rows.map((r) => r.id), ws);
+      return waiting;
+    };
+    clearAlertCache();
+    const ms = await best(page);
+    // eslint-disable-next-line no-console
+    console.log(`Dispatch queue reads: ${ms} ms over ${(await listBoardRows(currentWorkspaceId(), "open", null)).length} open loads`);
+    expect(ms).toBeLessThan(1_500);
   }, 60_000);
 
   test("Loads: the open board and History", async () => {

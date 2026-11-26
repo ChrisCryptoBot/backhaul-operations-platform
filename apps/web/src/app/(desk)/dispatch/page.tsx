@@ -24,6 +24,10 @@ import { recallAction, receiveRelayAction, discrepancyRelayAction } from "@/app/
 import { rateConTotal } from "@/lib/pay";
 import { LiveRefresh } from "@/components/desk/live-refresh";
 import { linkStall } from "@/server/bridge/health";
+import { LiveForm } from "@/components/desk/live-form";
+import { filterParams, isFiltered, passes, readQueueFilter } from "@/lib/dispatch-filter";
+import { workspaceTimezone } from "@/server/tl/zone";
+import { dateKeyOf } from "@/lib/shifts";
 import { num } from "@/server/tl/convert";
 
 export const metadata = { title: "Dispatch queue · TrueLane" };
@@ -189,22 +193,31 @@ const byMoving = (a: BoardRow, b: BoardRow) => time(a.status === "in_progress" ?
 /** Loads shown in each column at a time; a big fleet has hundreds waiting. "Show more" adds this many (the soonest are first, so what matters is on top). */
 const COLUMN_STEP = 30;
 
-export default async function DispatchPage({ searchParams }: { searchParams?: { needs?: string; sent?: string; road?: string } }) {
+export default async function DispatchPage({ searchParams }: { searchParams?: { needs?: string; sent?: string; road?: string; q?: string; day?: string; state?: string; eq?: string } }) {
   const ws = currentWorkspaceId();
   const terminal = await currentTerminal();
   const [rows, { alerts, byLoad }, dispatchAccess, quoteAccess, waiting, stall] = await Promise.all([listBoardRows(ws, "open", terminal), getAlerts(new Date(), ws, "shell", undefined, terminal), checkAccess("dispatch"), checkAccess("quote"), openHandoffs(ws, terminal), linkStall(ws)]);
   const now = Date.now();
+  // The filters live in the address, so they survive a refresh and a trip elsewhere and back. The day is the carrier's.
+  const filter = readQueueFilter(searchParams);
+  const tz = await workspaceTimezone(ws);
+  const keyOf = (ms: number) => dateKeyOf(ms, tz);
+  const today = keyOf(now);
+  const tomorrow = keyOf(now + 86_400_000);
   // A viewer, a driver manager or the accounting office reads this page; the buttons that change a driver are only for someone the server would let do it.
   const mayAssign = dispatchAccess.ok;
   const inYard = new Set(waiting.map((h) => h.loadId));
-  const placed = rows.map((r) => ({ r, col: queueColumnOf(r, inYard.has(r.id)) }));
+  const equipments = [...new Set(rows.map((r) => r.equipment).filter((e): e is string => e != null))].sort();
+  const placed = rows.filter((r) => passes(r, filter, now, keyOf, today, tomorrow)).map((r) => ({ r, col: queueColumnOf(r, inYard.has(r.id)) }));
   const needsAll = placed.filter((p) => p.col === "no_driver" || p.col === "ready_to_send" || p.col === "declined");
   // A load whose last move was a recall is pinned first: someone was taken off it, and it should not sit quietly among the rest. Then a driver's no, then nobody, then ready to go.
   const recalls = await recalledLoads(
     needsAll.map((p) => p.r.id),
     ws
   );
-  const needs = needsAll.sort((x, y) => Number(recalls.has(y.r.id)) - Number(recalls.has(x.r.id)) || (NEEDS_ORDER[x.col!] ?? 9) - (NEEDS_ORDER[y.col!] ?? 9) || bySoonest(x.r, y.r));
+  // The state filter narrows Needs a driver only: the other columns are one state each.
+  const inState = (p: (typeof needsAll)[number]) => !filter.state || (filter.state === "recalled" ? recalls.has(p.r.id) : p.col === filter.state && !recalls.has(p.r.id));
+  const needs = needsAll.filter(inState).sort((x, y) => Number(recalls.has(y.r.id)) - Number(recalls.has(x.r.id)) || (NEEDS_ORDER[x.col!] ?? 9) - (NEEDS_ORDER[y.col!] ?? 9) || bySoonest(x.r, y.r));
   const sent = placed.filter((p) => p.col === "sent").sort((x, y) => bySoonest(x.r, y.r));
   const road = placed.filter((p) => p.col === "moving").sort((x, y) => byMoving(x.r, y.r));
   // The alerts are said once, on the Alerts page and on each load below; here they are a count and a way in, so the three columns are what is on screen.
@@ -216,7 +229,7 @@ export default async function DispatchPage({ searchParams }: { searchParams?: { 
   const shownOf = (param: string | undefined) => Math.max(COLUMN_STEP, Math.min(Number.parseInt(param ?? "", 10) || COLUMN_STEP, 5_000));
   const limits = { needs: shownOf(searchParams?.needs), sent: shownOf(searchParams?.sent), road: shownOf(searchParams?.road) };
   const moreHref = (column: keyof typeof limits) => {
-    const u = new URLSearchParams();
+    const u = new URLSearchParams(filterParams(filter));
     for (const [k, v] of Object.entries({ ...limits, [column]: limits[column] + COLUMN_STEP })) if (v > COLUMN_STEP) u.set(k, String(v));
     return `/dispatch?${u.toString()}`;
   };
@@ -269,6 +282,32 @@ export default async function DispatchPage({ searchParams }: { searchParams?: { 
           </ul>
         </Card>
       ) : null}
+
+      <div className="dt-toolbar">
+        <LiveForm path="/dispatch" label="Filter the queue" className="audit-filters">
+          <input type="search" name="q" defaultValue={filter.q} placeholder="Load, PO, BOL, customer, city or driver…" aria-label="Search the queue" autoComplete="off" className="audit-q" />
+          <select name="day" defaultValue={filter.day ?? ""} aria-label="Pickup day">
+            <option value="">Any pickup day</option>
+            <option value="overdue">Pickup passed</option>
+            <option value="today">Today</option>
+            <option value="tomorrow">Tomorrow</option>
+          </select>
+          <select name="state" defaultValue={filter.state ?? ""} aria-label="Needs a driver">
+            <option value="">Every load that needs a driver</option>
+            <option value="no_driver">Nobody on it</option>
+            <option value="ready_to_send">Ready to send</option>
+            <option value="declined">Declined</option>
+            <option value="recalled">Recalled</option>
+          </select>
+          <select name="eq" defaultValue={filter.eq ?? ""} aria-label="Equipment">
+            <option value="">Any equipment</option>
+            {equipments.map((e) => (
+              <option key={e} value={e}>{e.replace(/_/g, " ")}</option>
+            ))}
+          </select>
+        </LiveForm>
+        {isFiltered(filter) ? <Link href="/dispatch" className="tl-btn ghost">Clear filters</Link> : null}
+      </div>
 
       <div className="tl-cols dq-cols">
         <Card title={`Needs a driver · ${needs.length}${counts.declined + counts.ready > 0 ? ` (${[counts.declined ? `${counts.declined} declined` : null, counts.ready ? `${counts.ready} ready to send` : null].filter(Boolean).join(", ")})` : ""}`}>

@@ -100,7 +100,10 @@ export type RecalledLoad = { code: RecallCode | null; note: string | null; drive
 export async function recalledLoads(loadIds: string[], workspaceId = currentWorkspaceId()): Promise<Map<string, RecalledLoad>> {
   const out = new Map<string, RecalledLoad>();
   if (loadIds.length === 0) return out;
-  const events = await prisma.assignmentEvent.findMany({ where: { workspaceId, loadId: { in: loadIds } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
+  // Only each load's newest moment is read, not its whole history (a load passed between drivers for weeks has many events): when it was, then the events at that moment.
+  const latest = await prisma.assignmentEvent.groupBy({ by: ["loadId"], where: { workspaceId, loadId: { in: loadIds } }, _max: { createdAt: true } });
+  const at = latest.filter((l) => l._max.createdAt != null).map((l) => ({ loadId: l.loadId, createdAt: l._max.createdAt! }));
+  const events = at.length > 0 ? await prisma.assignmentEvent.findMany({ where: { workspaceId, OR: at }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] }) : [];
   const newest = new Map<string, (typeof events)[number]>();
   for (const e of events) if (!newest.has(e.loadId)) newest.set(e.loadId, e);
   const recalled = [...newest.values()].filter((e) => e.kind === "recalled");
