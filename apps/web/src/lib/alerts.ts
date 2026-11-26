@@ -199,6 +199,8 @@ export type AlertLoad = {
   /** A baton waiting for the next driver (src/server/tl/relay.ts): the load is on the road with nobody holding it. */
   handoff?: { type?: string; state: string; locationName: string | null; droppedAt: Date; discrepancyFlagged: boolean; ackAt: Date | null; outDriverName: string | null } | null;
   stops: Array<{ timeWindowEarliest: Date | null; timeWindowLatest: Date | null; referenceNumbers: unknown }>;
+  /** The day the load was booked for: the pickup clock when no stop has a window yet. */
+  scheduledDate?: Date | null;
   assignment: null | {
     status: string;
     dispatchedAt: Date | null;
@@ -278,9 +280,10 @@ export function deriveAlerts(loads: AlertLoad[], now: Date, t: AlertThresholds =
     }
 
     if (l.status === "draft" && unsent) {
-      const w = loadWindow(l.stops);
-      if (w) {
-        const until = w.start.getTime() - now.getTime();
+      // A load with no stop windows still has the day it was booked for: without it, a load nobody timed would never say it has no driver.
+      const start = loadWindow(l.stops)?.start ?? l.scheduledDate ?? null;
+      if (start) {
+        const until = start.getTime() - now.getTime();
         if (until <= t.pickupHours * HOUR) {
           add(l, "PICKUP_NO_DRIVER", "block", until < 0 ? "The pickup time has passed and no driver has been sent." : `Pickup is in ${hours(until)} and no driver has been sent.`);
         }

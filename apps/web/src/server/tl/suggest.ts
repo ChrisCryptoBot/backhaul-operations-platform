@@ -12,6 +12,7 @@ import { currentTerminal } from "./terminal";
 import { currentAllowed } from "./scope";
 import { currentWorkspaceId } from "./workspace";
 import { inTerminal } from "./terminal-sql";
+import { loadWindow } from "@/lib/schedule";
 import type { Terminals } from "@/lib/scope";
 import { isReasonCode, type ReasonNeed, type Reasons } from "@/lib/assign-reasons";
 
@@ -36,6 +37,8 @@ export type AssignOptions = {
   hasTruck: boolean;
   drivers: AssignDriverOption[];
   suggestions: Suggestion[];
+  /** No stop of the load has a time yet, so nobody can be checked for another load at the same time: the window says so. */
+  noTimes: boolean;
   /** Who has the load now, as the window opened: sent back with the assignment, so a change someone else made in between is refused instead of written over. */
   current: { assignmentVersion: number | null; driverId: string | null };
 };
@@ -56,6 +59,7 @@ export async function assignOptions(loadId: string, workspaceId = currentWorkspa
     hasTruck: load.vehicleId != null,
     drivers: pickerOptions(options),
     suggestions: fits.slice(0, opts.limit ?? MAX_SUGGESTIONS),
+    noTimes: loadWindow(load.stops) == null,
     current: { assignmentVersion: load.assignment?.assignmentVersion ?? null, driverId: load.assignment?.driverId ?? null }
   };
 }

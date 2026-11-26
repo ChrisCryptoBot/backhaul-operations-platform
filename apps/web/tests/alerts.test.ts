@@ -40,6 +40,13 @@ describe("deriveAlerts", () => {
     expect(codes([load()])).toEqual([]);
   });
 
+  test("a load with no stop times still says it has no driver, on the day it was booked for", () => {
+    const untimed = load({ stops: [{ timeWindowEarliest: null, timeWindowLatest: null, referenceNumbers: ["x"] }], scheduledDate: at(6 * H) });
+    expect(deriveAlerts([untimed], NOW)[0]).toMatchObject({ code: "PICKUP_NO_DRIVER", message: "Pickup is in 6 h and no driver has been sent." });
+    expect(codes([load({ stops: untimed.stops, scheduledDate: at(5 * 24 * H) })])).not.toContain("PICKUP_NO_DRIVER");
+    expect(codes([load({ stops: untimed.stops, scheduledDate: null })])).not.toContain("PICKUP_NO_DRIVER");
+  });
+
   test("pickup inside 24 hours with no driver sent blocks; further out does not; past pickup says so", () => {
     const soon = load({ stops: [{ timeWindowEarliest: at(5 * H), timeWindowLatest: at(8 * H), referenceNumbers: ["x"] }] });
     const [a] = deriveAlerts([soon], NOW);

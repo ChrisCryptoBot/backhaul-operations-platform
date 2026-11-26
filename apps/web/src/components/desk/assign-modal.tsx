@@ -153,6 +153,7 @@ export function AssignButton({ loadId, loadNumber, compact, label = "Assign" }: 
             ) : (
               <p className="tl-note">No driver is free for this load. Pick one below and say why, or change the times.</p>
             )}
+            {data.noTimes ? <p className="tl-note warn">No pickup or delivery time on this load yet, so nobody can be checked for another load at the same time. Add the times from the load first if you can.</p> : null}
             {!data.hasTruck ? <p className="tl-note">This load has no truck yet. Each driver is priced on the truck they usually drive, and that truck goes on the load with them.</p> : null}
             <form
               ref={formRef}
