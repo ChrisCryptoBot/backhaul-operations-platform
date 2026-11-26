@@ -66,6 +66,8 @@ describe.skipIf(!run)("Quote Q1 on the demo database", () => {
   });
 
   beforeAll(async () => {
+    // Booking a name with no customer record asks what kind it is first (Quote review Q3); these tests book known customers.
+    await prisma.customer.create({ data: { workspaceId: WS, name: "Q1 Broker", kind: "broker" } }).catch(() => undefined);
     const t = await saveTruck({ name: "Q1 East", type: "box_truck", mpg: "10", fuelType: "diesel" }, null);
     const t2 = await saveTruck({ name: "Q1 West", type: "box_truck", mpg: "10", fuelType: "diesel" }, null);
     const t3 = await saveTruck({ name: "Q1 Tired", type: "box_truck", mpg: "10", fuelType: "diesel" }, null);

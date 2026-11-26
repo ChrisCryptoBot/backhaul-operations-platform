@@ -91,6 +91,7 @@ for m in \
   20270112000000_relay_settlement_and_pay_arrangement \
   20270113000000_supplemental_invoices \
   20270114000000_ops_freight_claims_customer \
-  20270115000000_recall_driver_no_show; do
+  20270115000000_recall_driver_no_show \
+  20270116000000_decision_actor_id; do
   npx prisma migrate resolve --applied "$m" --schema=./prisma/schema.prisma
 done

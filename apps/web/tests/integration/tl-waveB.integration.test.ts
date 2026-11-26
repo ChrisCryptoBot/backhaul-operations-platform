@@ -54,6 +54,8 @@ describe.skipIf(!run)("measured miles and stored coordinates on the demo databas
   });
 
   beforeAll(async () => {
+    // Booking a name with no customer record asks what kind it is first (Quote review Q3); these tests book known customers.
+    await prisma.customer.create({ data: { workspaceId: WS, name: "WB Broker", kind: "broker" } }).catch(() => undefined);
     const t = await saveTruck({ name: "WB Truck", type: "box_truck", mpg: "10", fuelType: "diesel" }, null);
     if (!t.ok) throw new Error("truck");
     truckId = t.id;

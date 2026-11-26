@@ -729,6 +729,8 @@ a.al:hover { background: var(--db-bg-elev-1); }
 .qt-context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--db-4); margin-top: var(--db-5); }
 .qt-quotes { margin-top: var(--db-6); }
 .qt-reasons { display: grid; gap: var(--db-2); }
+.qt-plain-set { border: 0; padding: 0; margin: 0; min-width: 0; }
+.qt-plain-set > legend { padding: 0; margin-bottom: var(--db-2); }
 @media (max-width: 1100px) {
   .qt { grid-template-columns: 1fr; }
   .qt-side { position: static; }

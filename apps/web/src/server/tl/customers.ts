@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import type { AuditSnapshot } from "@/lib/audit-diff";
-import { kindLabel, validateCustomer, type CustomerCheck, type CustomerValues } from "@/lib/customer";
+import { kindLabel, validateCustomer, type CustomerCheck, type CustomerKind, type CustomerValues } from "@/lib/customer";
 import { customerScorecard } from "@/lib/customer-scorecard";
 import { normalizeMcNumber } from "@/lib/fmcsa";
 import { notQuote } from "@/lib/quote-status";
@@ -53,11 +53,12 @@ export async function customerTermsMap(workspaceId = currentWorkspaceId()): Prom
  * Find the Customer record matching `name` (case-insensitive) inside `workspaceId`, or create one from the load's contact/MC/terms details
  * when no record exists yet. Returns null only when `name` is blank. Runs inside the caller's transaction.
  */
+/** `kind`: what the new record is when one is made (a broker unless the caller was told otherwise). `created` says whether a record was made, so the caller can put it on the audit trail. */
 export async function resolveOrCreateCustomer(
   tx: Prisma.TransactionClient,
   workspaceId: string,
-  input: { name?: string | null; mcNumber?: string | null; phone?: string | null; email?: string | null; payTermsDays?: number | null }
-): Promise<{ id: string; name: string } | null> {
+  input: { name?: string | null; mcNumber?: string | null; phone?: string | null; email?: string | null; payTermsDays?: number | null; kind?: CustomerKind | null }
+): Promise<{ id: string; name: string; created: boolean } | null> {
   const clean = (input.name ?? "").trim();
   if (!clean) return null;
   const existing = await tx.customer.findFirst({
@@ -65,12 +66,12 @@ export async function resolveOrCreateCustomer(
     select: { id: true, name: true },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }]
   });
-  if (existing) return existing;
+  if (existing) return { ...existing, created: false };
   const created = await tx.customer.create({
     data: {
       workspaceId,
       name: clean.slice(0, 80),
-      kind: "broker",
+      kind: input.kind ?? "broker",
       mcNumber: normalizeMcNumber(input.mcNumber ?? null),
       contactPhone: input.phone?.trim().slice(0, 40) || null,
       contactEmail: input.email?.trim().slice(0, 120) || null,
@@ -78,7 +79,7 @@ export async function resolveOrCreateCustomer(
     },
     select: { id: true, name: true }
   });
-  return created;
+  return { ...created, created: true };
 }
 
 export async function saveCustomer(values: CustomerValues, id: string | null, now = new Date(), workspaceId = currentWorkspaceId()): Promise<SaveCustomerResult> {

@@ -77,7 +77,7 @@ export async function buildExport(kind: string, query: Query, now = new Date(), 
   const name = (part: string) => `truelane-desk-${part}-${day}.csv`;
 
   if (kind === "quote-decisions") {
-    const scope = reportScope();
+    const scope = await reportScope();
     if (scope == null) return null;
     const { rows } = await listQuoteDecisions({ period: asKpiPeriod(first(query.period)), by: scope === "all" ? null : scope, terminals: await currentTerminal() }, now);
     return {

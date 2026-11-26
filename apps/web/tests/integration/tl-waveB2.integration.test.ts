@@ -58,6 +58,8 @@ describe.skipIf(!run)("fuel price for one price check, on the demo database", ()
   };
 
   beforeAll(async () => {
+    // Booking a name with no customer record asks what kind it is first (Quote review Q3); these tests book known customers.
+    await prisma.customer.create({ data: { workspaceId: WS, name: "WB2 Customer", kind: "broker" } }).catch(() => undefined);
     const d = await saveTruck({ name: "WB2 Diesel", type: "box_truck", mpg: "10", fuelType: "diesel" }, null);
     const g = await saveTruck({ name: "WB2 Gas", type: "box_truck", mpg: "10", fuelType: "gasoline" }, null);
     if (!d.ok || !g.ok) throw new Error("trucks");

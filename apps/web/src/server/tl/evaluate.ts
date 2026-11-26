@@ -75,6 +75,43 @@ export type EvaluateLoadRow = LoadRow & {
   marketBandFraction?: number;
 };
 
+/** A fuel purchase tied to the load, as the fuel card or its file reported it (`FuelTransaction`): the receipt. */
+export type LoadFuelPurchase = { gallons: unknown; pricePerGallon: unknown; amount: unknown };
+
+/** Where the fuel price a load is judged on came from: its receipts, the price its quote was judged on, or the truck's own. */
+export type FuelBasis = { price: number | null; source: "receipts" | "quote" | "truck" };
+
+/** A believable price a gallon (the cost profile and the quote allow $0.50 to $25), else none. */
+const believable = (n: number | null): number | null => (n != null && Number.isFinite(n) && n >= 0.5 && n <= 25 ? n : null);
+
+/**
+ * The fuel price a booked load is judged on (Chris, 2026-11-25): fuel is volatile, so the decision is made on the fuel index (the price the quote was judged on, kept in `quoteExtras`) and the
+ * load keeps that price until the actual fuel comes in on receipts (fuel purchases tied to the load); from then on the receipts' price, gallon for gallon. A load with neither is judged on the
+ * truck's own price, as before. The quote's price was only ever used for a diesel truck, so a truck known to burn something else keeps its own. No figure here is new: it is the price a gallon
+ * the audited rules already take.
+ */
+export function fuelBasisOf(load: { quoteExtras?: unknown; fuelTransactions?: readonly LoadFuelPurchase[] | null }, profile: { lastFuelPricePerGallon?: unknown }, vehicle: { fuelType?: string | null } | null): FuelBasis {
+  let gallons = 0;
+  let paid = 0;
+  for (const f of load.fuelTransactions ?? []) {
+    const g = numOrNull(f.gallons as never);
+    if (g == null || !(g > 0)) continue;
+    const ppg = numOrNull(f.pricePerGallon as never);
+    const amount = numOrNull(f.amount as never);
+    const cost = ppg != null && ppg > 0 ? ppg * g : amount != null && amount > 0 ? amount : null;
+    if (cost == null) continue;
+    gallons += g;
+    paid += cost;
+  }
+  const fromReceipts = gallons > 0 ? believable(paid / gallons) : null;
+  if (fromReceipts != null) return { price: fromReceipts, source: "receipts" };
+  const x = load.quoteExtras && typeof load.quoteExtras === "object" && !Array.isArray(load.quoteExtras) ? (load.quoteExtras as { fuelPrice?: unknown }) : {};
+  const quoted = typeof x.fuelPrice === "number" ? believable(x.fuelPrice) : null;
+  const fuel = (vehicle?.fuelType ?? "").trim().toLowerCase();
+  if (quoted != null && (fuel === "" || fuel === "diesel")) return { price: quoted, source: "quote" };
+  return { price: numOrNull(profile.lastFuelPricePerGallon as never), source: "truck" };
+}
+
 /** What a booked load kept of the quote's extra costs (`Load.quoteExtras`), for a row that did not come straight from the form. */
 function advancedOf(load: EvaluateLoadRow): { towing: number; permit: number; band: number } {
   const raw = (load as { quoteExtras?: unknown }).quoteExtras;
@@ -169,8 +206,8 @@ export function resolveLabour(profile: CostProfileRow, assignment: EvaluateLoadR
 export function evaluateTlLoad(
   load: EvaluateLoadRow,
   profile: CostProfileRow,
-  vehicle: { mpg: Dec } | null
-): LoadEvaluation {
+  vehicle: { mpg: Dec; fuelType?: string | null } | null
+): LoadEvaluation & { fuelBasis: FuelBasis } {
   const breakdown = computeCostProfileFloorBreakdown(profileMathInput(profile));
   const pickupDh = n(load.pickupDeadheadMiles);
   const loaded = n(load.loadedMiles);
@@ -178,6 +215,7 @@ export function evaluateTlLoad(
   const totalMiles = pickupDh + loaded + (load.isBackhaul ? 0 : returnDh);
   const labour = resolveLabour(profile, load.assignment, totalMiles, n(load.quotedRevenue) + n(load.fuelSurcharge));
   const adv = advancedOf(load);
+  const fuelBasis = fuelBasisOf(load as { quoteExtras?: unknown; fuelTransactions?: readonly LoadFuelPurchase[] | null }, profile as { lastFuelPricePerGallon?: unknown }, vehicle);
   const archetype = labour.archetype;
   // The market rate is stored per mile; evaluateLoad wants the total for the load.
   const benchmark = numOrNull(load.marketBenchmark as never);
@@ -206,7 +244,7 @@ export function evaluateTlLoad(
     routeOveragePerMile: numOrNull(profile.routeOveragePerMile as never),
     routeOveragePerStop: numOrNull(profile.routeOveragePerStop as never),
     vehicleMpg: numOrNull(vehicle?.mpg as never),
-    fuelPricePerGallon: numOrNull(profile.lastFuelPricePerGallon as never),
+    fuelPricePerGallon: fuelBasis.price,
     marketBandFraction: adv.band,
     offer: n(load.quotedRevenue),
     fuelSurchargeAmount: fscAmount,
@@ -225,5 +263,5 @@ export function evaluateTlLoad(
     stopsCount: load.stopsCount ?? 2,
     marketTotal
   };
-  return evaluateLoad(input);
+  return { ...evaluateLoad(input), fuelBasis };
 }

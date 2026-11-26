@@ -16,6 +16,7 @@ import { DRIVE_LIMIT_HOURS } from "@/lib/hos-check";
 
 /** What the clock has to cover before the first ten-hour break: a longer trip is driven over more than one day (49 CFR 395.3), so hours left now are read against the first day. */
 const firstDay = (tripHours: number | null | undefined) => (tripHours == null ? tripHours : Math.min(tripHours, DRIVE_LIMIT_HOURS));
+import { CUSTOMER_KINDS } from "@/lib/customer";
 import { BLANK_QUOTE, floorOffer, gateTitle, grossPerLoadedMile, HAZMAT_CLASSES, isQuoteDirty, missingTimes, OVERRIDE_REASONS, PASS_REASONS, quoteCautions, readQuote, swapRoute, validateQuote, type QuoteStop, type QuoteValues } from "@/lib/quote";
 import { BRIEF_LABEL, buildBrief, type BriefKind } from "@/lib/quote-brief";
 import type { CustomerOption, FitRow, LaneBenchmark, QuoteListRow } from "@/server/tl/quote";
@@ -51,8 +52,8 @@ type Initial = { id: string | null; values: QuoteValues; vehicleId: string | nul
 
 /** What the form held before Clear or a swap, kept for a few seconds behind an Undo. */
 /** What is typed into the booking, pass and quick-paste dialogs, and which truck was picked: kept with the quote, like its fields. */
-type QuoteAsk = { reason: string; notes: string; passReason: string; passNotes: string; pasteText: string; selected: string | null; hosReason?: string; pastOk?: boolean };
-const BLANK_ASK: QuoteAsk = { reason: "", notes: "", passReason: "", passNotes: "", pasteText: "", selected: null, hosReason: "", pastOk: false };
+type QuoteAsk = { reason: string; notes: string; passReason: string; passNotes: string; pasteText: string; selected: string | null; hosReason?: string; pastOk?: boolean; customerKind?: string };
+const BLANK_ASK: QuoteAsk = { reason: "", notes: "", passReason: "", passNotes: "", pasteText: "", selected: null, hosReason: "", pastOk: false, customerKind: "" };
 /** How long past a pickup can be before booking asks (the server's own line, server/tl/quote.ts). */
 const PAST_PICKUP_MS = 24 * 3_600_000;
 
@@ -180,6 +181,10 @@ export function QuoteDesk({
   const pastOk = ask.pastOk === true;
   const setHosReason = React.useCallback((v: string) => setAsk((a) => ({ ...a, hosReason: v })), [setAsk]);
   const setPastOk = React.useCallback((v: boolean) => setAsk((a) => ({ ...a, pastOk: v })), [setAsk]);
+  const customerKind = ask.customerKind ?? "";
+  const setCustomerKind = React.useCallback((v: string) => setAsk((a) => ({ ...a, customerKind: v })), [setAsk]);
+  // A customer with no record yet, as the server said when booking was asked for: the name it asked about and the close spellings already on the desk.
+  const [newCustomer, setNewCustomer] = React.useState<{ name: string; near: string[] } | null>(null);
   const [quoteId, setQuoteId] = React.useState<string | null>(initial?.id ?? null);
   // The saved quote's version as this form last saw it: sent with a save or a booking so someone else's newer change is never written over.
   const [version, setVersion] = React.useState<string | null>(initial?.version ?? null);
@@ -558,7 +563,7 @@ export function QuoteDesk({
     if (!row) return;
     setBusy(true);
     setMessage(null);
-    const out = await reach(() => bookQuoteAction(values, { vehicleId: row.truckId, driverId: row.driverId }, override, quoteId, { version, pastOk, hosReason: row.driverId && row.hos.needsReason ? hosReason : null }));
+    const out = await reach(() => bookQuoteAction(values, { vehicleId: row.truckId, driverId: row.driverId }, override, quoteId, { version, pastOk, hosReason: row.driverId && row.hos.needsReason ? hosReason : null, customerKind: newCustomer && newCustomer.name.trim().toLowerCase() === values.broker.trim().toLowerCase() ? customerKind : null }));
     if (!out) return;
     setBusy(false);
     if (out.ok) {
@@ -595,18 +600,22 @@ export function QuoteDesk({
     setServerErrors(out.errors ?? {});
     if (out.errors) setTried(true);
     // The server asks for what the form had not: a reason for the verdict, for the driver's hours, or a yes to a pickup already past. The dialog shows each one it needs.
-    if (out.gate || out.hos || out.pastPickup) setAsking(true);
-    setMessage(out.error ?? (out.errors ? "Fix what is marked, then book it." : null));
-  }, [row, values, quoteId, draft, askDraft, router, version, pastOk, hosReason, draftKey, rateConMeta?.isRealFile]);
+    if (out.newCustomer) setNewCustomer(out.newCustomer);
+    if (out.gate || out.hos || out.pastPickup || out.newCustomer) setAsking(true);
+    // The new-customer question says it all in the dialog; the server's sentence would only repeat it.
+    setMessage(out.newCustomer && !out.gate && !out.hos && !out.pastPickup ? null : (out.error ?? (out.errors ? "Fix what is marked, then book it." : null)));
+  }, [row, values, quoteId, draft, askDraft, router, version, pastOk, hosReason, draftKey, rateConMeta?.isRealFile, newCustomer, customerKind]);
 
   // What booking this row asks for before it goes: a reason for the verdict, a reason for the driver's hours, a yes to a pickup more than a day past.
   const pickupMs = readQuote(zoned)?.stops[0]?.appointment ?? null;
   const needs = {
     gate: row?.gate ?? null,
     hos: row?.driverId && row.hos.needsReason ? (row.hos.caution.message ?? "This driver's hours need a look.") : null,
-    past: pickupMs != null && pickupMs < Date.now() - PAST_PICKUP_MS
+    past: pickupMs != null && pickupMs < Date.now() - PAST_PICKUP_MS,
+    // Only while the customer box still holds the name the server asked about: picking a close spelling instead answers it.
+    customer: newCustomer && newCustomer.name.trim().toLowerCase() === values.broker.trim().toLowerCase() ? newCustomer : null
   };
-  const needsReady = (!needs.gate || (reason !== "" && (reason !== "Other" || notes.trim().length >= 3))) && (!needs.hos || hosReason.trim().length >= 3) && (!needs.past || pastOk);
+  const needsReady = (!needs.gate || (reason !== "" && (reason !== "Other" || notes.trim().length >= 3))) && (!needs.hos || hosReason.trim().length >= 3) && (!needs.past || pastOk) && (!needs.customer || customerKind !== "");
 
   const onBook = React.useCallback(() => {
     // Nothing is booked from a row that cannot take it, or by someone who may only look, whichever way it was asked for (the button, Enter, a shortcut).
@@ -2205,7 +2214,7 @@ export function QuoteDesk({
       </div>
 
       {/* ── Ask Reason Modal ───────────────────────────────────────────────────── */}
-      <Modal open={asking} onClose={() => setAsking(false)} eyebrow="Before booking" title={needs.gate ? gateTitle(needs.gate, benchmark) : needs.hos ? "Put this driver on it with the hours they have?" : needs.past ? "Book a pickup that has already passed?" : "Book it?"}>
+      <Modal open={asking} onClose={() => setAsking(false)} eyebrow="Before booking" title={needs.gate ? gateTitle(needs.gate, benchmark) : needs.hos ? "Put this driver on it with the hours they have?" : needs.past ? "Book a pickup that has already passed?" : needs.customer ? `New customer: ${needs.customer.name}` : "Book it?"}>
         <div className="dlg-form">
           <p className="tl-note">What you say here is kept with the decision and in the audit log.</p>
           {needs.gate ? (
@@ -2229,6 +2238,33 @@ export function QuoteDesk({
               {needs.hos} Why put them on it?
               <textarea value={hosReason} onChange={(e) => setHosReason(e.target.value)} placeholder="For example: a 34-hour restart ends before the pickup" />
             </label>
+          ) : null}
+          {needs.customer ? (
+            <fieldset className="qt-reasons qt-plain-set">
+              <legend className="tl-sub">
+                {needs.customer.name} is not on your customers yet. Booking adds it. What kind is it?
+              </legend>
+              {CUSTOMER_KINDS.map((k) => (
+                <label key={k.key} className="dlg-check">
+                  <input type="radio" name="qt-customer-kind" checked={customerKind === k.key} onChange={() => setCustomerKind(k.key)} />
+                  {k.label}
+                </label>
+              ))}
+              {needs.customer.near.length > 0 ? (
+                <p className="tl-sub">
+                  Or did you mean{" "}
+                  {needs.customer.near.map((n, k) => (
+                    <React.Fragment key={n}>
+                      {k > 0 ? ", " : ""}
+                      <button type="button" className="tl-btn ghost sm" onClick={() => set({ broker: n })}>
+                        {n}
+                      </button>
+                    </React.Fragment>
+                  ))}
+                  ?
+                </p>
+              ) : null}
+            </fieldset>
           ) : null}
           {needs.past ? (
             <label className="dlg-check">

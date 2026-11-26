@@ -25,7 +25,7 @@ const VERDICTS: VerdictKey[] = ["take", "think", "reject", "unjudged"];
  */
 export default async function QuoteDecisionsPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   await requirePage("quote");
-  const scope = reportScope();
+  const scope = await reportScope();
   if (scope == null) notFound();
   const period = asKpiPeriod(Array.isArray(searchParams?.period) ? searchParams?.period[0] : searchParams?.period);
   const { report: r, rows, capped } = await getQuoteReport({ period, by: scope === "all" ? null : scope, terminals: await currentTerminal() });

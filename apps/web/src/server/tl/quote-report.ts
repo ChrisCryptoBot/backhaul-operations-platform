@@ -6,7 +6,8 @@ import { num } from "./convert";
 import type { DecisionDetails } from "./quote";
 import { currentWorkspaceId } from "./workspace";
 import { workspaceTimezone } from "./zone";
-import { sessionIdentity } from "./identity";
+import { currentActorId } from "./identity";
+import { checkAccess } from "./access";
 import { can } from "@/lib/roles";
 import type { Terminals } from "@/lib/scope";
 import { inTerminal } from "./terminal-sql";
@@ -20,12 +21,15 @@ const KINDS = ["accepted", "overridden", "passed"] as const;
  * The decisions on quotes in a period, as report rows. `by` limits them to one person's (a dispatcher sees their own; an admin sees everyone's). Reads the decision and its load,
  * never writes.
  */
-export async function listQuoteDecisions(opts: { period: KpiPeriod; by?: string | null; terminals?: Terminals }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<{ rows: DecisionRow[]; capped: boolean }> {
+/** One person's decisions: by their id, and by their name for decisions made before ids were kept (those have none). */
+export type ReportPerson = { id: string | null; name: string };
+
+export async function listQuoteDecisions(opts: { period: KpiPeriod; by?: ReportPerson | null; terminals?: Terminals }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<{ rows: DecisionRow[]; capped: boolean }> {
   const win = periodWindow(opts.period, now.getTime(), await workspaceTimezone(workspaceId));
   const found = await prisma.loadDecision.findMany({
     where: {
       decisionType: { in: [...KINDS] },
-      ...(opts.by ? { decidedBy: opts.by } : {}),
+      ...(opts.by ? { OR: [...(opts.by.id ? [{ decidedById: opts.by.id }] : []), { decidedById: null, decidedBy: opts.by.name }] } : {}),
       decidedAt: { ...(win.start != null ? { gte: new Date(win.start) } : {}), lte: new Date(win.end) },
       // The terminals in view, as every report on the desk follows them (a quote not on a truck yet is everyone's).
       load: { workspaceId, deletedAt: null, ...inTerminal(opts.terminals ?? null) }
@@ -61,18 +65,21 @@ export async function listQuoteDecisions(opts: { period: KpiPeriod; by?: string 
   return { rows, capped: found.length > REPORT_LIMIT };
 }
 
-export async function getQuoteReport(opts: { period: KpiPeriod; by?: string | null; terminals?: Terminals }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<{ report: QuoteReport; rows: DecisionRow[]; capped: boolean }> {
+export async function getQuoteReport(opts: { period: KpiPeriod; by?: ReportPerson | null; terminals?: Terminals }, now = new Date(), workspaceId = currentWorkspaceId()): Promise<{ report: QuoteReport; rows: DecisionRow[]; capped: boolean }> {
   const { rows, capped } = await listQuoteDecisions(opts, now, workspaceId);
   return { report: buildQuoteReport(rows), rows, capped };
 }
 
 /**
- * Whose decisions the person asking may see: an admin (and the demo, with sign-in off) sees everyone's, a dispatcher only their own, everyone else none. Returns the name to filter to,
- * "all" for no filter, or null when they may not see the report at all.
+ * Whose decisions the person asking may see: an admin sees everyone's, a dispatcher only their own, everyone else none. The role is the member table's (checkAccess), not the session
+ * cookie's, so a person whose role was lowered sees less on their next click. Returns the person to filter to, "all" for no filter, or null when they may not see the report.
  */
-export function reportScope(): string | "all" | null {
-  const me = sessionIdentity();
-  if (!me) return "all";
+export async function reportScope(): Promise<ReportPerson | "all" | null> {
+  const a = await checkAccess("read");
+  if (!a.ok) return null;
+  const me = a.identity;
   if (can(me.role, me.grants, "admin")) return "all";
-  return can(me.role, me.grants, "quote") ? me.name : null;
+  if (!can(me.role, me.grants, "quote")) return null;
+  // Outside a request there is nobody to filter to; the demo desk's own person has a "demo:" id.
+  return { id: currentActorId(), name: me.name };
 }

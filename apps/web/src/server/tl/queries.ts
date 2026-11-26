@@ -28,7 +28,9 @@ export const loadInclude = {
   vehicle: { include: { costProfile: true } },
   trailer: true,
   stops: { orderBy: { stopSequence: "asc" as const } },
-  assignment: { include: { driver: true } }
+  assignment: { include: { driver: true } },
+  // The fuel bought for this load (road diesel, settled): once receipts are in, the load is judged on what they paid (server/tl/evaluate.ts fuelBasisOf).
+  fuelTransactions: { where: { status: "settled", product: { in: ["road_diesel", "unknown"] } }, select: { gallons: true, pricePerGallon: true, amount: true } }
 };
 
 export type BoardRow = Awaited<ReturnType<typeof listBoardRows>>[number];

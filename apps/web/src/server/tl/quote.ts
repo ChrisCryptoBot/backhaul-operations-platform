@@ -21,6 +21,8 @@ import { acceptGateFor } from "@/truelane/lib/calculate/acceptGate";
 import type { AcceptGate, MarketBand } from "@/truelane/lib/domain/marketVerdict";
 import { fuelSurchargePercentFromDollars, fuelSurchargePerMileFromDollars } from "@/truelane/lib/fuelSurcharge";
 import { cityState } from "@/lib/city-state";
+import { CUSTOMER_KINDS, kindLabel, type CustomerKind } from "@/lib/customer";
+import { nearNames } from "@/lib/customer-match";
 import { recordAudit } from "./audit";
 import { num, numOrNull } from "./convert";
 import { assignDriver, DispatchError, driverClashesIn, findTruckClash, tripHoursOf, truckClashesIn, windowText } from "./dispatch";
@@ -38,7 +40,7 @@ import { allowedFor, currentAllowed } from "./scope";
 import { DRIVE_LIMIT_HOURS, hosCheck, type HosState } from "@/lib/hos-check";
 import { listCustomerRecordsInScope } from "./customers";
 import { inTerminal } from "./terminal-sql";
-import { currentActor } from "./identity";
+import { currentActor, currentActorId } from "./identity";
 import { verdictState } from "@/lib/verdict";
 import { getThresholds } from "./thresholds";
 import { countTrailersAvailable } from "./trailers";
@@ -980,7 +982,7 @@ export async function passQuote(id: string, reason: string, notes: string, works
     if (!fresh) return "gone";
     if (fresh.decisions.length > 0) return "passed";
     await tx.load.update({ where: { id }, data: { updatedAt: now } });
-    await tx.loadDecision.create({ data: { loadId: id, decisionType: PASSED, overrideReason: reason, overrideNotes: notes.trim() || null, decidedAt: now, decidedBy: currentActor(), ...(details ? { details: details as unknown as Prisma.InputJsonObject } : {}) } });
+    await tx.loadDecision.create({ data: { loadId: id, decisionType: PASSED, overrideReason: reason, overrideNotes: notes.trim() || null, decidedAt: now, decidedBy: currentActor(), decidedById: currentActorId(), ...(details ? { details: details as unknown as Prisma.InputJsonObject } : {}) } });
     await recordAudit(
       {
         entity: "load",
@@ -1083,11 +1085,13 @@ export type BookResult =
       pastPickup?: true;
       /** The driver's hours need a reason before they are put on it (the hours note). */
       hos?: string;
+      /** The customer has no record yet: booking makes one, so it asks what kind it is first, and offers the close spellings already on the desk. */
+      newCustomer?: { name: string; near: string[] };
       stale?: true;
     };
 
 /** What booking also carries: the version and limit as for a save, a yes to a pickup already past, and the reason for putting a driver on it with the hours they have. */
-export type BookOpts = QuoteWriteOpts & { pastOk?: boolean; hosReason?: string | null };
+export type BookOpts = QuoteWriteOpts & { pastOk?: boolean; hosReason?: string | null; /** What a new customer record is (Chris, 2026-11-25: asked every time). */ customerKind?: CustomerKind | null };
 /** How long past a pickup can be before booking asks. A load typed a little late is normal; one a day or more back is usually the wrong date or year. */
 const PAST_PICKUP_MS = 24 * 3_600_000;
 
@@ -1136,6 +1140,16 @@ export async function bookQuote(
     return { ok: false, errors: { brokerMc: msg }, error: msg };
   }
   if (record) input.broker = record.name;
+  // A name with no record makes a new customer: asked first, every time, what kind it is, with the close spellings already on the desk (a typo is a second customer whose pay record,
+  // MC and terms then follow nothing).
+  if (input.broker && !record && !(opts.customerKind && (CUSTOMER_KINDS as readonly { key: string }[]).some((k) => k.key === opts.customerKind))) {
+    const names = await prisma.customer.findMany({ where: { workspaceId }, select: { name: true } });
+    return { ok: false, newCustomer: { name: input.broker, near: nearNames(input.broker, names.map((c) => c.name)) }, error: `${input.broker} is not on your customers yet. Say what kind it is, or pick the one you meant.` };
+  }
+  // The same MC on another customer's record: a caution after booking, not a refusal (one company can trade under two names; a borrowed MC is the double-brokering sign).
+  const mcDigits = (input.brokerMc ?? "").replace(/\D/g, "");
+  const mcTwin = mcDigits ? await prisma.customer.findFirst({ where: { workspaceId, mcNumber: { contains: mcDigits }, ...(record ? { id: { not: record.id } } : {}), NOT: { name: { equals: input.broker ?? "", mode: "insensitive" } } }, select: { name: true, mcNumber: true } }) : null;
+  const mcNote = mcTwin && (mcTwin.mcNumber ?? "").replace(/\D/g, "") === mcDigits ? `MC ${mcDigits} is also on ${mcTwin.name}'s record. Check who this load is really from.` : null;
 
   const laneRecord = await laneBenchmark(input, workspaceId, now);
   const fit = fitFor(judgedBy(input, laneRecord), { ...truck, drivers: driver ? [driver] : [] } as TruckForFit, driver, null, NO_QUOTE_SHIFT, now)!;
@@ -1170,8 +1184,13 @@ export async function bookQuote(
         mcNumber: input.brokerMc,
         phone: input.brokerPhone,
         email: input.brokerEmail,
-        payTermsDays: input.payTermsDays
+        payTermsDays: input.payTermsDays,
+        kind: opts.customerKind ?? null
       });
+      // A customer made here is on the trail like one added on the Customers screen.
+      if (cust?.created) {
+        await recordAudit({ entity: "customer", action: "customer_added", summary: `${cust.name} added as a ${kindLabel(opts.customerKind ?? "broker").toLowerCase()} while booking a quote`, before: null, after: { Name: cust.name, Kind: kindLabel(opts.customerKind ?? "broker"), MC: input.brokerMc ?? null }, at: now, workspaceId }, tx);
+      }
       const resolvedData = {
         ...data,
         ...(cust ? { customerId: cust.id, brokerName: cust.name } : {})
@@ -1210,7 +1229,7 @@ export async function bookQuote(
         loadNumber = l.loadNumber;
       }
       await tx.loadDecision.create({
-        data: { loadId, decisionType: fit.gate ? "overridden" : "accepted", overrideReason: fit.gate ? (override?.reason ?? null) : null, overrideNotes: fit.gate && override?.notes?.trim() ? override.notes.trim() : null, decidedAt: now, decidedBy: currentActor(), details: decisionDetails(input, fit, laneRecord, firstOffer) as unknown as Prisma.InputJsonObject }
+        data: { loadId, decisionType: fit.gate ? "overridden" : "accepted", overrideReason: fit.gate ? (override?.reason ?? null) : null, overrideNotes: fit.gate && override?.notes?.trim() ? override.notes.trim() : null, decidedAt: now, decidedBy: currentActor(), decidedById: currentActorId(), details: decisionDetails(input, fit, laneRecord, firstOffer) as unknown as Prisma.InputJsonObject }
       });
       await freezeLoadSnapshot(tx, loadId, { labour: false });
       const fuelNote = input.fuelPrice == null ? "The truck's own" : `$${input.fuelPrice.toFixed(2)} a gallon, ${input.fuelSource === "regional" ? "this week's regional price" : "typed"}`;
@@ -1251,17 +1270,17 @@ export async function bookQuote(
 
   // The driver comes last and can fail on its own (a lapsed card, another load at that time) without undoing the booking.
   let assigned = false;
-  let note: string | null = null;
+  let note: string | null = mcNote;
   if (driver) {
     if (driver.defaultPayKind && driver.defaultPayRate != null) {
       try {
         await assignDriver({ loadId: saved.loadId, driverId: driver.id, pay: { kind: driver.defaultPayKind as PayKind, rate: num(driver.defaultPayRate) }, reasons: hosReason ? { hos_short: hosReason } : undefined, allowed }, now, workspaceId);
         assigned = true;
       } catch (e) {
-        note = e instanceof DispatchError ? `Booked, but ${driver.name} could not be assigned: ${e.message}` : `Booked, but ${driver.name} could not be assigned.`;
+        note = [mcNote, e instanceof DispatchError ? `Booked, but ${driver.name} could not be assigned: ${e.message}` : `Booked, but ${driver.name} could not be assigned.`].filter(Boolean).join(" ");
       }
     } else {
-      note = `Booked. ${driver.name} has no usual pay yet, so assign them from the load.`;
+      note = [mcNote, `Booked. ${driver.name} has no usual pay yet, so assign them from the load.`].filter(Boolean).join(" ");
     }
   }
   return { ok: true, loadId: saved.loadId, loadNumber: saved.loadNumber, assigned, note };

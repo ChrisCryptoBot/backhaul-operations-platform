@@ -57,6 +57,8 @@ describe.skipIf(!run)("wave C1: what a truck can carry, passing on a quote, quot
   const mine = (rows: Awaited<ReturnType<typeof fitQuote>>["rows"], id: string) => rows.filter((r) => r.truckId === id);
 
   beforeAll(async () => {
+    // Booking a name with no customer record asks what kind it is first (Quote review Q3); these tests book known customers.
+    await prisma.customer.create({ data: { workspaceId: WS, name: "WC1 Broker", kind: "broker" } }).catch(() => undefined);
     // A small truck (5,000 lb, 12 ft, no liftgate) and a big one (20,000 lb, 26 ft, with a liftgate).
     const small = await saveTruck({ name: "WC1 Small", type: "box_truck", mpg: "10", fuelType: "diesel", payloadLbs: "5000", maxLengthFt: "12", maxWidthFt: "6", maxHeightIn: "70" }, null);
     if (!small.ok) throw new Error("small truck");

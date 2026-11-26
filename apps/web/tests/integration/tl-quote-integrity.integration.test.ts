@@ -123,6 +123,11 @@ describe.skipIf(!run)("quoting on the demo database: integrity", () => {
   });
 
   beforeAll(async () => {
+    // Booking a name with no customer record asks what kind it is first (Quote review Q3); these tests book known customers.
+    await prisma.customer.create({ data: { workspaceId: WS, name: "QI Broker", kind: "broker" } }).catch(() => undefined);
+    await prisma.customer.create({ data: { workspaceId: WS, name: "QI Search Alpha", kind: "broker" } }).catch(() => undefined);
+    await prisma.customer.create({ data: { workspaceId: WS, name: "QI Search Beta", kind: "broker" } }).catch(() => undefined);
+    await prisma.customer.create({ data: { workspaceId: WS, name: "QI Signal Broker", kind: "broker" } }).catch(() => undefined);
     const t = await saveTruck({ name: "QI Truck", type: "box_truck", mpg: "10", fuelType: "diesel" }, null);
     if (!t.ok) throw new Error("truck");
     truckId = t.id;
@@ -355,7 +360,7 @@ describe.skipIf(!run)("quoting on the demo database: integrity", () => {
     expect(report).toMatchObject({ booked: 1, passed: 1 });
     expect(report.negotiation).toMatchObject({ raised: 1, avgRaise: 150, passedOnRate: 1 });
     // A dispatcher's own view is only their decisions: another name sees none of these.
-    const other = await listQuoteDecisions({ period: "all", by: "Somebody Else" });
+    const other = await listQuoteDecisions({ period: "all", by: { id: "someone-else", name: "Somebody Else" } });
     expect(other.rows.some((r) => r.id === dec.id)).toBe(false);
   });
 

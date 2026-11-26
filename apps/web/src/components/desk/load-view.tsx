@@ -74,6 +74,10 @@ import { Fold } from "./kit/fold";
 import { Icon } from "./kit/icons";
 import { Tip, type TipData } from "./kit/tooltip";
 import { ASSIGNMENT_STATUS, LOAD_STATUS, dateTime, miles, PAY_KIND_LABEL, payLabel, perMile, stopTime, usd } from "@/lib/desk-format";
+
+/** Which fuel price the forecast (and the verdict) used: the receipts tied to the load, the price it was quoted on, or the truck's own (server/tl/evaluate.ts fuelBasisOf). */
+const fuelForecastNote = (b: { price: number | null; source: "receipts" | "quote" | "truck" } | null | undefined): string =>
+  b?.price == null ? "forecast" : `forecast at ${usd(b.price, 2)}/gal, ${b.source === "receipts" ? "from its fuel receipts" : b.source === "quote" ? "the price it was quoted on" : "the truck's own price"}`;
 import { rateConTotal } from "@/lib/pay";
 import { telHref } from "@/lib/contact";
 import { LoadCockpit, SplitDocViewer, DriverCabSheet } from "./load-cockpit";
@@ -1435,7 +1439,7 @@ export async function LoadView({ id }: { id: string }) {
               }
             )
           : null}
-        {moneyRow("Fuel", ledger.expFuel, { cost: true, note: ledger.fuelCostSource })}
+        {moneyRow("Fuel", ledger.expFuel, { cost: true, note: ledger.fuelCostSource === "actual" ? "actual" : fuelForecastNote(evaluation?.fuelBasis) })}
         {ledger.expTolls > 0 ? moneyRow("Tolls", ledger.expTolls, { cost: true }) : null}
         {ledger.expRider > 0 ? moneyRow("Insurance rider", ledger.expRider, { cost: true }) : null}
         {ledger.expMisc > 0 ? moneyRow("Lumpers and other", ledger.expMisc, { cost: true }) : null}

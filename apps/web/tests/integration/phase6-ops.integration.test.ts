@@ -2,7 +2,7 @@ import { PDFDocument } from "pdf-lib";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { prisma } from "@/lib/db";
 import { toEditValues } from "@/lib/load-edit";
-import { BLANK_QUOTE } from "@/lib/quote";
+import { BLANK_QUOTE, type QuoteValues } from "@/lib/quote";
 import { buildPacket } from "@/server/partners/factoring-packet";
 import { listLoadCheckCalls, logCheckCall, removeCheckCall } from "@/server/tl/check-calls";
 import { createLoadClaim, listLoadClaims, removeLoadClaim, updateLoadClaim } from "@/server/tl/claims";
@@ -287,8 +287,7 @@ describe.skipIf(!run)("Phase 6 operations integration on demo_gate", () => {
   });
 
   test("6.5 & 6.6: bookQuote links/creates Customer, findTwinLoad matches by customerId + RC#, and getQuoteLike preserves stop/freight details", async () => {
-    const booked = await bookQuote(
-      {
+    const coyote = (): QuoteValues => ({
         ...BLANK_QUOTE,
         broker: "Coyote Logistics",
         loadNumber: "CL-101",
@@ -304,13 +303,10 @@ describe.skipIf(!run)("Phase 6 operations integration on demo_gate", () => {
           { role: "pickup", address: "Dallas, TX", appointment: "2027-03-01T08:00", facility: "Cold Warehouse", contactName: "Bob", contactPhone: "555-0101", notes: "Check in gate 2" },
           { role: "delivery", address: "San Antonio, TX", appointment: "2027-03-01T15:00", facility: "HEB Dock", contactName: "Sue", contactPhone: "555-0202", notes: "Pallet jack" }
         ]
-      },
-      { vehicleId, driverId: null },
-      null,
-      null,
-      W,
-      NOW
-    );
+    });
+    // A name with no record is asked about first (Quote review Q3: what kind of customer it is), then made.
+    expect(await bookQuote(coyote(), { vehicleId, driverId: null }, null, null, W, NOW)).toMatchObject({ ok: false, newCustomer: { name: "Coyote Logistics" } });
+    const booked = await bookQuote(coyote(), { vehicleId, driverId: null }, null, null, W, NOW, { customerKind: "broker" });
     expect(booked.ok).toBe(true);
     if (!booked.ok) return;
 

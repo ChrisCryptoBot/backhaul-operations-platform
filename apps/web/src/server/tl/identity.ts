@@ -46,6 +46,17 @@ export function currentActor(): string {
   return sessionIdentity()?.name || demoIdentity()?.name || DESK_ACTOR;
 }
 
+/**
+ * The same person by an id that does not change with their name: their sign-in id, or "demo:<key>" for a demo person. Null outside a request (a script, a test), where there is
+ * nobody to name. Kept beside the name on a decision, so a rename or two people with one name never mix up whose it was.
+ */
+export function currentActorId(): string | null {
+  const s = sessionIdentity();
+  if (s) return s.userId;
+  const d = demoIdentity();
+  return d ? `demo:${d.key}` : null;
+}
+
 /** Thrown by the tenancy seam when sign-in is on and nobody is signed in to the desk: nothing may fall back to the demo's data. */
 export class NotSignedIn extends Error {
   constructor() {

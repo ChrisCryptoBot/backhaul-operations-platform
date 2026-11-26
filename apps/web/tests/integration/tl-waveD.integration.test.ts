@@ -43,6 +43,12 @@ describe.skipIf(!run)("Part D: the Quote, editing a load, and what must stay put
     await prisma.assignment.deleteMany({ where: { OR: [{ load: { workspace: { id: W } } }, { driver: { workspace: { id: W } } }] } });
     await prisma.workspace.deleteMany({ where: { id: W } });
     await prisma.workspace.create({ data: { id: W, name: "Part D desk", plan: "enterprise" } });
+    // Booking a name with no customer record asks what kind it is first (Quote review Q3); these tests book known customers.
+    await prisma.customer.create({ data: { workspaceId: W, name: "D Broker", kind: "broker" } }).catch(() => undefined);
+    await prisma.customer.create({ data: { workspaceId: W, name: "Other Broker", kind: "broker" } }).catch(() => undefined);
+    await prisma.customer.create({ data: { workspaceId: W, name: "A Different Customer", kind: "broker" } }).catch(() => undefined);
+    await prisma.customer.create({ data: { workspaceId: W, name: "Discard Co", kind: "broker" } }).catch(() => undefined);
+    await prisma.customer.create({ data: { workspaceId: W, name: "Twice Co", kind: "broker" } }).catch(() => undefined);
     const { saveTruck, saveCostProfile } = await import("@/server/tl/fleet");
     for (const [name, set] of [["D Truck 1", (id: string) => (truck1 = id)], ["D Truck 2", (id: string) => (truck2 = id)]] as const) {
       const t = await saveTruck({ name, type: "box_truck", mpg: "10", fuelType: "diesel" }, null);
