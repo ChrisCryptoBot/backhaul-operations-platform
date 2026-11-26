@@ -2,7 +2,7 @@
  * Why a driver is taken off a load that was already sent to them (docs/RELAY_DESIGN.md). A fixed list, so "which loads were recalled, and why" is a query and not a text search.
  * Pure: the screens, the server and the tests all read this one list.
  */
-export const RECALL_CODES = ["ASSIGNED_IN_ERROR", "HOS_TIMEOUT", "MECHANICAL_BREAKDOWN", "DRIVER_UNRESPONSIVE", "SCHEDULED_RELAY"] as const;
+export const RECALL_CODES = ["ASSIGNED_IN_ERROR", "HOS_TIMEOUT", "MECHANICAL_BREAKDOWN", "DRIVER_UNRESPONSIVE", "DRIVER_NO_SHOW", "SCHEDULED_RELAY"] as const;
 export type RecallCode = (typeof RECALL_CODES)[number];
 
 export const RECALL_LABELS: Record<RecallCode, string> = {
@@ -10,6 +10,7 @@ export const RECALL_LABELS: Record<RecallCode, string> = {
   HOS_TIMEOUT: "Out of hours",
   MECHANICAL_BREAKDOWN: "Breakdown",
   DRIVER_UNRESPONSIVE: "Driver not responding",
+  DRIVER_NO_SHOW: "Driver no-show / quit",
   SCHEDULED_RELAY: "Scheduled relay"
 };
 
@@ -17,6 +18,8 @@ export const RECALL_LABELS: Record<RecallCode, string> = {
  * The codes a dispatcher can pick on a clean recall (the trip has not started). SCHEDULED_RELAY is defined but reserved: a relay is a handoff, which arrives with legs (phase 2),
  * so it is not offered as a reason to just take the driver off.
  */
+// DRIVER_NO_SHOW is known (a recall made with it reads right) but not offered until migration 20270115000000_recall_driver_no_show widens the database's reason check: offered
+// before that, a recall with it would be refused by the database. Add it to this list once the migration is applied.
 export const RECALL_OFFERED: readonly RecallCode[] = ["ASSIGNED_IN_ERROR", "HOS_TIMEOUT", "MECHANICAL_BREAKDOWN", "DRIVER_UNRESPONSIVE"];
 
 export const isRecallCode = (v: unknown): v is RecallCode => typeof v === "string" && (RECALL_CODES as readonly string[]).includes(v);

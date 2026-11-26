@@ -635,7 +635,7 @@ model Assignment {
 /// Who held a load, when, and why it changed hands (docs/RELAY_DESIGN.md). One row per move of the assignment: assigned, reassigned, sent, accepted, declined, recalled.
 /// The audit trail says it in words; this says it in fields, so "who had this load" and "which loads were recalled, and why" are queries, not text searches.
 /// `loadId` is a plain column (no foreign key) and `loadNumber` and `driverName` are copied in, so the trail outlives a deleted load or driver.
-/// reasonCode is set on a recall (ASSIGNED_IN_ERROR | HOS_TIMEOUT | MECHANICAL_BREAKDOWN | DRIVER_UNRESPONSIVE | SCHEDULED_RELAY).
+/// reasonCode is set on a recall (ASSIGNED_IN_ERROR | HOS_TIMEOUT | MECHANICAL_BREAKDOWN | DRIVER_UNRESPONSIVE | DRIVER_NO_SHOW | SCHEDULED_RELAY).
 model AssignmentEvent {
   id                String   @id @default(cuid())
   workspaceId       String   @map("workspace_id")

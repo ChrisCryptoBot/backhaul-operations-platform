@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 
 describe("recall reasons (docs/RELAY_DESIGN.md)", () => {
   test("the list is exactly the five signed-off codes", () => {
-    expect([...RECALL_CODES]).toEqual(["ASSIGNED_IN_ERROR", "HOS_TIMEOUT", "MECHANICAL_BREAKDOWN", "DRIVER_UNRESPONSIVE", "SCHEDULED_RELAY"]);
+    expect([...RECALL_CODES]).toEqual(["ASSIGNED_IN_ERROR", "HOS_TIMEOUT", "MECHANICAL_BREAKDOWN", "DRIVER_UNRESPONSIVE", "DRIVER_NO_SHOW", "SCHEDULED_RELAY"]);
   });
   test("every code has a label", () => {
     for (const c of RECALL_CODES) expect(RECALL_LABELS[c].length).toBeGreaterThan(3);
