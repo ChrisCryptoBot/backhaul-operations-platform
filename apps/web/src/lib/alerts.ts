@@ -45,7 +45,7 @@ export const RULES: RuleDef[] = [
     code: "DRIVER_LINK_FLAG",
     level: "block",
     title: "The driver's phone and the desk disagree",
-    appliesTo: "Loads on the driver link",
+    appliesTo: "Open loads on the driver link",
     trigger: () => "The driver answered on their phone, but the desk could not apply it (the offer had been changed or taken back, or the desk shows the load differently). It stays until someone assigns, sends or recalls the load again."
   },
   {
